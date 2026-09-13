@@ -7,7 +7,8 @@ export default defineConfig(({ command }) => {
   const resolveConfig = isDev
     ? {
         alias: {
-          '@nexus/core': resolve(__dirname, '../../packages/core/src/index.ts')
+          '@nexus/core': resolve(__dirname, '../../packages/core/src/index.ts'),
+          '@nexus/editor': resolve(__dirname, '../../packages/editor/src/index.ts')
         }
       }
     : undefined;
@@ -17,7 +18,7 @@ export default defineConfig(({ command }) => {
       resolve: resolveConfig,
       plugins: [
         externalizeDepsPlugin({
-          exclude: ['@nexus/core']
+          exclude: ['@nexus/core', '@nexus/editor']
         })
       ],
       build: {
@@ -32,7 +33,7 @@ export default defineConfig(({ command }) => {
       resolve: resolveConfig,
       plugins: [
         externalizeDepsPlugin({
-          exclude: ['@nexus/core']
+          exclude: ['@nexus/core', '@nexus/editor']
         })
       ],
       build: {
