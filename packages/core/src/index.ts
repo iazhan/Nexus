@@ -8,3 +8,12 @@ export {
   parseLaunchArgs,
   type ParseLaunchArgsOptions
 } from './launch/parser.js';
+
+export {
+  type FileDocument,
+  type FileWatchEvent,
+  type FileWatchListener,
+  type Unsubscribe,
+  type FileServiceErrorCode,
+  FileServiceError
+} from './types/file.js';

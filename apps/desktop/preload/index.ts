@@ -1,12 +1,101 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { LaunchContext } from '@nexus/core';
+import type {
+  LaunchContext,
+  FileDocument,
+  FileWatchListener,
+  FileWatchEvent,
+  Unsubscribe
+} from '@nexus/core';
+import { IPC_CHANNELS, type FileWatchIpcPayload } from '../ipc/channels.js';
 import type { NexusBridge } from './types.js';
+
+const listeners = new Map<string, FileWatchListener>();
+
+// 单一监听通道分发，按 subscriptionId 精确派发到对应的渲染进程监听器
+ipcRenderer.on(
+  IPC_CHANNELS.fileWatchEvent,
+  (_event, payload: FileWatchIpcPayload | string, maybeEvent?: FileWatchEvent) => {
+    let subId: string;
+    let watchEvent: FileWatchEvent;
+
+    if (typeof payload === 'string') {
+      subId = payload;
+      watchEvent = maybeEvent as FileWatchEvent;
+    } else if (payload && typeof payload === 'object') {
+      subId = payload.subscriptionId;
+      watchEvent = payload.event;
+    } else {
+      return;
+    }
+
+    const listener = listeners.get(subId);
+    if (listener) {
+      try {
+        listener(watchEvent);
+      } catch (err) {
+        console.error('[Nexus Preload] Watch listener execution error:', err);
+      }
+    }
+  }
+);
+
+let subscriptionCounter = 0;
 
 const bridge: NexusBridge = {
   getLaunchContext: (): Promise<LaunchContext> => {
-    return ipcRenderer.invoke('nexus:get-launch-context');
+    return ipcRenderer.invoke(IPC_CHANNELS.getLaunchContext);
+  },
+
+  openFile: (filePath?: string): Promise<FileDocument> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openFile, filePath);
+  },
+
+  readFile: (filePath: string): Promise<string> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.readFile, filePath);
+  },
+
+  writeFile: (filePath: string, content: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.writeFile, filePath, content);
+  },
+
+  saveAs: (content: string): Promise<string> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.saveAs, content);
+  },
+
+  watchFile: (filePath: string, listener: FileWatchListener): Unsubscribe => {
+    subscriptionCounter += 1;
+    const subscriptionId = `sub_${Date.now()}_${subscriptionCounter}_${Math.random().toString(36).slice(2, 9)}`;
+    listeners.set(subscriptionId, listener);
+
+    // 发起监听，若主进程校验或初始化失败，显式向 listener 派发 error 事件，保证不吞错。
+    const registration = ipcRenderer.invoke(IPC_CHANNELS.watchFile, subscriptionId, filePath);
+    void registration.catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      const activeListener = listeners.get(subscriptionId);
+      if (activeListener) {
+        activeListener({
+          type: 'error',
+          path: filePath,
+          message
+        });
+      }
+    });
+
+    let isUnsubscribed = false;
+    return () => {
+      if (isUnsubscribed) return;
+      isUnsubscribed = true;
+      listeners.delete(subscriptionId);
+
+      // 等待注册完成后再注销，避免快速取消造成主进程 watcher 泄漏。
+      void registration
+        .then(() => ipcRenderer.invoke(IPC_CHANNELS.unwatchFile, subscriptionId))
+        .catch((err: unknown) => {
+          console.error('[Nexus Preload] Failed to release file watcher:', err);
+        });
+    };
   }
 };
 
-// Safely expose typed bridge in renderer main world
+// 安全暴露强类型桥接对象，严禁向 main world 暴露 ipcRenderer 或 Node API
 contextBridge.exposeInMainWorld('nexus', bridge);

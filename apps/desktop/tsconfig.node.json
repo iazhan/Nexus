@@ -9,6 +9,7 @@
   "include": [
     "electron.vite.config.ts",
     "electron/**/*",
-    "preload/**/*"
+    "preload/**/*",
+    "ipc/**/*"
   ]
 }
