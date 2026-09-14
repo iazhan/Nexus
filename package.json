@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @nexus/desktop dev",
-    "build": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/desktop build",
-    "typecheck": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build && pnpm -r typecheck",
+    "build": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/markdown build && pnpm --filter @nexus/desktop build",
+    "typecheck": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/markdown build && pnpm -r typecheck",
     "lint": "eslint .",
     "test": "vitest run"
   },

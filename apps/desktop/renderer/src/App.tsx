@@ -5,8 +5,10 @@ import {
   type EditorSaveState,
   type EditorSelectionInfo
 } from './editor/SourceEditor.js';
+import { WysiwygView } from './wysiwyg/WysiwygView.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
+export type EditorViewMode = 'source' | 'wysiwyg';
 
 export const App: React.FC = () => {
   const [context, setContext] = useState<LaunchContext | null>(null);
@@ -15,7 +17,8 @@ export const App: React.FC = () => {
 
   // File and Editor State
   const [filePath, setFilePath] = useState<string | null>(null);
-  const [initialContent, setInitialContent] = useState<string>('');
+  const [currentContent, setCurrentContent] = useState<string>('');
+  const [viewMode, setViewMode] = useState<EditorViewMode>('source');
   const [saveState, setSaveState] = useState<EditorSaveState>('saved');
   const [saveError] = useState<string | null>(null);
   const [selection, setSelection] = useState<EditorSelectionInfo>({
@@ -68,14 +71,14 @@ export const App: React.FC = () => {
 
         setFilePath(fileDoc.path);
         initialContentRef.current = fileDoc.content;
-        setInitialContent(fileDoc.content);
+        setCurrentContent(fileDoc.content);
         setSaveState('saved');
         setStatus('ready');
       } else {
         // No file provided: open an empty markdown editor
         setFilePath(null);
         initialContentRef.current = '';
-        setInitialContent('');
+        setCurrentContent('');
         setSaveState('saved');
         setStatus('ready');
       }
@@ -99,6 +102,7 @@ export const App: React.FC = () => {
   }, [loadDocument]);
 
   const handleContentChange = useCallback((newContent: string) => {
+    setCurrentContent(newContent);
     if (newContent !== initialContentRef.current) {
       setSaveState('dirty');
     } else {
@@ -124,6 +128,30 @@ export const App: React.FC = () => {
         <div className="nexus-header-left">
           <span className="nexus-app-title">Nexus Lite</span>
           <span className="nexus-badge">{displayMode}</span>
+
+          {/* Source / WYSIWYG Segmented Control */}
+          <div
+            className="nexus-mode-toggle"
+            role="group"
+            aria-label="Editor View Mode"
+          >
+            <button
+              type="button"
+              className={`nexus-toggle-btn ${viewMode === 'source' ? 'active' : ''}`}
+              onClick={() => setViewMode('source')}
+              data-testid="mode-toggle-source"
+            >
+              Source
+            </button>
+            <button
+              type="button"
+              className={`nexus-toggle-btn ${viewMode === 'wysiwyg' ? 'active' : ''}`}
+              onClick={() => setViewMode('wysiwyg')}
+              data-testid="mode-toggle-wysiwyg"
+            >
+              WYSIWYG
+            </button>
+          </div>
         </div>
 
         <div className="nexus-header-center" title={filePath ?? 'Untitled'}>
@@ -169,9 +197,10 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {status === 'ready' && (
+        {status === 'ready' && viewMode === 'source' && (
           <SourceEditor
-            initialValue={initialContent}
+            key="source-editor"
+            initialValue={currentContent}
             saveState={saveState}
             saveError={saveError}
             onChange={handleContentChange}
@@ -179,12 +208,22 @@ export const App: React.FC = () => {
             className="nexus-editor-full"
           />
         )}
+
+        {status === 'ready' && viewMode === 'wysiwyg' && (
+          <WysiwygView
+            key="wysiwyg-view"
+            source={currentContent}
+            className="nexus-wysiwyg-full"
+          />
+        )}
       </main>
 
       {/* Status Bar Footer */}
       <footer className="nexus-status-bar">
         <div className="status-bar-left">
-          <span className={`status-dot ${status === 'ready' ? (isDirty ? 'dirty' : 'ready') : status}`} />
+          <span
+            className={`status-dot ${status === 'ready' ? (isDirty ? 'dirty' : 'ready') : status}`}
+          />
           <span className="status-text">
             {status === 'loading' && 'Loading...'}
             {status === 'error' && 'Error'}
@@ -193,15 +232,25 @@ export const App: React.FC = () => {
         </div>
 
         <div className="status-bar-right">
-          <span className="status-metric">
-            Ln {selection.line}, Col {selection.column}
-          </span>
-          {selection.selectedTextLength > 0 && (
-            <span className="status-metric">
-              ({selection.selectedTextLength} selected)
+          {viewMode === 'source' ? (
+            <>
+              <span className="status-metric">
+                Ln {selection.line}, Col {selection.column}
+              </span>
+              {selection.selectedTextLength > 0 && (
+                <span className="status-metric">
+                  ({selection.selectedTextLength} selected)
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="status-metric status-preview-mode">
+              Preview Mode
             </span>
           )}
-          <span className="status-metric status-format">Markdown</span>
+          <span className="status-metric status-format">
+            {viewMode === 'source' ? 'Source' : 'WYSIWYG'}
+          </span>
         </div>
       </footer>
     </div>

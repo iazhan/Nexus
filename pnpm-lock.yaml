@@ -32,6 +32,9 @@ importers:
       '@nexus/editor':
         specifier: workspace:*
         version: link:../../packages/editor
+      '@nexus/markdown':
+        specifier: workspace:*
+        version: link:../../packages/markdown
       react:
         specifier: ^19.0.0
         version: 19.3.0
@@ -96,6 +99,16 @@ importers:
       '@lezer/highlight':
         specifier: ^1.2.1
         version: 1.2.3
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/markdown:
+    dependencies:
+      marked:
+        specifier: ^15.0.7
+        version: 15.0.12
     devDependencies:
       typescript:
         specifier: ^5.7.3
@@ -1209,6 +1222,11 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
+
+  marked@15.0.12:
+    resolution: {integrity: sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA==}
+    engines: {node: '>= 18'}
+    hasBin: true
 
   matcher@3.0.0:
     resolution: {integrity: sha512-OkeDaAZ/bQCxeFAozM55PKcKU0yJMPGifLwV4Qgjitu+5MoAfSQN4lsLJeXZ1b8w0x+/Emda6MZgXS1jvsapng==}
@@ -2739,6 +2757,8 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  marked@15.0.12: {}
 
   matcher@3.0.0:
     dependencies:
