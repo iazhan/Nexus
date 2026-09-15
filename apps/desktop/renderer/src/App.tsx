@@ -213,6 +213,7 @@ export const App: React.FC = () => {
           <WysiwygView
             key="wysiwyg-view"
             source={currentContent}
+            onChange={handleContentChange}
             className="nexus-wysiwyg-full"
           />
         )}
