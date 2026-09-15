@@ -1,14 +1,14 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import type { LaunchContext } from '@nexus/core';
 import {
-  SourceEditor,
+  MarkdownDocumentSession,
+  type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo
-} from './editor/SourceEditor.js';
-import { WysiwygView } from './wysiwyg/WysiwygView.js';
+} from '@nexus/editor';
+import { EditorSurface } from './editor/SourceEditor.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
-export type EditorViewMode = 'source' | 'wysiwyg';
 
 export const App: React.FC = () => {
   const [context, setContext] = useState<LaunchContext | null>(null);
@@ -17,10 +17,9 @@ export const App: React.FC = () => {
 
   // File and Editor State
   const [filePath, setFilePath] = useState<string | null>(null);
-  const [currentContent, setCurrentContent] = useState<string>('');
-  const [viewMode, setViewMode] = useState<EditorViewMode>('source');
   const [saveState, setSaveState] = useState<EditorSaveState>('saved');
   const [saveError] = useState<string | null>(null);
+  const [surfaceKind, setSurfaceKind] = useState<EditorSurfaceKind>('source');
   const [selection, setSelection] = useState<EditorSelectionInfo>({
     line: 1,
     column: 1,
@@ -30,6 +29,12 @@ export const App: React.FC = () => {
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const initialContentRef = useRef('');
+  const sessionRef = useRef<MarkdownDocumentSession | null>(null);
+
+  if (sessionRef.current === null) {
+    sessionRef.current = new MarkdownDocumentSession();
+  }
+  const session = sessionRef.current;
 
   const loadDocument = useCallback(async () => {
     const requestId = ++loadRequestIdRef.current;
@@ -71,14 +76,18 @@ export const App: React.FC = () => {
 
         setFilePath(fileDoc.path);
         initialContentRef.current = fileDoc.content;
-        setCurrentContent(fileDoc.content);
+        session.replaceSource(fileDoc.content, {
+          selection: { anchor: 0, head: 0 }
+        });
         setSaveState('saved');
         setStatus('ready');
       } else {
         // No file provided: open an empty markdown editor
         setFilePath(null);
         initialContentRef.current = '';
-        setCurrentContent('');
+        session.replaceSource('', {
+          selection: { anchor: 0, head: 0 }
+        });
         setSaveState('saved');
         setStatus('ready');
       }
@@ -102,7 +111,6 @@ export const App: React.FC = () => {
   }, [loadDocument]);
 
   const handleContentChange = useCallback((newContent: string) => {
-    setCurrentContent(newContent);
     if (newContent !== initialContentRef.current) {
       setSaveState('dirty');
     } else {
@@ -128,30 +136,6 @@ export const App: React.FC = () => {
         <div className="nexus-header-left">
           <span className="nexus-app-title">Nexus Lite</span>
           <span className="nexus-badge">{displayMode}</span>
-
-          {/* Source / WYSIWYG Segmented Control */}
-          <div
-            className="nexus-mode-toggle"
-            role="group"
-            aria-label="Editor View Mode"
-          >
-            <button
-              type="button"
-              className={`nexus-toggle-btn ${viewMode === 'source' ? 'active' : ''}`}
-              onClick={() => setViewMode('source')}
-              data-testid="mode-toggle-source"
-            >
-              Source
-            </button>
-            <button
-              type="button"
-              className={`nexus-toggle-btn ${viewMode === 'wysiwyg' ? 'active' : ''}`}
-              onClick={() => setViewMode('wysiwyg')}
-              data-testid="mode-toggle-wysiwyg"
-            >
-              WYSIWYG
-            </button>
-          </div>
         </div>
 
         <div className="nexus-header-center" title={filePath ?? 'Untitled'}>
@@ -163,6 +147,24 @@ export const App: React.FC = () => {
         </div>
 
         <div className="nexus-header-right">
+          <div className="nexus-surface-switcher" role="group" aria-label="Editor surface">
+            <button
+              type="button"
+              className={surfaceKind === 'source' ? 'active' : ''}
+              aria-pressed={surfaceKind === 'source'}
+              onClick={() => setSurfaceKind('source')}
+            >
+              Source
+            </button>
+            <button
+              type="button"
+              className={surfaceKind === 'visual' ? 'active' : ''}
+              aria-pressed={surfaceKind === 'visual'}
+              onClick={() => setSurfaceKind('visual')}
+            >
+              Visual
+            </button>
+          </div>
           <span className={`nexus-save-badge ${saveState}`}>
             {saveState === 'dirty' && 'Unsaved'}
             {saveState === 'saving' && 'Saving...'}
@@ -197,10 +199,11 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {status === 'ready' && viewMode === 'source' && (
-          <SourceEditor
-            key="source-editor"
-            initialValue={currentContent}
+        {status === 'ready' && (
+          <EditorSurface
+            session={session}
+            surfaceId="main-editor"
+            surfaceKind={surfaceKind}
             saveState={saveState}
             saveError={saveError}
             onChange={handleContentChange}
@@ -208,23 +211,12 @@ export const App: React.FC = () => {
             className="nexus-editor-full"
           />
         )}
-
-        {status === 'ready' && viewMode === 'wysiwyg' && (
-          <WysiwygView
-            key="wysiwyg-view"
-            source={currentContent}
-            onChange={handleContentChange}
-            className="nexus-wysiwyg-full"
-          />
-        )}
       </main>
 
       {/* Status Bar Footer */}
       <footer className="nexus-status-bar">
         <div className="status-bar-left">
-          <span
-            className={`status-dot ${status === 'ready' ? (isDirty ? 'dirty' : 'ready') : status}`}
-          />
+          <span className={`status-dot ${status === 'ready' ? (isDirty ? 'dirty' : 'ready') : status}`} />
           <span className="status-text">
             {status === 'loading' && 'Loading...'}
             {status === 'error' && 'Error'}
@@ -233,25 +225,15 @@ export const App: React.FC = () => {
         </div>
 
         <div className="status-bar-right">
-          {viewMode === 'source' ? (
-            <>
-              <span className="status-metric">
-                Ln {selection.line}, Col {selection.column}
-              </span>
-              {selection.selectedTextLength > 0 && (
-                <span className="status-metric">
-                  ({selection.selectedTextLength} selected)
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="status-metric status-preview-mode">
-              Preview Mode
+          <span className="status-metric">
+            Ln {selection.line}, Col {selection.column}
+          </span>
+          {selection.selectedTextLength > 0 && (
+            <span className="status-metric">
+              ({selection.selectedTextLength} selected)
             </span>
           )}
-          <span className="status-metric status-format">
-            {viewMode === 'source' ? 'Source' : 'WYSIWYG'}
-          </span>
+          <span className="status-metric status-format">Markdown</span>
         </div>
       </footer>
     </div>

@@ -127,6 +127,35 @@ body {
   flex-shrink: 0;
 }
 
+.nexus-surface-switcher {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.nexus-surface-switcher button {
+  padding: 3px 8px;
+  border: 0;
+  border-right: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.nexus-surface-switcher button:last-child {
+  border-right: 0;
+}
+
+.nexus-surface-switcher button:hover,
+.nexus-surface-switcher button.active {
+  background: #26324d;
+  color: var(--text-primary);
+}
+
 .nexus-save-badge {
   font-size: 0.72rem;
   font-weight: 500;
@@ -324,344 +353,4 @@ body {
 .status-format {
   color: var(--accent-badge-text);
   font-weight: 600;
-}
-
-.status-preview-mode {
-  color: #60a5fa;
-  font-weight: 600;
-}
-
-/* Segmented View Mode Toggle */
-.nexus-mode-toggle {
-  display: flex;
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 2px;
-  gap: 2px;
-}
-
-.nexus-toggle-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.nexus-toggle-btn:hover {
-  color: var(--text-primary);
-}
-
-.nexus-toggle-btn.active {
-  background-color: #2c2f38;
-  color: #60a5fa;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-/* WYSIWYG View Container */
-.nexus-wysiwyg-full {
-  height: 100%;
-  width: 100%;
-}
-
-.nexus-wysiwyg-container {
-  height: 100%;
-  width: 100%;
-  overflow-y: auto;
-  padding: 24px 32px;
-  color: var(--text-primary);
-  line-height: 1.65;
-}
-
-.nexus-wysiwyg-content {
-  max-width: 860px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.nexus-wysiwyg-empty {
-  color: var(--text-secondary);
-  font-style: italic;
-  text-align: center;
-  margin-top: 60px;
-}
-
-.nexus-wysiwyg-diagnostics-banner {
-  max-width: 860px;
-  margin: 0 auto 16px auto;
-  padding: 8px 12px;
-  background-color: #78350f26;
-  border: 1px solid #d9770655;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  color: #fcd34d;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-/* Headings */
-.nexus-wysiwyg-h1 {
-  font-size: 1.85rem;
-  font-weight: 700;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 8px;
-  margin-top: 16px;
-  color: #f8fafc;
-}
-
-.nexus-wysiwyg-h2 {
-  font-size: 1.45rem;
-  font-weight: 600;
-  border-bottom: 1px solid #232530;
-  padding-bottom: 6px;
-  margin-top: 14px;
-  color: #f1f5f9;
-}
-
-.nexus-wysiwyg-h3 {
-  font-size: 1.2rem;
-  font-weight: 600;
-  margin-top: 10px;
-  color: #e2e8f0;
-}
-
-.nexus-wysiwyg-h4,
-.nexus-wysiwyg-h5,
-.nexus-wysiwyg-h6 {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #cbd5e1;
-}
-
-/* Paragraphs & Inlines */
-.nexus-wysiwyg-p {
-  margin: 0;
-  color: #cbd5e1;
-}
-
-.nexus-wysiwyg-bold {
-  font-weight: 700;
-  color: #f8fafc;
-}
-
-.nexus-wysiwyg-italic {
-  font-style: italic;
-}
-
-.nexus-wysiwyg-inline-code {
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  background-color: #1e2029;
-  border: 1px solid #2e3240;
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: #a5f3fc;
-}
-
-.nexus-wysiwyg-link {
-  color: #60a5fa;
-  text-decoration: underline;
-  text-decoration-color: #3b82f688;
-}
-
-.nexus-wysiwyg-link.blocked {
-  color: #f87171;
-  text-decoration: line-through;
-  cursor: not-allowed;
-}
-
-.nexus-wysiwyg-image {
-  max-width: 100%;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-}
-
-.nexus-wysiwyg-image-fallback {
-  display: inline-block;
-  padding: 4px 10px;
-  background-color: #1e2029;
-  border: 1px dashed #475569;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  color: #94a3b8;
-}
-
-/* Lists */
-.nexus-wysiwyg-ul,
-.nexus-wysiwyg-ol {
-  padding-left: 24px;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.nexus-wysiwyg-list-item {
-  color: #cbd5e1;
-}
-
-.nexus-wysiwyg-list-item.task-item {
-  list-style-type: none;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-left: -16px;
-}
-
-.nexus-task-checkbox {
-  accent-color: var(--accent-color);
-  margin: 0;
-}
-
-/* Blockquotes */
-.nexus-wysiwyg-blockquote {
-  border-left: 3px solid var(--accent-color);
-  background-color: #1a223422;
-  margin: 0;
-  padding: 8px 16px;
-  color: #94a3b8;
-  font-style: italic;
-  border-radius: 0 4px 4px 0;
-}
-
-/* Code Blocks */
-.nexus-wysiwyg-code-container {
-  border: 1px solid #2e3240;
-  background-color: #14161d;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.nexus-code-header {
-  background-color: #1a1c24;
-  padding: 4px 12px;
-  border-bottom: 1px solid #2e3240;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.nexus-code-lang {
-  font-size: 0.68rem;
-  font-family: var(--font-mono);
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.nexus-wysiwyg-pre {
-  margin: 0;
-  padding: 14px 16px;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  line-height: 1.5;
-  color: #e2e8f0;
-}
-
-/* Tables */
-.nexus-wysiwyg-table-wrapper {
-  overflow-x: auto;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-}
-
-.nexus-wysiwyg-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-
-.nexus-wysiwyg-table th,
-.nexus-wysiwyg-table td {
-  padding: 8px 14px;
-  border: 1px solid var(--border-color);
-}
-
-.nexus-wysiwyg-table th {
-  background-color: var(--bg-surface);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.nexus-wysiwyg-table tr:nth-child(even) {
-  background-color: #161820;
-}
-
-/* Math & Wikilink Elements */
-.nexus-wysiwyg-math-inline {
-  color: #93c5fd;
-  background-color: #1e3a8a26;
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-}
-
-.nexus-wysiwyg-math-block {
-  background-color: #17255422;
-  border: 1px solid #1e3a8a44;
-  border-left: 3px solid #3b82f6;
-  border-radius: 4px;
-  padding: 10px 14px;
-}
-
-.nexus-wysiwyg-math-block .math-header {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #60a5fa;
-  margin-bottom: 4px;
-  font-weight: 600;
-}
-
-.nexus-wysiwyg-math-block .math-formula {
-  margin: 0;
-  font-family: var(--font-mono);
-  color: #bfdbfe;
-  font-size: 0.9rem;
-  overflow-x: auto;
-}
-
-.nexus-wysiwyg-wikilink {
-  color: #67e8f9;
-  background-color: #0e749022;
-  border-radius: 3px;
-  padding: 1px 4px;
-  text-decoration: underline;
-  text-decoration-color: #0891b288;
-}
-
-.math-delim,
-.wiki-delim {
-  opacity: 0.5;
-  font-size: 0.85em;
-}
-
-/* Editable & Readonly Block Markers */
-[data-testid="wysiwyg-editable-block"] {
-  outline: none;
-  cursor: text;
-  border-radius: 4px;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-[data-testid="wysiwyg-editable-block"]:hover:not([contenteditable="false"]) {
-  background-color: rgba(255, 255, 255, 0.02);
-}
-
-[data-testid="wysiwyg-editable-block"]:focus {
-  background-color: rgba(255, 255, 255, 0.04);
-  box-shadow: 0 0 0 1.5px rgba(96, 165, 250, 0.4);
-}
-
-[data-testid="wysiwyg-readonly-block"] {
-  user-select: text;
 }

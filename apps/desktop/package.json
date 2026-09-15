@@ -5,9 +5,9 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "predev": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/markdown build",
+    "predev": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build",
     "dev": "electron-vite dev",
-    "prebuild": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/markdown build",
+    "prebuild": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
@@ -15,7 +15,6 @@
   "dependencies": {
     "@nexus/core": "workspace:*",
     "@nexus/editor": "workspace:*",
-    "@nexus/markdown": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

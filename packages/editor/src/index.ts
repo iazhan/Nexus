@@ -5,3 +5,6 @@ export * from './keymaps.js';
 export * from './selection.js';
 export * from './theme.js';
 export * from './source-editor.js';
+export * from './document-session.js';
+export * from './visual-projection.js';
+export * from './document-surface.js';

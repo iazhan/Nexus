@@ -1,16 +1,21 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  createSourceEditorView,
+  createSessionEditorView,
+  getSelectionInfo,
   setEditorReadOnly,
-  type EditorView,
+  type EditorSurfaceKind,
   type EditorSaveState,
-  type EditorSelectionInfo
+  type EditorSelectionInfo,
+  type MarkdownDocumentSession,
+  type SessionEditorViewHandle
 } from '@nexus/editor';
 
 export type { EditorSaveState, EditorSelectionInfo };
 
 export interface SourceEditorProps {
-  initialValue: string;
+  session: MarkdownDocumentSession;
+  surfaceId: string;
+  surfaceKind?: EditorSurfaceKind;
   saveState?: EditorSaveState;
   saveError?: string | null;
   readOnly?: boolean;
@@ -20,18 +25,20 @@ export interface SourceEditorProps {
 }
 
 /**
- * React wrapper around CodeMirror 6 Source Mode editor.
- * Guarantees single EditorView lifecycle, StrictMode safety, and clean teardown.
+ * React bridge for a session-backed CodeMirror Source/Visual surface.
+ * The session owns canonical Markdown; this module only owns the view lifecycle.
  */
-export const SourceEditor: React.FC<SourceEditorProps> = ({
-  initialValue,
+export const EditorSurface: React.FC<SourceEditorProps> = ({
+  session,
+  surfaceId,
+  surfaceKind = 'source',
   readOnly = false,
   onChange,
   onSelectionChange,
   className
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const viewRef = useRef<EditorView | null>(null);
+  const handleRef = useRef<SessionEditorViewHandle | null>(null);
 
   // Store latest callbacks in refs so we do not recreate EditorView on parent re-renders
   const onChangeRef = useRef(onChange);
@@ -40,46 +47,56 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
 
-  // initialValue is only used once on initial view mount
-  const initialValueRef = useRef(initialValue);
+  useEffect(() => {
+    return session.subscribe((snapshot, transaction) => {
+      if (transaction && transaction.changes.length > 0) {
+        onChangeRef.current?.(snapshot.source);
+      }
+    });
+  }, [session]);
 
   useEffect(() => {
     const parent = containerRef.current;
     if (!parent) return;
 
     // StrictMode safeguard: destroy previous view if already created
-    if (viewRef.current) {
-      viewRef.current.destroy();
-      viewRef.current = null;
+    if (handleRef.current) {
+      handleRef.current.destroy();
+      handleRef.current = null;
     }
 
-    const view = createSourceEditorView({
+    const handle = createSessionEditorView({
       parent,
-      doc: initialValueRef.current,
+      session,
+      surfaceId,
+      surfaceKind,
       readOnly,
-      onChange: (val) => {
-        onChangeRef.current?.(val);
-      },
-      onSelectionChange: (sel) => {
-        onSelectionChangeRef.current?.(sel);
+      onSelectionChange: () => {
+        const view = handleRef.current?.view;
+        if (view) {
+          onSelectionChangeRef.current?.(getSelectionInfo(view.state));
+        }
       }
     });
 
-    viewRef.current = view;
+    handleRef.current = handle;
+    onSelectionChangeRef.current?.(getSelectionInfo(handle.view.state));
 
     return () => {
-      view.destroy();
-      viewRef.current = null;
+      handle.destroy();
+      if (handleRef.current === handle) {
+        handleRef.current = null;
+      }
     };
-  }, []); // Mount only once
+  }, [session, surfaceId, surfaceKind]);
 
   // Dynamic read-only configuration
   const prevReadOnlyRef = useRef(readOnly);
   useEffect(() => {
     if (prevReadOnlyRef.current !== readOnly) {
       prevReadOnlyRef.current = readOnly;
-      if (viewRef.current) {
-        setEditorReadOnly(viewRef.current, readOnly);
+      if (handleRef.current) {
+        setEditorReadOnly(handleRef.current.view, readOnly);
       }
     }
   }, [readOnly]);
@@ -88,7 +105,11 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
     <div
       ref={containerRef}
       className={`nexus-source-editor ${className ?? ''}`}
-      data-testid="nexus-source-editor"
+      data-testid={`nexus-${surfaceKind}-editor`}
+      data-surface-kind={surfaceKind}
     />
   );
 };
+
+/** 保留 SourceEditor 命名别名，实际接口与 EditorSurface 一致并必须传入 session。 */
+export const SourceEditor = EditorSurface;

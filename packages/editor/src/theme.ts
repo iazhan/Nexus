@@ -108,6 +108,25 @@ export const editorBaseTheme = EditorView.theme({
   },
   '.cm-marker-code-fence': {
     color: '#fdba74'
+  },
+  '.cm-visual-hidden-delimiter': {
+    display: 'none'
+  },
+  '.cm-visual-marker-inline-math': {
+    color: '#93c5fd',
+    backgroundColor: '#1e3a8a26'
+  },
+  '.cm-visual-marker-wikilink': {
+    color: '#67e8f9',
+    textDecoration: 'underline',
+    textDecorationColor: '#0891b2'
+  },
+  '.cm-visual-marker-code-fence': {
+    color: '#fdba74'
+  },
+  '.cm-visual-marker-block-math': {
+    color: '#bfdbfe',
+    backgroundColor: '#17255433'
   }
 });
 

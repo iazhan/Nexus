@@ -8,8 +8,7 @@ export default defineConfig(({ command }) => {
     ? {
         alias: {
           '@nexus/core': resolve(__dirname, '../../packages/core/src/index.ts'),
-          '@nexus/editor': resolve(__dirname, '../../packages/editor/src/index.ts'),
-          '@nexus/markdown': resolve(__dirname, '../../packages/markdown/src/index.ts')
+          '@nexus/editor': resolve(__dirname, '../../packages/editor/src/index.ts')
         }
       }
     : undefined;
@@ -19,7 +18,7 @@ export default defineConfig(({ command }) => {
       resolve: resolveConfig,
       plugins: [
         externalizeDepsPlugin({
-          exclude: ['@nexus/core', '@nexus/editor', '@nexus/markdown']
+          exclude: ['@nexus/core', '@nexus/editor']
         })
       ],
       build: {
@@ -34,7 +33,7 @@ export default defineConfig(({ command }) => {
       resolve: resolveConfig,
       plugins: [
         externalizeDepsPlugin({
-          exclude: ['@nexus/core', '@nexus/editor', '@nexus/markdown']
+          exclude: ['@nexus/core', '@nexus/editor']
         })
       ],
       build: {

@@ -23,41 +23,33 @@ export const editableCompartment = new Compartment();
 export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Extension[] {
   const isReadOnly = Boolean(config.readOnly);
 
-  const extensions: Extension[] = [
-    // Line numbers
-    lineNumbers(),
+  const extensions: Extension[] = [lineNumbers()];
 
-    // Undo / Redo history
-    history(),
+  if (config.includeHistory !== false) {
+    extensions.push(history());
+  }
 
-    // Search and replace extension
+  extensions.push(
+
     search({ top: true }),
 
-    // Markdown language parser and syntax support
     markdown(),
 
-    // Markdown syntax highlighting
     editorSyntaxHighlighting,
 
-    // Base editor theme and styles
     editorBaseTheme,
 
-    // Autocompletion with markdown snippets and structures
     autocompletion({
       override: [markdownCompletionSource]
     }),
 
-    // Markdown marker regions (math, wikilinks, code fences)
     markdownMarkersField,
 
-    // Readonly / Editable state compartments
     readOnlyCompartment.of(EditorState.readOnly.of(isReadOnly)),
     editableCompartment.of(EditorView.editable.of(!isReadOnly)),
 
-    // Keybindings
     keymap.of(editorKeybindings),
 
-    // Change and selection listeners
     EditorView.updateListener.of((update) => {
       if (update.docChanged && config.onChange) {
         config.onChange(update.state.doc.toString());
@@ -66,7 +58,7 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
         config.onSelectionChange(getSelectionInfo(update.state));
       }
     })
-  ];
+  );
 
   return extensions;
 }

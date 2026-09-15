@@ -40,3 +40,6 @@ coverage/
 
 # Development documents
 docs/
+
+# Local agent instructions
+AGENTS.md

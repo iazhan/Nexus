@@ -1,5 +1,43 @@
 export type EditorSaveState = 'dirty' | 'saving' | 'saved' | 'error';
 
+/** 编辑器 surface 的承载类型；两者都以 Markdown source 为文档内容。 */
+export type EditorSurfaceKind = 'source' | 'visual';
+
+/** 以 Markdown source UTF-16 code unit offset 表示的单一选区。 */
+export interface MarkdownSelection {
+  anchor: number;
+  head: number;
+}
+
+/** 面向编辑器 session 的 source 变更。多个变更共享一个 undo step。 */
+export interface MarkdownChange {
+  from: number;
+  to: number;
+  insert: string;
+}
+
+/** 所有 Source/Visual 编辑入口统一提交的 source transaction。 */
+export interface MarkdownEditTransaction {
+  changes: MarkdownChange[];
+  selection?: MarkdownSelection;
+  userEvent?: string;
+  annotations?: string[];
+  addToHistory?: boolean;
+}
+
+/** session 对外发布的不可变文档快照。 */
+export interface MarkdownDocumentSnapshot {
+  source: string;
+  revision: number;
+  selection: MarkdownSelection;
+}
+
+/** session 订阅者接收的提交事件。 */
+export type MarkdownSessionListener = (
+  snapshot: MarkdownDocumentSnapshot,
+  transaction?: MarkdownEditTransaction
+) => void;
+
 export interface EditorSelectionInfo {
   line: number;
   column: number;
@@ -22,6 +60,7 @@ export interface MarkdownMarker {
 export interface SourceEditorConfig {
   doc?: string;
   readOnly?: boolean;
+  includeHistory?: boolean;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
 }
