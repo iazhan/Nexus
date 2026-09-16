@@ -1,5 +1,6 @@
 import { StateField, RangeSetBuilder, type Extension } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
+import { parseMarkdown, type MarkdownBlockNode, type MarkdownInlineNode, type MarkdownListItem } from '@nexus/markdown';
 import { findMarkdownMarkers } from './markdown-markers.js';
 
 class HiddenDelimiterWidget extends WidgetType {
@@ -30,21 +31,59 @@ interface ProjectionRange {
   decoration: Decoration;
 }
 
-function addDelimiterPair(ranges: ProjectionRange[], source: string, open: string, close: string, from: number): void {
-  const contentStart = from + open.length;
-  const closeFrom = source.indexOf(close, contentStart);
-  if (closeFrom <= contentStart) return;
+export class TaskCheckboxWidget extends WidgetType {
+  public constructor(
+    public readonly checked: boolean,
+    public readonly from: number,
+    public readonly to: number
+  ) {
+    super();
+  }
 
-  ranges.push({
-    from,
-    to: contentStart,
-    decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(open) })
-  });
-  ranges.push({
-    from: closeFrom,
-    to: closeFrom + close.length,
-    decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(close) })
-  });
+  public toDOM(view: EditorView): HTMLElement {
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'cm-visual-task-checkbox';
+    input.checked = this.checked;
+    input.setAttribute('aria-label', this.checked ? 'Mark task incomplete' : 'Mark task complete');
+
+    if (view.state.readOnly) {
+      input.disabled = true;
+    }
+
+    input.addEventListener('click', (event) => {
+      event.stopPropagation();
+    });
+
+    input.addEventListener('change', () => {
+      if (view.state.readOnly) return;
+      const current = view.state.doc.sliceString(this.from, this.to);
+      const isCurrentlyChecked = current.toLowerCase().includes('x');
+      view.dispatch({
+        changes: {
+          from: this.from,
+          to: this.to,
+          insert: isCurrentlyChecked ? '[ ]' : '[x]'
+        },
+        userEvent: 'task.toggle'
+      });
+    });
+
+    return input;
+  }
+
+  public eq(other: WidgetType): boolean {
+    return (
+      other instanceof TaskCheckboxWidget &&
+      other.checked === this.checked &&
+      other.from === this.from &&
+      other.to === this.to
+    );
+  }
+
+  public ignoreEvent(): boolean {
+    return false;
+  }
 }
 
 /**
@@ -62,27 +101,121 @@ export function buildVisualProjection(source: string): DecorationSet {
     });
   }
 
-  const delimiterPattern = /\*\*|__|~~|(?<!\*)\*(?!\*)|(?<!_)_(?!_)/g;
-  for (const match of source.matchAll(delimiterPattern)) {
-    const delimiter = match[0];
-    const from = match.index;
-    if (from === undefined) continue;
-    const close = delimiter;
-    if (delimiter === '**' || delimiter === '__' || delimiter === '~~') {
-      addDelimiterPair(ranges, source, delimiter, close, from);
+  const { root } = parseMarkdown(source);
+
+  function walkInline(inlineNode: MarkdownInlineNode): void {
+    if (inlineNode.type === 'bold') {
+      const delim = inlineNode.raw.startsWith('**') ? '**' : (inlineNode.raw.startsWith('__') ? '__' : '**');
+      ranges.push({
+        from: inlineNode.range.from,
+        to: inlineNode.range.from + delim.length,
+        decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(delim) })
+      });
+      ranges.push({
+        from: inlineNode.range.to - delim.length,
+        to: inlineNode.range.to,
+        decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(delim) })
+      });
+      for (const child of inlineNode.children) {
+        walkInline(child);
+      }
+    } else if (inlineNode.type === 'italic') {
+      const delim = inlineNode.raw.startsWith('*') ? '*' : (inlineNode.raw.startsWith('_') ? '_' : '*');
+      ranges.push({
+        from: inlineNode.range.from,
+        to: inlineNode.range.from + delim.length,
+        decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(delim) })
+      });
+      ranges.push({
+        from: inlineNode.range.to - delim.length,
+        to: inlineNode.range.to,
+        decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(delim) })
+      });
+      for (const child of inlineNode.children) {
+        walkInline(child);
+      }
+    } else if (inlineNode.type === 'link') {
+      for (const child of inlineNode.children) {
+        walkInline(child);
+      }
     }
   }
 
-  for (const match of source.matchAll(/^( {0,3})(#{1,6})(?=\s)/gm)) {
-    const indent = match[1];
-    const hashes = match[2];
-    if (indent === undefined || hashes === undefined) continue;
-    const from = match.index + indent.length;
-    ranges.push({
-      from,
-      to: from + hashes.length,
-      decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(hashes) })
-    });
+  function walkBlock(blockNode: MarkdownBlockNode): void {
+    if (blockNode.type === 'heading') {
+      const match = blockNode.raw.match(/^([ \t]*)(#{1,6})/);
+      if (match && match[2]) {
+        const indentLen = (match[1] ?? '').length;
+        const hashLen = match[2].length;
+        const from = blockNode.range.from + indentLen;
+        ranges.push({
+          from,
+          to: from + hashLen,
+          decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(match[2]) })
+        });
+      }
+      for (const child of blockNode.children) {
+        walkInline(child);
+      }
+    } else if (blockNode.type === 'paragraph') {
+      for (const child of blockNode.children) {
+        walkInline(child);
+      }
+    } else if (blockNode.type === 'blockquote') {
+      for (const child of blockNode.children) {
+        walkBlock(child);
+      }
+    } else if (blockNode.type === 'list') {
+      for (const item of blockNode.items) {
+        walkListItem(item);
+      }
+    } else if (blockNode.type === 'table') {
+      for (const headerRow of blockNode.headers) {
+        for (const cell of headerRow) {
+          walkInline(cell);
+        }
+      }
+      for (const row of blockNode.rows) {
+        for (const cellRow of row) {
+          for (const cell of cellRow) {
+            walkInline(cell);
+          }
+        }
+      }
+    }
+    // code-block, block-math, raw: do not walk into their contents
+  }
+
+  function walkListItem(item: MarkdownListItem): void {
+    if (item.task) {
+      const firstLine = item.raw.split(/\r?\n/)[0] ?? '';
+      const match = firstLine.match(/^([ \t]*>(?:[ \t]*>)*)?([ \t]*(?:[-+*]|\d+[.)])[ \t]+)(\[[ xX]\])/);
+      if (match && match[3]) {
+        const prefixLen = (match[1] ?? '').length + (match[2] ?? '').length;
+        const from = item.range.from + prefixLen;
+        const to = from + match[3].length;
+        const isChecked = Boolean(item.checked);
+        ranges.push({
+          from,
+          to,
+          decoration: Decoration.replace({ widget: new TaskCheckboxWidget(isChecked, from, to) })
+        });
+      }
+    }
+
+    const blockTypes = new Set(['heading', 'paragraph', 'blockquote', 'list', 'code-block', 'block-math', 'table']);
+    for (const child of item.children) {
+      if (blockTypes.has(child.type)) {
+        walkBlock(child as MarkdownBlockNode);
+      } else if (child.type !== 'raw') {
+        walkInline(child as MarkdownInlineNode);
+      }
+    }
+  }
+
+
+  for (const block of root.children) {
+    walkBlock(block);
   }
 
   ranges.sort((left, right) => left.from - right.from || left.to - right.to);

@@ -196,7 +196,18 @@ describe('Markdown Marker Recognition', () => {
         text: '$real$'
       });
     });
+
+    it('ignores math and wikilinks inside raw HTML blocks and raw elements', () => {
+      const input = '<div class="custom">\n[[Page]]\n$x$\n</div>\n\n[[RealPage]] and $y$';
+      const markers = findMarkdownMarkers(input);
+      expect(markers).toHaveLength(2);
+      expect(markers[0]?.type).toBe('wikilink');
+      expect(markers[0]?.text).toBe('[[RealPage]]');
+      expect(markers[1]?.type).toBe('inline-math');
+      expect(markers[1]?.text).toBe('$y$');
+    });
   });
+
 
   describe('Mixed document parsing', () => {
     it('accurately parses multiple interleaved marker types in order', () => {

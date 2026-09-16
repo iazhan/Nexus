@@ -2,7 +2,6 @@ import {
   Annotation,
   ChangeSet,
   EditorSelection,
-  Text,
   type EditorState,
   type TransactionSpec
 } from '@codemirror/state';
@@ -67,6 +66,18 @@ function validateChanges(sourceLength: number, changes: MarkdownChange[]): void 
 
     previousTo = change.to;
   }
+}
+
+/** 将变更直接应用到 source 字符串，保证 CRLF 与字符边界精确保真。 */
+export function applyChangesToSource(source: string, changes: MarkdownChange[]): string {
+  let result = '';
+  let lastIndex = 0;
+  for (const change of changes) {
+    result += source.slice(lastIndex, change.from) + change.insert;
+    lastIndex = change.to;
+  }
+  result += source.slice(lastIndex);
+  return result;
 }
 
 /** 将外部 Markdown changes 转成 CodeMirror ChangeSet，并完成范围校验。 */
@@ -161,10 +172,13 @@ export class MarkdownDocumentSession {
     transaction: MarkdownEditTransaction,
     originSurfaceId?: string
   ): MarkdownDocumentSnapshot {
+    const effectiveOrigin = originSurfaceId ?? transaction.originSurfaceId;
     const changeSet = createMarkdownChangeSet(this.source, transaction.changes);
     const beforeSource = this.source;
-    const beforeSelection = cloneSelection(this.selection);
-    const nextSource = changeSet.apply(Text.of(this.source.split('\n'))).toString();
+    const beforeSelection = transaction.beforeSelection
+      ? cloneSelection(transaction.beforeSelection)
+      : cloneSelection(this.selection);
+    const nextSource = applyChangesToSource(this.source, transaction.changes);
     const explicitSelection = getTransactionSourceSelection(transaction);
     const nextSelection = normalizeSelection(
       explicitSelection ?? mapMarkdownSelection(this.selection, changeSet),
@@ -194,9 +208,18 @@ export class MarkdownDocumentSession {
     if (sourceChanged) {
       const annotation = sessionSyncAnnotation.of(this.revision);
       for (const surface of this.surfaces.values()) {
-        if (surface.id === originSurfaceId) continue;
+        if (surface.id === effectiveOrigin) continue;
         surface.view.dispatch({
           changes: transaction.changes,
+          selection: toEditorSelection(nextSelection),
+          annotations: annotation
+        });
+      }
+    } else if (nextSelection.anchor !== beforeSelection.anchor || nextSelection.head !== beforeSelection.head) {
+      const annotation = sessionSyncAnnotation.of(this.revision);
+      for (const surface of this.surfaces.values()) {
+        if (surface.id === effectiveOrigin) continue;
+        surface.view.dispatch({
           selection: toEditorSelection(nextSelection),
           annotations: annotation
         });

@@ -8,3 +8,6 @@ export * from './source-editor.js';
 export * from './document-session.js';
 export * from './visual-projection.js';
 export * from './document-surface.js';
+export * from './edit-transactions.js';
+export * from './visual-commands.js';
+export * from './drag-handle.js';

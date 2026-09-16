@@ -127,6 +127,41 @@ export const editorBaseTheme = EditorView.theme({
   '.cm-visual-marker-block-math': {
     color: '#bfdbfe',
     backgroundColor: '#17255433'
+  },
+  '.cm-visual-task-checkbox': {
+    marginRight: '6px',
+    verticalAlign: 'middle',
+    cursor: 'pointer',
+    accentColor: '#3b82f6'
+  },
+  '.cm-visual-drag-handle': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '12px',
+    height: '16px',
+    marginRight: '6px',
+    cursor: 'grab',
+    userSelect: 'none',
+    color: '#64748b',
+    opacity: '0',
+    transition: 'opacity 0.15s ease-in-out',
+    verticalAlign: 'middle'
+  },
+  '.cm-line:hover .cm-visual-drag-handle, .cm-visual-drag-handle:hover, .cm-visual-drag-handle.is-dragging': {
+    opacity: '1'
+  },
+  '.cm-visual-drag-handle.is-dragging': {
+    cursor: 'grabbing',
+    color: '#60a5fa'
+  },
+  '.cm-visual-drag-handle.disabled': {
+    cursor: 'not-allowed',
+    opacity: '0.3 !important',
+    pointerEvents: 'none'
+  },
+  '.cm-visual-drop-target': {
+    borderTop: '2px solid #3b82f6'
   }
 });
 

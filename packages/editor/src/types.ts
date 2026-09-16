@@ -20,6 +20,8 @@ export interface MarkdownChange {
 export interface MarkdownEditTransaction {
   changes: MarkdownChange[];
   selection?: MarkdownSelection;
+  beforeSelection?: MarkdownSelection;
+  originSurfaceId?: string;
   userEvent?: string;
   annotations?: string[];
   addToHistory?: boolean;
@@ -61,6 +63,7 @@ export interface SourceEditorConfig {
   doc?: string;
   readOnly?: boolean;
   includeHistory?: boolean;
+  keybindings?: import('@codemirror/view').KeyBinding[];
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
 }

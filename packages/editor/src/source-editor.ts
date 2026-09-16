@@ -48,7 +48,7 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
     readOnlyCompartment.of(EditorState.readOnly.of(isReadOnly)),
     editableCompartment.of(EditorView.editable.of(!isReadOnly)),
 
-    keymap.of(editorKeybindings),
+    keymap.of(config.keybindings ?? editorKeybindings),
 
     EditorView.updateListener.of((update) => {
       if (update.docChanged && config.onChange) {

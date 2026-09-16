@@ -1,5 +1,6 @@
 import { StateField, RangeSetBuilder } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView } from '@codemirror/view';
+import { parseMarkdown, type MarkdownNode } from '@nexus/markdown';
 import type { MarkdownMarker } from './types.js';
 
 /**
@@ -321,8 +322,54 @@ export function findMarkdownMarkers(content: string): MarkdownMarker[] {
     i++;
   }
 
-  return markers;
+  if (markers.length === 0) return markers;
+
+  const { root } = parseMarkdown(content);
+  const opaqueRanges = collectOpaqueRanges(root);
+  if (opaqueRanges.length === 0) return markers;
+
+  return markers.filter((marker) => {
+    return !opaqueRanges.some((op) => {
+      if (marker.type === 'code-fence') {
+        return op.type === 'raw' && marker.from >= op.from && marker.to <= op.to;
+      }
+      return marker.from >= op.from && marker.to <= op.to;
+    });
+  });
 }
+
+function collectOpaqueRanges(root: MarkdownNode): { from: number; to: number; type: string }[] {
+  const ranges: { from: number; to: number; type: string }[] = [];
+  function walk(node: MarkdownNode) {
+    if (node.type === 'raw' || node.type === 'code-block' || node.type === 'inline-code' || node.opaque === true) {
+      ranges.push({ from: node.range.from, to: node.range.to, type: node.type });
+      return;
+    }
+    if ('children' in node && Array.isArray(node.children)) {
+      for (const child of node.children) {
+        walk(child as MarkdownNode);
+      }
+    }
+    if (node.type === 'list') {
+      for (const item of node.items) {
+        walk(item);
+      }
+    }
+    if (node.type === 'table') {
+      for (const row of node.headers) {
+        for (const cell of row) walk(cell);
+      }
+      for (const row of node.rows) {
+        for (const cellList of row) {
+          for (const cell of cellList) walk(cell);
+        }
+      }
+    }
+  }
+  walk(root);
+  return ranges;
+}
+
 
 /**
  * Builds a CodeMirror DecorationSet from scanned markdown markers.

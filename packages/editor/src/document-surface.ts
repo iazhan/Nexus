@@ -2,6 +2,7 @@ import {
   EditorSelection,
   EditorState,
   Prec,
+  Text,
   Transaction,
   type ChangeSet,
   type Extension,
@@ -13,6 +14,9 @@ import {
 } from './document-session.js';
 import { getSourceEditorExtensions } from './source-editor.js';
 import { visualProjectionExtensions } from './visual-projection.js';
+import { visualCommandsExtension } from './visual-commands.js';
+import { createVisualDragExtension } from './drag-handle.js';
+import { editorKeybindings, visualEditorKeybindings } from './keymaps.js';
 import type { EditorSurfaceKind, MarkdownChange, MarkdownSelection } from './types.js';
 
 export interface CreateSessionEditorStateOptions {
@@ -39,10 +43,11 @@ function selectionFromState(state: EditorState): MarkdownSelection {
   };
 }
 
-function changesFromChangeSet(changeSet: ChangeSet): MarkdownChange[] {
+function changesFromChangeSet(changeSet: ChangeSet, isCRLF = false): MarkdownChange[] {
   const changes: MarkdownChange[] = [];
   changeSet.iterChanges((from, to, _fromB, _toB, insert) => {
-    changes.push({ from, to, insert: insert.toString() });
+    const text = isCRLF ? insert.sliceString(0, insert.length, '\r\n') : insert.toString();
+    changes.push({ from, to, insert: text });
   });
   return changes;
 }
@@ -78,9 +83,10 @@ function createSessionSurfaceExtensions(options: CreateSessionEditorStateOptions
       if (isSessionSync) return;
 
       if (update.docChanged) {
+        const isCRLF = session.getSnapshot().source.includes('\r\n');
         session.dispatch(
           {
-            changes: changesFromChangeSet(update.changes),
+            changes: changesFromChangeSet(update.changes, isCRLF),
             selection,
             userEvent: getUserEvent(update.transactions)
           },
@@ -98,18 +104,23 @@ function createSessionSurfaceExtensions(options: CreateSessionEditorStateOptions
 
 /** 创建不挂载 DOM 的 session-backed Source/Visual EditorState。 */
 export function createSessionEditorState(options: CreateSessionEditorStateOptions): EditorState {
+  const rawSource = options.session.getSnapshot().source;
+  const doc = rawSource.includes('\r\n') ? Text.of(rawSource.split('\n')) : rawSource;
   const sourceExtensions = getSourceEditorExtensions({
-    doc: options.session.getSnapshot().source,
+    doc: rawSource,
     readOnly: options.readOnly,
-    includeHistory: false
+    includeHistory: false,
+    keybindings: options.surfaceKind === 'visual' ? visualEditorKeybindings : editorKeybindings
   });
-  const projectionExtensions = options.surfaceKind === 'visual' ? visualProjectionExtensions : [];
+  const visualExtensions = options.surfaceKind === 'visual'
+    ? [Prec.high(visualCommandsExtension), createVisualDragExtension(options.session), ...visualProjectionExtensions]
+    : [];
 
   return EditorState.create({
-    doc: options.session.getSnapshot().source,
+    doc,
     extensions: [
+      ...visualExtensions,
       ...sourceExtensions,
-      ...projectionExtensions,
       ...createSessionSurfaceExtensions(options)
     ]
   });
