@@ -1,4 +1,4 @@
-import { EditorState } from '@codemirror/state';
+import { EditorState, Text } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import {
   MarkdownDocumentSession,
@@ -12,7 +12,8 @@ function createHeadlessSurface(
   source: string,
   kind: 'source' | 'visual'
 ): MarkdownSurfaceRegistration {
-  let state = EditorState.create({ doc: source });
+  const doc = source.includes('\r\n') ? Text.of(source.split('\n')) : source;
+  let state = EditorState.create({ doc });
   return {
     id,
     kind,
@@ -170,5 +171,99 @@ describe('MarkdownDocumentSession', () => {
     expect(visualSurface.view.state.doc.toString()).toBe('alpha\nbeta');
     expect(sourceSurface.view.state.selection.main.head).toBe(10);
     expect(visualSurface.view.state.selection.main.head).toBe(10);
+  });
+
+  it('handles surface divergence (longer and shorter, before/inside/after change, CRLF, CJK, Emoji) without clobbering origin or normal surfaces', () => {
+    const initialSource = 'Header 🌲\r\n中文字符 🚀\r\nTail Section 🏁';
+    const initialSelection = { anchor: 8, head: 8 };
+    const session = new MarkdownDocumentSession(initialSource, initialSelection);
+
+    // 1. Origin surface (dispatches edits)
+    const originSurface = createHeadlessSurface('origin', initialSource, 'source');
+    // 2. Normal surface (in sync with canonical)
+    const normalSurface = createHeadlessSurface('normal', initialSource, 'visual');
+    // 3. Divergent surface A: LONGER than canonical, divergence before and inside change range
+    const divergentLonger = createHeadlessSurface(
+      'divergent-longer',
+      'Header 🌲 [DivergentLongerPrefix]\r\n中文字符 🚀\r\nTail Section 🏁',
+      'visual'
+    );
+    // 4. Divergent surface B: SHORTER than canonical, divergence after change range
+    const divergentShorter = createHeadlessSurface(
+      'divergent-shorter',
+      'Header 🌲\r\n中',
+      'visual'
+    );
+
+    session.registerSurface(originSurface);
+    session.registerSurface(normalSurface);
+    session.registerSurface(divergentLonger);
+    session.registerSurface(divergentShorter);
+
+    const initialRev = session.getSnapshot().revision;
+
+    // Origin surface performs an edit at the middle (modifying CJK and Emoji text)
+    const targetText = '中文字符 🚀';
+    const from = initialSource.indexOf(targetText);
+    const to = from + targetText.length;
+    const replacement = '更新内容 🎉';
+    const expectedSource = initialSource.slice(0, from) + replacement + initialSource.slice(to);
+
+    // 1. Origin surface dispatches change locally first (updating its local EditorState.doc)
+    originSurface.view.dispatch({
+      changes: [{ from, to, insert: replacement }],
+      selection: { anchor: from + replacement.length, head: from + replacement.length }
+    });
+    expect(originSurface.view.state.doc.toString()).toBe(expectedSource);
+
+    // 2. Dispatch to session from origin surface
+    const snapshot = session.dispatch(
+      {
+        changes: [{ from, to, insert: replacement }],
+        selection: { anchor: from + replacement.length, head: from + replacement.length },
+        userEvent: 'input.type'
+      },
+      'origin'
+    );
+
+    expect(snapshot.source).toBe(expectedSource);
+    expect(snapshot.revision).toBe(initialRev + 1);
+
+    // 3. Origin surface is NOT clobbered or re-dispatched with redundant full doc replacement
+    expect(originSurface.view.state.doc.toString()).toBe(expectedSource);
+
+    // 4. Normal surface received mapped change and equals canonical source
+    expect(normalSurface.view.state.doc.toString()).toBe(expectedSource);
+    expect(normalSurface.view.state.selection.main.head).toBe(snapshot.selection.head);
+
+    // 5. Divergent longer surface (divergence before & inside change) received full resync and equals canonical source
+    expect(divergentLonger.view.state.doc.toString()).toBe(expectedSource);
+    expect(divergentLonger.view.state.selection.main.head).toBe(snapshot.selection.head);
+
+    // 6. Divergent shorter surface (divergence after change) received full resync and equals canonical source
+    expect(divergentShorter.view.state.doc.toString()).toBe(expectedSource);
+    expect(divergentShorter.view.state.selection.main.head).toBe(snapshot.selection.head);
+
+    // 7. Revision and Undo/Redo count
+    expect(session.canUndo).toBe(true);
+    expect(session.canRedo).toBe(false);
+
+    // Exactly 1 undo step restores all surfaces (including origin) to initial canonical source
+    session.undo();
+    expect(session.getSnapshot().source).toBe(initialSource);
+    expect(originSurface.view.state.doc.toString()).toBe(initialSource);
+    expect(normalSurface.view.state.doc.toString()).toBe(initialSource);
+    expect(divergentLonger.view.state.doc.toString()).toBe(initialSource);
+    expect(divergentShorter.view.state.doc.toString()).toBe(initialSource);
+    expect(session.canUndo).toBe(false);
+    expect(session.canRedo).toBe(true);
+
+    // Redo restores to expected source
+    session.redo();
+    expect(session.getSnapshot().source).toBe(expectedSource);
+    expect(originSurface.view.state.doc.toString()).toBe(expectedSource);
+    expect(normalSurface.view.state.doc.toString()).toBe(expectedSource);
+    expect(divergentLonger.view.state.doc.toString()).toBe(expectedSource);
+    expect(divergentShorter.view.state.doc.toString()).toBe(expectedSource);
   });
 });

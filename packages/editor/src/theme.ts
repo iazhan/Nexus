@@ -162,6 +162,129 @@ export const editorBaseTheme = EditorView.theme({
   },
   '.cm-visual-drop-target': {
     borderTop: '2px solid #3b82f6'
+  },
+  // Inline edit widgets & popover styles
+  '.cm-inline-edit-popover': {
+    position: 'absolute',
+    zIndex: '150',
+    backgroundColor: '#1a1c24',
+    color: '#e2e8f0',
+    border: '1px solid #333745',
+    borderRadius: '6px',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+    padding: '10px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    minWidth: '260px',
+    maxWidth: '380px'
+  },
+  '.cm-inline-edit-field': {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '3px'
+  },
+  '.cm-inline-edit-label': {
+    fontSize: '11px',
+    color: '#94a3b8',
+    fontWeight: '500'
+  },
+  '.cm-inline-edit-popover input': {
+    backgroundColor: '#121318',
+    color: '#f1f5f9',
+    border: '1px solid #333745',
+    borderRadius: '4px',
+    padding: '5px 8px',
+    fontSize: '13px',
+    outline: 'none'
+  },
+  '.cm-inline-edit-popover input:focus': {
+    borderColor: '#3b82f6'
+  },
+  '.cm-inline-edit-actions': {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '6px',
+    marginTop: '4px'
+  },
+  '.cm-inline-edit-actions button, .cm-image-upload-btn': {
+    backgroundColor: '#262936',
+    color: '#cbd5e1',
+    border: '1px solid #373b4d',
+    borderRadius: '4px',
+    padding: '4px 10px',
+    fontSize: '12px',
+    cursor: 'pointer'
+  },
+  '.cm-inline-edit-actions button:hover, .cm-image-upload-btn:hover': {
+    backgroundColor: '#323647'
+  },
+  '.cm-inline-edit-save': {
+    backgroundColor: '#2563eb !important',
+    color: '#ffffff !important',
+    borderColor: '#3b82f6 !important'
+  },
+  '.cm-inline-edit-save:hover': {
+    backgroundColor: '#1d4ed8 !important'
+  },
+  '.cm-inline-edit-error': {
+    color: '#f87171',
+    fontSize: '11px',
+    lineHeight: '1.4'
+  },
+  '.cm-visual-link': {
+    color: '#60a5fa',
+    textDecoration: 'underline',
+    cursor: 'pointer'
+  },
+  '.cm-visual-link-blocked': {
+    color: '#94a3b8',
+    textDecoration: 'line-through',
+    cursor: 'not-allowed',
+    opacity: '0.6'
+  },
+  '.cm-visual-image': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    cursor: 'pointer',
+    verticalAlign: 'middle'
+  },
+  '.cm-visual-image-blocked': {
+    opacity: '0.5',
+    cursor: 'not-allowed',
+    filter: 'grayscale(1)'
+  },
+  '.cm-visual-image-placeholder': {
+    display: 'inline-block',
+    padding: '2px 6px',
+    backgroundColor: '#1e293b',
+    color: '#94a3b8',
+    borderRadius: '4px',
+    fontSize: '12px'
+  },
+  '.cm-visual-inline-math': {
+    color: '#93c5fd',
+    backgroundColor: '#1e3a8a26',
+    borderRadius: '3px',
+    padding: '1px 3px',
+    cursor: 'pointer'
+  },
+  '.cm-visual-inline-code': {
+    color: '#a5f3fc',
+    backgroundColor: '#1e293b66',
+    borderRadius: '3px',
+    padding: '1px 4px',
+    cursor: 'pointer',
+    fontFamily: 'inherit'
+  },
+  '.cm-visual-wikilink': {
+    color: '#67e8f9',
+    textDecoration: 'underline',
+    textDecorationColor: '#0891b2',
+    backgroundColor: '#0e749022',
+    borderRadius: '3px',
+    padding: '1px 3px',
+    cursor: 'pointer'
   }
 });
 

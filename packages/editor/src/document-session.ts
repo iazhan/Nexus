@@ -2,6 +2,7 @@ import {
   Annotation,
   ChangeSet,
   EditorSelection,
+  Text,
   type EditorState,
   type TransactionSpec
 } from '@codemirror/state';
@@ -35,6 +36,8 @@ export interface MarkdownSurfaceView {
 
 /** 标记 session 同步事务，防止 surface 更新再次回写 session 形成循环。 */
 export const sessionSyncAnnotation = Annotation.define<number>();
+export const sessionDocSyncAnnotation = Annotation.define<number>();
+export const sessionSelectionSyncAnnotation = Annotation.define<number>();
 
 function cloneSelection(selection: MarkdownSelection): MarkdownSelection {
   return { anchor: selection.anchor, head: selection.head };
@@ -156,13 +159,14 @@ export class MarkdownDocumentSession {
     }
 
     this.selection = nextSelection;
-    const annotation = sessionSyncAnnotation.of(this.revision);
+    const selAnnotation = sessionSelectionSyncAnnotation.of(this.revision);
+    const syncAnnotation = sessionSyncAnnotation.of(this.revision);
 
     for (const surface of this.surfaces.values()) {
       if (surface.id === originSurfaceId) continue;
       surface.view.dispatch({
         selection: toEditorSelection(nextSelection),
-        annotations: annotation
+        annotations: [selAnnotation, syncAnnotation]
       });
     }
   }
@@ -206,22 +210,41 @@ export class MarkdownDocumentSession {
     const snapshot = this.getSnapshot();
 
     if (sourceChanged) {
-      const annotation = sessionSyncAnnotation.of(this.revision);
+      const docAnnotation = sessionDocSyncAnnotation.of(this.revision);
+      const syncAnnotation = sessionSyncAnnotation.of(this.revision);
+      const isCRLF = nextSource.includes('\r\n');
       for (const surface of this.surfaces.values()) {
         if (surface.id === effectiveOrigin) continue;
-        surface.view.dispatch({
-          changes: transaction.changes,
-          selection: toEditorSelection(nextSelection),
-          annotations: annotation
-        });
+        const currentDoc = surface.view.state.doc.toString();
+        if (currentDoc === beforeSource) {
+          surface.view.dispatch({
+            changes: transaction.changes.map((c) => ({
+              from: c.from,
+              to: c.to,
+              insert: isCRLF && typeof c.insert === 'string' && c.insert.includes('\r\n')
+                ? Text.of(c.insert.split('\n'))
+                : c.insert
+            })),
+            selection: toEditorSelection(nextSelection),
+            annotations: [docAnnotation, syncAnnotation]
+          });
+        } else {
+          const docInsert = isCRLF ? Text.of(nextSource.split('\n')) : nextSource;
+          surface.view.dispatch({
+            changes: [{ from: 0, to: surface.view.state.doc.length, insert: docInsert }],
+            selection: toEditorSelection(nextSelection),
+            annotations: [docAnnotation, syncAnnotation]
+          });
+        }
       }
     } else if (nextSelection.anchor !== beforeSelection.anchor || nextSelection.head !== beforeSelection.head) {
-      const annotation = sessionSyncAnnotation.of(this.revision);
+      const selAnnotation = sessionSelectionSyncAnnotation.of(this.revision);
+      const syncAnnotation = sessionSyncAnnotation.of(this.revision);
       for (const surface of this.surfaces.values()) {
         if (surface.id === effectiveOrigin) continue;
         surface.view.dispatch({
           selection: toEditorSelection(nextSelection),
-          annotations: annotation
+          annotations: [selAnnotation, syncAnnotation]
         });
       }
     }
@@ -296,12 +319,14 @@ export class MarkdownDocumentSession {
     this.source = source;
     this.selection = normalizeSelection(selection, source.length);
     this.revision += 1;
+    const isCRLF = source.includes('\r\n');
+    const docInsert = isCRLF ? Text.of(source.split('\n')) : source;
     const change = [{ from: 0, to: previousSource.length, insert: source }];
     const annotation = sessionSyncAnnotation.of(this.revision);
 
     for (const surface of this.surfaces.values()) {
       surface.view.dispatch({
-        changes: change,
+        changes: [{ from: 0, to: surface.view.state.doc.length, insert: docInsert }],
         selection: toEditorSelection(this.selection),
         annotations: annotation
       });
