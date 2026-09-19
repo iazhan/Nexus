@@ -12,4 +12,8 @@ export interface NexusBridge {
   writeFile: (filePath: string, content: string) => Promise<void>;
   saveAs: (content: string) => Promise<string>;
   watchFile: (filePath: string, listener: FileWatchListener) => Unsubscribe;
+  setDirty: (isDirty: boolean) => void;
+  onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
+  readyToClose: () => void;
+  closeWindow: () => void;
 }

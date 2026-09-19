@@ -80,10 +80,16 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
     });
 
     handleRef.current = handle;
+    if (typeof window !== 'undefined') {
+      (window as any).nexusActiveView = handle.view;
+    }
     onSelectionChangeRef.current?.(getSelectionInfo(handle.view.state));
 
     return () => {
       handle.destroy();
+      if (typeof window !== 'undefined' && (window as any).nexusActiveView === handle.view) {
+        (window as any).nexusActiveView = null;
+      }
       if (handleRef.current === handle) {
         handleRef.current = null;
       }

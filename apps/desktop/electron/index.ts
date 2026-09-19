@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { BrowserWindow as BrowserWindowType } from 'electron';
 import {
   parseLaunchArgs,
   type LaunchContext,
@@ -33,7 +34,7 @@ function getPreloadPath(): string {
   return path.join(__dirname, '../preload/index.js');
 }
 
-function createWindow(): BrowserWindow {
+function createWindow(): BrowserWindowType {
   const mainWindow = new BrowserWindow({
     width: 960,
     height: 680,
@@ -54,6 +55,38 @@ function createWindow(): BrowserWindow {
     mainWindow.show();
   });
 
+  mainWindow.on('close', async (event) => {
+    const isDirty = windowDirtyMap.get(mainWindow.id) ?? false;
+    if (isDirty) {
+      event.preventDefault();
+
+      // 在自动化测试环境中通知渲染进程拦截成功，避免原生弹窗阻塞测试执行
+      if (process.env.NODE_ENV === 'test') {
+        mainWindow.webContents.send('nexus:unsaved-close-prevented');
+        return;
+      }
+
+      const { response: choice } = await dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        buttons: ['保存', '不保存', '取消'],
+        defaultId: 0,
+        cancelId: 2,
+        title: '未保存的更改',
+        message: '当前文档有未保存的更改。是否在退出前保存？'
+      });
+
+      if (choice === 0) {
+        // 请求渲染进程保存后退出
+        mainWindow.webContents.send(IPC_CHANNELS.requestSaveAndClose);
+      } else if (choice === 1) {
+        // 不保存直接退出
+        windowDirtyMap.set(mainWindow.id, false);
+        mainWindow.close();
+      }
+      // choice === 2 取消：已通过 preventDefault 阻止关闭
+    }
+  });
+
   // Open external links in user's default browser
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
@@ -70,6 +103,8 @@ function createWindow(): BrowserWindow {
 
   return mainWindow;
 }
+
+const windowDirtyMap = new Map<number, boolean>();
 
 interface WebContentsSession {
   service: FileService;
@@ -184,6 +219,28 @@ ipcMain.handle(IPC_CHANNELS.unwatchFile, (event, subscriptionId: string) => {
 
 ipcMain.on(IPC_CHANNELS.unwatchFile, (event, subscriptionId: string) => {
   handleUnwatch(event.sender.id, subscriptionId);
+});
+
+ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) {
+    windowDirtyMap.set(win.id, Boolean(isDirty));
+  }
+});
+
+ipcMain.on(IPC_CHANNELS.readyToClose, (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) {
+    windowDirtyMap.set(win.id, false);
+    win.close();
+  }
+});
+
+ipcMain.on(IPC_CHANNELS.closeWindow, (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) {
+    win.close();
+  }
 });
 
 // App lifecycle

@@ -11,7 +11,11 @@ export const IPC_CHANNELS = {
   saveAs: 'nexus:save-as',
   watchFile: 'nexus:watch-file',
   unwatchFile: 'nexus:unwatch-file',
-  fileWatchEvent: 'nexus:file-watch-event'
+  fileWatchEvent: 'nexus:file-watch-event',
+  setDirty: 'nexus:set-dirty',
+  requestSaveAndClose: 'nexus:request-save-and-close',
+  readyToClose: 'nexus:ready-to-close',
+  closeWindow: 'nexus:close-window'
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

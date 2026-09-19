@@ -24,3 +24,5 @@ export const visualEditorKeybindings: KeyBinding[] = [
   { key: 'Mod-Shift-f', run: openSearchPanel, scope: 'editor' },
   { key: 'Escape', run: closeSearchPanel, scope: 'editor' }
 ];
+
+export { openSearchPanel, closeSearchPanel };

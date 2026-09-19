@@ -94,6 +94,32 @@ const bridge: NexusBridge = {
           console.error('[Nexus Preload] Failed to release file watcher:', err);
         });
     };
+  },
+
+  setDirty: (isDirty: boolean): void => {
+    ipcRenderer.send(IPC_CHANNELS.setDirty, isDirty);
+  },
+
+  onSaveAndCloseRequested: (callback: () => Promise<void>): Unsubscribe => {
+    const handler = async () => {
+      try {
+        await callback();
+      } catch (err) {
+        console.error('[Nexus Preload] Error during onSaveAndCloseRequested:', err);
+      }
+    };
+    ipcRenderer.on(IPC_CHANNELS.requestSaveAndClose, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.requestSaveAndClose, handler);
+    };
+  },
+
+  readyToClose: (): void => {
+    ipcRenderer.send(IPC_CHANNELS.readyToClose);
+  },
+
+  closeWindow: (): void => {
+    ipcRenderer.send(IPC_CHANNELS.closeWindow);
   }
 };
 

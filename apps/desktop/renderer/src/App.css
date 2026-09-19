@@ -189,6 +189,107 @@ body {
   border: 1px solid #dc262666;
 }
 
+/* Banners (Conflict / Warning / Save Error) */
+.nexus-conflict-banner,
+.nexus-warning-banner,
+.nexus-save-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.nexus-conflict-banner {
+  background-color: #78350f33;
+  color: #fde68a;
+  border-bottom-color: #d9770666;
+}
+
+.nexus-warning-banner {
+  background-color: #78350f33;
+  color: #fef08a;
+  border-bottom-color: #ca8a0466;
+}
+
+.nexus-save-error-banner {
+  background-color: #7f1d1d33;
+  color: #fca5a5;
+  border-bottom-color: #ef444466;
+}
+
+.nexus-conflict-actions,
+.nexus-save-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.nexus-conflict-reload-btn,
+.nexus-conflict-keep-btn,
+.nexus-banner-saveas-btn,
+.nexus-save-error-retry,
+.nexus-save-error-saveas {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease;
+}
+
+.nexus-conflict-reload-btn,
+.nexus-save-error-retry {
+  background-color: #3b82f6;
+  color: #ffffff;
+  border-color: #60a5fa;
+}
+
+.nexus-conflict-reload-btn:hover,
+.nexus-save-error-retry:hover {
+  background-color: #2563eb;
+}
+
+.nexus-conflict-keep-btn,
+.nexus-banner-saveas-btn,
+.nexus-save-error-saveas {
+  background-color: #374151;
+  color: #e5e7eb;
+  border-color: #4b5563;
+}
+
+.nexus-conflict-keep-btn:hover,
+.nexus-banner-saveas-btn:hover,
+.nexus-save-error-saveas:hover {
+  background-color: #4b5563;
+}
+
+.status-extension-badge {
+  font-size: 0.68rem;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.status-extension-badge.active {
+  background-color: #064e3b33;
+  color: #34d399;
+  border: 1px solid #05966966;
+}
+
+.status-extension-badge.error {
+  background-color: #7f1d1d33;
+  color: #f87171;
+  border: 1px solid #dc262666;
+}
+
 /* Main Content Area */
 .nexus-main-content {
   flex: 1;

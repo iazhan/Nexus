@@ -25,6 +25,10 @@ export default defineConfig(({ command }) => {
         rollupOptions: {
           input: {
             index: resolve(__dirname, 'electron/index.ts')
+          },
+          output: {
+            format: 'cjs',
+            entryFileNames: '[name].cjs'
           }
         }
       }
