@@ -43,6 +43,7 @@ export interface FileSystemAdapter {
     listener?: (eventType: string, filename: string | null) => void
   ): FSWatcherLike;
   exists?(filePath: string): Promise<boolean>;
+  access?(filePath: string, mode?: number): Promise<void>;
 }
 
 /**
@@ -84,6 +85,10 @@ export class DefaultFileSystemAdapter implements FileSystemAdapter {
       }
       throw error;
     }
+  }
+
+  async access(filePath: string, mode?: number): Promise<void> {
+    return fsPromises.access(filePath, mode);
   }
 
   watch(
@@ -287,8 +292,16 @@ export class FileService {
     const normalizedPath = this.normalizePath(targetPath);
 
     let content: string;
+    let readOnly = false;
     try {
       content = await this.fsAdapter.readFile(normalizedPath, 'utf-8');
+      try {
+        if (this.fsAdapter.access) {
+          await this.fsAdapter.access(normalizedPath, fs.constants.W_OK);
+        }
+      } catch {
+        readOnly = true;
+      }
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new FileServiceError('NOT_FOUND', `文件未找到: ${normalizedPath}`, normalizedPath);
@@ -301,7 +314,8 @@ export class FileService {
 
     return {
       path: normalizedPath,
-      content
+      content,
+      readOnly
     };
   }
 

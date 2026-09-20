@@ -21,6 +21,7 @@ export interface SourceEditorProps {
   saveError?: string | null;
   readOnly?: boolean;
   documentDirectory?: string | null;
+  extensionHost?: import('@nexus/editor').ExtensionHost;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
   className?: string;
@@ -36,6 +37,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   surfaceKind = 'source',
   readOnly = false,
   documentDirectory,
+  extensionHost,
   onChange,
   onSelectionChange,
   className
@@ -75,6 +77,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       surfaceKind,
       readOnly,
       documentDirectory,
+      extensionHost,
       onSelectionChange: () => {
         const view = handleRef.current?.view;
         if (view) {

@@ -407,4 +407,19 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     expect(updatedSource).toContain('$E = mc^2$');
     expect(updatedSource).toContain('Edited Standard paragraph here.');
   }, 25000);
+
+  it('9. lazy loads math and mermaid extensions in visual mode', async () => {
+    const extDoc = path.join(tempDir, 'ext-test.md');
+    fs.writeFileSync(extDoc, '$$ x = y $$\n\n```mermaid\ngraph TD\nA-->B\n```\n', 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: extDoc });
+    await activeApp.waitForSelector('.cm-content', 5000);
+    
+    await activeApp.click('.nexus-surface-switcher button:last-child');
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 5000);
+    
+    // Check if it creates math and mermaid preview elements
+    await activeApp.waitForSelector('.cm-visual-block-math', 5000);
+    await activeApp.waitForSelector('.cm-mermaid-preview', 5000);
+  }, 25000);
 });

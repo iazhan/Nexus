@@ -37,6 +37,7 @@ export interface CreateSessionEditorStateOptions {
   readOnly?: boolean;
   documentDirectory?: string | null;
   imageSourceResolver?: ImageSourceResolver;
+  extensionHost?: import('./extensions.js').ExtensionHost;
   onSelectionChange?: (selection: MarkdownSelection) => void;
 }
 
@@ -330,7 +331,8 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
     doc: rawSource,
     readOnly: options.readOnly,
     includeHistory: false,
-    keybindings: options.surfaceKind === 'visual' ? visualEditorKeybindings : editorKeybindings
+    keybindings: options.surfaceKind === 'visual' ? visualEditorKeybindings : editorKeybindings,
+    extensionHost: options.extensionHost
   });
   const visualExtensions = options.surfaceKind === 'visual'
     ? [

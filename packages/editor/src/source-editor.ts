@@ -13,6 +13,7 @@ import { markdownMarkersField } from './markdown-markers.js';
 import { editorBaseTheme, editorSyntaxHighlighting } from './theme.js';
 import { getSelectionInfo } from './selection.js';
 import type { CreateSourceEditorOptions, SourceEditorConfig } from './types.js';
+import { extensionHostFacet } from './extensions.js';
 
 export const readOnlyCompartment = new Compartment();
 export const editableCompartment = new Compartment();
@@ -47,6 +48,8 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
 
     readOnlyCompartment.of(EditorState.readOnly.of(isReadOnly)),
     editableCompartment.of(EditorView.editable.of(!isReadOnly)),
+
+    ...(config.extensionHost ? [extensionHostFacet.of(config.extensionHost)] : []),
 
     keymap.of(config.keybindings ?? editorKeybindings),
 

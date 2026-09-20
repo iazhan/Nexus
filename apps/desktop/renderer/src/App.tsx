@@ -4,6 +4,7 @@ import {
   MarkdownDocumentSession,
   hasMathMarkers,
   openSearchPanel,
+  ExtensionHost,
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo
@@ -44,8 +45,6 @@ export const App: React.FC = () => {
   const [saveState, setSaveState] = useState<EditorSaveState>('saved');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [surfaceKind, setSurfaceKind] = useState<EditorSurfaceKind>('source');
-  const [externalConflict, setExternalConflict] = useState(false);
-  const [externalDeleted, setExternalDeleted] = useState(false);
   const [selection, setSelection] = useState<EditorSelectionInfo>({
     line: 1,
     column: 1,
@@ -67,6 +66,18 @@ export const App: React.FC = () => {
   }
   const session = sessionRef.current;
 
+  const extensionHostRef = useRef<ExtensionHost | null>(null);
+  if (extensionHostRef.current === null) {
+    const host = new ExtensionHost();
+    extensionHostRef.current = host;
+    import('@nexus/math').then(({ MathExtension }) => {
+      host.register(new MathExtension());
+    }).catch(e => console.error('Failed to load @nexus/math:', e));
+    import('@nexus/mermaid').then(({ MermaidExtension }) => {
+      host.register(new MermaidExtension());
+    }).catch(e => console.error('Failed to load @nexus/mermaid:', e));
+  }
+
   // Expose session on window for smoke testing and developer debugging
   if (typeof window !== 'undefined') {
     (window as any).nexusSession = session;
@@ -75,8 +86,13 @@ export const App: React.FC = () => {
   // Synchronize dirty state with Electron main process
   const updateSaveState = useCallback((nextState: EditorSaveState) => {
     setSaveState(nextState);
-    // 保存中和保存失败仍然代表存在未持久化内容，关闭保护不能在这两个状态失效。
-    window.nexus?.setDirty?.(nextState !== 'saved');
+    // 保存中、保存失败、冲突状态仍然代表存在未持久化内容，关闭保护不能失效。
+    window.nexus?.setDirty?.(
+      nextState === 'dirty' ||
+      nextState === 'saving' ||
+      nextState === 'error' ||
+      nextState === 'external-changed'
+    );
   }, []);
 
   /**
@@ -101,8 +117,8 @@ export const App: React.FC = () => {
     return enqueueSave(async () => {
       const currentSource = session.getSnapshot().source;
 
-      // Untitled document: prompt saveAs
-      if (!filePath) {
+      // Untitled document or readonly document: prompt saveAs
+      if (!filePath || saveStateRef.current === 'readonly') {
         try {
           if (!window.nexus?.saveAs) return false;
           const chosenPath = await window.nexus.saveAs(currentSource);
@@ -141,7 +157,6 @@ export const App: React.FC = () => {
           initialContentRef.current = currentSource;
           updateSaveState('saved');
           setSaveError(null);
-          setExternalConflict(false);
           return true;
         }
 
@@ -173,7 +188,6 @@ export const App: React.FC = () => {
           updateSaveState('dirty');
         }
         setSaveError(null);
-        setExternalConflict(false);
         return sourceStillCurrent;
       } catch (err: unknown) {
         console.error('Save As failed:', err);
@@ -197,10 +211,8 @@ export const App: React.FC = () => {
       session.replaceSource(fileDoc.content, {
         selection: { anchor: 0, head: 0 }
       });
-      updateSaveState('saved');
+      updateSaveState(fileDoc.readOnly ? 'readonly' : 'clean');
       setSaveError(null);
-      setExternalConflict(false);
-      setExternalDeleted(false);
     } catch (err: unknown) {
       console.error('Open file failed:', err);
     }
@@ -221,12 +233,15 @@ export const App: React.FC = () => {
       const unsub = window.nexus.watchFile(filePath, async (watchEvent) => {
         if (!isMountedRef.current) return;
 
-        if (watchEvent.type === 'deleted') {
-          setExternalDeleted(true);
+        if (watchEvent.type === 'deleted' || watchEvent.type === 'renamed') {
+          updateSaveState('deleted');
+        } else if (watchEvent.type === 'error') {
+          setSaveError(watchEvent.message);
+          updateSaveState('error');
         } else if (watchEvent.type === 'changed') {
           // Only auto-reload if document is completely clean and saved
           const isDocClean =
-            saveStateRef.current === 'saved' &&
+            (saveStateRef.current === 'saved' || saveStateRef.current === 'clean' || saveStateRef.current === 'readonly') &&
             initialContentRef.current === session.getSnapshot().source;
 
           if (isDocClean && window.nexus?.readFile) {
@@ -234,13 +249,15 @@ export const App: React.FC = () => {
               const freshContent = await window.nexus.readFile(filePath);
               initialContentRef.current = freshContent;
               session.replaceSource(freshContent);
-              updateSaveState('saved');
+              updateSaveState('clean');
             } catch (readErr) {
               console.error('Failed to reload changed file:', readErr);
+              setSaveError(String(readErr));
+              updateSaveState('error');
             }
-          } else if (saveStateRef.current !== 'saved') {
+          } else if (saveStateRef.current !== 'saved' && saveStateRef.current !== 'clean' && saveStateRef.current !== 'readonly') {
             // 保存中或保存失败也仍有本地未持久化内容，必须进入冲突保护路径。
-            setExternalConflict(true);
+            updateSaveState('external-changed');
           }
         }
       });
@@ -301,7 +318,7 @@ export const App: React.FC = () => {
         session.replaceSource(fileDoc.content, {
           selection: { anchor: 0, head: 0 }
         });
-        updateSaveState('saved');
+        updateSaveState(fileDoc.readOnly ? 'readonly' : 'clean');
         setStatus('ready');
       } else {
         // No file provided: open an empty markdown editor
@@ -310,7 +327,7 @@ export const App: React.FC = () => {
         session.replaceSource('', {
           selection: { anchor: 0, head: 0 }
         });
-        updateSaveState('saved');
+        updateSaveState('clean');
         setStatus('ready');
       }
     } catch (err) {
@@ -424,16 +441,15 @@ export const App: React.FC = () => {
       const content = await window.nexus.readFile(filePath);
       initialContentRef.current = content;
       session.replaceSource(content);
-      updateSaveState('saved');
-      setExternalConflict(false);
+      updateSaveState('clean');
     } catch (err) {
       console.error('Failed to reload external file:', err);
     }
   }, [filePath, session, updateSaveState]);
 
   const handleKeepLocal = useCallback(() => {
-    setExternalConflict(false);
-  }, []);
+    updateSaveState('dirty');
+  }, [updateSaveState]);
 
   const displayMode = context
     ? context.mode.charAt(0).toUpperCase() + context.mode.slice(1)
@@ -484,14 +500,27 @@ export const App: React.FC = () => {
           <span className={`nexus-save-badge ${saveState}`}>
             {saveState === 'dirty' && 'Unsaved'}
             {saveState === 'saving' && 'Saving...'}
-            {saveState === 'saved' && 'Saved'}
+            {(saveState === 'saved' || saveState === 'clean') && 'Saved'}
             {saveState === 'error' && 'Save Error'}
+            {saveState === 'readonly' && 'Read Only'}
+            {saveState === 'external-changed' && 'Conflict'}
+            {saveState === 'deleted' && 'Deleted'}
           </span>
         </div>
       </header>
 
+      {/* ReadOnly Banner */}
+      {saveState === 'readonly' && (
+        <div className="nexus-warning-banner" role="alert">
+          <span>文件处于只读模式。无法直接保存更改，请另存为。</span>
+          <button type="button" className="nexus-banner-saveas-btn" onClick={saveAs}>
+            另存为...
+          </button>
+        </div>
+      )}
+
       {/* External Conflict Banner */}
-      {externalConflict && (
+      {saveState === 'external-changed' && (
         <div className="nexus-conflict-banner" role="alert">
           <span className="nexus-conflict-text">
             文件已在外部被修改。请选择：重新加载（放弃本地未保存修改）或保留当前内容（将在保存时覆盖外部内容）。
@@ -515,8 +544,8 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* External Deleted Banner */}
-      {externalDeleted && (
+      {/* External Deleted/Renamed Banner */}
+      {saveState === 'deleted' && (
         <div className="nexus-warning-banner" role="alert">
           <span>文件已被外部删除或移动。请尽快另存为以防数据丢失。</span>
           <button type="button" className="nexus-banner-saveas-btn" onClick={saveAs}>
@@ -582,7 +611,9 @@ export const App: React.FC = () => {
             surfaceKind={surfaceKind}
             saveState={saveState}
             saveError={saveError}
+            readOnly={saveState === 'readonly'}
             documentDirectory={getDocumentDirectory(filePath)}
+            extensionHost={extensionHostRef.current ?? undefined}
             onChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
             className="nexus-editor-full"

@@ -1,4 +1,4 @@
-export type EditorSaveState = 'dirty' | 'saving' | 'saved' | 'error';
+export type EditorSaveState = 'clean' | 'dirty' | 'saving' | 'saved' | 'error' | 'readonly' | 'external-changed' | 'deleted';
 
 /** 编辑器 surface 的承载类型；两者都以 Markdown source 为文档内容。 */
 export type EditorSurfaceKind = 'source' | 'visual';
@@ -57,6 +57,7 @@ export interface MarkdownMarker {
   from: number;
   to: number;
   text?: string;
+  language?: string;
 }
 
 export interface SourceEditorConfig {
@@ -64,6 +65,7 @@ export interface SourceEditorConfig {
   readOnly?: boolean;
   includeHistory?: boolean;
   keybindings?: import('@codemirror/view').KeyBinding[];
+  extensionHost?: import('./extensions.js').ExtensionHost;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
 }

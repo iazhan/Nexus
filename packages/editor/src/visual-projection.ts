@@ -22,6 +22,8 @@ import {
   type SourceRange
 } from '@nexus/markdown';
 import { findMarkdownMarkers } from './markdown-markers.js';
+import { extensionHostFacet, mountExtension } from './extensions.js';
+import type { EditorExtensionControl } from './extensions.js';
 import {
   LinkWidget,
   ImageWidget,
@@ -1309,12 +1311,24 @@ export class CodeBlockWidget extends WidgetType {
     container.appendChild(header);
 
     let previewEl: HTMLElement | null = null;
+    let control: EditorExtensionControl | undefined;
     if (isMermaid) {
       previewEl = document.createElement('div');
       previewEl.className = 'cm-mermaid-preview';
-      const previewPre = document.createElement('pre');
-      previewPre.textContent = this.value;
-      previewEl.appendChild(previewPre);
+      const host = view.state.facet(extensionHostFacet);
+      control = mountExtension(
+        host,
+        { type: 'code-fence', from: this.from, to: this.to, text: this.value, language: this.language },
+        previewEl,
+        this.value,
+        () => {
+          previewEl!.innerHTML = '';
+          const previewPre = document.createElement('pre');
+          previewPre.textContent = this.value;
+          previewEl!.appendChild(previewPre);
+        }
+      );
+      (previewEl as any).__nexusExtensionControl = control;
       container.appendChild(previewEl);
     }
 
@@ -1466,27 +1480,63 @@ export class BlockMathWidget extends WidgetType {
     );
   }
 
+  public updateDOM(dom: HTMLElement, _view: EditorView): boolean {
+    if (dom.querySelector('.cm-block-math-editor')) return false;
+    const control = (dom as any).__nexusExtensionControl as EditorExtensionControl | undefined;
+    if (control) {
+      control.update(this.formula);
+      this.control = control;
+      return true;
+    }
+    return false;
+  }
+
+  private control?: EditorExtensionControl;
+
   public toDOM(view: EditorView): HTMLElement {
     const container = document.createElement('div');
     container.className = 'cm-visual-block-math';
-    container.textContent = `$$ ${this.formula} $$`;
+    const host = view.state.facet(extensionHostFacet);
+
+    const renderPreview = () => {
+      container.innerHTML = '';
+      this.control = mountExtension(
+        host,
+        { type: 'block-math', from: this.from, to: this.to, text: this.formula },
+        container,
+        this.formula,
+        () => {
+          container.innerHTML = '';
+          container.textContent = `$$ ${this.formula} $$`;
+        }
+      );
+      (container as any).__nexusExtensionControl = this.control;
+    };
+
+    renderPreview();
 
     container.addEventListener('click', (e) => {
       e.stopPropagation();
       if (view.state.readOnly) return;
       if (container.querySelector('.cm-block-math-editor')) return;
 
+      if (this.control) {
+        this.control.destroy();
+        this.control = undefined;
+        (container as any).__nexusExtensionControl = undefined;
+      }
+
       const textarea = document.createElement('textarea');
       textarea.className = 'cm-block-math-editor';
       textarea.value = this.formula;
 
-      container.textContent = '';
+      container.innerHTML = '';
       container.appendChild(textarea);
       textarea.focus();
 
       const controller = createSubEditorController(view, () => {
         if (container.contains(textarea)) textarea.remove();
-        container.textContent = `$$ ${this.formula} $$`;
+        renderPreview();
       });
       const { signal } = controller;
 

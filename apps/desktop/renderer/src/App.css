@@ -165,7 +165,8 @@ body {
   letter-spacing: 0.04em;
 }
 
-.nexus-save-badge.saved {
+.nexus-save-badge.saved,
+.nexus-save-badge.clean {
   background-color: #064e3b33;
   color: #34d399;
   border: 1px solid #05966966;
@@ -187,6 +188,24 @@ body {
   background-color: #7f1d1d33;
   color: #f87171;
   border: 1px solid #dc262666;
+}
+
+.nexus-save-badge.readonly {
+  background-color: #37415133;
+  color: #9ca3af;
+  border: 1px solid #6b728066;
+}
+
+.nexus-save-badge.external-changed {
+  background-color: #78350f33;
+  color: #fde68a;
+  border: 1px solid #d9770666;
+}
+
+.nexus-save-badge.deleted {
+  background-color: #78350f33;
+  color: #fef08a;
+  border: 1px solid #ca8a0466;
 }
 
 /* Banners (Conflict / Warning / Save Error) */

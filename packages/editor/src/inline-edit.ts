@@ -8,6 +8,7 @@ import {
   type ViewUpdate,
   WidgetType
 } from '@codemirror/view';
+import { extensionHostFacet, mountExtension, type EditorExtensionControl } from './extensions.js';
 import {
   parseMarkdown,
   sanitizeUrl,
@@ -1164,20 +1165,45 @@ export class InlineMathWidget extends WidgetType {
     super();
   }
 
-  public toDOM(): HTMLElement {
+  private control?: EditorExtensionControl;
+
+  public toDOM(view: EditorView): HTMLElement {
     const span = document.createElement('span');
     span.className = 'cm-visual-inline-math cm-visual-inline-math-widget';
     span.dataset.from = String(this.from);
     span.dataset.to = String(this.to);
     span.setAttribute('role', 'math');
     span.setAttribute('tabindex', '-1');
-    span.textContent = this.formula ? `$${this.formula}$` : '$$';
+    
+    const host = view.state.facet(extensionHostFacet);
+
+    this.control = mountExtension(
+      host,
+      { type: 'inline-math', from: this.from, to: this.to, text: this.formula },
+      span,
+      this.formula,
+      () => {
+        span.innerHTML = '';
+        span.textContent = this.formula ? `$${this.formula}$` : '$$';
+      }
+    );
+    (span as any).__nexusExtensionControl = this.control;
 
     span.addEventListener('click', (e) => {
       e.preventDefault();
     });
 
     return span;
+  }
+
+  public updateDOM(dom: HTMLElement, _view: EditorView): boolean {
+    const control = (dom as any).__nexusExtensionControl as EditorExtensionControl | undefined;
+    if (control) {
+      control.update(this.formula);
+      this.control = control;
+      return true;
+    }
+    return false;
   }
 
   public eq(other: WidgetType): boolean {

@@ -245,6 +245,33 @@ export const editorBaseTheme = EditorView.theme({
     fontSize: '11px',
     lineHeight: '1.4'
   },
+  '.nexus-ext-loading': {
+    color: '#94a3b8',
+    fontStyle: 'italic',
+    fontSize: '0.9em'
+  },
+  '.nexus-ext-error': {
+    color: '#f87171',
+    backgroundColor: 'rgba(248, 113, 113, 0.1)',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '0.9em',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  '.nexus-ext-retry': {
+    backgroundColor: '#374151',
+    color: '#f3f4f6',
+    border: 'none',
+    borderRadius: '3px',
+    padding: '2px 6px',
+    fontSize: '0.85em',
+    cursor: 'pointer'
+  },
+  '.nexus-ext-retry:hover': {
+    backgroundColor: '#4b5563'
+  },
   '.cm-visual-link': {
     color: '#60a5fa',
     textDecoration: 'underline',

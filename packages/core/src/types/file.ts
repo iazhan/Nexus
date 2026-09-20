@@ -6,6 +6,8 @@ export interface FileDocument {
   path: string;
   /** 文件原始内容 */
   content: string;
+  /** 文件是否为只读 */
+  readOnly?: boolean;
 }
 
 /**

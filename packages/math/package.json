@@ -1,0 +1,20 @@
+{
+  "name": "@nexus/math",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "katex": "^0.16.11"
+  },
+  "devDependencies": {
+    "@nexus/editor": "workspace:*",
+    "@nexus/markdown": "workspace:*",
+    "@types/katex": "^0.16.7",
+    "typescript": "^5.7.3"
+  }
+}

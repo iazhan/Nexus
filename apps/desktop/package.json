@@ -16,6 +16,8 @@
   "dependencies": {
     "@nexus/core": "workspace:*",
     "@nexus/editor": "workspace:*",
+    "@nexus/math": "workspace:*",
+    "@nexus/mermaid": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
