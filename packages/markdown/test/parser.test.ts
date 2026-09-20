@@ -433,8 +433,8 @@ describe('Markdown Parser & Render Model', () => {
       expect(htmlBlock?.opaque).toBe(true);
 
       const hrBlock = res.root.children[2];
-      expect(hrBlock?.type).toBe('raw');
-      expect(hrBlock?.opaque).toBe(true);
+      expect(hrBlock?.type).toBe('horizontal-rule');
+      expect(hrBlock?.opaque).not.toBe(true);
 
       const p = res.root.children[1];
       if (p && p.type === 'paragraph') {
@@ -760,11 +760,9 @@ describe('Markdown Parser & Render Model', () => {
             expect(comment.raw).toBe('  <!-- comment -->\n');
           }
           const hr = item.children[2]!;
-          expect(hr.type).toBe('raw');
-          if (hr.type === 'raw') {
-            expect(hr.opaque).toBe(true);
-            expect(hr.raw).toBe('  ---\n');
-          }
+          expect(hr.type).toBe('horizontal-rule');
+          expect(hr.opaque).not.toBe(true);
+          expect(hr.raw).toBe('  ---\n');
         }
       });
 
@@ -834,13 +832,13 @@ describe('Markdown Parser & Render Model', () => {
 });
 
 interface InvariantCheckableNode {
+  type?: string;
   range?: { from: number; to: number };
   raw?: string;
   children?: unknown[];
   items?: unknown[];
   headers?: unknown[][];
   rows?: unknown[][][];
-  [key: string]: unknown;
 }
 
 /**
@@ -855,6 +853,7 @@ function assertRecursiveInvariants(
 ): void {
   expect(node).toBeDefined();
   expect(node.range).toBeDefined();
+  if (!node.range) return;
   expect(typeof node.range.from).toBe('number');
   expect(typeof node.range.to).toBe('number');
   expect(node.range.from).toBeGreaterThanOrEqual(0);
@@ -869,26 +868,32 @@ function assertRecursiveInvariants(
 
   if (node.children && Array.isArray(node.children)) {
     for (const child of node.children) {
-      assertRecursiveInvariants(child, source, node);
+      assertRecursiveInvariants(child as InvariantCheckableNode, source, node);
     }
   }
 
   if (node.items && Array.isArray(node.items)) {
     for (const item of node.items) {
-      assertRecursiveInvariants(item, source, node);
+      assertRecursiveInvariants(item as InvariantCheckableNode, source, node);
     }
   }
 
   if (node.type === 'table') {
-    for (const headerRow of node.headers) {
-      for (const cell of headerRow) {
-        assertRecursiveInvariants(cell, source, node);
+    if (node.headers) {
+      for (const headerRow of node.headers) {
+        for (const cell of headerRow) {
+          assertRecursiveInvariants(cell as InvariantCheckableNode, source, node);
+        }
       }
     }
-    for (const row of node.rows) {
-      for (const cell of row) {
-        for (const inline of cell) {
-          assertRecursiveInvariants(inline, source, node);
+    if (node.rows) {
+      for (const row of node.rows) {
+        for (const cell of row) {
+          if (Array.isArray(cell)) {
+            for (const inline of cell) {
+              assertRecursiveInvariants(inline as InvariantCheckableNode, source, node);
+            }
+          }
         }
       }
     }

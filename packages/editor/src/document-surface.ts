@@ -17,7 +17,7 @@ import {
   sessionSelectionSyncAnnotation
 } from './document-session.js';
 import { getSourceEditorExtensions } from './source-editor.js';
-import { visualProjectionExtensions } from './visual-projection.js';
+import { visualProjectionExtensions, documentDirectoryField } from './visual-projection.js';
 import { visualCommandsExtension } from './visual-commands.js';
 import { createVisualDragExtension } from './drag-handle.js';
 import { createInlineEditExtension, type ImageSourceResolver } from './inline-edit.js';
@@ -35,6 +35,7 @@ export interface CreateSessionEditorStateOptions {
   surfaceId: string;
   surfaceKind: EditorSurfaceKind;
   readOnly?: boolean;
+  documentDirectory?: string | null;
   imageSourceResolver?: ImageSourceResolver;
   onSelectionChange?: (selection: MarkdownSelection) => void;
 }
@@ -339,6 +340,9 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
           surfaceId: options.surfaceId,
           imageSourceResolver: options.imageSourceResolver
         }),
+        ...(options.documentDirectory !== undefined
+          ? [documentDirectoryField.init(() => options.documentDirectory ?? null)]
+          : []),
         ...visualProjectionExtensions
       ]
     : [];

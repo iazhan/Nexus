@@ -23,7 +23,8 @@ export function walkBlockNodes(
           c.type === 'code-block' ||
           c.type === 'block-math' ||
           c.type === 'table' ||
-          c.type === 'raw'
+          c.type === 'raw' ||
+          c.type === 'horizontal-rule'
         );
         if (walkBlockNodes(itemBlocks, visitor)) return true;
       }

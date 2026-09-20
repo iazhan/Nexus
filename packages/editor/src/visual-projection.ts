@@ -1,4 +1,10 @@
-import { StateField, RangeSetBuilder, type Extension } from '@codemirror/state';
+import {
+  StateField,
+  RangeSetBuilder,
+  StateEffect,
+  EditorSelection,
+  type Extension
+} from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -29,6 +35,9 @@ import {
   findTableAtPosition,
   createTableAddRowTransaction,
   createTableAddColumnTransaction,
+  createTableDeleteRowTransaction,
+  createTableDeleteColumnTransaction,
+  createTableSetAlignTransaction,
   createTableCellEditTransaction,
   splitTableLines,
   type TableCellContext
@@ -113,7 +122,9 @@ class SubEditorLifecyclePlugin {
 
   update(update: ViewUpdate) {
     if (update.startState.readOnly !== update.state.readOnly) {
-      if (update.state.readOnly) {
+      const isRo = update.state.readOnly;
+      // 工具栏由 tableWidgetSyncPlugin 依据只读状态和有效目标统一刷新。
+      if (isRo) {
         this.generation++;
         closeAllActiveSubEditors(update.view);
       }
@@ -146,25 +157,479 @@ const subEditorLifecyclePlugin = ViewPlugin.fromClass(SubEditorLifecyclePlugin);
 
 const RAW_BLOCK_EDIT_USER_EVENT = 'raw-block.edit';
 
-class HiddenDelimiterWidget extends WidgetType {
-  public constructor(private readonly delimiter: string) {
+export const setVisualFocusEffect = StateEffect.define<boolean>();
+
+export const visualFocusField = StateField.define<boolean>({
+  create() {
+    return false;
+  },
+  update(value, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setVisualFocusEffect)) {
+        return effect.value;
+      }
+    }
+    return value;
+  }
+});
+
+export const visualFocusPlugin = ViewPlugin.fromClass(
+  class {
+    constructor(readonly view: EditorView) {
+      view.dom.addEventListener('focus', this.onFocus, true);
+      view.dom.addEventListener('blur', this.onBlur, true);
+      view.dom.addEventListener('focusin', this.onFocus);
+      view.dom.addEventListener('focusout', this.onBlur);
+      const origFocus = view.focus.bind(view);
+      view.focus = () => {
+        origFocus();
+        if (!view.state.field(visualFocusField, false)) {
+          view.dispatch({ effects: setVisualFocusEffect.of(true) });
+        }
+      };
+    }
+    onFocus = () => {
+      if (!this.view.state.field(visualFocusField, false)) {
+        this.view.dispatch({ effects: setVisualFocusEffect.of(true) });
+      }
+    };
+    onBlur = (event: FocusEvent) => {
+      if (event.relatedTarget && this.view.dom.contains(event.relatedTarget as Node)) {
+        return;
+      }
+      if (this.view.state.field(visualFocusField, false)) {
+        this.view.dispatch({ effects: setVisualFocusEffect.of(false) });
+      }
+    };
+    destroy() {
+      this.view.dom.removeEventListener('focus', this.onFocus, true);
+      this.view.dom.removeEventListener('blur', this.onBlur, true);
+      this.view.dom.removeEventListener('focusin', this.onFocus);
+      this.view.dom.removeEventListener('focusout', this.onBlur);
+    }
+  }
+);
+
+export const setDocumentDirectoryEffect = StateEffect.define<string | null>();
+
+export const documentDirectoryField = StateField.define<string | null>({
+  create() {
+    return null;
+  },
+  update(value, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setDocumentDirectoryEffect)) {
+        return effect.value;
+      }
+    }
+    return value;
+  }
+});
+
+export function setDocumentDirectory(view: EditorView, directory: string | null): void {
+  view.dispatch({ effects: setDocumentDirectoryEffect.of(directory) });
+}
+
+export interface TableTarget {
+  tableFrom: number;
+  activeRow: number | null; // null: unselected; -1: header; 0..n: data row
+  activeCol: number | null; // null: unselected; 0..m: column
+}
+
+export const setTableTargetEffect = StateEffect.define<TableTarget | null>();
+
+export const tableTargetField = StateField.define<TableTarget | null>({
+  create() {
+    return null;
+  },
+  update(value, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setTableTargetEffect)) {
+        return effect.value;
+      }
+    }
+    if (!value) return null;
+    if (tr.docChanged) {
+      const oldSource = tr.startState.doc.toString();
+      const oldTable = findTableAtPosition(oldSource, value.tableFrom);
+      if (!oldTable) {
+        return null;
+      }
+
+      // 起点前插入内容时跟随原表格；整块替换后不凭相同文字继承身份。
+      const newFrom = tr.changes.mapPos(value.tableFrom, 1);
+      const newSource = tr.newDoc.toString();
+      const newTable = findTableAtPosition(newSource, newFrom);
+      if (!newTable || newTable.tableRange.from !== newFrom) {
+        return null;
+      }
+
+      let activeRow: number | null = null;
+      let activeCol: number | null = null;
+
+      // 只通过仍然存活的表头槽位映射列，删除的槽位不能转移到同名列。
+      if (
+        value.activeCol !== null &&
+        value.activeCol >= 0 &&
+        value.activeCol < oldTable.headers.length
+      ) {
+        const oldLines = splitTableLines(oldTable.raw, oldTable.tableRange.from);
+        if (oldLines.length >= 1) {
+          const oldHeaderLine = oldLines[0]!;
+          const oldPrefixMatch = oldHeaderLine.text.match(/^([ \t]*(?:>[ \t]*)*)/);
+          const oldPrefixLen = oldPrefixMatch ? oldPrefixMatch[0]!.length : 0;
+          const oldCleanText = oldHeaderLine.text.slice(oldPrefixLen);
+          const oldCellRanges = getRowCellRanges(oldCleanText, oldHeaderLine.from + oldPrefixLen);
+
+          if (value.activeCol < oldCellRanges.length) {
+            const oldCell = oldCellRanges[value.activeCol]!;
+            const oldSlotFrom = oldHeaderLine.from + oldPrefixLen + oldCell.slotStart;
+            const oldSlotTo = oldHeaderLine.from + oldPrefixLen + oldCell.slotEnd;
+            const mappedSlotFrom = tr.changes.mapPos(oldSlotFrom, 1);
+            const mappedSlotTo = tr.changes.mapPos(oldSlotTo, -1);
+
+            if (mappedSlotFrom < mappedSlotTo) {
+              const newLines = splitTableLines(newTable.raw, newTable.tableRange.from);
+              if (newLines.length >= 1) {
+                const newHeaderLine = newLines[0]!;
+                const newPrefixMatch = newHeaderLine.text.match(/^([ \t]*(?:>[ \t]*)*)/);
+                const newPrefixLen = newPrefixMatch ? newPrefixMatch[0]!.length : 0;
+                const newCleanText = newHeaderLine.text.slice(newPrefixLen);
+                const newCellRanges = getRowCellRanges(newCleanText, newHeaderLine.from + newPrefixLen);
+
+                for (let c = 0; c < newCellRanges.length; c++) {
+                  const nCell = newCellRanges[c]!;
+                  const nSlotFrom = newHeaderLine.from + newPrefixLen + nCell.slotStart;
+                  const nSlotTo = newHeaderLine.from + newPrefixLen + nCell.slotEnd;
+                  if (mappedSlotFrom >= nSlotFrom && mappedSlotTo <= nSlotTo) {
+                    activeCol = c;
+                    break;
+                  } else if (mappedSlotFrom >= nSlotFrom && mappedSlotFrom < nSlotTo) {
+                    activeCol = c;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 行身份来自原始行范围；重复行正文不能作为身份依据。
+      if (value.activeRow !== null) {
+        if (value.activeRow === -1) {
+          activeRow = -1;
+        } else if (value.activeRow >= 0 && value.activeRow < oldTable.rows.length) {
+          const oldLines = splitTableLines(oldTable.raw, oldTable.tableRange.from);
+          const oldTargetLineIdx = 2 + value.activeRow;
+          if (oldTargetLineIdx < oldLines.length) {
+            const oldRowLine = oldLines[oldTargetLineIdx]!;
+            const mappedLineFrom = tr.changes.mapPos(oldRowLine.from, 1);
+            const mappedLineTo = tr.changes.mapPos(oldRowLine.to, -1);
+
+            if (mappedLineFrom < mappedLineTo) {
+              const newLines = splitTableLines(newTable.raw, newTable.tableRange.from);
+              for (let r = 0; r < newTable.rows.length; r++) {
+                const newLineIdx = 2 + r;
+                if (newLineIdx < newLines.length) {
+                  const newRowLine = newLines[newLineIdx]!;
+                  if (
+                    mappedLineFrom >= newRowLine.from &&
+                    mappedLineTo <= newRowLine.to + newRowLine.newline.length
+                  ) {
+                    activeRow = r;
+                    break;
+                  } else if (mappedLineFrom >= newRowLine.from && mappedLineFrom < newRowLine.to) {
+                    activeRow = r;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (activeCol === null && activeRow === null) {
+        return null;
+      }
+
+      return {
+        tableFrom: newTable.tableRange.from,
+        activeRow,
+        activeCol
+      };
+    }
+    return value;
+  }
+});
+
+export function resolveDocumentAssetUrl(
+  src: string,
+  documentDirectory: string | null | undefined
+): string | null {
+  if (!src || typeof src !== 'string') return null;
+  let trimmed = src.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return null;
+  }
+
+  if (!documentDirectory) {
+    return null;
+  }
+
+  try {
+    const hashIndex = trimmed.indexOf('#');
+    const queryIndex = trimmed.indexOf('?');
+    let pathPart = trimmed;
+    let suffix = '';
+
+    const firstSep =
+      hashIndex === -1 ? queryIndex : queryIndex === -1 ? hashIndex : Math.min(hashIndex, queryIndex);
+    if (firstSep !== -1) {
+      pathPart = trimmed.slice(0, firstSep);
+      suffix = trimmed.slice(firstSep);
+    }
+
+    try {
+      pathPart = decodeURI(pathPart);
+    } catch {
+      // ignore malformed URI
+    }
+
+    const normBase = documentDirectory.replace(/\\/g, '/');
+    const normRel = pathPart.replace(/\\/g, '/');
+
+    const isWindowsAbsolute = /^[a-zA-Z]:/.test(normBase);
+    const isPosixAbsolute = normBase.startsWith('/');
+
+    if (!isWindowsAbsolute && !isPosixAbsolute) {
+      return null;
+    }
+
+    const baseSegments = normBase.split('/').filter(Boolean);
+    const relSegments = normRel.split('/').filter(Boolean);
+
+    let resolvedSegments: string[];
+    if (normRel.startsWith('/')) {
+      if (isWindowsAbsolute) {
+        resolvedSegments = [baseSegments[0]!, ...relSegments];
+      } else {
+        resolvedSegments = [...relSegments];
+      }
+    } else {
+      resolvedSegments = [...baseSegments];
+      for (const seg of relSegments) {
+        if (seg === '.') {
+          continue;
+        } else if (seg === '..') {
+          if (isWindowsAbsolute && resolvedSegments.length <= 1) {
+            continue;
+          }
+          if (resolvedSegments.length > 0) {
+            resolvedSegments.pop();
+          }
+        } else {
+          resolvedSegments.push(seg);
+        }
+      }
+    }
+
+    if (isWindowsAbsolute) {
+      const drive = resolvedSegments[0]!;
+      const rest = resolvedSegments.slice(1).map(encodeURIComponent).join('/');
+      return `file:///${drive}/${rest}${suffix}`;
+    } else {
+      const rest = resolvedSegments.map(encodeURIComponent).join('/');
+      return `file:///${rest}${suffix}`;
+    }
+  } catch {
+    return null;
+  }
+}
+
+export class DelimiterWidget extends WidgetType {
+  public constructor(
+    public readonly delimiter: string,
+    public readonly revealed: boolean = false
+  ) {
     super();
   }
 
   public toDOM(): HTMLElement {
     const element = document.createElement('span');
-    element.className = 'cm-visual-hidden-delimiter';
+    element.className = this.revealed ? 'cm-visual-delimiter-revealed' : 'cm-visual-hidden-delimiter';
     element.setAttribute('aria-hidden', 'true');
     element.dataset.delimiter = this.delimiter;
+    if (this.revealed) {
+      element.textContent = this.delimiter;
+    }
     return element;
   }
 
   public eq(other: WidgetType): boolean {
-    return other instanceof HiddenDelimiterWidget && other.delimiter === this.delimiter;
+    return (
+      other instanceof DelimiterWidget &&
+      other.delimiter === this.delimiter &&
+      other.revealed === this.revealed
+    );
   }
 
   public ignoreEvent(): boolean {
     return true;
+  }
+}
+
+export { DelimiterWidget as HiddenDelimiterWidget };
+
+export class HorizontalRuleWidget extends WidgetType {
+  public constructor(
+    public readonly from: number,
+    public readonly to: number,
+    public readonly raw: string
+  ) {
+    super();
+  }
+
+  public eq(other: WidgetType): boolean {
+    return (
+      other instanceof HorizontalRuleWidget &&
+      other.from === this.from &&
+      other.to === this.to &&
+      other.raw === this.raw
+    );
+  }
+
+  public toDOM(view: EditorView): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'cm-visual-hr-container';
+    container.tabIndex = 0;
+    container.setAttribute('role', 'separator');
+
+    const hr = document.createElement('hr');
+    hr.className = 'cm-visual-horizontal-rule';
+    container.appendChild(hr);
+
+    const startEdit = () => {
+      if (view.state.readOnly) return;
+      if (container.querySelector('.cm-hr-editor')) return;
+
+      const raw = this.raw;
+      // 标记内部空格可编辑；外围缩进、行尾空白和换行属于原始布局，单独保留。
+      const match = raw.match(/^([ \t]*(?:>[ \t]*)*)([^\r\n]*?)([ \t]*(?:\r?\n)*)$/);
+      const prefix = match ? match[1]! : '';
+      const marker = match ? match[2]! : raw.trim();
+      const suffix = match ? match[3]! : '';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'cm-hr-editor';
+      input.value = marker;
+
+      hr.style.display = 'none';
+      container.appendChild(input);
+      input.focus();
+      input.select();
+
+      const controller = createSubEditorController(view, () => {
+        input.remove();
+        hr.style.display = '';
+        container.focus();
+      });
+      const { signal } = controller;
+
+      let isComposing = false;
+      input.addEventListener('compositionstart', () => { isComposing = true; }, { signal });
+      input.addEventListener('compositionend', () => { isComposing = false; }, { signal });
+
+      const commit = () => {
+        if (!controller.isActive() || view.state.readOnly) {
+          controller.close();
+          return;
+        }
+        const newValue = input.value;
+        if (newValue === marker) {
+          controller.close();
+          return;
+        }
+        const source = view.state.doc.toString();
+        const parsed = parseMarkdown(source);
+        let targetRange: { from: number; to: number } | null = null;
+        walkBlockNodes(parsed.root.children, (child) => {
+          if (child.type === 'horizontal-rule' && child.range.from === this.from) {
+            targetRange = { from: child.range.from, to: child.range.to };
+            return true;
+          }
+          return false;
+        });
+        const finalRange = targetRange as { from: number; to: number } | null;
+        if (finalRange) {
+          const newRaw = prefix + newValue + suffix;
+          view.dispatch({
+            changes: { from: finalRange.from, to: finalRange.to, insert: newRaw },
+            userEvent: 'horizontal-rule.edit'
+          });
+        }
+        controller.close();
+      };
+
+      input.addEventListener(
+        'keydown',
+        (e) => {
+          if (!controller.isActive() || isComposing || e.isComposing) return;
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            controller.close();
+          }
+        },
+        { signal }
+      );
+
+      input.addEventListener(
+        'blur',
+        () => {
+          if (controller.isActive() && !isComposing) {
+            commit();
+          }
+        },
+        { signal }
+      );
+    };
+
+    container.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startEdit();
+    });
+
+    container.addEventListener('keydown', (e) => {
+      if (e.target !== container) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        startEdit();
+      }
+    });
+
+    return container;
+  }
+
+  public ignoreEvent(): boolean {
+    return false;
   }
 }
 
@@ -261,12 +726,71 @@ export class TableBlockWidget extends WidgetType {
     addRowBtn.type = 'button';
     addRowBtn.className = 'cm-table-btn-add-row';
     addRowBtn.textContent = '+ Row';
+
+    const addColBtn = document.createElement('button');
+    addColBtn.type = 'button';
+    addColBtn.className = 'cm-table-btn-add-col';
+    addColBtn.textContent = '+ Col';
+
+    const delRowBtn = document.createElement('button');
+    delRowBtn.type = 'button';
+    delRowBtn.className = 'cm-table-btn-del-row';
+    delRowBtn.dataset.tableAction = 'delete-row';
+    delRowBtn.textContent = '- Row';
+
+    const delColBtn = document.createElement('button');
+    delColBtn.type = 'button';
+    delColBtn.className = 'cm-table-btn-del-col';
+    delColBtn.dataset.tableAction = 'delete-column';
+    delColBtn.textContent = '- Col';
+
+    const alignLeftBtn = document.createElement('button');
+    alignLeftBtn.type = 'button';
+    alignLeftBtn.className = 'cm-table-btn-align-left';
+    alignLeftBtn.dataset.tableAction = 'align-left';
+    alignLeftBtn.textContent = 'Align Left';
+
+    const alignCenterBtn = document.createElement('button');
+    alignCenterBtn.type = 'button';
+    alignCenterBtn.className = 'cm-table-btn-align-center';
+    alignCenterBtn.dataset.tableAction = 'align-center';
+    alignCenterBtn.textContent = 'Align Center';
+
+    const alignRightBtn = document.createElement('button');
+    alignRightBtn.type = 'button';
+    alignRightBtn.className = 'cm-table-btn-align-right';
+    alignRightBtn.dataset.tableAction = 'align-right';
+    alignRightBtn.textContent = 'Align Right';
+
+    (container as any).__nexusTableWidget = this;
+
+    const updateButtons = () => {
+      const isRo = view.state.readOnly;
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const target = view.state.field(tableTargetField, false);
+      const activeRow =
+        target && target.tableFrom === currentWidget.from ? target.activeRow : null;
+      const activeCol =
+        target && target.tableFrom === currentWidget.from ? target.activeCol : null;
+
+      addRowBtn.disabled = isRo;
+      addColBtn.disabled = isRo;
+      delRowBtn.disabled = isRo || activeRow === null || activeRow < 0;
+      delColBtn.disabled = isRo || activeCol === null || currentWidget.headers.length <= 1;
+      alignLeftBtn.disabled = isRo || activeCol === null;
+      alignCenterBtn.disabled = isRo || activeCol === null;
+      alignRightBtn.disabled = isRo || activeCol === null;
+    };
+
+    (container as any).__nexusUpdateTableToolbar = updateButtons;
+
     addRowBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (view.state.readOnly) return;
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
       const source = view.state.doc.toString();
-      const tableCtx = findTableAtPosition(source, this.from);
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
       if (tableCtx) {
         const tx = createTableAddRowTransaction(source, tableCtx);
         if (tx) {
@@ -278,16 +802,13 @@ export class TableBlockWidget extends WidgetType {
       }
     });
 
-    const addColBtn = document.createElement('button');
-    addColBtn.type = 'button';
-    addColBtn.className = 'cm-table-btn-add-col';
-    addColBtn.textContent = '+ Col';
     addColBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (view.state.readOnly) return;
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
       const source = view.state.doc.toString();
-      const tableCtx = findTableAtPosition(source, this.from);
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
       if (tableCtx) {
         const tx = createTableAddColumnTransaction(source, tableCtx);
         if (tx) {
@@ -299,15 +820,93 @@ export class TableBlockWidget extends WidgetType {
       }
     });
 
-    if (view.state.readOnly) {
-      addRowBtn.disabled = true;
-      addColBtn.disabled = true;
-    }
+    delRowBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const currentTarget = view.state.field(tableTargetField, false);
+      const activeRow =
+        currentTarget && currentTarget.tableFrom === currentWidget.from ? currentTarget.activeRow : null;
+      if (view.state.readOnly || activeRow === null || activeRow < 0) return;
+      const source = view.state.doc.toString();
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
+      if (tableCtx && tableCtx.rows.length > 0 && activeRow < tableCtx.rows.length) {
+        const tx = createTableDeleteRowTransaction(source, tableCtx, activeRow);
+        if (tx) {
+          view.dispatch({
+            changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+            userEvent: tx.userEvent,
+            effects: setTableTargetEffect.of(null)
+          });
+        }
+      }
+    });
+
+    delColBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const currentTarget = view.state.field(tableTargetField, false);
+      const activeCol =
+        currentTarget && currentTarget.tableFrom === currentWidget.from ? currentTarget.activeCol : null;
+      if (view.state.readOnly || activeCol === null) return;
+      const source = view.state.doc.toString();
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
+      if (tableCtx && tableCtx.headers.length > 1 && activeCol < tableCtx.headers.length) {
+        const tx = createTableDeleteColumnTransaction(source, tableCtx, activeCol);
+        if (tx) {
+          view.dispatch({
+            changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+            userEvent: tx.userEvent,
+            effects: setTableTargetEffect.of(null)
+          });
+        }
+      }
+    });
+
+    const createAlignHandler = (align: 'left' | 'center' | 'right') => (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const currentTarget = view.state.field(tableTargetField, false);
+      const activeCol =
+        currentTarget && currentTarget.tableFrom === currentWidget.from ? currentTarget.activeCol : null;
+      if (view.state.readOnly || activeCol === null) return;
+      const source = view.state.doc.toString();
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
+      if (tableCtx && activeCol < tableCtx.headers.length) {
+        const tx = createTableSetAlignTransaction(source, tableCtx, activeCol, align);
+        if (tx) {
+          view.dispatch({
+            changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+            userEvent: tx.userEvent
+          });
+        }
+      }
+    };
+
+    alignLeftBtn.addEventListener('click', createAlignHandler('left'));
+    alignCenterBtn.addEventListener('click', createAlignHandler('center'));
+    alignRightBtn.addEventListener('click', createAlignHandler('right'));
+
+    updateButtons();
 
     toolbar.appendChild(addRowBtn);
     toolbar.appendChild(addColBtn);
+    toolbar.appendChild(delRowBtn);
+    toolbar.appendChild(delColBtn);
+    toolbar.appendChild(alignLeftBtn);
+    toolbar.appendChild(alignCenterBtn);
+    toolbar.appendChild(alignRightBtn);
     container.appendChild(toolbar);
 
+    const table = this.buildTableDOM(view, container);
+    container.appendChild(table);
+
+    return container;
+  }
+
+  private buildTableDOM(view: EditorView, container: HTMLElement): HTMLTableElement {
     const table = document.createElement('table');
     table.className = 'cm-visual-table';
 
@@ -324,6 +923,12 @@ export class TableBlockWidget extends WidgetType {
 
       th.addEventListener('click', (e) => {
         e.stopPropagation();
+        const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+        view.dispatch({
+          effects: setTableTargetEffect.of({ tableFrom: currentWidget.from, activeRow: -1, activeCol: colIdx })
+        });
+        const updateButtons = (container as any).__nexusUpdateTableToolbar;
+        if (typeof updateButtons === 'function') updateButtons();
         if (view.state.readOnly) return;
         this.startCellEdit(view, th, -1, colIdx, cellText);
       });
@@ -347,6 +952,12 @@ export class TableBlockWidget extends WidgetType {
 
         td.addEventListener('click', (e) => {
           e.stopPropagation();
+          const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+          view.dispatch({
+            effects: setTableTargetEffect.of({ tableFrom: currentWidget.from, activeRow: rowIdx, activeCol: colIdx })
+          });
+          const updateButtons = (container as any).__nexusUpdateTableToolbar;
+          if (typeof updateButtons === 'function') updateButtons();
           if (view.state.readOnly) return;
           this.startCellEdit(view, td, rowIdx, colIdx, cellText);
         });
@@ -356,9 +967,7 @@ export class TableBlockWidget extends WidgetType {
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-    container.appendChild(table);
-
-    return container;
+    return table;
   }
 
   private startCellEdit(
@@ -380,10 +989,9 @@ export class TableBlockWidget extends WidgetType {
     input.focus();
     input.select();
 
-    let restoreCellText = false;
     const controller = createSubEditorController(view, () => {
-      if (cellEl.contains(input)) input.remove();
-      if (restoreCellText) cellEl.textContent = initialValue;
+      // 取消、只读切换和无变更退出都恢复展示；提交后由新投影显示新正文。
+      if (cellEl.contains(input)) cellEl.textContent = initialValue;
     });
     const { signal } = controller;
 
@@ -411,7 +1019,6 @@ export class TableBlockWidget extends WidgetType {
 
       const newValue = input.value;
       if (newValue === initialValue.trim()) {
-        restoreCellText = true;
         controller.close();
         return;
       }
@@ -453,7 +1060,6 @@ export class TableBlockWidget extends WidgetType {
           }
         }
       }
-      restoreCellText = true;
       controller.close();
     };
 
@@ -468,7 +1074,6 @@ export class TableBlockWidget extends WidgetType {
         } else if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
-          restoreCellText = true;
           controller.close();
         } else if (e.key === 'Tab') {
           e.preventDefault();
@@ -507,12 +1112,22 @@ export class TableBlockWidget extends WidgetType {
   }
 
   public override updateDOM(dom: HTMLElement, view: EditorView): boolean {
-    const isRo = view.state.readOnly;
-    const addRowBtn = dom.querySelector('.cm-table-btn-add-row') as HTMLButtonElement | null;
-    const addColBtn = dom.querySelector('.cm-table-btn-add-col') as HTMLButtonElement | null;
-    if (addRowBtn) addRowBtn.disabled = isRo;
-    if (addColBtn) addColBtn.disabled = isRo;
-    return false;
+    if (!dom.classList.contains('cm-visual-table-container')) {
+      return false;
+    }
+    (dom as any).__nexusTableWidget = this;
+    const oldTable = dom.querySelector('.cm-visual-table');
+    const newTable = this.buildTableDOM(view, dom);
+    if (oldTable) {
+      dom.replaceChild(newTable, oldTable);
+    } else {
+      dom.appendChild(newTable);
+    }
+    const updateButtons = (dom as any).__nexusUpdateTableToolbar;
+    if (typeof updateButtons === 'function') {
+      updateButtons();
+    }
+    return true;
   }
 }
 
@@ -1064,9 +1679,29 @@ export class RawBlockWidget extends WidgetType {
  * 构建最小 Visual surface 投影。
  * source 仍然是 EditorState.doc，视觉层只通过 decoration/widget 隐藏语法定界符。
  */
-export function buildVisualProjection(source: string): DecorationSet {
+/**
+ * 构建最小 Visual surface 投影。
+ * source 仍然是 EditorState.doc，视觉层只通过 decoration/widget 隐藏语法定界符。
+ */
+export function buildVisualProjection(
+  source: string,
+  selection: EditorSelection | null = null,
+  isFocused: boolean = false,
+  documentDirectory: string | null = null
+): DecorationSet {
   const ranges: ProjectionRange[] = [];
   const { root } = parseMarkdown(source);
+
+  const selFrom = selection ? Math.min(selection.main.anchor, selection.main.head) : -1;
+  const selTo = selection ? Math.max(selection.main.anchor, selection.main.head) : -1;
+
+  function isNodeRevealed(range: SourceRange): boolean {
+    if (!isFocused || !selection || selFrom === -1) return false;
+    if (selFrom === selTo) {
+      return selFrom > range.from && selTo < range.to;
+    }
+    return selFrom < range.to && selTo > range.from;
+  }
 
   const opaqueBlockRanges: SourceRange[] = [];
   walkBlockNodes(root.children, (block) => {
@@ -1094,52 +1729,115 @@ export function buildVisualProjection(source: string): DecorationSet {
   function walkInline(inlineNode: MarkdownInlineNode): void {
     if (inlineNode.type === 'bold') {
       const delim = inlineNode.raw.startsWith('**') ? '**' : (inlineNode.raw.startsWith('__') ? '__' : '**');
+      const isRevealed = isNodeRevealed(inlineNode.range);
       ranges.push({
         from: inlineNode.range.from,
         to: inlineNode.range.from + delim.length,
-        decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(delim) })
+        decoration: Decoration.replace({ widget: new DelimiterWidget(delim, isRevealed) })
       });
       ranges.push({
         from: inlineNode.range.to - delim.length,
         to: inlineNode.range.to,
-        decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(delim) })
+        decoration: Decoration.replace({ widget: new DelimiterWidget(delim, isRevealed) })
       });
       for (const child of inlineNode.children) {
         walkInline(child);
       }
     } else if (inlineNode.type === 'italic') {
       const delim = inlineNode.raw.startsWith('*') ? '*' : (inlineNode.raw.startsWith('_') ? '_' : '*');
+      const isRevealed = isNodeRevealed(inlineNode.range);
       ranges.push({
         from: inlineNode.range.from,
         to: inlineNode.range.from + delim.length,
-        decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(delim) })
+        decoration: Decoration.replace({ widget: new DelimiterWidget(delim, isRevealed) })
       });
       ranges.push({
         from: inlineNode.range.to - delim.length,
         to: inlineNode.range.to,
-        decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(delim) })
+        decoration: Decoration.replace({ widget: new DelimiterWidget(delim, isRevealed) })
       });
       for (const child of inlineNode.children) {
         walkInline(child);
       }
-    } else if (inlineNode.type === 'link') {
-      const label = getInlineNodePlainText(inlineNode);
+    } else if (inlineNode.type === 'strike') {
+      const raw =
+        typeof inlineNode.raw === 'string' && inlineNode.raw.length > 0
+          ? inlineNode.raw
+          : source && inlineNode.range
+            ? source.slice(inlineNode.range.from, inlineNode.range.to)
+            : '';
+      const delim = raw.startsWith('~') && !raw.startsWith('~~') ? '~' : '~~';
+      const delimLen = delim.length;
+      const isRevealed = isNodeRevealed(inlineNode.range);
       ranges.push({
         from: inlineNode.range.from,
-        to: inlineNode.range.to,
-        decoration: Decoration.replace({
-          widget: new LinkWidget(
-            inlineNode.range.from,
-            inlineNode.range.to,
-            inlineNode.raw,
-            label,
-            inlineNode.safeHref,
-            Boolean(inlineNode.isBlocked),
-            inlineNode.title
-          )
-        })
+        to: inlineNode.range.from + delimLen,
+        decoration: Decoration.replace({ widget: new DelimiterWidget(delim, isRevealed) })
       });
+      ranges.push({
+        from: inlineNode.range.to - delimLen,
+        to: inlineNode.range.to,
+        decoration: Decoration.replace({ widget: new DelimiterWidget(delim, isRevealed) })
+      });
+      if (inlineNode.range.to - delimLen > inlineNode.range.from + delimLen) {
+        ranges.push({
+          from: inlineNode.range.from + delimLen,
+          to: inlineNode.range.to - delimLen,
+          decoration: Decoration.mark({ class: 'cm-visual-strike' })
+        });
+      }
+      for (const child of inlineNode.children) {
+        walkInline(child);
+      }
+    } else if (inlineNode.type === 'link') {
+      const isRevealed = isNodeRevealed(inlineNode.range);
+      if (isRevealed) {
+        const rightBracketIdx = inlineNode.raw.indexOf(']');
+        if (rightBracketIdx !== -1) {
+          const closeFrom = inlineNode.range.from + rightBracketIdx;
+          const closeDelim = inlineNode.raw.slice(rightBracketIdx);
+          ranges.push({
+            from: inlineNode.range.from,
+            to: inlineNode.range.from + 1,
+            decoration: Decoration.replace({ widget: new DelimiterWidget('[', true) })
+          });
+          if (closeFrom < inlineNode.range.to) {
+            ranges.push({
+              from: closeFrom,
+              to: inlineNode.range.to,
+              decoration: Decoration.replace({ widget: new DelimiterWidget(closeDelim, true) })
+            });
+          }
+          for (const child of inlineNode.children) {
+            walkInline(child);
+          }
+        } else {
+          for (const child of inlineNode.children) {
+            walkInline(child);
+          }
+        }
+      } else {
+        const label = getInlineNodePlainText(inlineNode);
+        ranges.push({
+          from: inlineNode.range.from,
+          to: inlineNode.range.to,
+          decoration: Decoration.replace({
+            widget: new LinkWidget(
+              inlineNode.range.from,
+              inlineNode.range.to,
+              inlineNode.raw,
+              label,
+              inlineNode.safeHref,
+              Boolean(inlineNode.isBlocked),
+              inlineNode.title
+            )
+          })
+        });
+      }
     } else if (inlineNode.type === 'image') {
+      const displaySrc = inlineNode.isBlocked
+        ? null
+        : resolveDocumentAssetUrl(inlineNode.src, documentDirectory);
       ranges.push({
         from: inlineNode.range.from,
         to: inlineNode.range.to,
@@ -1151,7 +1849,8 @@ export function buildVisualProjection(source: string): DecorationSet {
             inlineNode.alt,
             inlineNode.safeSrc,
             Boolean(inlineNode.isBlocked),
-            inlineNode.title
+            inlineNode.title,
+            displaySrc
           )
         })
       });
@@ -1205,10 +1904,11 @@ export function buildVisualProjection(source: string): DecorationSet {
         const indentLen = (match[1] ?? '').length;
         const hashLen = match[2].length;
         const from = blockNode.range.from + indentLen;
+        const isRevealed = isNodeRevealed(blockNode.range);
         ranges.push({
           from,
           to: from + hashLen,
-          decoration: Decoration.replace({ widget: new HiddenDelimiterWidget(match[2]) })
+          decoration: Decoration.replace({ widget: new DelimiterWidget(match[2], isRevealed) })
         });
       }
       for (const child of blockNode.children) {
@@ -1219,6 +1919,26 @@ export function buildVisualProjection(source: string): DecorationSet {
         walkInline(child);
       }
     } else if (blockNode.type === 'blockquote') {
+      const isRevealed = isNodeRevealed(blockNode.range);
+      let offset = 0;
+      while (offset < blockNode.raw.length) {
+        const lineStart = offset;
+        const nextNl = blockNode.raw.indexOf('\n', lineStart);
+        const lineEnd = nextNl === -1 ? blockNode.raw.length : nextNl;
+        const lineText = blockNode.raw.slice(lineStart, lineEnd);
+        const match = lineText.match(/^([ \t]*)(>)/);
+        if (match && match[2]) {
+          const from = blockNode.range.from + lineStart + (match[1]?.length ?? 0);
+          const to = from + 1;
+          ranges.push({
+            from,
+            to,
+            decoration: Decoration.replace({ widget: new DelimiterWidget('>', isRevealed) })
+          });
+        }
+        if (nextNl === -1) break;
+        offset = nextNl + 1;
+      }
       for (const child of blockNode.children) {
         walkBlock(child);
       }
@@ -1226,6 +1946,19 @@ export function buildVisualProjection(source: string): DecorationSet {
       for (const item of blockNode.items) {
         walkListItem(item);
       }
+    } else if (blockNode.type === 'horizontal-rule') {
+      ranges.push({
+        from: blockNode.range.from,
+        to: blockNode.range.to,
+        decoration: Decoration.replace({
+          widget: new HorizontalRuleWidget(
+            blockNode.range.from,
+            blockNode.range.to,
+            blockNode.raw
+          ),
+          block: true
+        })
+      });
     } else if (blockNode.type === 'table') {
       ranges.push({
         from: blockNode.range.from,
@@ -1288,6 +2021,7 @@ export function buildVisualProjection(source: string): DecorationSet {
   }
 
   function walkListItem(item: MarkdownListItem): void {
+    const isRevealed = isNodeRevealed(item.range);
     if (item.task) {
       const firstLine = item.raw.split(/\r?\n/)[0] ?? '';
       const match = firstLine.match(/^([ \t]*>(?:[ \t]*>)*)?([ \t]*(?:[-+*]|\d+[.)])[ \t]+)(\[[ xX]\])/);
@@ -1302,9 +2036,31 @@ export function buildVisualProjection(source: string): DecorationSet {
           decoration: Decoration.replace({ widget: new TaskCheckboxWidget(isChecked, from, to) })
         });
       }
+    } else {
+      const firstLine = item.raw.split(/\r?\n/)[0] ?? '';
+      const match = firstLine.match(/^([ \t]*)([-+*]|\d+[.)])/);
+      if (match && match[2]) {
+        const from = item.range.from + (match[1]?.length ?? 0);
+        const to = from + match[2].length;
+        ranges.push({
+          from,
+          to,
+          decoration: Decoration.replace({ widget: new DelimiterWidget(match[2], isRevealed) })
+        });
+      }
     }
 
-    const blockTypes = new Set(['heading', 'paragraph', 'blockquote', 'list', 'code-block', 'block-math', 'table', 'raw']);
+    const blockTypes = new Set([
+      'heading',
+      'paragraph',
+      'blockquote',
+      'list',
+      'code-block',
+      'block-math',
+      'table',
+      'raw',
+      'horizontal-rule'
+    ]);
     for (const child of item.children) {
       if (blockTypes.has(child.type)) {
         walkBlock(child as MarkdownBlockNode);
@@ -1314,7 +2070,6 @@ export function buildVisualProjection(source: string): DecorationSet {
     }
   }
 
-
   for (const block of root.children) {
     walkBlock(block);
   }
@@ -1322,7 +2077,9 @@ export function buildVisualProjection(source: string): DecorationSet {
   ranges.sort((left, right) => left.from - right.from || left.to - right.to);
   const builder = new RangeSetBuilder<Decoration>();
   for (const range of ranges) {
-    builder.add(range.from, range.to, range.decoration);
+    if (range.from <= range.to) {
+      builder.add(range.from, range.to, range.decoration);
+    }
   }
   return builder.finish();
 }
@@ -1330,25 +2087,74 @@ export function buildVisualProjection(source: string): DecorationSet {
 /** Visual surface 的 source-aligned decoration field。 */
 export const visualProjectionField = StateField.define<DecorationSet>({
   create(state) {
-    return buildVisualProjection(state.doc.toString());
+    const isFocused = state.field(visualFocusField, false);
+    const docDir = state.field(documentDirectoryField, false);
+    return buildVisualProjection(state.doc.toString(), state.selection, isFocused, docDir);
   },
   update(decorations, transaction) {
-    if (!transaction.docChanged) {
-      if (transaction.effects.some((e) => e.is(setComposingEffect) && !e.value)) {
-        return buildVisualProjection(transaction.state.doc.toString());
+    const isFocused = transaction.state.field(visualFocusField, false);
+    const docDir = transaction.state.field(documentDirectoryField, false);
+
+    const prevFocused = transaction.startState.field(visualFocusField, false);
+    const prevDocDir = transaction.startState.field(documentDirectoryField, false);
+    const focusChanged = isFocused !== prevFocused;
+    const docDirChanged = docDir !== prevDocDir;
+    const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
+    const selectionChanged = !transaction.startState.selection.eq(transaction.state.selection);
+
+    if (
+      transaction.docChanged ||
+      focusChanged ||
+      docDirChanged ||
+      readOnlyChanged ||
+      selectionChanged ||
+      transaction.effects.some((e) => e.is(setComposingEffect) && !e.value)
+    ) {
+      if (isEditorComposing(transaction.state)) {
+        return decorations.map(transaction.changes);
       }
-      if (transaction.startState.readOnly !== transaction.state.readOnly) {
-        return buildVisualProjection(transaction.state.doc.toString());
-      }
-      return decorations;
+      return buildVisualProjection(
+        transaction.state.doc.toString(),
+        transaction.state.selection,
+        isFocused,
+        docDir
+      );
     }
-    if (isEditorComposing(transaction.state)) {
-      return decorations.map(transaction.changes);
-    }
-    return buildVisualProjection(transaction.state.doc.toString());
+    return decorations;
   },
   provide: (field) => EditorView.decorations.from(field)
 });
 
+export const tableWidgetSyncPlugin = ViewPlugin.fromClass(
+  class {
+    update(update: ViewUpdate) {
+      if (
+        update.docChanged ||
+        update.state.field(tableTargetField, false) !==
+          update.startState.field(tableTargetField, false) ||
+        update.state.readOnly !== update.startState.readOnly
+      ) {
+        const containers = update.view.dom.querySelectorAll<HTMLElement>(
+          '.cm-visual-table-container'
+        );
+        containers.forEach((container) => {
+          const updater = (container as any).__nexusUpdateTableToolbar;
+          if (typeof updater === 'function') {
+            updater();
+          }
+        });
+      }
+    }
+  }
+);
+
 /** Visual surface 的基础扩展；不创建第二份文档。 */
-export const visualProjectionExtensions: Extension[] = [visualProjectionField, subEditorLifecyclePlugin];
+export const visualProjectionExtensions: Extension[] = [
+  visualFocusField,
+  visualFocusPlugin,
+  documentDirectoryField,
+  tableTargetField,
+  tableWidgetSyncPlugin,
+  visualProjectionField,
+  subEditorLifecyclePlugin
+];

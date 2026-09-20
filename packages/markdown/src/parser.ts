@@ -339,6 +339,28 @@ function mapInlineTokens(
         });
         break;
       }
+      case 'del': {
+        const delToken = token as Tokens.Del;
+        const delimMatch = raw.match(/^(~~|~)/);
+        const delimLen = delimMatch && delimMatch[1] ? delimMatch[1].length : 2;
+        const innerFrom = cur + delimLen;
+        const innerEnd = Math.max(innerFrom, end - delimLen);
+
+        let children: MarkdownInlineNode[];
+        if (delToken.tokens && delToken.tokens.length > 0) {
+          children = mapInlineTokens(delToken.tokens, innerFrom, source, diagnostics);
+        } else {
+          children = parseSpecialInlineSyntax(source.slice(innerFrom, innerEnd), innerFrom, source);
+        }
+
+        result.push({
+          type: 'strike',
+          children,
+          range,
+          raw
+        });
+        break;
+      }
       case 'codespan': {
         const codeToken = token as Tokens.Codespan;
         result.push({
@@ -680,12 +702,9 @@ function mapListToken(
             });
           } else if (subToken.type === 'hr') {
             itemChildren.push({
-              type: 'raw',
-              value: raw.trim(),
+              type: 'horizontal-rule',
               range: { from: blockStart, to: blockEnd },
-              raw,
-              opaque: true,
-              block: true
+              raw
             });
           } else {
             itemChildren.push({
@@ -1268,12 +1287,9 @@ function mapBlockTokens(
         const raw = source.slice(tokenStart, tokenEnd);
 
         result.push({
-          type: 'raw',
-          value: raw.trim(),
+          type: 'horizontal-rule',
           range,
-          raw,
-          opaque: true,
-          block: true
+          raw
         });
         break;
       }

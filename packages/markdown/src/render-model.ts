@@ -21,6 +21,7 @@ export function extractTextContent(
         break;
       case 'bold':
       case 'italic':
+      case 'strike':
         result += extractTextContent(node.children);
         break;
       case 'link':
@@ -52,6 +53,9 @@ export function extractTextContent(
         break;
       case 'block-math':
         result += node.raw + '\n';
+        break;
+      case 'horizontal-rule':
+        result += '\n';
         break;
       case 'table':
         for (const headerRow of node.headers) {

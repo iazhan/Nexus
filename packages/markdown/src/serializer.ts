@@ -155,6 +155,16 @@ export function serializeInline(
       const delim = typeof node.raw === 'string' && node.raw.startsWith('_') ? '_' : '*';
       return `${delim}${serializeInlines(node.children, source, force)}${delim}`;
     }
+    case 'strike': {
+      const raw =
+        typeof node.raw === 'string' && node.raw.length > 0
+          ? node.raw
+          : source && node.range
+            ? source.slice(node.range.from, node.range.to)
+            : '';
+      const delim = raw.startsWith('~') && !raw.startsWith('~~') ? '~' : '~~';
+      return `${delim}${serializeInlines(node.children, source, force)}${delim}`;
+    }
     case 'inline-code': {
       if (node.value.length === 0) {
         return '';
@@ -241,6 +251,7 @@ function isBlockChild(
     node.type === 'code-block' ||
     node.type === 'block-math' ||
     node.type === 'table' ||
+    node.type === 'horizontal-rule' ||
     (node.type === 'raw' && (node as { block?: boolean }).block === true)
   );
 }
@@ -1071,6 +1082,8 @@ export function serializeBlock(
       return serializeBlockMath(block, source, force);
     case 'table':
       return serializeTable(block, source, force);
+    case 'horizontal-rule':
+      return typeof block.raw === 'string' && block.raw.length > 0 ? block.raw : '---\n';
     case 'raw':
       return block.value;
   }
@@ -1099,6 +1112,7 @@ export function serializeNode(
       node.type === 'code-block' ||
       node.type === 'block-math' ||
       node.type === 'table' ||
+      node.type === 'horizontal-rule' ||
       node.type === 'raw'
     ) {
       return serializeBlock(node, undefined, force);

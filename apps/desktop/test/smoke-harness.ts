@@ -165,6 +165,37 @@ export class ElectronAppInstance {
     })()`);
   }
 
+  public async mouseClick(selector: string): Promise<void> {
+    await this.waitForSelector(selector);
+    const rect = await this.evaluate<{ x: number; y: number; width: number; height: number }>(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) throw new Error("Element not found: " + ${JSON.stringify(selector)});
+      const r = el.getBoundingClientRect();
+      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    })()`);
+    const x = Math.round(rect.x + rect.width / 2);
+    const y = Math.round(rect.y + rect.height / 2);
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x,
+      y
+    });
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1
+    });
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1
+    });
+  }
+
   public async pressKey(key: string, modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean }): Promise<void> {
     const isCtrl = Boolean(modifiers?.ctrl);
     const isShift = Boolean(modifiers?.shift);
@@ -177,21 +208,53 @@ export class ElectronAppInstance {
     if (isMeta) modifierFlags |= 4;
     if (isShift) modifierFlags |= 8;
 
+    let code = `Key${key.toUpperCase()}`;
+    let windowsVirtualKeyCode: number | undefined = key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined;
+    if (key === 'Enter') {
+      code = 'Enter';
+      windowsVirtualKeyCode = 13;
+    } else if (key === 'Escape') {
+      code = 'Escape';
+      windowsVirtualKeyCode = 27;
+    } else if (key === ' ') {
+      code = 'Space';
+      windowsVirtualKeyCode = 32;
+    }
+
     await this.sendCommand('Input.dispatchKeyEvent', {
       type: 'rawKeyDown',
       key,
-      code: `Key${key.toUpperCase()}`,
+      code,
       modifiers: modifierFlags,
-      windowsVirtualKeyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined
+      windowsVirtualKeyCode
     });
+
+    if (key.length === 1 && !isCtrl && !isAlt && !isMeta) {
+      await this.sendCommand('Input.dispatchKeyEvent', {
+        type: 'char',
+        text: key,
+        unmodifiedText: key,
+        modifiers: modifierFlags
+      });
+    }
 
     await this.sendCommand('Input.dispatchKeyEvent', {
       type: 'keyUp',
       key,
-      code: `Key${key.toUpperCase()}`,
+      code,
       modifiers: modifierFlags,
-      windowsVirtualKeyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined
+      windowsVirtualKeyCode
     });
+  }
+
+  public async insertText(text: string): Promise<void> {
+    await this.sendCommand('Input.insertText', { text });
+  }
+
+  public async typeText(text: string): Promise<void> {
+    for (const ch of text) {
+      await this.pressKey(ch);
+    }
   }
 
   public async close(): Promise<void> {

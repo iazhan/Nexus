@@ -116,7 +116,8 @@ function isBlockNode(node: unknown): node is MarkdownBlockNode {
     t === 'code-block' ||
     t === 'table' ||
     t === 'block-math' ||
-    t === 'raw'
+    t === 'raw' ||
+    t === 'horizontal-rule'
   );
 }
 

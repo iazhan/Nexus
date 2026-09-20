@@ -27,6 +27,13 @@ function detectMathStatus(source: string): { hasMath: boolean; failed: boolean }
   }
 }
 
+function getDocumentDirectory(filePath: string | null): string | null {
+  if (!filePath) return null;
+  const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+  if (lastSlash === -1) return null;
+  return filePath.slice(0, lastSlash);
+}
+
 export const App: React.FC = () => {
   const [context, setContext] = useState<LaunchContext | null>(null);
   const [status, setStatus] = useState<ShellStatus>('loading');
@@ -376,6 +383,7 @@ export const App: React.FC = () => {
   // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       const isMod = e.ctrlKey || e.metaKey;
 
       if (isMod && (e.key === 's' || e.key === 'S')) {
@@ -574,6 +582,7 @@ export const App: React.FC = () => {
             surfaceKind={surfaceKind}
             saveState={saveState}
             saveError={saveError}
+            documentDirectory={getDocumentDirectory(filePath)}
             onChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
             className="nexus-editor-full"

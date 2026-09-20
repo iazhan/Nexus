@@ -3,6 +3,7 @@ import {
   createSessionEditorView,
   getSelectionInfo,
   setEditorReadOnly,
+  setDocumentDirectory,
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo,
@@ -19,6 +20,7 @@ export interface SourceEditorProps {
   saveState?: EditorSaveState;
   saveError?: string | null;
   readOnly?: boolean;
+  documentDirectory?: string | null;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
   className?: string;
@@ -33,6 +35,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   surfaceId,
   surfaceKind = 'source',
   readOnly = false,
+  documentDirectory,
   onChange,
   onSelectionChange,
   className
@@ -71,6 +74,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       surfaceId,
       surfaceKind,
       readOnly,
+      documentDirectory,
       onSelectionChange: () => {
         const view = handleRef.current?.view;
         if (view) {
@@ -106,6 +110,17 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       }
     }
   }, [readOnly]);
+
+  // Dynamic document directory configuration
+  const prevDocDirRef = useRef(documentDirectory);
+  useEffect(() => {
+    if (prevDocDirRef.current !== documentDirectory) {
+      prevDocDirRef.current = documentDirectory;
+      if (handleRef.current) {
+        setDocumentDirectory(handleRef.current.view, documentDirectory ?? null);
+      }
+    }
+  }, [documentDirectory]);
 
   return (
     <div

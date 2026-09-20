@@ -30,6 +30,7 @@ export type MarkdownInlineNode =
   | ({ type: 'text'; value: string; escaped?: boolean } & MarkdownBaseNode)
   | ({ type: 'bold'; children: MarkdownInlineNode[] } & MarkdownBaseNode)
   | ({ type: 'italic'; children: MarkdownInlineNode[] } & MarkdownBaseNode)
+  | ({ type: 'strike'; children: MarkdownInlineNode[] } & MarkdownBaseNode)
   | ({ type: 'inline-code'; value: string } & MarkdownBaseNode)
   | ({
       type: 'link';
@@ -84,6 +85,7 @@ export type MarkdownBlockNode =
       rows: MarkdownInlineNode[][][];
       align: ('left' | 'center' | 'right' | null)[];
     } & MarkdownBaseNode)
+  | ({ type: 'horizontal-rule' } & MarkdownBaseNode)
   | ({ type: 'raw'; value: string } & MarkdownBaseNode);
 
 export interface MarkdownRoot extends MarkdownBaseNode {

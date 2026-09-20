@@ -141,6 +141,25 @@ export function handleVisualModI(view: EditorView): boolean {
 }
 
 /**
+ * Visual Mode 删除线格式化处理（Mod-Shift-x 键）：
+ * 切换选区的删除线样式，高保真解包现有 ~~ 分隔符。
+ */
+export function handleVisualModStrike(view: EditorView): boolean {
+  if (!isEditable(view)) return false;
+  const source = view.state.doc.toString();
+  const selection = selectionFromState(view.state);
+  const tx = createInlineFormatTransaction(source, selection, 'strike');
+  if (!tx) return false;
+
+  view.dispatch({
+    changes: tx.changes,
+    selection: tx.selection ? toEditorSelection(tx.selection) : undefined,
+    userEvent: tx.userEvent ?? 'format.strike'
+  });
+  return true;
+}
+
+/**
  * Visual Mode 块全选处理（Mod-Shift-Space 键）：
  * 选中当前光标所在或 target 偏移量处的完整最深 AST 块节点，不误选相邻 gap。
  */
@@ -206,10 +225,10 @@ export const visualKeybindings: KeyBinding[] = [
   { key: 'Tab', run: handleVisualTab, shift: handleVisualShiftTab },
   { key: 'Mod-b', run: handleVisualModB },
   { key: 'Mod-i', run: handleVisualModI },
+  { key: 'Mod-Shift-x', run: handleVisualModStrike },
   { key: 'Mod-Shift-Space', run: (view) => handleVisualSelectBlock(view) },
   { key: 'Alt-ArrowUp', run: handleVisualMoveBlockUp },
   { key: 'Alt-ArrowDown', run: handleVisualMoveBlockDown }
 ];
 
 export const visualCommandsExtension = keymap.of(visualKeybindings);
-

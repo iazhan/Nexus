@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "packages/markdown/src/**/*",
+    "packages/markdown/test/parser.test.ts",
+    "packages/markdown/test/p1-04r-semantic-closure.test.ts",
+    "packages/editor/src/**/*",
+    "packages/editor/test/p1-04r-visual-closure.test.ts",
+    "apps/desktop/renderer/src/**/*",
+    "apps/desktop/test/smoke-harness.ts",
+    "apps/desktop/test/p1-04r-semantic-closure-smoke.test.ts",
+    "apps/desktop/test/p1-04r-shortcut-dispatch.test.ts"
+  ]
+}

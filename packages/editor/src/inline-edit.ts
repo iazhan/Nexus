@@ -1093,7 +1093,8 @@ export class ImageWidget extends WidgetType {
     public readonly alt: string,
     public readonly safeSrc: string | null,
     public readonly isBlocked: boolean = false,
-    public readonly title?: string
+    public readonly title?: string,
+    public readonly displaySrc?: string | null
   ) {
     super();
   }
@@ -1106,16 +1107,20 @@ export class ImageWidget extends WidgetType {
     span.setAttribute('role', 'img');
     span.setAttribute('tabindex', '-1');
 
-    if (this.isBlocked || !this.safeSrc) {
+    const effectiveSrc = this.displaySrc !== undefined ? this.displaySrc : this.safeSrc;
+
+    if (this.isBlocked || !effectiveSrc) {
       span.classList.add('cm-visual-image-blocked');
-      span.setAttribute('aria-label', this.alt || 'Blocked unsafe image');
+      span.setAttribute('aria-label', this.alt || (this.isBlocked ? 'Blocked unsafe image' : 'Unresolved image'));
       const placeholder = document.createElement('span');
       placeholder.className = 'cm-visual-image-placeholder';
-      placeholder.textContent = `[Blocked Image: ${this.alt || 'unsafe'}]`;
+      placeholder.textContent = this.isBlocked
+        ? `[Blocked Image: ${this.alt || 'unsafe'}]`
+        : `[Image: ${this.alt || 'unresolved'}]`;
       span.appendChild(placeholder);
     } else {
       const img = document.createElement('img');
-      img.src = this.safeSrc;
+      img.src = effectiveSrc;
       img.alt = this.alt;
       if (this.title) {
         img.title = this.title;
@@ -1139,7 +1144,8 @@ export class ImageWidget extends WidgetType {
       other.alt === this.alt &&
       other.safeSrc === this.safeSrc &&
       other.isBlocked === this.isBlocked &&
-      other.title === this.title
+      other.title === this.title &&
+      other.displaySrc === this.displaySrc
     );
   }
 

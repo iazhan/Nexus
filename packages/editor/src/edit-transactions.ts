@@ -96,7 +96,7 @@ export interface FormattingSpan {
   to: number;
   open: string;
   close: string;
-  type: 'strong' | 'emphasis';
+  type: 'strong' | 'emphasis' | 'strike';
 }
 
 /**
@@ -132,6 +132,26 @@ export function findFormattingSpans(source: string): FormattingSpan[] {
         open,
         close,
         type: 'emphasis'
+      });
+      for (const child of node.children) {
+        walk(child);
+      }
+      return;
+    }
+    if (node.type === 'strike') {
+      const raw =
+        typeof node.raw === 'string' && node.raw.length > 0
+          ? node.raw
+          : source && node.range
+            ? source.slice(node.range.from, node.range.to)
+            : '';
+      const delim = raw.startsWith('~') && !raw.startsWith('~~') ? '~' : '~~';
+      spans.push({
+        from: node.range.from,
+        to: node.range.to,
+        open: delim,
+        close: delim,
+        type: 'strike'
       });
       for (const child of node.children) {
         walk(child);
@@ -272,7 +292,8 @@ function isBlockNode(node: MarkdownNode): node is MarkdownBlockNode {
     t === 'code-block' ||
     t === 'table' ||
     t === 'block-math' ||
-    t === 'raw'
+    t === 'raw' ||
+    t === 'horizontal-rule'
   );
 }
 
@@ -986,12 +1007,17 @@ export function createTaskCheckboxToggleTransaction(
 export function createInlineFormatTransaction(
   source: string,
   selection: MarkdownSelection,
-  format: 'strong' | 'emphasis'
+  format: 'strong' | 'emphasis' | 'strike'
 ): MarkdownEditTransaction | null {
   if (selection.anchor === selection.head) return null;
 
   const from = Math.min(selection.anchor, selection.head);
   const to = Math.max(selection.anchor, selection.head);
+  const isReversed = selection.anchor > selection.head;
+  const makeSelection = (start: number, end: number) => ({
+    anchor: isReversed ? end : start,
+    head: isReversed ? start : end
+  });
 
   // Guard: selection inside atomic nodes
   const atomicRanges = findAtomicRanges(source);
@@ -1012,15 +1038,19 @@ export function createInlineFormatTransaction(
     );
 
     if (matchingSpan) {
+      const isInner =
+        matchingSpan.from + matchingSpan.open.length === from &&
+        matchingSpan.to - matchingSpan.close.length === to;
+      const nextFrom = isInner ? from - matchingSpan.open.length : from;
+      const nextTo = isInner
+        ? to - matchingSpan.open.length
+        : to - matchingSpan.open.length - matchingSpan.close.length;
       return {
         changes: [
           { from: matchingSpan.from, to: matchingSpan.from + matchingSpan.open.length, insert: '' },
           { from: matchingSpan.to - matchingSpan.close.length, to: matchingSpan.to, insert: '' }
         ],
-        selection: {
-          anchor: from - matchingSpan.open.length,
-          head: to - matchingSpan.open.length
-        },
+        selection: makeSelection(nextFrom, nextTo),
         userEvent: 'format.bold'
       };
     }
@@ -1031,7 +1061,7 @@ export function createInlineFormatTransaction(
         { from, to: from, insert: marker },
         { from: to, to, insert: marker }
       ],
-      selection: { anchor: from + marker.length, head: to + marker.length },
+      selection: makeSelection(from + marker.length, to + marker.length),
       userEvent: 'format.bold'
     };
   }
@@ -1045,15 +1075,19 @@ export function createInlineFormatTransaction(
     );
 
     if (matchingSpan) {
+      const isInner =
+        matchingSpan.from + matchingSpan.open.length === from &&
+        matchingSpan.to - matchingSpan.close.length === to;
+      const nextFrom = isInner ? from - matchingSpan.open.length : from;
+      const nextTo = isInner
+        ? to - matchingSpan.open.length
+        : to - matchingSpan.open.length - matchingSpan.close.length;
       return {
         changes: [
           { from: matchingSpan.from, to: matchingSpan.from + matchingSpan.open.length, insert: '' },
           { from: matchingSpan.to - matchingSpan.close.length, to: matchingSpan.to, insert: '' }
         ],
-        selection: {
-          anchor: from - matchingSpan.open.length,
-          head: to - matchingSpan.open.length
-        },
+        selection: makeSelection(nextFrom, nextTo),
         userEvent: 'format.italic'
       };
     }
@@ -1073,7 +1107,7 @@ export function createInlineFormatTransaction(
           { from: enclosingStrong.from, to: enclosingStrong.from, insert: marker },
           { from: enclosingStrong.to, to: enclosingStrong.to, insert: marker }
         ],
-        selection: { anchor: from + marker.length, head: to + marker.length },
+        selection: makeSelection(from + marker.length, to + marker.length),
         userEvent: 'format.italic'
       };
     }
@@ -1083,11 +1117,47 @@ export function createInlineFormatTransaction(
         { from, to: from, insert: marker },
         { from: to, to, insert: marker }
       ],
-      selection: { anchor: from + marker.length, head: to + marker.length },
+      selection: makeSelection(from + marker.length, to + marker.length),
       userEvent: 'format.italic'
     };
   }
 
+  if (format === 'strike') {
+    const matchingSpan = formattingSpans.find(
+      (s) =>
+        s.type === 'strike' &&
+        ((s.from + s.open.length === from && s.to - s.close.length === to) ||
+          (s.from === from && s.to === to))
+    );
+
+    if (matchingSpan) {
+      const isInner =
+        matchingSpan.from + matchingSpan.open.length === from &&
+        matchingSpan.to - matchingSpan.close.length === to;
+      const nextFrom = isInner ? from - matchingSpan.open.length : from;
+      const nextTo = isInner
+        ? to - matchingSpan.open.length
+        : to - matchingSpan.open.length - matchingSpan.close.length;
+      return {
+        changes: [
+          { from: matchingSpan.from, to: matchingSpan.from + matchingSpan.open.length, insert: '' },
+          { from: matchingSpan.to - matchingSpan.close.length, to: matchingSpan.to, insert: '' }
+        ],
+        selection: makeSelection(nextFrom, nextTo),
+        userEvent: 'format.strike'
+      };
+    }
+
+    const marker = '~~';
+    return {
+      changes: [
+        { from, to: from, insert: marker },
+        { from: to, to, insert: marker }
+      ],
+      selection: makeSelection(from + marker.length, to + marker.length),
+      userEvent: 'format.strike'
+    };
+  }
 
   return null;
 }

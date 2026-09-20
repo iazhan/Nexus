@@ -112,6 +112,19 @@ export const editorBaseTheme = EditorView.theme({
   '.cm-visual-hidden-delimiter': {
     display: 'none'
   },
+  '.cm-visual-delimiter-revealed': {
+    opacity: '0.7',
+    color: '#94a3b8'
+  },
+  '.cm-visual-strike': {
+    textDecoration: 'line-through'
+  },
+  '.cm-visual-horizontal-rule': {
+    border: 'none',
+    borderTop: '1px solid #334155',
+    margin: '16px 0',
+    cursor: 'pointer'
+  },
   '.cm-visual-marker-inline-math': {
     color: '#93c5fd',
     backgroundColor: '#1e3a8a26'
