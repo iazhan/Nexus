@@ -34,7 +34,19 @@ export const nexusLight: ThemeDefinition = {
     'syntax-url': '#007acc',
     'syntax-list-marker': '#333333',
     'syntax-inline-code-bg': 'rgba(27,31,35,0.05)',
-    'syntax-inline-code-text': '#24292e'
+    'syntax-inline-code-text': '#24292e',
+    'status-success-bg': '#d1fae5',
+    'status-success-text': '#065f46',
+    'status-success-border': '#34d399',
+    'status-warning-bg': '#fef3c7',
+    'status-warning-text': '#92400e',
+    'status-warning-border': '#fbbf24',
+    'status-error-bg': '#fee2e2',
+    'status-error-text': '#991b1b',
+    'status-error-border': '#f87171',
+    'status-info-bg': '#dbeafe',
+    'status-info-text': '#1e40af',
+    'status-info-border': '#60a5fa'
   }
 };
 
@@ -66,7 +78,19 @@ export const nexusDark: ThemeDefinition = {
     'syntax-url': '#4daafc',
     'syntax-list-marker': '#cccccc',
     'syntax-inline-code-bg': 'rgba(240,246,252,0.15)',
-    'syntax-inline-code-text': '#e1e4e8'
+    'syntax-inline-code-text': '#e1e4e8',
+    'status-success-bg': 'rgba(6, 78, 59, 0.5)',
+    'status-success-text': '#34d399',
+    'status-success-border': 'rgba(5, 150, 105, 0.4)',
+    'status-warning-bg': 'rgba(120, 53, 15, 0.5)',
+    'status-warning-text': '#fbbf24',
+    'status-warning-border': 'rgba(217, 119, 6, 0.4)',
+    'status-error-bg': 'rgba(127, 29, 29, 0.5)',
+    'status-error-text': '#f87171',
+    'status-error-border': 'rgba(220, 38, 38, 0.4)',
+    'status-info-bg': 'rgba(30, 58, 138, 0.5)',
+    'status-info-text': '#60a5fa',
+    'status-info-border': 'rgba(37, 99, 235, 0.4)'
   }
 };
 

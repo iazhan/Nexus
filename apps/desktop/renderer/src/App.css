@@ -137,9 +137,13 @@ body {
   border-right: 0;
 }
 
-.nexus-surface-switcher button:hover,
+.nexus-surface-switcher button:hover {
+  background: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
 .nexus-surface-switcher button.active {
-  background: #26324d;
+  background: var(--nexus-bg-surface-active);
   color: var(--nexus-text-primary);
 }
 
@@ -154,27 +158,27 @@ body {
 
 .nexus-save-badge.saved,
 .nexus-save-badge.clean {
-  background-color: #064e3b33;
-  color: #34d399;
-  border: 1px solid #05966966;
+  background-color: var(--nexus-status-success-bg, #064e3b33);
+  color: var(--nexus-status-success-text, #34d399);
+  border: 1px solid var(--nexus-status-success-border, #05966966);
 }
 
 .nexus-save-badge.dirty {
-  background-color: #78350f33;
-  color: #fbbf24;
-  border: 1px solid #d9770666;
+  background-color: var(--nexus-status-warning-bg, #78350f33);
+  color: var(--nexus-status-warning-text, #fbbf24);
+  border: 1px solid var(--nexus-status-warning-border, #d9770666);
 }
 
 .nexus-save-badge.saving {
-  background-color: #1e3a8a33;
-  color: #60a5fa;
-  border: 1px solid #2563eb66;
+  background-color: var(--nexus-status-info-bg, #1e3a8a33);
+  color: var(--nexus-status-info-text, #60a5fa);
+  border: 1px solid var(--nexus-status-info-border, #2563eb66);
 }
 
 .nexus-save-badge.error {
-  background-color: #7f1d1d33;
-  color: #f87171;
-  border: 1px solid #dc262666;
+  background-color: var(--nexus-status-error-bg, #7f1d1d33);
+  color: var(--nexus-status-error-text, #f87171);
+  border: 1px solid var(--nexus-status-error-border, #dc262666);
 }
 
 .nexus-save-badge.readonly {
@@ -211,21 +215,21 @@ body {
 }
 
 .nexus-conflict-banner {
-  background-color: #78350f33;
-  color: #fde68a;
-  border-bottom-color: #d9770666;
+  background-color: var(--nexus-status-warning-bg, #78350f33);
+  color: var(--nexus-status-warning-text, #fde68a);
+  border-bottom-color: var(--nexus-status-warning-border, #d9770666);
 }
 
 .nexus-warning-banner {
-  background-color: #78350f33;
-  color: #fef08a;
-  border-bottom-color: #ca8a0466;
+  background-color: var(--nexus-status-warning-bg, #78350f33);
+  color: var(--nexus-status-warning-text, #fef08a);
+  border-bottom-color: var(--nexus-status-warning-border, #ca8a0466);
 }
 
 .nexus-save-error-banner {
-  background-color: #7f1d1d33;
-  color: #fca5a5;
-  border-bottom-color: #ef444466;
+  background-color: var(--nexus-status-error-bg, #7f1d1d33);
+  color: var(--nexus-status-error-text, #fca5a5);
+  border-bottom-color: var(--nexus-status-error-border, #ef444466);
 }
 
 .nexus-conflict-actions,
@@ -285,15 +289,15 @@ body {
 }
 
 .status-extension-badge.active {
-  background-color: #064e3b33;
-  color: #34d399;
-  border: 1px solid #05966966;
+  background-color: var(--nexus-status-success-bg, #064e3b33);
+  color: var(--nexus-status-success-text, #34d399);
+  border: 1px solid var(--nexus-status-success-border, #05966966);
 }
 
 .status-extension-badge.error {
-  background-color: #7f1d1d33;
-  color: #f87171;
-  border: 1px solid #dc262666;
+  background-color: var(--nexus-status-error-bg, #7f1d1d33);
+  color: var(--nexus-status-error-text, #f87171);
+  border: 1px solid var(--nexus-status-error-border, #dc262666);
 }
 
 /* Main Content Area */
