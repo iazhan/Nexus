@@ -78,6 +78,12 @@ export class ElectronAppInstance {
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data.toString());
+        if (data.method === 'Runtime.consoleAPICalled') {
+          console.log('[Renderer CONSOLE]', data.params.type, data.params.args?.map((a: any) => a.value || a.description).join(' '));
+        }
+        if (data.method === 'Runtime.exceptionThrown') {
+          console.error('[Renderer EXCEPTION]', data.params.exceptionDetails.exception?.description || data.params.exceptionDetails.text);
+        }
         if (typeof data.id === 'number' && this.pendingRequests.has(data.id)) {
           const { resolve, reject } = this.pendingRequests.get(data.id)!;
           this.pendingRequests.delete(data.id);

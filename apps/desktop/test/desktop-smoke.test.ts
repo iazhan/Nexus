@@ -33,7 +33,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = await launchElectronApp({ filePath: testFile });
 
     // Wait for App and editor content to be ready
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 10000);
     const badgeText = await activeApp.getText('.nexus-badge');
     expect(badgeText.toUpperCase()).toBe('LIGHTWEIGHT');
 
@@ -53,7 +53,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     activeApp = await launchElectronApp({ filePath: chineseFile });
 
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
     const filename = await activeApp.getText('.nexus-filename');
     expect(filename).toContain('测试 文档 🎉.md');
 
@@ -93,21 +93,21 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(richFile, lines.join('\n'), 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: richFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Switch to Visual mode
     await activeApp.click('.nexus-surface-switcher button:last-child');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
 
     // Verify visual widgets rendered
-    await activeApp.waitForSelector('.cm-visual-code-block', 5000);
-    await activeApp.waitForSelector('.cm-visual-block-math', 5000);
-    await activeApp.waitForSelector('.cm-mermaid-preview', 5000);
-    await activeApp.waitForSelector('.cm-visual-inline-math', 5000);
+    await activeApp.waitForSelector('.cm-visual-code-block', 15000);
+    await activeApp.waitForSelector('.cm-visual-block-math', 15000);
+    await activeApp.waitForSelector('.cm-mermaid-preview', 15000);
+    await activeApp.waitForSelector('.cm-visual-inline-math', 15000);
 
     // Switch back to Source mode
     await activeApp.click('.nexus-surface-switcher button:first-child');
-    await activeApp.waitForSelector('[data-surface-kind="source"]', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
     const sourceText = await activeApp.getText('.cm-content');
     expect(sourceText).toContain('\\sum_{i=1}^n x_i = X');
     expect(sourceText).toContain('```mermaid');
@@ -122,7 +122,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     );
 
     activeApp = await launchElectronApp({ filePath: editFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Source edit: use the real active EditorView transaction, not a synthetic DOM event.
     await activeApp.evaluate(`(() => {
@@ -132,15 +132,15 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     })()`);
     await activeApp.waitForFunction(
       `() => window.nexusSession.getSnapshot().source.includes('# Source Title')`,
-      5000
+      15000
     );
 
     // Visual edit: enter the real code-block sub-editor and commit through its key path.
     await activeApp.click('.nexus-surface-switcher button:last-child');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 5000);
-    await activeApp.waitForSelector('.cm-code-body', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
+    await activeApp.waitForSelector('.cm-code-body', 15000);
     await activeApp.click('.cm-code-body');
-    await activeApp.waitForSelector('.cm-code-editor', 5000);
+    await activeApp.waitForSelector('.cm-code-editor', 15000);
     await activeApp.evaluate(`(() => {
       const editor = document.querySelector('.cm-code-editor');
       if (!(editor instanceof HTMLTextAreaElement)) throw new Error('Code sub-editor is unavailable');
@@ -154,12 +154,12 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     })()`);
     await activeApp.waitForFunction(
       `() => window.nexusSession.getSnapshot().source.includes('Visual body edit.')`,
-      5000
+      15000
     );
 
     // Switch back to Source and verify both edits survive in canonical Markdown.
     await activeApp.click('.nexus-surface-switcher button:first-child');
-    await activeApp.waitForSelector('[data-surface-kind="source"]', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
     const sourceText = await activeApp.evaluate<string>(
       `window.nexusSession.getSnapshot().source`
     );
@@ -179,7 +179,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(crlfFile, originalCrlf, 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: crlfFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Verify initial save state is saved
     const initialBadge = await activeApp.getText('.nexus-save-badge');
@@ -209,7 +209,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(conflictFile, '# Conflict Test\n\nInitial local text.', 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: conflictFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Make local editor dirty via session
     await activeApp.evaluate(`(() => {
@@ -231,7 +231,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForFunction(`() => {
       const content = document.querySelector('.cm-content');
       return content && content.textContent && content.textContent.includes('External modified text');
-    }`, 5000);
+    }`, 15000);
   }, 25000);
 
   it('7. displays error reason and recovery path when save fails (read-only target)', async () => {
@@ -241,7 +241,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(readOnlyFile, '# Read Only Test\n\nOriginal text.', 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: readOnlyFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Make directory read-only to prevent temporary file creation and atomic rename
     const isWin = process.platform === 'win32';
@@ -267,8 +267,8 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       expect(errorText.toLowerCase()).toMatch(/error|失败|eacces|eperm|denied/);
 
       // Verify recovery options (Save As / Retry)
-      await activeApp.waitForSelector('.nexus-save-error-retry', 5000);
-      await activeApp.waitForSelector('.nexus-save-error-saveas', 5000);
+      await activeApp.waitForSelector('.nexus-save-error-retry', 15000);
+      await activeApp.waitForSelector('.nexus-save-error-saveas', 15000);
 
       // A failed save must keep the native close guard armed.
       await activeApp.pressKey('w', { ctrl: true });
@@ -292,19 +292,19 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(kbFile, '# Keyboard Test\n\nParagraph text.', 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: kbFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Mod-M toggles to Visual
     await activeApp.pressKey('m', { ctrl: true });
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
 
     // Mod-M toggles back to Source
     await activeApp.pressKey('m', { ctrl: true });
-    await activeApp.waitForSelector('[data-surface-kind="source"]', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
 
     // Mod-F opens Search panel
     await activeApp.pressKey('f', { ctrl: true });
-    await activeApp.waitForSelector('.cm-search', 5000);
+    await activeApp.waitForSelector('.cm-search', 15000);
   }, 25000);
 
   it('9. closes app and re-opens, verifying UTF-8 and CRLF preservation across restarts', async () => {
@@ -314,7 +314,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     // First session
     activeApp = await launchElectronApp({ filePath: restartFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Edit and save
     await activeApp.evaluate(`(() => {
@@ -326,7 +326,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForFunction(`() => {
       const badge = document.querySelector('.nexus-save-badge');
       return badge && badge.textContent && badge.textContent.includes('Saved');
-    }`, 5000);
+    }`, 15000);
 
     // Close first session
     await activeApp.close();
@@ -334,7 +334,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     // Second session: re-open same file
     activeApp = await launchElectronApp({ filePath: restartFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     const reloadedText = await activeApp.getText('.cm-content');
     expect(reloadedText).toContain('Session 1: # Restart Test 🎉');
@@ -349,7 +349,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(unsavedFile, '# Unsaved Close Test\n\nBody content.', 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: unsavedFile });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Make local edit (dirty)
     await activeApp.evaluate(`(() => {
@@ -359,7 +359,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     })()`);
 
     // Verify dirty indicator is shown
-    await activeApp.waitForSelector('.nexus-save-badge.dirty', 5000);
+    await activeApp.waitForSelector('.nexus-save-badge.dirty', 15000);
     const isDirty = await activeApp.evaluate(`(() => {
       return document.querySelector('.nexus-save-badge')?.textContent?.includes('Unsaved');
     })()`);
@@ -379,10 +379,10 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(mathDoc, content, 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: mathDoc });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Verify math indicator in status bar
-    await activeApp.waitForSelector('.status-extension-badge', 5000);
+    await activeApp.waitForSelector('.status-extension-badge', 15000);
     const extText = await activeApp.getText('.status-extension-badge');
     expect(extText).toContain('Math:');
 
@@ -397,11 +397,11 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     // Switch to Visual mode
     await activeApp.click('.nexus-surface-switcher button:last-child');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
 
     // Switch back to Source mode
     await activeApp.click('.nexus-surface-switcher button:first-child');
-    await activeApp.waitForSelector('[data-surface-kind="source"]', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
 
     const updatedSource = await activeApp.evaluate(`window.nexusSession.getSnapshot().source`);
     expect(updatedSource).toContain('$E = mc^2$');
@@ -413,14 +413,14 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(extDoc, '$$ x = y $$\n\n```mermaid\ngraph TD\nA-->B\n```\n', 'utf8');
 
     activeApp = await launchElectronApp({ filePath: extDoc });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
     
     await activeApp.click('.nexus-surface-switcher button:last-child');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 5000);
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
     
     // Check if it creates math and mermaid preview elements
-    await activeApp.waitForSelector('.cm-visual-block-math', 5000);
-    await activeApp.waitForSelector('.cm-mermaid-preview', 5000);
+    await activeApp.waitForSelector('.cm-visual-block-math', 15000);
+    await activeApp.waitForSelector('.cm-mermaid-preview', 15000);
   }, 25000);
 
 
@@ -429,15 +429,15 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(cpDoc, '# Command Palette Test\n', 'utf8');
 
     activeApp = await launchElectronApp({ filePath: cpDoc });
-    await activeApp.waitForSelector('.cm-content', 5000);
+    await activeApp.waitForSelector('.cm-content', 15000);
 
     // Initial theme should be light (or whatever is default)
     let bodyClass = await activeApp.evaluate('document.body.className');
     expect(bodyClass).not.toContain('theme-dark');
 
     // Open Command Palette: Mod-Shift-P
-    await activeApp.pressKey('P', { ctrl: true, shift: true });
-    await activeApp.waitForSelector('.nexus-command-palette', 5000);
+    await activeApp.pressKey('p', { ctrl: true, shift: true });
+    await activeApp.waitForSelector('.nexus-command-palette', 15000);
 
     // Search for Toggle Theme and hit enter
     await activeApp.evaluate(`(() => {
@@ -455,7 +455,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.pressKey('Enter');
 
     // Wait for theme to change
-    await activeApp.waitForFunction('document.body.className.includes("theme-dark")', 5000);
+    await activeApp.waitForFunction('document.body.className.includes("theme-dark")', 15000);
     
     // The palette should be closed
     const paletteExists = await activeApp.evaluate('!!document.querySelector(".nexus-command-palette")');

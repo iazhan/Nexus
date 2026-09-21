@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { themeManager, localeManager } from './platform.js';
 
 export function useTheme() {
