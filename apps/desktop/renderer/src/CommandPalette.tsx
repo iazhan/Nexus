@@ -14,7 +14,8 @@ export const CommandPalette: React.FC<{
 
   const allCommands = commandRegistry.getCommands();
   const filteredCommands = allCommands.filter(cmd => 
-    t(cmd.titleKey).toLowerCase().includes(query.toLowerCase())
+    t(cmd.titleKey).toLowerCase().includes(query.toLowerCase()) || 
+    cmd.id.toLowerCase().includes(query.toLowerCase())
   );
 
   useEffect(() => {

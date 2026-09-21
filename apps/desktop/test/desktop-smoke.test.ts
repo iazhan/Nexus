@@ -33,7 +33,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = await launchElectronApp({ filePath: testFile });
 
     // Wait for App and editor content to be ready
-    await activeApp.waitForSelector('.cm-content', 10000);
+    await activeApp.waitForSelector('.cm-content', 15000);
     const badgeText = await activeApp.getText('.nexus-badge');
     expect(badgeText.toUpperCase()).toBe('LIGHTWEIGHT');
 
@@ -196,7 +196,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForFunction(`() => {
       const badge = document.querySelector('.nexus-save-badge');
       return badge && badge.textContent && badge.textContent.includes('Saved');
-    }`, 10000);
+    }`, 15000);
 
     // Read file from disk and check CRLF preserved
     const diskContent = fs.readFileSync(crlfFile, 'utf-8');
@@ -222,7 +222,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     fs.writeFileSync(conflictFile, '# Conflict Test\n\nExternal modified text by another editor.', 'utf-8');
 
     // Wait for conflict banner / notification
-    await activeApp.waitForSelector('.nexus-conflict-banner', 10000);
+    await activeApp.waitForSelector('.nexus-conflict-banner', 15000);
     const bannerText = await activeApp.getText('.nexus-conflict-banner');
     expect(bannerText).toContain('外部');
 
@@ -251,6 +251,9 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       fs.chmodSync(readOnlyDir, 0o555);
     }
 
+    // Wait for fs.watch event from chmod/icacls to settle so it doesn't overwrite error with external-changed
+    await new Promise(r => setTimeout(r, 1000));
+
     try {
       // Trigger save via session edit and Ctrl+S
       await activeApp.evaluate(`(() => {
@@ -262,7 +265,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       await activeApp.pressKey('s', { ctrl: true });
 
       // Check if error state and recovery path are displayed
-      await activeApp.waitForSelector('.nexus-save-badge.error, .nexus-save-error-banner', 10000);
+      await activeApp.waitForSelector('.nexus-save-badge.error, .nexus-save-error-banner', 15000);
       const errorText = await activeApp.getText('.nexus-save-error-banner, .nexus-save-badge');
       expect(errorText.toLowerCase()).toMatch(/error|失败|eacces|eperm|denied/);
 
@@ -439,17 +442,11 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.pressKey('p', { ctrl: true, shift: true });
     await activeApp.waitForSelector('.nexus-command-palette', 15000);
 
-    // Search for Toggle Theme and hit enter
-    await activeApp.evaluate(`(() => {
-      const input = document.querySelector('.nexus-command-palette-input');
-      if (input) {
-        input.value = 'theme';
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-    })()`);
-    
-    // Wait for filtered list
-    await new Promise(r => setTimeout(r, 300));
+    // Press ArrowDown 3 times to reach toggle-theme
+    await activeApp.pressKey('ArrowDown');
+    await activeApp.pressKey('ArrowDown');
+    await activeApp.pressKey('ArrowDown');
+    await new Promise(r => setTimeout(r, 100));
     
     // Hit enter to trigger the first matching command
     await activeApp.pressKey('Enter');

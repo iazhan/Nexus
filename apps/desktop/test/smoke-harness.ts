@@ -140,6 +140,8 @@ export class ElectronAppInstance {
       }
       await new Promise((r) => setTimeout(r, 100));
     }
+    const htmlObj = await this.sendCommand('Runtime.evaluate', { expression: 'document.body.innerHTML' });
+    console.log('[HTML DUMP]', htmlObj.result?.value);
     throw new Error(`Timeout (${timeoutMs}ms) waiting for selector: ${selector}`);
   }
 
