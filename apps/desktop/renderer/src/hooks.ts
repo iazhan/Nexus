@@ -8,7 +8,7 @@ export function useTheme() {
     return themeManager.subscribe(setThemeState);
   }, []);
 
-  const setTheme = useCallback((t: 'light' | 'dark') => themeManager.setTheme(t), []);
+  const setTheme = useCallback((t: 'light' | 'dark') => themeManager.setThemeByType(t), []);
   return { theme, setTheme };
 }
 

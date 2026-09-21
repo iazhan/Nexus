@@ -1,394 +1,142 @@
-import { EditorView } from '@codemirror/view';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { tags as t } from '@lezer/highlight';
+import { EditorView } from "@codemirror/view";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags as t } from "@lezer/highlight";
 
-const darkTheme = EditorView.theme({
-  '&': {
-    height: '100%',
-    color: '#e2e8f0',
-    backgroundColor: '#14151a',
-    fontSize: '14px',
+// Nexus Unified Theme using CSS Variables (Design Tokens)
+export const nexusBaseTheme = EditorView.theme({
+  "&": {
+    height: "100%",
+    color: "var(--nexus-text-primary)",
+    backgroundColor: "var(--nexus-bg-canvas)",
+    fontSize: "14px",
     fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace"
   },
-  '.cm-content': {
-    caretColor: '#60a5fa',
-    padding: '12px 16px',
-    lineHeight: '1.6'
+  ".cm-content": {
+    caretColor: "var(--nexus-accent-primary)",
+    padding: "12px 16px",
+    lineHeight: "1.6"
   },
-  '&.cm-focused .cm-cursor': {
-    borderLeftColor: '#60a5fa',
-    borderLeftWidth: '2px'
+  "&.cm-focused .cm-cursor": {
+    borderLeftColor: "var(--nexus-accent-primary)",
+    borderLeftWidth: "2px"
   },
-  '&.cm-focused .cm-selectionBackground, ::selection': {
-    backgroundColor: '#2563eb44 !important'
+  "&.cm-focused .cm-selectionBackground, ::selection": {
+    backgroundColor: "var(--nexus-selection-bg) !important"
   },
-  '.cm-gutters': {
-    backgroundColor: '#181920',
-    color: '#64748b',
-    borderRight: '1px solid #232530',
-    paddingRight: '4px'
+  ".cm-gutters": {
+    backgroundColor: "var(--nexus-bg-surface)",
+    color: "var(--nexus-text-muted)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
+    paddingRight: "4px"
   },
-  '.cm-lineNumbers .cm-gutterElement': {
-    padding: '0 8px 0 12px',
-    minWidth: '36px',
-    textAlign: 'right'
+  ".cm-lineNumbers .cm-gutterElement": {
+    padding: "0 8px 0 12px",
+    minWidth: "36px",
+    textAlign: "right"
   },
-  '.cm-activeLine': {
-    backgroundColor: '#1e202a66'
+  ".cm-activeLine": {
+    backgroundColor: "var(--nexus-bg-surface-hover)"
   },
-  '.cm-activeLineGutter': {
-    backgroundColor: '#1e202a',
-    color: '#94a3b8'
+  ".cm-activeLineGutter": {
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    color: "var(--nexus-text-secondary)"
   },
-  '.cm-panels': {
-    backgroundColor: '#1a1c24',
-    color: '#e2e8f0',
-    borderBottom: '1px solid #2e3240'
+
+  // UI widgets and interactive elements
+  ".cm-marker-inline-math": {
+    color: "var(--nexus-accent-text)",
+    backgroundColor: "var(--nexus-bg-surface-active)",
+    borderRadius: "3px",
+    padding: "1px 3px"
   },
-  '.cm-panels-top': {
-    borderBottom: '1px solid #2e3240'
+  ".cm-marker-block-math": {
+    color: "var(--nexus-accent-text)",
+    backgroundColor: "var(--nexus-bg-surface-active)",
+    borderLeft: "3px solid var(--nexus-accent-primary)",
+    display: "inline-block",
+    width: "100%",
+    padding: "2px 6px",
+    borderRadius: "0 3px 3px 0"
   },
-  '.cm-search': {
-    padding: '6px 12px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px'
+  ".cm-marker-wikilink": {
+    color: "var(--nexus-accent-text)",
+    textDecoration: "underline",
+    textDecorationColor: "var(--nexus-accent-primary)",
+    backgroundColor: "var(--nexus-bg-surface-active)",
+    borderRadius: "3px",
+    padding: "1px 3px"
   },
-  '.cm-search input': {
-    backgroundColor: '#121318',
-    color: '#f1f5f9',
-    border: '1px solid #333745',
-    borderRadius: '4px',
-    padding: '4px 8px',
-    fontSize: '12px',
-    outline: 'none'
+  ".cm-marker-code-fence": {
+    color: "var(--nexus-syntax-string)"
   },
-  '.cm-search input:focus': {
-    borderColor: '#3b82f6'
+  ".cm-visual-hidden-delimiter": {
+    display: "none"
   },
-  '.cm-search button': {
-    backgroundColor: '#262936',
-    color: '#cbd5e1',
-    border: '1px solid #373b4d',
-    borderRadius: '4px',
-    padding: '3px 8px',
-    fontSize: '12px',
-    cursor: 'pointer'
+  ".cm-visual-delimiter-revealed": {
+    opacity: "0.7",
+    color: "var(--nexus-text-muted)"
   },
-  '.cm-search button:hover': {
-    backgroundColor: '#323647'
+  ".cm-visual-strike": {
+    textDecoration: "line-through"
   },
-  '.cm-search label': {
-    fontSize: '12px',
-    color: '#94a3b8'
+  ".cm-visual-horizontal-rule": {
+    border: "none",
+    borderTop: "1px solid var(--nexus-border-strong)",
+    margin: "16px 0",
+    cursor: "pointer"
   },
-  // Custom marker styles
-  '.cm-marker-inline-math': {
-    color: '#93c5fd',
-    backgroundColor: '#1e3a8a26',
-    borderRadius: '3px',
-    padding: '1px 3px'
+  
+  // Extensions status
+  ".nexus-ext-loading": {
+    color: "var(--nexus-text-muted)",
+    fontStyle: "italic",
+    fontSize: "0.9em"
   },
-  '.cm-marker-block-math': {
-    color: '#bfdbfe',
-    backgroundColor: '#17255433',
-    borderLeft: '3px solid #3b82f6',
-    display: 'inline-block',
-    width: '100%',
-    padding: '2px 6px',
-    borderRadius: '0 3px 3px 0'
+  ".nexus-ext-error": {
+    color: "#f87171", // Fixed error color
+    backgroundColor: "rgba(248, 113, 113, 0.1)",
+    padding: "2px 6px",
+    borderRadius: "4px",
+    fontSize: "0.9em",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px"
   },
-  '.cm-marker-wikilink': {
-    color: '#67e8f9',
-    textDecoration: 'underline',
-    textDecorationColor: '#0891b2',
-    backgroundColor: '#0e749022',
-    borderRadius: '3px',
-    padding: '1px 3px'
+  ".nexus-ext-retry": {
+    backgroundColor: "var(--nexus-bg-surface-active)",
+    color: "var(--nexus-text-primary)",
+    border: "none",
+    borderRadius: "3px",
+    padding: "2px 6px",
+    fontSize: "0.85em",
+    cursor: "pointer"
   },
-  '.cm-marker-code-fence': {
-    color: '#fdba74'
-  },
-  '.cm-visual-hidden-delimiter': {
-    display: 'none'
-  },
-  '.cm-visual-delimiter-revealed': {
-    opacity: '0.7',
-    color: '#94a3b8'
-  },
-  '.cm-visual-strike': {
-    textDecoration: 'line-through'
-  },
-  '.cm-visual-horizontal-rule': {
-    border: 'none',
-    borderTop: '1px solid #334155',
-    margin: '16px 0',
-    cursor: 'pointer'
-  },
-  '.cm-visual-marker-inline-math': {
-    color: '#93c5fd',
-    backgroundColor: '#1e3a8a26'
-  },
-  '.cm-visual-marker-wikilink': {
-    color: '#67e8f9',
-    textDecoration: 'underline',
-    textDecorationColor: '#0891b2'
-  },
-  '.cm-visual-marker-code-fence': {
-    color: '#fdba74'
-  },
-  '.cm-visual-marker-block-math': {
-    color: '#bfdbfe',
-    backgroundColor: '#17255433'
-  },
-  '.cm-visual-task-checkbox': {
-    marginRight: '6px',
-    verticalAlign: 'middle',
-    cursor: 'pointer',
-    accentColor: '#3b82f6'
-  },
-  '.cm-visual-drag-handle': {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '12px',
-    height: '16px',
-    marginRight: '6px',
-    cursor: 'grab',
-    userSelect: 'none',
-    color: '#64748b',
-    opacity: '0',
-    transition: 'opacity 0.15s ease-in-out',
-    verticalAlign: 'middle'
-  },
-  '.cm-line:hover .cm-visual-drag-handle, .cm-visual-drag-handle:hover, .cm-visual-drag-handle.is-dragging': {
-    opacity: '1'
-  },
-  '.cm-visual-drag-handle.is-dragging': {
-    cursor: 'grabbing',
-    color: '#60a5fa'
-  },
-  '.cm-visual-drag-handle.disabled': {
-    cursor: 'not-allowed',
-    opacity: '0.3 !important',
-    pointerEvents: 'none'
-  },
-  '.cm-visual-drop-target': {
-    borderTop: '2px solid #3b82f6'
-  },
-  // Inline edit widgets & popover styles
-  '.cm-inline-edit-popover': {
-    position: 'absolute',
-    zIndex: '150',
-    backgroundColor: '#1a1c24',
-    color: '#e2e8f0',
-    border: '1px solid #333745',
-    borderRadius: '6px',
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
-    padding: '10px 12px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    minWidth: '260px',
-    maxWidth: '380px'
-  },
-  '.cm-inline-edit-field': {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '3px'
-  },
-  '.cm-inline-edit-label': {
-    fontSize: '11px',
-    color: '#94a3b8',
-    fontWeight: '500'
-  },
-  '.cm-inline-edit-popover input': {
-    backgroundColor: '#121318',
-    color: '#f1f5f9',
-    border: '1px solid #333745',
-    borderRadius: '4px',
-    padding: '5px 8px',
-    fontSize: '13px',
-    outline: 'none'
-  },
-  '.cm-inline-edit-popover input:focus': {
-    borderColor: '#3b82f6'
-  },
-  '.cm-inline-edit-actions': {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '6px',
-    marginTop: '4px'
-  },
-  '.cm-inline-edit-actions button, .cm-image-upload-btn': {
-    backgroundColor: '#262936',
-    color: '#cbd5e1',
-    border: '1px solid #373b4d',
-    borderRadius: '4px',
-    padding: '4px 10px',
-    fontSize: '12px',
-    cursor: 'pointer'
-  },
-  '.cm-inline-edit-actions button:hover, .cm-image-upload-btn:hover': {
-    backgroundColor: '#323647'
-  },
-  '.cm-inline-edit-save': {
-    backgroundColor: '#2563eb !important',
-    color: '#ffffff !important',
-    borderColor: '#3b82f6 !important'
-  },
-  '.cm-inline-edit-save:hover': {
-    backgroundColor: '#1d4ed8 !important'
-  },
-  '.cm-inline-edit-error': {
-    color: '#f87171',
-    fontSize: '11px',
-    lineHeight: '1.4'
-  },
-  '.nexus-ext-loading': {
-    color: '#94a3b8',
-    fontStyle: 'italic',
-    fontSize: '0.9em'
-  },
-  '.nexus-ext-error': {
-    color: '#f87171',
-    backgroundColor: 'rgba(248, 113, 113, 0.1)',
-    padding: '2px 6px',
-    borderRadius: '4px',
-    fontSize: '0.9em',
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px'
-  },
-  '.nexus-ext-retry': {
-    backgroundColor: '#374151',
-    color: '#f3f4f6',
-    border: 'none',
-    borderRadius: '3px',
-    padding: '2px 6px',
-    fontSize: '0.85em',
-    cursor: 'pointer'
-  },
-  '.nexus-ext-retry:hover': {
-    backgroundColor: '#4b5563'
-  },
-  '.cm-visual-link': {
-    color: '#60a5fa',
-    textDecoration: 'underline',
-    cursor: 'pointer'
-  },
-  '.cm-visual-link-blocked': {
-    color: '#94a3b8',
-    textDecoration: 'line-through',
-    cursor: 'not-allowed',
-    opacity: '0.6'
-  },
-  '.cm-visual-image': {
-    display: 'inline-flex',
-    alignItems: 'center',
-    cursor: 'pointer',
-    verticalAlign: 'middle'
-  },
-  '.cm-visual-image-blocked': {
-    opacity: '0.5',
-    cursor: 'not-allowed',
-    filter: 'grayscale(1)'
-  },
-  '.cm-visual-image-placeholder': {
-    display: 'inline-block',
-    padding: '2px 6px',
-    backgroundColor: '#1e293b',
-    color: '#94a3b8',
-    borderRadius: '4px',
-    fontSize: '12px'
-  },
-  '.cm-visual-inline-math': {
-    color: '#93c5fd',
-    backgroundColor: '#1e3a8a26',
-    borderRadius: '3px',
-    padding: '1px 3px',
-    cursor: 'pointer'
-  },
-  '.cm-visual-inline-code': {
-    color: '#a5f3fc',
-    backgroundColor: '#1e293b66',
-    borderRadius: '3px',
-    padding: '1px 4px',
-    cursor: 'pointer',
-    fontFamily: 'inherit'
-  },
-  '.cm-visual-wikilink': {
-    color: '#67e8f9',
-    textDecoration: 'underline',
-    textDecorationColor: '#0891b2',
-    backgroundColor: '#0e749022',
-    borderRadius: '3px',
-    padding: '1px 3px',
-    cursor: 'pointer'
+  ".nexus-ext-retry:hover": {
+    backgroundColor: "var(--nexus-bg-surface-hover)"
   }
 });
 
 export const markdownHighlightStyle = HighlightStyle.define([
-  { tag: t.heading1, fontSize: '1.4em', fontWeight: 'bold', color: '#f8fafc' },
-  { tag: t.heading2, fontSize: '1.25em', fontWeight: 'bold', color: '#f1f5f9' },
-  { tag: t.heading3, fontSize: '1.1em', fontWeight: 'bold', color: '#e2e8f0' },
-  { tag: t.heading, fontWeight: 'bold', color: '#cbd5e1' },
-  { tag: t.strong, fontWeight: 'bold', color: '#f1f5f9' },
-  { tag: t.emphasis, fontStyle: 'italic', color: '#e2e8f0' },
-  { tag: t.link, color: '#60a5fa', textDecoration: 'underline' },
-  { tag: t.url, color: '#38bdf8' },
-  { tag: t.monospace, color: '#a5f3fc', backgroundColor: '#1e293b44' },
-  { tag: t.quote, color: '#94a3b8', fontStyle: 'italic' },
-  { tag: t.keyword, color: '#c084fc' },
-  { tag: t.string, color: '#86efac' },
-  { tag: t.comment, color: '#64748b', fontStyle: 'italic' }
+  { tag: t.heading1, fontSize: "1.4em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
+  { tag: t.heading2, fontSize: "1.25em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
+  { tag: t.heading3, fontSize: "1.1em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
+  { tag: t.heading, fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
+  { tag: t.strong, fontWeight: "bold", color: "var(--nexus-text-primary)" },
+  { tag: t.emphasis, fontStyle: "italic", color: "var(--nexus-text-primary)" },
+  { tag: t.link, color: "var(--nexus-syntax-url)", textDecoration: "underline" },
+  { tag: t.url, color: "var(--nexus-syntax-url)" },
+  { tag: t.monospace, color: "var(--nexus-syntax-inline-code-text)", backgroundColor: "var(--nexus-syntax-inline-code-bg)" },
+  { tag: t.quote, color: "var(--nexus-text-secondary)", fontStyle: "italic" },
+  { tag: t.keyword, color: "var(--nexus-syntax-keyword)" },
+  { tag: t.string, color: "var(--nexus-syntax-string)" },
+  { tag: t.comment, color: "var(--nexus-syntax-comment)", fontStyle: "italic" }
 ]);
 
 export const editorSyntaxHighlighting = syntaxHighlighting(markdownHighlightStyle, {
   fallback: true
 });
-const lightTheme = EditorView.theme({
-  '&': {
-    height: '100%',
-    color: '#24292e',
-    backgroundColor: '#ffffff',
-    fontSize: '14px',
-    fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace"
-  },
-  '.cm-content': {
-    caretColor: '#0366d6',
-    padding: '12px 16px',
-    lineHeight: '1.6'
-  },
-  '&.cm-focused .cm-cursor': {
-    borderLeftColor: '#0366d6',
-    borderLeftWidth: '2px'
-  },
-  '&.cm-focused .cm-selectionBackground, ::selection': {
-    backgroundColor: '#c8e1ff !important'
-  },
-  '.cm-gutters': {
-    backgroundColor: '#f6f8fa',
-    color: '#6a737d',
-    borderRight: '1px solid #eaecef',
-    paddingRight: '4px'
-  },
-  '.cm-lineNumbers .cm-gutterElement': {
-    padding: '0 8px 0 12px',
-    minWidth: '36px',
-    textAlign: 'right'
-  },
-  '.cm-activeLine': {
-    backgroundColor: '#f6f8fa'
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: '#f6f8fa',
-    color: '#24292e'
-  }
-}, { dark: false });
 
-export function getEditorTheme(theme: 'light' | 'dark' = 'light') {
-  return theme === 'dark' ? darkTheme : lightTheme;
+// Single unified theme exporter
+export function getEditorTheme() {
+  return [nexusBaseTheme, editorSyntaxHighlighting];
 }
-
-export const editorBaseTheme = getEditorTheme('dark');

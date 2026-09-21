@@ -40,11 +40,11 @@ function getDocumentDirectory(filePath: string | null): string | null {
 
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
-  const { locale, setLocale, t } = useLocale();
+  const { locale, setLocale } = useLocale();
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   useEffect(() => {
-    document.body.className = `theme-${theme}`;
+    document.body.className = `theme-${theme.type}`;
   }, [theme]);
 
   const [context, setContext] = useState<LaunchContext | null>(null);
@@ -432,7 +432,7 @@ export const App: React.FC = () => {
       commandRegistry.registerCommand({
         id: 'toggle-theme',
         titleKey: 'cmd.toggleTheme',
-        execute: () => setTheme(theme === 'light' ? 'dark' : 'light')
+        execute: () => setTheme(theme.type === 'light' ? 'dark' : 'light')
       }),
       commandRegistry.registerCommand({
         id: 'toggle-locale',
@@ -670,7 +670,7 @@ export const App: React.FC = () => {
             readOnly={saveState === 'readonly'}
             documentDirectory={getDocumentDirectory(filePath)}
             extensionHost={extensionHostRef.current ?? undefined}
-            theme={theme}
+            theme={theme.type}
             onChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
             className="nexus-editor-full"

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { commandRegistry } from './platform.js';
 import { useLocale } from './hooks.js';
-import type { Command } from '@nexus/command';
+
 
 export const CommandPalette: React.FC<{
   isOpen: boolean;

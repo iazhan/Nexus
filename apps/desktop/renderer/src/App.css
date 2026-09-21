@@ -1,19 +1,6 @@
 :root {
-  --bg-primary: #121316;
-  --bg-surface: #1a1c22;
-  --border-color: #2c2f38;
-  --text-primary: #f0f2f5;
-  --text-secondary: #9ba1b0;
-  --accent-color: #3b82f6;
-  --accent-badge-bg: #1e3a8a33;
-  --accent-badge-text: #60a5fa;
-  --alert-bg: #7f1d1d26;
-  --alert-border: #ef444455;
-  --alert-text: #fca5a5;
-  --error-card-bg: #2d1518;
-  --error-card-border: #ef444466;
-  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", Consolas, Monaco, monospace;
 }
 
 * {
@@ -23,8 +10,8 @@
 }
 
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+  background-color: var(--nexus-bg-canvas);
+  color: var(--nexus-text-primary);
   font-family: var(--font-family);
   overflow: hidden;
   height: 100vh;
@@ -45,7 +32,7 @@ body {
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-  background-color: var(--bg-primary);
+  background-color: var(--nexus-bg-canvas);
   overflow: hidden;
 }
 
@@ -56,8 +43,8 @@ body {
   justify-content: space-between;
   height: 42px;
   padding: 0 16px;
-  background-color: var(--bg-surface);
-  border-bottom: 1px solid var(--border-color);
+  background-color: var(--nexus-bg-surface);
+  border-bottom: 1px solid var(--nexus-border-subtle);
   flex-shrink: 0;
   user-select: none;
   gap: 12px;
@@ -73,7 +60,7 @@ body {
 .nexus-app-title {
   font-size: 0.95rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--nexus-text-primary);
   letter-spacing: 0;
 }
 
@@ -84,9 +71,9 @@ body {
   letter-spacing: 0.05em;
   padding: 2px 8px;
   border-radius: 9999px;
-  background-color: var(--accent-badge-bg);
-  color: var(--accent-badge-text);
-  border: 1px solid var(--accent-badge-text);
+  background-color: var(--nexus-selection-bg);
+  color: var(--nexus-accent-text);
+  border: 1px solid var(--nexus-accent-text);
 }
 
 .nexus-header-center {
@@ -102,7 +89,7 @@ body {
 .nexus-filename {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--nexus-text-primary);
 }
 
 .nexus-dirty-indicator {
@@ -113,7 +100,7 @@ body {
 
 .nexus-filepath-subtitle {
   font-size: 0.68rem;
-  color: var(--text-secondary);
+  color: var(--nexus-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -130,7 +117,7 @@ body {
 .nexus-surface-switcher {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--nexus-border-subtle);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -138,9 +125,9 @@ body {
 .nexus-surface-switcher button {
   padding: 3px 8px;
   border: 0;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--nexus-border-subtle);
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--nexus-text-secondary);
   font: inherit;
   font-size: 0.7rem;
   cursor: pointer;
@@ -153,7 +140,7 @@ body {
 .nexus-surface-switcher button:hover,
 .nexus-surface-switcher button.active {
   background: #26324d;
-  color: var(--text-primary);
+  color: var(--nexus-text-primary);
 }
 
 .nexus-save-badge {
@@ -219,7 +206,7 @@ body {
   font-size: 0.8rem;
   line-height: 1.4;
   gap: 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--nexus-border-subtle);
   flex-shrink: 0;
 }
 
@@ -315,7 +302,7 @@ body {
   min-height: 0;
   position: relative;
   overflow: hidden;
-  background-color: var(--bg-primary);
+  background-color: var(--nexus-bg-canvas);
 }
 
 /* Editor Wrapper */
@@ -350,7 +337,7 @@ body {
   width: 32px;
   height: 32px;
   border: 3px solid #2c2f38;
-  border-top-color: var(--accent-color);
+  border-top-color: var(--nexus-accent-primary);
   border-radius: 50%;
   animation: nexus-spin 0.8s linear infinite;
   margin-bottom: 12px;
@@ -364,7 +351,7 @@ body {
 
 .nexus-state-text {
   font-size: 0.9rem;
-  color: var(--text-secondary);
+  color: var(--nexus-text-secondary);
 }
 
 .nexus-error-card {
@@ -416,10 +403,10 @@ body {
   justify-content: space-between;
   height: 26px;
   padding: 0 16px;
-  background-color: var(--bg-surface);
-  border-top: 1px solid var(--border-color);
+  background-color: var(--nexus-bg-surface);
+  border-top: 1px solid var(--nexus-border-subtle);
   font-size: 0.72rem;
-  color: var(--text-secondary);
+  color: var(--nexus-text-secondary);
   user-select: none;
   flex-shrink: 0;
 }
@@ -471,30 +458,13 @@ body {
 }
 
 .status-format {
-  color: var(--accent-badge-text);
+  color: var(--nexus-accent-text);
   font-weight: 600;
 }
 
-/* Theme specific overrides */
-:root.theme-light {
-  --bg-primary: #ffffff;
-  --bg-surface: #f9f9fb;
-  --border-color: #e1e4e8;
-  --text-primary: #24292e;
-  --text-secondary: #586069;
-  --accent-color: #0366d6;
-  --accent-badge-bg: #e1f0ff;
-  --accent-badge-text: #0366d6;
-  --alert-bg: #ffeef0;
-  --alert-border: #f85149;
-  --alert-text: #cb2431;
-  --error-card-bg: #fff5f5;
-  --error-card-border: #ffdce0;
-}
 
-:root.theme-dark {
-  /* Same as default */
-}
+
+
 
 /* Command Palette */
 .nexus-command-palette-backdrop {
@@ -512,8 +482,8 @@ body {
 }
 
 .nexus-command-palette {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  background-color: var(--nexus-bg-surface);
+  border: 1px solid var(--nexus-border-subtle);
   border-radius: 8px;
   width: 100%;
   max-width: 600px;
@@ -526,8 +496,8 @@ body {
 .nexus-command-palette-input {
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-primary);
+  border-bottom: 1px solid var(--nexus-border-subtle);
+  color: var(--nexus-text-primary);
   font-size: 1.1rem;
   padding: 16px;
   width: 100%;
@@ -549,13 +519,13 @@ body {
   padding: 10px 16px;
   cursor: pointer;
   border-radius: 4px;
-  color: var(--text-secondary);
+  color: var(--nexus-text-secondary);
 }
 
 .nexus-command-palette-item.selected,
 .nexus-command-palette-item:hover {
-  background-color: var(--accent-badge-bg);
-  color: var(--accent-badge-text);
+  background-color: var(--nexus-selection-bg);
+  color: var(--nexus-accent-text);
 }
 
 .nexus-command-title {
@@ -565,7 +535,7 @@ body {
 .nexus-command-shortcut {
   font-size: 0.8rem;
   font-family: var(--font-mono);
-  background-color: var(--border-color);
+  background-color: var(--nexus-border-subtle);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -573,6 +543,6 @@ body {
 .nexus-command-palette-empty {
   padding: 16px;
   text-align: center;
-  color: var(--text-secondary);
+  color: var(--nexus-text-secondary);
 }
 

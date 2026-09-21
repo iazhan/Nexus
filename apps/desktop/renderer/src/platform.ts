@@ -10,9 +10,9 @@ export const themeManager = new ThemeManager();
 if (typeof localStorage !== 'undefined') {
   const savedTheme = localStorage.getItem('nexus-theme');
   if (savedTheme === 'dark' || savedTheme === 'light') {
-    themeManager.setTheme(savedTheme);
+    themeManager.setThemeByType(savedTheme);
   } else if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    themeManager.setTheme('dark');
+    themeManager.setThemeByType('dark');
   }
 
   const savedLocale = localStorage.getItem('nexus-locale');
@@ -24,7 +24,7 @@ if (typeof localStorage !== 'undefined') {
 // Persist to localStorage on change
 themeManager.subscribe((theme) => {
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('nexus-theme', theme);
+    localStorage.setItem('nexus-theme', theme.type);
   }
 });
 

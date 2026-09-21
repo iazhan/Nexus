@@ -10,7 +10,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { editorKeybindings } from './keymaps.js';
 import { markdownCompletionSource } from './completions.js';
 import { markdownMarkersField } from './markdown-markers.js';
-import { getEditorTheme, editorSyntaxHighlighting } from './theme.js';
+import { getEditorTheme } from './theme.js';
 import { getSelectionInfo } from './selection.js';
 import type { CreateSourceEditorOptions, SourceEditorConfig } from './types.js';
 import { extensionHostFacet } from './extensions.js';
@@ -37,9 +37,9 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
 
     markdown(),
 
-    editorSyntaxHighlighting,
+    
 
-    themeCompartment.of(getEditorTheme(config.theme ?? 'light')),
+    themeCompartment.of(getEditorTheme()),
 
     autocompletion({
       override: [markdownCompletionSource]
@@ -111,10 +111,10 @@ export function setEditorReadOnly(view: EditorView, readOnly: boolean): void {
 /**
  * Reconfigures the theme of an existing EditorView.
  */
-export function setEditorThemeConfig(view: EditorView, theme: 'light' | 'dark'): void {
+export function setEditorThemeConfig(view: EditorView, _theme: 'light' | 'dark'): void {
   view.dispatch({
     effects: [
-      themeCompartment.reconfigure(getEditorTheme(theme))
+      themeCompartment.reconfigure(getEditorTheme())
     ]
   });
 }

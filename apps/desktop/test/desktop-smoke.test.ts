@@ -441,18 +441,16 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     // Open Command Palette: Mod-Shift-P
     await activeApp.pressKey('p', { ctrl: true, shift: true });
     await activeApp.waitForSelector('.nexus-command-palette', 15000);
+    await new Promise(r => setTimeout(r, 200));
 
-    // Press ArrowDown 3 times to reach toggle-theme
-    await activeApp.pressKey('ArrowDown');
-    await activeApp.pressKey('ArrowDown');
-    await activeApp.pressKey('ArrowDown');
-    await new Promise(r => setTimeout(r, 100));
+    await activeApp.typeText('theme');
+    await new Promise(r => setTimeout(r, 200));
     
     // Hit enter to trigger the first matching command
     await activeApp.pressKey('Enter');
 
     // Wait for theme to change
-    await activeApp.waitForFunction('document.body.className.includes("theme-dark")', 15000);
+    await activeApp.waitForFunction('() => document.body.className.includes("theme-dark")', 15000);
     
     // The palette should be closed
     const paletteExists = await activeApp.evaluate('!!document.querySelector(".nexus-command-palette")');
