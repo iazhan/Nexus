@@ -10,6 +10,9 @@ import {
   type EditorSelectionInfo
 } from '@nexus/editor';
 import { EditorSurface } from './editor/SourceEditor.js';
+import { commandRegistry } from './platform.js';
+import { useTheme, useLocale } from './hooks.js';
+import { CommandPalette } from './CommandPalette.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
 
@@ -36,6 +39,14 @@ function getDocumentDirectory(filePath: string | null): string | null {
 }
 
 export const App: React.FC = () => {
+  const { theme, setTheme } = useTheme();
+  const { locale, setLocale, t } = useLocale();
+  const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    document.body.className = `theme-${theme}`;
+  }, [theme]);
+
   const [context, setContext] = useState<LaunchContext | null>(null);
   const [status, setStatus] = useState<ShellStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -397,42 +408,88 @@ export const App: React.FC = () => {
     return unbind;
   }, [saveFile]);
 
-  // Global keyboard shortcuts
+  // Global keyboard shortcuts and commands
   useEffect(() => {
+    const unsubs = [
+      commandRegistry.registerCommand({
+        id: 'open-file',
+        titleKey: 'cmd.openFile',
+        shortcut: 'Mod-O',
+        execute: handleOpenFile
+      }),
+      commandRegistry.registerCommand({
+        id: 'save',
+        titleKey: 'cmd.save',
+        shortcut: 'Mod-S',
+        execute: () => saveFile({ immediate: true })
+      }),
+      commandRegistry.registerCommand({
+        id: 'save-as',
+        titleKey: 'cmd.saveAs',
+        shortcut: 'Mod-Shift-S',
+        execute: saveAs
+      }),
+      commandRegistry.registerCommand({
+        id: 'toggle-theme',
+        titleKey: 'cmd.toggleTheme',
+        execute: () => setTheme(theme === 'light' ? 'dark' : 'light')
+      }),
+      commandRegistry.registerCommand({
+        id: 'toggle-locale',
+        titleKey: 'cmd.toggleLocale',
+        execute: () => setLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN')
+      }),
+      commandRegistry.registerCommand({
+        id: 'toggle-surface',
+        titleKey: 'cmd.toggleSurface',
+        shortcut: 'Mod-M',
+        execute: () => setSurfaceKind((prev) => (prev === 'source' ? 'visual' : 'source'))
+      }),
+      commandRegistry.registerCommand({
+        id: 'find',
+        titleKey: 'cmd.find',
+        shortcut: 'Mod-F',
+        execute: () => {
+          const activeView = (window as any).nexusActiveView;
+          if (activeView) openSearchPanel(activeView);
+        }
+      })
+    ];
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
       const isMod = e.ctrlKey || e.metaKey;
 
-      if (isMod && (e.key === 's' || e.key === 'S')) {
+      if (isMod && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
         e.preventDefault();
-        if (e.shiftKey) {
-          saveAs();
-        } else {
-          saveFile({ immediate: true });
-        }
+        setCommandPaletteOpen(true);
+      } else if (isMod && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        commandRegistry.executeCommand('save-as');
+      } else if (isMod && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        commandRegistry.executeCommand('save');
       } else if (isMod && (e.key === 'o' || e.key === 'O')) {
         e.preventDefault();
-        handleOpenFile();
+        commandRegistry.executeCommand('open-file');
       } else if (isMod && (e.key === 'm' || e.key === 'M')) {
         e.preventDefault();
-        setSurfaceKind((prev) => (prev === 'source' ? 'visual' : 'source'));
+        commandRegistry.executeCommand('toggle-surface');
       } else if (isMod && (e.key === 'w' || e.key === 'W')) {
         e.preventDefault();
-        if (window.nexus?.closeWindow) {
-          window.nexus.closeWindow();
-        }
+        if (window.nexus?.closeWindow) window.nexus.closeWindow();
       } else if (isMod && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
-        const activeView = (window as any).nexusActiveView;
-        if (activeView) {
-          openSearchPanel(activeView);
-        }
+        commandRegistry.executeCommand('find');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleOpenFile, saveAs, saveFile]);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      unsubs.forEach(u => u());
+    };
+  }, [handleOpenFile, saveAs, saveFile, theme, setTheme, locale, setLocale]);
 
   // Conflict resolution actions
   const handleReloadExternal = useCallback(async () => {
@@ -603,7 +660,6 @@ export const App: React.FC = () => {
             </div>
           </div>
         )}
-
         {status === 'ready' && (
           <EditorSurface
             session={session}
@@ -614,6 +670,7 @@ export const App: React.FC = () => {
             readOnly={saveState === 'readonly'}
             documentDirectory={getDocumentDirectory(filePath)}
             extensionHost={extensionHostRef.current ?? undefined}
+            theme={theme}
             onChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
             className="nexus-editor-full"
@@ -649,6 +706,10 @@ export const App: React.FC = () => {
           <span className="status-metric status-format">Markdown</span>
         </div>
       </footer>
+      <CommandPalette 
+        isOpen={isCommandPaletteOpen} 
+        onClose={() => setCommandPaletteOpen(false)} 
+      />
     </div>
   );
 };

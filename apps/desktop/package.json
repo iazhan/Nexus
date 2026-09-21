@@ -5,19 +5,22 @@
   "type": "module",
   "main": "./out/main/index.cjs",
   "scripts": {
-    "predev": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build",
+    "predev": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/editor build",
     "dev": "electron-vite dev",
-    "prebuild": "pnpm --filter @nexus/core build && pnpm --filter @nexus/editor build",
+    "prebuild": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/editor build",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "smoke": "vitest run test/desktop-smoke.test.ts"
   },
   "dependencies": {
+    "@nexus/command": "workspace:*",
     "@nexus/core": "workspace:*",
     "@nexus/editor": "workspace:*",
+    "@nexus/i18n": "workspace:*",
     "@nexus/math": "workspace:*",
     "@nexus/mermaid": "workspace:*",
+    "@nexus/theme": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

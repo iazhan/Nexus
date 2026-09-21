@@ -19,3 +19,7 @@ export * from './ime-composition.js';
 export * from './clipboard.js';
 export * from './ast-walker.js';
 export * from './extensions.js';
+
+export { getEditorTheme } from './theme.js';
+
+export { setEditorThemeConfig } from './source-editor.js';

@@ -2,7 +2,7 @@ import { EditorView } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 
-export const editorBaseTheme = EditorView.theme({
+const darkTheme = EditorView.theme({
   '&': {
     height: '100%',
     color: '#e2e8f0',
@@ -347,3 +347,48 @@ export const markdownHighlightStyle = HighlightStyle.define([
 export const editorSyntaxHighlighting = syntaxHighlighting(markdownHighlightStyle, {
   fallback: true
 });
+const lightTheme = EditorView.theme({
+  '&': {
+    height: '100%',
+    color: '#24292e',
+    backgroundColor: '#ffffff',
+    fontSize: '14px',
+    fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace"
+  },
+  '.cm-content': {
+    caretColor: '#0366d6',
+    padding: '12px 16px',
+    lineHeight: '1.6'
+  },
+  '&.cm-focused .cm-cursor': {
+    borderLeftColor: '#0366d6',
+    borderLeftWidth: '2px'
+  },
+  '&.cm-focused .cm-selectionBackground, ::selection': {
+    backgroundColor: '#c8e1ff !important'
+  },
+  '.cm-gutters': {
+    backgroundColor: '#f6f8fa',
+    color: '#6a737d',
+    borderRight: '1px solid #eaecef',
+    paddingRight: '4px'
+  },
+  '.cm-lineNumbers .cm-gutterElement': {
+    padding: '0 8px 0 12px',
+    minWidth: '36px',
+    textAlign: 'right'
+  },
+  '.cm-activeLine': {
+    backgroundColor: '#f6f8fa'
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: '#f6f8fa',
+    color: '#24292e'
+  }
+}, { dark: false });
+
+export function getEditorTheme(theme: 'light' | 'dark' = 'light') {
+  return theme === 'dark' ? darkTheme : lightTheme;
+}
+
+export const editorBaseTheme = getEditorTheme('dark');

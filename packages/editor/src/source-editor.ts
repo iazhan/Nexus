@@ -10,13 +10,14 @@ import { markdown } from '@codemirror/lang-markdown';
 import { editorKeybindings } from './keymaps.js';
 import { markdownCompletionSource } from './completions.js';
 import { markdownMarkersField } from './markdown-markers.js';
-import { editorBaseTheme, editorSyntaxHighlighting } from './theme.js';
+import { getEditorTheme, editorSyntaxHighlighting } from './theme.js';
 import { getSelectionInfo } from './selection.js';
 import type { CreateSourceEditorOptions, SourceEditorConfig } from './types.js';
 import { extensionHostFacet } from './extensions.js';
 
 export const readOnlyCompartment = new Compartment();
 export const editableCompartment = new Compartment();
+export const themeCompartment = new Compartment();
 
 /**
  * Builds the standard extensions array for Nexus Markdown Source Mode.
@@ -38,7 +39,7 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
 
     editorSyntaxHighlighting,
 
-    editorBaseTheme,
+    themeCompartment.of(getEditorTheme(config.theme ?? 'light')),
 
     autocompletion({
       override: [markdownCompletionSource]
@@ -103,6 +104,17 @@ export function setEditorReadOnly(view: EditorView, readOnly: boolean): void {
     effects: [
       readOnlyCompartment.reconfigure(EditorState.readOnly.of(readOnly)),
       editableCompartment.reconfigure(EditorView.editable.of(!readOnly))
+    ]
+  });
+}
+
+/**
+ * Reconfigures the theme of an existing EditorView.
+ */
+export function setEditorThemeConfig(view: EditorView, theme: 'light' | 'dark'): void {
+  view.dispatch({
+    effects: [
+      themeCompartment.reconfigure(getEditorTheme(theme))
     ]
   });
 }

@@ -39,6 +39,7 @@ export interface CreateSessionEditorStateOptions {
   imageSourceResolver?: ImageSourceResolver;
   extensionHost?: import('./extensions.js').ExtensionHost;
   onSelectionChange?: (selection: MarkdownSelection) => void;
+  theme?: 'light' | 'dark';
 }
 
 export interface CreateSessionEditorViewOptions extends CreateSessionEditorStateOptions {
@@ -332,7 +333,8 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
     readOnly: options.readOnly,
     includeHistory: false,
     keybindings: options.surfaceKind === 'visual' ? visualEditorKeybindings : editorKeybindings,
-    extensionHost: options.extensionHost
+    extensionHost: options.extensionHost,
+    theme: options.theme
   });
   const visualExtensions = options.surfaceKind === 'visual'
     ? [

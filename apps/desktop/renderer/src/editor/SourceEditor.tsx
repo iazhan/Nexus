@@ -4,6 +4,7 @@ import {
   getSelectionInfo,
   setEditorReadOnly,
   setDocumentDirectory,
+  setEditorThemeConfig,
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo,
@@ -22,6 +23,7 @@ export interface SourceEditorProps {
   readOnly?: boolean;
   documentDirectory?: string | null;
   extensionHost?: import('@nexus/editor').ExtensionHost;
+  theme?: 'light' | 'dark';
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
   className?: string;
@@ -38,6 +40,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   readOnly = false,
   documentDirectory,
   extensionHost,
+  theme,
   onChange,
   onSelectionChange,
   className
@@ -78,6 +81,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       readOnly,
       documentDirectory,
       extensionHost,
+      theme,
       onSelectionChange: () => {
         const view = handleRef.current?.view;
         if (view) {
@@ -113,6 +117,17 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       }
     }
   }, [readOnly]);
+
+  // Dynamic theme configuration
+  const prevThemeRef = useRef(theme);
+  useEffect(() => {
+    if (prevThemeRef.current !== theme) {
+      prevThemeRef.current = theme;
+      if (handleRef.current) {
+        setEditorThemeConfig(handleRef.current.view, theme ?? 'light');
+      }
+    }
+  }, [theme]);
 
   // Dynamic document directory configuration
   const prevDocDirRef = useRef(documentDirectory);

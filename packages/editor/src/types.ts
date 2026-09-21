@@ -66,6 +66,7 @@ export interface SourceEditorConfig {
   includeHistory?: boolean;
   keybindings?: import('@codemirror/view').KeyBinding[];
   extensionHost?: import('./extensions.js').ExtensionHost;
+  theme?: 'light' | 'dark';
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
 }

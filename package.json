@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @nexus/desktop dev",
-    "build": "pnpm --filter @nexus/core build && pnpm --filter @nexus/markdown build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/math build && pnpm --filter @nexus/mermaid build && pnpm --filter @nexus/desktop build",
-    "typecheck": "pnpm --filter @nexus/core build && pnpm --filter @nexus/markdown build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/math build && pnpm --filter @nexus/mermaid build && pnpm -r typecheck",
+    "build": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/markdown build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/math build && pnpm --filter @nexus/mermaid build && pnpm --filter @nexus/desktop build",
+    "typecheck": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/markdown build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/math build && pnpm --filter @nexus/mermaid build && pnpm -r typecheck",
     "lint": "eslint .",
     "test": "vitest run",
     "desktop:smoke": "pnpm --filter @nexus/desktop build && vitest run apps/desktop/test/desktop-smoke.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
+    "@types/node": "^22.20.2",
     "eslint": "^9.20.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.24.0",

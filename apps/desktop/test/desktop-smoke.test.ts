@@ -422,4 +422,43 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForSelector('.cm-visual-block-math', 5000);
     await activeApp.waitForSelector('.cm-mermaid-preview', 5000);
   }, 25000);
+
+
+  it('12. opens Command Palette and triggers toggle theme', async () => {
+    const cpDoc = path.join(tempDir, 'cp-test.md');
+    fs.writeFileSync(cpDoc, '# Command Palette Test\n', 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: cpDoc });
+    await activeApp.waitForSelector('.cm-content', 5000);
+
+    // Initial theme should be light (or whatever is default)
+    let bodyClass = await activeApp.evaluate('document.body.className');
+    expect(bodyClass).not.toContain('theme-dark');
+
+    // Open Command Palette: Mod-Shift-P
+    await activeApp.pressKey('P', { ctrl: true, shift: true });
+    await activeApp.waitForSelector('.nexus-command-palette', 5000);
+
+    // Search for Toggle Theme and hit enter
+    await activeApp.evaluate(`(() => {
+      const input = document.querySelector('.nexus-command-palette-input');
+      if (input) {
+        input.value = 'theme';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    })()`);
+    
+    // Wait for filtered list
+    await new Promise(r => setTimeout(r, 300));
+    
+    // Hit enter to trigger the first matching command
+    await activeApp.pressKey('Enter');
+
+    // Wait for theme to change
+    await activeApp.waitForFunction('document.body.className.includes("theme-dark")', 5000);
+    
+    // The palette should be closed
+    const paletteExists = await activeApp.evaluate('!!document.querySelector(".nexus-command-palette")');
+    expect(paletteExists).toBe(false);
+  }, 25000);
 });
