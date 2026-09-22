@@ -7,6 +7,52 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * 单字符 → US 布局 KeyboardEvent.code。
+ * 只用于事件的 code 字段（不影响插入文本），让 CDP 事件更接近真实键盘。
+ */
+const PUNCTUATION_CODES: Record<string, string> = {
+  '`': 'Backquote',
+  '~': 'Backquote',
+  '!': 'Digit1',
+  '@': 'Digit2',
+  '#': 'Digit3',
+  $: 'Digit4',
+  '%': 'Digit5',
+  '^': 'Digit6',
+  '&': 'Digit7',
+  '*': 'Digit8',
+  '(': 'Digit9',
+  ')': 'Digit0',
+  '-': 'Minus',
+  _: 'Minus',
+  '=': 'Equal',
+  '+': 'Equal',
+  '[': 'BracketLeft',
+  '{': 'BracketLeft',
+  ']': 'BracketRight',
+  '}': 'BracketRight',
+  '\\': 'Backslash',
+  '|': 'Backslash',
+  ';': 'Semicolon',
+  ':': 'Semicolon',
+  "'": 'Quote',
+  '"': 'Quote',
+  ',': 'Comma',
+  '<': 'Comma',
+  '.': 'Period',
+  '>': 'Period',
+  '/': 'Slash',
+  '?': 'Slash'
+};
+
+function charToCode(key: string): string {
+  if (key >= 'a' && key <= 'z') return `Key${key.toUpperCase()}`;
+  if (key >= 'A' && key <= 'Z') return `Key${key}`;
+  if (key >= '0' && key <= '9') return `Digit${key}`;
+  return PUNCTUATION_CODES[key] ?? `Key${key.toUpperCase()}`;
+}
+
 export async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -142,6 +188,7 @@ export class ElectronAppInstance {
     }
     const htmlObj = await this.sendCommand('Runtime.evaluate', { expression: 'document.body.innerHTML' });
     console.log('[HTML DUMP]', htmlObj.result?.value);
+
     throw new Error(`Timeout (${timeoutMs}ms) waiting for selector: ${selector}`);
   }
 
@@ -217,7 +264,10 @@ export class ElectronAppInstance {
     if (isShift) modifierFlags |= 8;
 
     let code = `Key${key.toUpperCase()}`;
-    let windowsVirtualKeyCode: number | undefined = key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined;
+    // 可打印单字符不设置 windowsVirtualKeyCode：
+    // charCodeAt 会与 Windows VK 常量撞车（#=VK_END、(=VK_DOWN、.=VK_DELETE、-=VK_INSERT…），
+    // 导致按键被 Chromium 当成控制键，字符丢失或光标错位。
+    let windowsVirtualKeyCode: number | undefined;
     if (key === 'Enter') {
       code = 'Enter';
       windowsVirtualKeyCode = 13;
@@ -227,6 +277,14 @@ export class ElectronAppInstance {
     } else if (key === ' ') {
       code = 'Space';
       windowsVirtualKeyCode = 32;
+    } else if (key === 'Tab') {
+      code = 'Tab';
+      windowsVirtualKeyCode = 9;
+    } else if (key === 'Backspace') {
+      code = 'Backspace';
+      windowsVirtualKeyCode = 8;
+    } else if (key.length === 1) {
+      code = charToCode(key);
     }
 
     await this.sendCommand('Input.dispatchKeyEvent', {
@@ -410,6 +468,8 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
   const instance = new ElectronAppInstance(proc, port, target, ws);
   await instance.sendCommand('Runtime.enable');
   await instance.sendCommand('Page.enable');
+  // 无边框窗口不保证拿到系统焦点，未激活时 CDP 输入事件会被丢弃；开启焦点模拟保证按键可达。
+  await instance.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
 
   return instance;
 }

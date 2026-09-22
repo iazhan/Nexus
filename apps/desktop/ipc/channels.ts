@@ -15,8 +15,19 @@ export const IPC_CHANNELS = {
   setDirty: 'nexus:set-dirty',
   requestSaveAndClose: 'nexus:request-save-and-close',
   readyToClose: 'nexus:ready-to-close',
-  closeWindow: 'nexus:close-window'
+  closeWindow: 'nexus:close-window',
+  minimizeWindow: 'nexus:minimize-window',
+  maximizeWindow: 'nexus:maximize-window',
+  getWindowState: 'nexus:get-window-state',
+  windowStateChanged: 'nexus:window-state-changed'
 } as const;
+
+/**
+ * 自绘窗口按钮需要同步的最小状态集合。
+ */
+export interface WindowState {
+  maximized: boolean;
+}
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 

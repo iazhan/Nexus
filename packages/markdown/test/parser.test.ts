@@ -394,6 +394,40 @@ describe('Markdown Parser & Render Model', () => {
       }
     });
 
+    it('ends the table at the first line without an unescaped pipe', () => {
+      // marked 默认会把紧跟表格的非空行也算成数据行（GFM 语义）；
+      // 编辑器需要更严格的边界，否则紧随的段落会被吞进表格、无法单独编辑。
+      const src = '| A | B |\n|---|---|\n| 1 | 2 |\nAfter paragraph\n';
+      const res = parseMarkdown(src);
+
+      expect(res.root.children).toHaveLength(2);
+      const [tbl, para] = res.root.children;
+      expect(tbl?.type).toBe('table');
+      expect(para?.type).toBe('paragraph');
+
+      if (tbl?.type === 'table') {
+        expect(tbl.rows).toHaveLength(1);
+        expect(tbl.raw).toBe('| A | B |\n|---|---|\n| 1 | 2 |\n');
+        expect(src.slice(tbl.range.from, tbl.range.to)).toBe(tbl.raw);
+      }
+      if (para?.type === 'paragraph') {
+        expect(para.raw).toBe('After paragraph\n');
+      }
+    });
+
+    it('keeps rows that contain escaped or spaced pipes inside the table', () => {
+      const src = '| A | B |\n|---|---|\n| a \\| b | c |\n| 1 | 2 |\n';
+      const res = parseMarkdown(src);
+
+      expect(res.root.children).toHaveLength(1);
+      const tbl = res.root.children[0];
+      expect(tbl?.type).toBe('table');
+      if (tbl?.type === 'table') {
+        expect(tbl.rows).toHaveLength(2);
+        expect(tbl.raw).toBe('| A | B |\n|---|---|\n| a \\| b | c |\n| 1 | 2 |\n');
+      }
+    });
+
     it('inlines include delimiter characters and parents strictly encapsulate children', () => {
       const src = 'Sentence with **bold text** and *italic text* and [Link](https://nexus.dev).';
       const res = parseMarkdown(src);

@@ -133,27 +133,34 @@ export const markdownCompletions: Completion[] = markdownSnippets.map((def) =>
 );
 
 /**
- * Autocompletion source for Markdown syntax, snippets, and structures.
+ * Markdown 模板补全源（slash 命令风格）。
+ *
+ * 只在输入 `/` 或显式触发（Ctrl-Space）时给出模板，与 Markra 的 slash 菜单一致。
+ * 之前的实现在输入 `|`、`#`、`>` 或普通单词（如 "table"、"code"）时也会弹窗，
+ * 而补全面板会抢占 Enter → 用户想换行却插入整段模板（表格逐行输入因此无法完成）。
  */
 export function markdownCompletionSource(
   context: CompletionContext
 ): CompletionResult | null {
-  const word = context.matchBefore(/[/a-zA-Z0-9_#>[|!$-]+/);
+  // 保持宽匹配：CodeMirror 的「按输入激活」依赖输入序列能匹配出查询串，
+  // 若这里只匹配 `/...`，输入 slash 命令时面板根本不会打开。
+  const word = context.matchBefore(/[\w#>[|!$/-]+/);
 
-  if (!word && !context.explicit) {
-    return null;
+  if (!word) {
+    if (!context.explicit) return null;
+    return { from: context.pos, options: markdownCompletions };
   }
 
-  const query = (word?.text ?? '').toLowerCase();
+  // 只有 slash 命令（或显式触发）才给出模板
+  if (!word.text.startsWith('/')) return null;
 
-  // If user typed a slash command e.g. /h1, /code, /math
-  const cleanQuery = query.startsWith('/') ? query.slice(1) : query;
+  const query = word.text.slice(1).toLowerCase();
 
   const matched = markdownCompletions.filter((comp) => {
-    if (!cleanQuery) return true;
+    if (!query) return true;
     const label = comp.label.toLowerCase();
     const detail = comp.detail?.toLowerCase() ?? '';
-    return label.includes(cleanQuery) || detail.includes(cleanQuery);
+    return label.includes(query) || detail.includes(query);
   });
 
   if (matched.length === 0) {
@@ -161,7 +168,10 @@ export function markdownCompletionSource(
   }
 
   return {
-    from: word ? word.from : context.pos,
-    options: matched
+    from: word.from,
+    options: matched,
+    // 过滤已在上面按去掉 `/` 的查询串完成；若交给 CodeMirror 的默认过滤，
+    // 它会拿带 `/` 的原始文本去匹配标签（'/t' 匹配不上 '| Table'），面板会被清空。
+    filter: false
   };
 }

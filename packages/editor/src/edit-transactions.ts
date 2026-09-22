@@ -265,6 +265,25 @@ export function findContainingBlockIndex(root: MarkdownRoot, pos: number, source
 /**
  * 根据文档位置查找包含该位置的顶级块节点。
  */
+/**
+ * 代码围栏是否已闭合（存在与起始围栏同类型的结束行）。
+ *
+ * 未闭合围栏既不能投影成 block widget（会吞掉后续输入），
+ * 也不能按普通块拆分（回车无效），因此两处都需要这个判定。
+ */
+export function isFenceClosed(raw: string): boolean {
+  const lines = raw.replace(/\r\n/g, '\n').split('\n').filter((line) => line.trim().length > 0);
+  if (lines.length < 2) return false;
+
+  const opener = lines[0]!.trim().match(/^(`{3,}|~{3,})/);
+  if (!opener) return false;
+
+  const fenceChar = opener[1]![0]!;
+  const minLength = opener[1]!.length;
+  const closer = lines[lines.length - 1]!.trim();
+  return new RegExp(`^\\${fenceChar}{${minLength},}$`).test(closer);
+}
+
 export function findContainingBlock(root: MarkdownRoot, pos: number, sourceLength: number): MarkdownBlockNode | null {
   const index = findContainingBlockIndex(root, pos, sourceLength);
   return index >= 0 ? root.children[index]! : null;
@@ -533,7 +552,8 @@ export function createParagraphOrHeadingSplitTransaction(
   }
 
   const eol = detectEol(source);
-  const blockSep = eol + eol;
+  // 回车只插入一个换行：段落/标题拆分不额外制造空行（与 Markra 及默认 CodeMirror 行为一致）。
+  const lineBreak = eol;
 
   // Check if position is inside an atomic node
   const atomicRanges = findAtomicRanges(source);
@@ -664,7 +684,7 @@ export function createParagraphOrHeadingSplitTransaction(
     const contentEnd = contentStart + content.length;
 
     if (targetPos >= line.to) {
-      const insert = blockSep;
+      const insert = lineBreak;
       return {
         changes: [{ from: line.to, to: line.to, insert }],
         selection: { anchor: line.to + insert.length, head: line.to + insert.length },
@@ -679,9 +699,9 @@ export function createParagraphOrHeadingSplitTransaction(
 
       const newHeading = `${indent}${hashes}${prefixSpace}${leftContent}${closingHashes}`;
       const newParagraph = rightContent;
-      const replacement = `${newHeading}${blockSep}${newParagraph}`;
+      const replacement = `${newHeading}${lineBreak}${newParagraph}`;
 
-      const newCaret = line.from + newHeading.length + blockSep.length;
+      const newCaret = line.from + newHeading.length + lineBreak.length;
       return {
         changes: [{ from: line.from, to: line.to, insert: replacement }],
         selection: { anchor: newCaret, head: newCaret },
@@ -689,7 +709,7 @@ export function createParagraphOrHeadingSplitTransaction(
       };
     }
 
-    const insert = blockSep;
+    const insert = lineBreak;
     return {
       changes: [{ from: line.from, to: line.from, insert }],
       selection: { anchor: line.from + insert.length, head: line.from + insert.length },
@@ -706,7 +726,7 @@ export function createParagraphOrHeadingSplitTransaction(
   );
 
   if (activeSpan) {
-    const insert = `${activeSpan.close}${blockSep}${activeSpan.open}`;
+    const insert = `${activeSpan.close}${lineBreak}${activeSpan.open}`;
     const newPos = targetPos + insert.length;
     return {
       changes: [{ from: targetPos, to: replaceTo, insert }],
@@ -715,7 +735,7 @@ export function createParagraphOrHeadingSplitTransaction(
     };
   }
 
-  const insert = blockSep;
+  const insert = lineBreak;
   const newPos = targetPos + insert.length;
   return {
     changes: [{ from: targetPos, to: replaceTo, insert }],

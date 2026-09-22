@@ -54,6 +54,7 @@ import {
   createBlockMathEditTransaction
 } from './special-block-edit.js';
 import { walkBlockNodes } from './ast-walker.js';
+import { isFenceClosed } from './edit-transactions.js';
 
 /** 注册到单个 EditorView 的可关闭子编辑器。 */
 interface ActiveSubEditor {
@@ -493,6 +494,20 @@ export class DelimiterWidget extends WidgetType {
 }
 
 export { DelimiterWidget as HiddenDelimiterWidget };
+
+/**
+ * 标记之后是否已经没有内容（含只有空白的情况）。
+ *
+ * 隐藏标记用的是 replace 型 widget：一旦标记独占该行，行内就不存在可放置 DOM 光标的
+ * 文本节点，浏览器会把下一个输入字符落到文档开头，表现为首字符被挤到末尾
+ * （例如输入 `- i` 得到 ` i-`、输入 `# h` 得到 ` h#`）。
+ * 因此标记独占行时必须保持可见。
+ */
+function isMarkerAtLineEnd(lineText: string, markerEnd: number): boolean {
+  return lineText.slice(markerEnd).trim().length === 0;
+}
+
+
 
 export class HorizontalRuleWidget extends WidgetType {
   public constructor(
@@ -1753,6 +1768,35 @@ export function buildVisualProjection(
     return selFrom < range.to && selTo > range.from;
   }
 
+  /**
+   * 块级 widget 的替换范围末端：不包含结尾换行。
+   *
+   * 若把行尾换行也替换掉，widget 之后就不存在可承载光标的真实行——
+   * 浏览器只能把 DOM 选区退回 cm-content，紧邻 widget 的输入会被静默丢弃
+   * （表现为表格提交后立刻打字没有任何反应）。行尾换行留给源码行结构即可。
+   */
+  function blockWidgetDecorationEnd(range: SourceRange, raw: string): number {
+    if (raw.endsWith('\r\n')) return Math.max(range.from, range.to - 2);
+    if (raw.endsWith('\n')) return Math.max(range.from, range.to - 1);
+    return range.to;
+  }
+
+  /**
+   * 表格是否「还在书写中」：表格源码未以换行结束，且光标停在表格最后一行。
+   *
+   * 三个条件缺一不可：
+   * - 只看文本会把文档加载后光标在别处的完整表格也降级成源码；
+   * - 只看「光标在表格范围内」会误伤表格从 offset 0 开始的文档（光标停在 0 也算在范围内）；
+   * - 只看光标位置会误伤点选表格（CodeMirror 会把光标贴到表格边界）。
+   * 回车提交会补上结尾换行，条件不再成立，表格随即切回 widget 预览。
+   */
+  function isTableStillBeingWritten(range: SourceRange, raw: string): boolean {
+    if (/\r?\n$/.test(raw)) return false;
+    if (selFrom === -1) return false;
+    const lastLineStart = source.lastIndexOf('\n', range.to - 1) + 1;
+    return selFrom >= lastLineStart && selTo <= range.to + 1;
+  }
+
   const opaqueBlockRanges: SourceRange[] = [];
   walkBlockNodes(root.children, (block) => {
     if (
@@ -1954,7 +1998,9 @@ export function buildVisualProjection(
         const indentLen = (match[1] ?? '').length;
         const hashLen = match[2].length;
         const from = blockNode.range.from + indentLen;
-        const isRevealed = isNodeRevealed(blockNode.range);
+        const isRevealed =
+          isNodeRevealed(blockNode.range) ||
+          isMarkerAtLineEnd(blockNode.raw, indentLen + hashLen);
         ranges.push({
           from,
           to: from + hashLen,
@@ -1978,12 +2024,15 @@ export function buildVisualProjection(
         const lineText = blockNode.raw.slice(lineStart, lineEnd);
         const match = lineText.match(/^([ \t]*)(>)/);
         if (match && match[2]) {
-          const from = blockNode.range.from + lineStart + (match[1]?.length ?? 0);
+          const indentLen = match[1]?.length ?? 0;
+          const from = blockNode.range.from + lineStart + indentLen;
           const to = from + 1;
+          // 该行只剩 `>` 时保持可见，否则光标无法落在引用标记之后
+          const lineRevealed = isRevealed || isMarkerAtLineEnd(lineText, indentLen + 1);
           ranges.push({
             from,
             to,
-            decoration: Decoration.replace({ widget: new DelimiterWidget('>', isRevealed) })
+            decoration: Decoration.replace({ widget: new DelimiterWidget('>', lineRevealed) })
           });
         }
         if (nextNl === -1) break;
@@ -1999,7 +2048,7 @@ export function buildVisualProjection(
     } else if (blockNode.type === 'horizontal-rule') {
       ranges.push({
         from: blockNode.range.from,
-        to: blockNode.range.to,
+        to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
         decoration: Decoration.replace({
           widget: new HorizontalRuleWidget(
             blockNode.range.from,
@@ -2010,9 +2059,15 @@ export function buildVisualProjection(
         })
       });
     } else if (blockNode.type === 'table') {
+      // 表格还在书写中（位于文档末尾且没有结尾换行）时保持原始文本：
+      // 手写表格一旦被 block 级 widget 覆盖，后续按键就没有落点会被静默丢弃。
+      // 回车提交会补上结尾换行，表格随即切换成 widget 预览。
+      if (isTableStillBeingWritten(blockNode.range, blockNode.raw)) return;
       ranges.push({
         from: blockNode.range.from,
-        to: blockNode.range.to,
+        // 替换范围不包含结尾换行：把它留给源码行结构，否则 widget 之后没有真实行，
+        // 紧邻 widget 的光标拿不到 DOM 落点，提交后立即输入会丢失。
+        to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
         decoration: Decoration.replace({
           widget: new TableBlockWidget(
             blockNode.range.from,
@@ -2026,9 +2081,11 @@ export function buildVisualProjection(
         })
       });
     } else if (blockNode.type === 'code-block') {
+      // 未闭合围栏保持原始文本可编辑，避免后续输入被 widget 吞掉
+      if (!isFenceClosed(blockNode.raw)) return;
       ranges.push({
         from: blockNode.range.from,
-        to: blockNode.range.to,
+        to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
         decoration: Decoration.replace({
           widget: new CodeBlockWidget(
             blockNode.range.from,
@@ -2043,7 +2100,7 @@ export function buildVisualProjection(
     } else if (blockNode.type === 'block-math') {
       ranges.push({
         from: blockNode.range.from,
-        to: blockNode.range.to,
+        to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
         decoration: Decoration.replace({
           widget: new BlockMathWidget(
             blockNode.range.from,
@@ -2057,7 +2114,7 @@ export function buildVisualProjection(
     } else if (blockNode.type === 'raw') {
       ranges.push({
         from: blockNode.range.from,
-        to: blockNode.range.to,
+        to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
         decoration: Decoration.replace({
           widget: new RawBlockWidget(
             blockNode.range.from,
@@ -2090,12 +2147,17 @@ export function buildVisualProjection(
       const firstLine = item.raw.split(/\r?\n/)[0] ?? '';
       const match = firstLine.match(/^([ \t]*)([-+*]|\d+[.)])/);
       if (match && match[2]) {
-        const from = item.range.from + (match[1]?.length ?? 0);
+        const indentLen = match[1]?.length ?? 0;
+        const from = item.range.from + indentLen;
         const to = from + match[2].length;
+        // 列表标记独占行时保持可见，否则后续输入会落到文档开头
+        const itemRevealed = isRevealed || isMarkerAtLineEnd(firstLine, indentLen + match[2].length);
         ranges.push({
           from,
           to,
-          decoration: Decoration.replace({ widget: new DelimiterWidget(match[2], isRevealed) })
+          decoration: Decoration.replace({
+            widget: new DelimiterWidget(match[2], itemRevealed)
+          })
         });
       }
     }

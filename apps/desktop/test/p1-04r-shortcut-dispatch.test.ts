@@ -60,7 +60,11 @@ describe('Desktop Shortcut Dispatch & Conflict Resolution (P1-04R / R3)', () => 
       watchFile: vi.fn(() => () => {}),
       onSaveAndCloseRequested: vi.fn().mockReturnValue(() => {}),
       readyToClose: vi.fn(),
-      closeWindow: vi.fn()
+      closeWindow: vi.fn(),
+      minimizeWindow: vi.fn(),
+      maximizeWindow: vi.fn(),
+      getWindowState: vi.fn().mockResolvedValue({ maximized: false }),
+      onWindowStateChanged: vi.fn().mockReturnValue(() => {})
     };
   });
 
@@ -93,7 +97,7 @@ describe('Desktop Shortcut Dispatch & Conflict Resolution (P1-04R / R3)', () => 
     expect(session.getSnapshot().source).toBe('Hello world');
 
     // 1. Switch to Visual mode
-    const visualBtn = container.querySelector('.nexus-surface-switcher button:last-child') as HTMLButtonElement;
+    const visualBtn = container.querySelector('.nexus-surface-toggle') as HTMLButtonElement;
     visualBtn.click();
     await new Promise((r) => setTimeout(r, 100));
 
@@ -176,7 +180,7 @@ describe('Desktop Shortcut Dispatch & Conflict Resolution (P1-04R / R3)', () => 
     await waitForAppReady();
 
     const session = testWindow.nexusSession!;
-    const visualBtn = container.querySelector('.nexus-surface-switcher button:last-child') as HTMLButtonElement;
+    const visualBtn = container.querySelector('.nexus-surface-toggle') as HTMLButtonElement;
     visualBtn.click();
     await new Promise((r) => setTimeout(r, 100));
 

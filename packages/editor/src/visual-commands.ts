@@ -7,8 +7,11 @@ import {
   createListOutdentTransaction,
   createInlineFormatTransaction,
   createSelectBlockAtPositionTransaction,
-  createReorderBlockAtPositionTransaction
+  createReorderBlockAtPositionTransaction,
+  findContainingBlock,
+  isFenceClosed
 } from './edit-transactions.js';
+import { parseMarkdown } from '@nexus/markdown';
 import type { MarkdownSelection } from './types.js';
 
 function selectionFromState(state: EditorState): MarkdownSelection {
@@ -35,12 +38,72 @@ export function handleVisualEnter(view: EditorView): boolean {
   const source = view.state.doc.toString();
   const selection = selectionFromState(view.state);
   const tx = createParagraphOrHeadingSplitTransaction(source, selection);
-  if (!tx) return false;
+  if (tx) {
+    view.dispatch({
+      changes: tx.changes,
+      selection: tx.selection ? toEditorSelection(tx.selection) : undefined,
+      userEvent: tx.userEvent ?? 'input.enter'
+    });
+    return true;
+  }
+
+  return insertPlainNewlineInRawBlock(view, selection);
+}
+
+/**
+ * 提交表格：补上结尾换行让表格切换成 widget，并把光标放到表格之后。
+ * widget 之后之所以能继续输入，取决于 visual-projection 让块级装饰不覆盖行尾换行。
+ */
+function commitTableAndRestoreCaret(view: EditorView, tableEnd: number, caret: number): void {
+  const docLength = view.state.doc.length;
+  const atLineEnd = tableEnd < docLength && view.state.doc.sliceString(tableEnd, tableEnd + 1) === '\n';
+
+  if (atLineEnd) {
+    view.dispatch({
+      selection: EditorSelection.cursor(Math.max(tableEnd + 1, caret)),
+      userEvent: 'table.commit'
+    });
+    return;
+  }
+
+  const insertPos = Math.min(tableEnd, docLength);
+  view.dispatch({
+    changes: { from: insertPos, to: insertPos, insert: '\n' },
+    selection: EditorSelection.cursor(insertPos + 1),
+    userEvent: 'table.commit'
+  });
+}
+
+/**
+ * 未闭合代码围栏在 Visual 下保持原始文本（见 visual-projection 对 isFenceClosed 的处理），
+ * 段落拆分事务会明确返回 null，于是回车被整体吞掉，用户无法书写多行代码块。
+ * 这里对「以原始文本呈现的代码块/公式/raw 块」退化为插入一个普通换行。
+ */
+function insertPlainNewlineInRawBlock(view: EditorView, selection: MarkdownSelection): boolean {
+  if (selection.anchor !== selection.head) return false;
+
+  const source = view.state.doc.toString();
+  const pos = selection.head;
+  const { root } = parseMarkdown(source);
+  const block = findContainingBlock(root, pos, source.length);
+  if (!block) return false;
+
+  // 表格处于「源码书写态」时（见 visual-projection 对光标在表格内的处理），
+  // 回车表示提交：把光标移到表格之后，表格随即切回 widget 预览。
+  if (block.type === 'table') {
+    commitTableAndRestoreCaret(view, block.range.to, selection.head);
+    return true;
+  }
+
+  const isRawEditableFence = block.type === 'code-block' && !isFenceClosed(block.raw);
+  if (!isRawEditableFence && block.type !== 'raw' && block.type !== 'block-math') {
+    return false;
+  }
 
   view.dispatch({
-    changes: tx.changes,
-    selection: tx.selection ? toEditorSelection(tx.selection) : undefined,
-    userEvent: tx.userEvent ?? 'input.enter'
+    changes: { from: pos, to: pos, insert: '\n' },
+    selection: EditorSelection.single(pos + 1),
+    userEvent: 'input.enter'
   });
   return true;
 }

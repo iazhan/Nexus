@@ -69,14 +69,14 @@ describe('Editor Interaction & Surface Synchronization', () => {
 
     session.dispatch(splitTx!);
 
-    expect(session.getSnapshot().source).toBe('Hello\n\nworld');
-    expect(sourceState.doc.toString()).toBe('Hello\n\nworld');
-    expect(visualState.doc.toString()).toBe('Hello\n\nworld');
+    expect(session.getSnapshot().source).toBe('Hello\nworld');
+    expect(sourceState.doc.toString()).toBe('Hello\nworld');
+    expect(visualState.doc.toString()).toBe('Hello\nworld');
 
     // Both surfaces reflect mapped selection
-    expect(session.getSnapshot().selection).toEqual({ anchor: 7, head: 7 });
-    expect(sourceState.selection.main.head).toBe(7);
-    expect(visualState.selection.main.head).toBe(7);
+    expect(session.getSnapshot().selection).toEqual({ anchor: 6, head: 6 });
+    expect(sourceState.selection.main.head).toBe(6);
+    expect(visualState.selection.main.head).toBe(6);
 
     // Undo synchronizes back to both surfaces
     session.undo();
@@ -136,8 +136,8 @@ describe('Editor Interaction & Surface Synchronization', () => {
 
     expect(handled).toBe(true);
     expect(session.getSnapshot().revision).toBe(revBefore + 1);
-    expect(session.getSnapshot().source).toBe('First\n\nparagraph');
-    expect(handle.view.state.doc.toString()).toBe('First\n\nparagraph');
+    expect(session.getSnapshot().source).toBe('First\nparagraph');
+    expect(handle.view.state.doc.toString()).toBe('First\nparagraph');
 
     handle.destroy();
   });

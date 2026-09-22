@@ -788,6 +788,45 @@ export function getUnescapedPipes(line: string): number[] {
  * Returns the exact column cell ranges inside a table row line.
  * Correctly handles tables with or without leading/trailing pipes and escaped pipes.
  */
+/**
+ * 计算表格在源码中的真实结束位置与数据行数量。
+ *
+ * marked 的 table token 会一直吞到空行或下一个块级结构为止（GFM 语义），
+ * 于是表格后面紧跟的普通段落也会被算成数据行。编辑器需要更严格的边界：
+ * 表格在第一个不含未转义 `|` 的行结束，紧随其后的段落仍是独立段落。
+ */
+export function resolveTableBounds(
+  source: string,
+  tokenStart: number,
+  tokenEnd: number
+): { end: number; dataRowCount: number } {
+  let offset = tokenStart;
+  let lineIndex = 0;
+  let dataRowCount = 0;
+  let end = tokenStart;
+
+  while (offset < tokenEnd) {
+    const nextBreak = source.indexOf('\n', offset);
+    const lineEnd = nextBreak === -1 || nextBreak >= tokenEnd ? tokenEnd : nextBreak;
+    const lineText = source.slice(offset, lineEnd);
+
+    // 前两行是表头与分隔行，之后每一行都必须含未转义 `|` 才算数据行
+    if (lineIndex >= 2 && getUnescapedPipes(lineText).length === 0) {
+      break;
+    }
+    if (lineIndex >= 2) {
+      dataRowCount += 1;
+    }
+
+    end = nextBreak === -1 || nextBreak >= tokenEnd ? lineEnd : nextBreak + 1;
+    if (nextBreak === -1 || nextBreak >= tokenEnd) break;
+    offset = nextBreak + 1;
+    lineIndex += 1;
+  }
+
+  return { end, dataRowCount };
+}
+
 export function getRowCellRanges(
   line: string,
   rowOffset = 0
@@ -1036,6 +1075,75 @@ function mapBlockquoteChildren(
 }
 
 /**
+ * 把 marked 的 table token 裁到「第一个不含未转义 `|` 的行」为止，并把裁掉的文本重新 lex 成后续 token。
+ *
+ * marked 遵循 GFM：表格只会被空行或新的块级结构打断，因此紧跟表格的普通段落行也会被
+ * 当作数据行。编辑器需要更严格的边界，否则紧随的段落会被吞进表格、无法单独编辑；
+ * 同时必须把剩余文本重新 token 化，否则这部分内容会直接从 AST 中消失。
+ */
+function splitTrailingTableLines(tokens: Token[]): Token[] {
+  const result: Token[] = [];
+
+  for (const token of tokens) {
+    if (token.type !== 'table') {
+      result.push(token);
+      continue;
+    }
+
+    const raw = token.raw;
+    let offset = 0;
+    let lineIndex = 0;
+    let keptRows = 0;
+    let cutOffset = -1;
+
+    while (offset < raw.length) {
+      const nextBreak = raw.indexOf('\n', offset);
+      const lineEnd = nextBreak === -1 ? raw.length : nextBreak;
+      const lineText = raw.slice(offset, lineEnd);
+
+      if (lineIndex >= 2) {
+        if (lineText.trim().length === 0 || getUnescapedPipes(lineText).length === 0) {
+          cutOffset = offset;
+          break;
+        }
+        keptRows += 1;
+      }
+
+      if (nextBreak === -1) break;
+      offset = nextBreak + 1;
+      lineIndex += 1;
+    }
+
+    if (cutOffset === -1) {
+      result.push(token);
+      continue;
+    }
+
+    const tableToken = token as Tokens.Table;
+    const tableRaw = raw.slice(0, cutOffset);
+    const tailRaw = raw.slice(cutOffset);
+
+    result.push({
+      ...tableToken,
+      raw: tableRaw,
+      rows: tableToken.rows.slice(0, keptRows)
+    } as Token);
+
+    if (tailRaw.length > 0) {
+      const tailTokens = marked.lexer(tailRaw, { gfm: true, breaks: false });
+      if (tailTokens.length > 0) {
+        result.push(...tailTokens);
+      } else {
+        // 纯空白的尾巴也必须留下 token：否则后续 token 匹配源码偏移时会整体错位
+        result.push({ type: 'space', raw: tailRaw } as Token);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Maps marked block tokens into project AST block nodes with exact source ranges and raw text.
  */
 function mapBlockTokens(
@@ -1046,6 +1154,8 @@ function mapBlockTokens(
 ): MarkdownBlockNode[] {
   const result: MarkdownBlockNode[] = [];
   let cur = baseOffset;
+
+  tokens = splitTrailingTableLines(tokens);
 
   for (let t = 0; t < tokens.length; t++) {
     const token = tokens[t]!;
@@ -1196,7 +1306,9 @@ function mapBlockTokens(
       }
       case 'table': {
         const tableToken = token as Tokens.Table;
-        const tableEnd = trimTrailingBlankLines(source, tokenStart, tokenEnd);
+        // marked 会把表格后的非空行并入表格；这里按「数据行必须含 `|`」收紧边界。
+        const bounds = resolveTableBounds(source, tokenStart, tokenEnd);
+        const tableEnd = trimTrailingBlankLines(source, tokenStart, bounds.end);
         const range: SourceRange = { from: tokenStart, to: tableEnd };
         const raw = source.slice(tokenStart, tableEnd);
 
@@ -1235,27 +1347,31 @@ function mapBlockTokens(
             : parseSpecialInlineSyntax(cellRaw, cellFrom, source);
         });
 
-        const rows: MarkdownInlineNode[][][] = tableToken.rows.map((row) => {
-          let rowCells: { from: number; to: number }[] = [];
-          if (lineIdx < lines.length) {
-            const rowLineStr = lines[lineIdx];
-            if (rowLineStr !== undefined) {
-              rowCells = getRowCellRanges(rowLineStr, lineOffset);
-              lineOffset = matchTokenEndInSource(source, lineOffset, rowLineStr + '\n');
-              lineIdx++;
+        const rows: MarkdownInlineNode[][][] = tableToken.rows
+          .slice(0, bounds.dataRowCount)
+          .map((row) => {
+            let rowCells: { from: number; to: number }[] = [];
+            if (lineIdx < lines.length) {
+              const rowLineStr = lines[lineIdx];
+              if (rowLineStr !== undefined) {
+                rowCells = getRowCellRanges(rowLineStr, lineOffset);
+                lineOffset = matchTokenEndInSource(source, lineOffset, rowLineStr + '\n');
+                lineIdx++;
+              }
             }
-          }
 
-          return row.map((cell, cIdx) => {
-            const cellLoc = rowCells[cIdx];
-            const cellFrom = cellLoc ? cellLoc.from : tokenStart;
-            const cellTo = cellLoc ? cellLoc.to : matchTokenEndInSource(source, cellFrom, cell.text);
-            const cellRaw = source.slice(cellFrom, cellTo);
-            return cell.tokens
-              ? mapInlineTokens(cell.tokens, cellFrom, source, diagnostics)
-              : parseSpecialInlineSyntax(cellRaw, cellFrom, source);
+            return row.map((cell, cIdx) => {
+              const cellLoc = rowCells[cIdx];
+              const cellFrom = cellLoc ? cellLoc.from : tokenStart;
+              const cellTo = cellLoc
+                ? cellLoc.to
+                : matchTokenEndInSource(source, cellFrom, cell.text);
+              const cellRaw = source.slice(cellFrom, cellTo);
+              return cell.tokens
+                ? mapInlineTokens(cell.tokens, cellFrom, source, diagnostics)
+                : parseSpecialInlineSyntax(cellRaw, cellFrom, source);
+            });
           });
-        });
 
         result.push({
           type: 'table',

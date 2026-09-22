@@ -11,7 +11,11 @@ import {
 } from '@nexus/core';
 import { FileService } from './file-service.js';
 import { createElectronFileDialog } from './file-dialog.js';
-import { IPC_CHANNELS, type FileWatchIpcPayload } from '../ipc/channels.js';
+import {
+  IPC_CHANNELS,
+  type FileWatchIpcPayload,
+  type WindowState
+} from '../ipc/channels.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,7 +46,8 @@ function createWindow(): BrowserWindowType {
     minHeight: 480,
     show: false,
     title: 'Nexus Lite',
-    autoHideMenuBar: true,
+    // 无边框窗口：最小化/最大化/关闭由渲染进程自绘，tooltip 才能跟随应用内语言。
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -51,9 +56,31 @@ function createWindow(): BrowserWindowType {
     }
   });
 
-  mainWindow.on('ready-to-show', () => {
+  // ready-to-show 在隐藏窗口下并不保证触发（冷启动 dev 时首次绘制可能不发生），
+  // 因此同时监听 did-finish-load 并加超时兜底，保证窗口一定可见。
+  let windowShown = false;
+  const showWindow = () => {
+    if (windowShown || mainWindow.isDestroyed()) return;
+    windowShown = true;
     mainWindow.show();
-  });
+    // 无边框窗口不会自动取得键盘焦点，未聚焦时用户输入与自动化按键都会被丢弃。
+    mainWindow.focus();
+  };
+
+  // 最大化/还原状态回传，保证自绘按钮图标与窗口实际状态一致。
+  const notifyWindowState = () => {
+    if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+    mainWindow.webContents.send(IPC_CHANNELS.windowStateChanged, {
+      maximized: mainWindow.isMaximized()
+    } satisfies WindowState);
+  };
+  mainWindow.on('maximize', notifyWindowState);
+  mainWindow.on('unmaximize', notifyWindowState);
+
+  mainWindow.once('ready-to-show', showWindow);
+  mainWindow.webContents.once('did-finish-load', showWindow);
+  const showFallbackTimer = setTimeout(showWindow, 3000);
+  mainWindow.once('closed', () => clearTimeout(showFallbackTimer));
 
   mainWindow.on('close', async (event) => {
     const isDirty = windowDirtyMap.get(mainWindow.id) ?? false;
@@ -241,6 +268,27 @@ ipcMain.on(IPC_CHANNELS.closeWindow, (event) => {
   if (win) {
     win.close();
   }
+});
+
+// 自绘窗口按钮：最小化 / 最大化（含还原） / 关闭
+ipcMain.on(IPC_CHANNELS.minimizeWindow, (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) win.minimize();
+});
+
+ipcMain.on(IPC_CHANNELS.maximizeWindow, (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  if (win.isMaximized()) {
+    win.unmaximize();
+  } else {
+    win.maximize();
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.getWindowState, (event): WindowState => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return { maximized: Boolean(win && !win.isDestroyed() && win.isMaximized()) };
 });
 
 // App lifecycle

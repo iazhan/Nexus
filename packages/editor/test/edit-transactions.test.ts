@@ -40,7 +40,7 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const selRaw: MarkdownSelection = { anchor: 10, head: 10 };
     expect(createParagraphOrHeadingSplitTransaction(rawSource, selRaw)).toBeNull();
   });
-  it('splits a paragraph in the middle into two paragraph blocks', () => {
+  it('splits a paragraph in the middle with a single newline (soft break)', () => {
     const source = 'First line content';
     const selection: MarkdownSelection = { anchor: 10, head: 10 }; // 'First line| content'
     const transaction = createParagraphOrHeadingSplitTransaction(source, selection);
@@ -51,11 +51,11 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const session = new MarkdownDocumentSession(source, selection);
     const snapshot = session.dispatch(transaction!);
 
-    expect(snapshot.source).toBe('First line\n\ncontent');
-    expect(snapshot.selection).toEqual({ anchor: 12, head: 12 });
+    expect(snapshot.source).toBe('First line\ncontent');
+    expect(snapshot.selection).toEqual({ anchor: 11, head: 11 });
   });
 
-  it('splits at paragraph start to create a leading empty paragraph', () => {
+  it('inserts a single newline when splitting at paragraph start', () => {
     const source = 'Paragraph text';
     const selection: MarkdownSelection = { anchor: 0, head: 0 };
     const transaction = createParagraphOrHeadingSplitTransaction(source, selection);
@@ -64,11 +64,11 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const session = new MarkdownDocumentSession(source, selection);
     const snapshot = session.dispatch(transaction!);
 
-    expect(snapshot.source).toBe('\n\nParagraph text');
-    expect(snapshot.selection).toEqual({ anchor: 2, head: 2 });
+    expect(snapshot.source).toBe('\nParagraph text');
+    expect(snapshot.selection).toEqual({ anchor: 1, head: 1 });
   });
 
-  it('splits at paragraph end to create a trailing empty paragraph', () => {
+  it('inserts a single newline when splitting at paragraph end', () => {
     const source = 'Paragraph text';
     const selection: MarkdownSelection = { anchor: source.length, head: source.length };
     const transaction = createParagraphOrHeadingSplitTransaction(source, selection);
@@ -77,8 +77,8 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const session = new MarkdownDocumentSession(source, selection);
     const snapshot = session.dispatch(transaction!);
 
-    expect(snapshot.source).toBe('Paragraph text\n\n');
-    expect(snapshot.selection).toEqual({ anchor: source.length + 2, head: source.length + 2 });
+    expect(snapshot.source).toBe('Paragraph text\n');
+    expect(snapshot.selection).toEqual({ anchor: source.length + 1, head: source.length + 1 });
   });
 
   it('preserves CRLF line endings when splitting', () => {
@@ -102,8 +102,8 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const session = new MarkdownDocumentSession(source, selection);
     const snapshot = session.dispatch(transaction!);
 
-    expect(snapshot.source).toBe('Some **bold**\n\n**words** here');
-    expect(snapshot.selection).toEqual({ anchor: 17, head: 17 });
+    expect(snapshot.source).toBe('Some **bold**\n**words** here');
+    expect(snapshot.selection).toEqual({ anchor: 16, head: 16 });
   });
 
   it('does not cut through atomic inline nodes (inline code, inline math, wikilinks, links, images, raw HTML)', () => {
@@ -117,7 +117,7 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const snapshot = session.dispatch(transaction!);
 
     // Should not slice `hello_world` in half; should split at the node boundary
-    expect(snapshot.source).toBe('Code `hello_world`\n\ninside');
+    expect(snapshot.source).toBe('Code `hello_world`\ninside');
   });
 
   it('handles CJK characters and Emoji without offset corruption', () => {
@@ -129,8 +129,8 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const session = new MarkdownDocumentSession(source, selection);
     const snapshot = session.dispatch(transaction!);
 
-    expect(snapshot.source).toBe('你好🌟世界\n\n，测试段落拆分');
-    expect(snapshot.selection).toEqual({ anchor: 8, head: 8 });
+    expect(snapshot.source).toBe('你好🌟世界\n，测试段落拆分');
+    expect(snapshot.selection).toEqual({ anchor: 7, head: 7 });
   });
 
   it('splits heading in the middle: keeps left as heading, right as paragraph', () => {
@@ -142,8 +142,8 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const session = new MarkdownDocumentSession(source, selection);
     const snapshot = session.dispatch(transaction!);
 
-    expect(snapshot.source).toBe('# Major Heading\n\nTitle');
-    expect(snapshot.selection).toEqual({ anchor: 17, head: 17 });
+    expect(snapshot.source).toBe('# Major Heading\nTitle');
+    expect(snapshot.selection).toEqual({ anchor: 16, head: 16 });
   });
 
   it('splits heading at end: adds new paragraph below', () => {
@@ -155,8 +155,8 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const session = new MarkdownDocumentSession(source, selection);
     const snapshot = session.dispatch(transaction!);
 
-    expect(snapshot.source).toBe('## Subtitle\n\n');
-    expect(snapshot.selection).toEqual({ anchor: source.length + 2, head: source.length + 2 });
+    expect(snapshot.source).toBe('## Subtitle\n');
+    expect(snapshot.selection).toEqual({ anchor: source.length + 1, head: source.length + 1 });
   });
 
   it('preserves closing hashes and indentation in heading split', () => {
@@ -168,7 +168,7 @@ describe('Edit Transactions: Enter (Paragraph, Heading, List Item, Blockquote Sp
     const session = new MarkdownDocumentSession(source, selection);
     const snapshot = session.dispatch(transaction!);
 
-    expect(snapshot.source).toBe('### Heading with ###\n\nhashes');
+    expect(snapshot.source).toBe('### Heading with ###\nhashes');
   });
 
   it('splits an unordered list item into two items with matching marker style', () => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { commandRegistry } from './platform.js';
 import { useLocale } from './hooks.js';
+import { formatShortcut } from './shortcut.js';
 
 
 export const CommandPalette: React.FC<{
@@ -74,7 +75,9 @@ export const CommandPalette: React.FC<{
               onMouseEnter={() => setSelectedIndex(idx)}
             >
               <span className="nexus-command-title">{t(cmd.titleKey)}</span>
-              {cmd.shortcut && <span className="nexus-command-shortcut">{cmd.shortcut}</span>}
+              {cmd.shortcut && (
+                <span className="nexus-command-shortcut">{formatShortcut(cmd.shortcut)}</span>
+              )}
             </li>
           ))}
           {filteredCommands.length === 0 && (

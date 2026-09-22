@@ -29,7 +29,7 @@ describe('Real CodeMirror KeyboardEvent & DOM Widget Integration', () => {
     handle.view.contentDOM.dispatchEvent(enterEvent1);
 
     expect(enterEvent1.defaultPrevented).toBe(true);
-    expect(session.getSnapshot().source).toBe('Paragraph\n\ntext\n\n```ts\nconst x = 1;\n```');
+    expect(session.getSnapshot().source).toBe('Paragraph\ntext\n\n```ts\nconst x = 1;\n```');
     expect(session.getSnapshot().revision).toBe(1);
 
     // 2. In fenced code block: cursor at 'const x =| 1;'

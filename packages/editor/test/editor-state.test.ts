@@ -145,9 +145,9 @@ describe('CodeMirror 6 Source Editor Core Logic', () => {
       expect(result!.options.length).toBeGreaterThan(0);
     });
 
-    it('matches headings when user types #', () => {
-      const state = createSourceEditorState({ doc: '#' });
-      const context = new CompletionContext(state, 1, false);
+    it('matches headings after the slash command prefix /head', () => {
+      const state = createSourceEditorState({ doc: '/head' });
+      const context = new CompletionContext(state, 5, false);
       const result = markdownCompletionSource(context);
 
       expect(result).not.toBeNull();
@@ -155,9 +155,9 @@ describe('CodeMirror 6 Source Editor Core Logic', () => {
       expect(labels.some((l) => l.includes('Heading'))).toBe(true);
     });
 
-    it('matches code block when user types code', () => {
-      const state = createSourceEditorState({ doc: 'code' });
-      const context = new CompletionContext(state, 4, false);
+    it('matches code block after the slash command prefix /code', () => {
+      const state = createSourceEditorState({ doc: '/code' });
+      const context = new CompletionContext(state, 5, false);
       const result = markdownCompletionSource(context);
 
       expect(result).not.toBeNull();
@@ -165,14 +165,24 @@ describe('CodeMirror 6 Source Editor Core Logic', () => {
       expect(labels.some((l) => l.includes('Code Block'))).toBe(true);
     });
 
-    it('matches wikilink snippets when the user types [[', () => {
-      const state = createSourceEditorState({ doc: '[[' });
-      const context = new CompletionContext(state, 2, false);
+    it('matches wikilink snippets after the slash command prefix /wiki', () => {
+      const state = createSourceEditorState({ doc: '/wiki' });
+      const context = new CompletionContext(state, 5, false);
       const result = markdownCompletionSource(context);
 
       expect(result).not.toBeNull();
       const labels = result!.options.map((o) => o.label);
       expect(labels.some((l) => l.includes('Wikilink'))).toBe(true);
+    });
+
+    it('stays closed for plain words and markdown symbols so Enter keeps its meaning', () => {
+      // 输入正文单词（如 table / code）或 Markdown 符号（如 |、#）时不能弹窗，
+      // 否则补全面板会抢走 Enter，用户想换行却插入整段模板。
+      for (const doc of ['table', 'code', '|', '#', '>', '[[']) {
+        const state = createSourceEditorState({ doc });
+        const context = new CompletionContext(state, doc.length, false);
+        expect(markdownCompletionSource(context)).toBeNull();
+      }
     });
 
     it('returns null for non-matching queries without explicit trigger', () => {

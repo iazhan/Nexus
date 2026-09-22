@@ -71,7 +71,7 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
     expect(filename).toContain('测试文档.md');
 
     // 3. Switch to Visual mode
-    await activeApp.click('.nexus-surface-switcher button:last-child');
+    await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 10000);
 
     // 4. Verify relative image successfully loads with naturalWidth > 0
@@ -285,7 +285,7 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
     await expectSource(initialContent);
 
     // 9. Switch back to Source surface and verify byte-for-byte consistency
-    await activeApp.mouseClick('.nexus-surface-switcher button:first-child');
+    await activeApp.mouseClick('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="source"]', 5000);
 
     const sourceViewText = await activeApp.evaluate(`window.nexusActiveView.state.doc.toString()`);

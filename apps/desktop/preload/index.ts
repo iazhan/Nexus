@@ -6,7 +6,11 @@ import type {
   FileWatchEvent,
   Unsubscribe
 } from '@nexus/core';
-import { IPC_CHANNELS, type FileWatchIpcPayload } from '../ipc/channels.js';
+import {
+  IPC_CHANNELS,
+  type FileWatchIpcPayload,
+  type WindowState
+} from '../ipc/channels.js';
 import type { NexusBridge } from './types.js';
 
 const listeners = new Map<string, FileWatchListener>();
@@ -120,6 +124,32 @@ const bridge: NexusBridge = {
 
   closeWindow: (): void => {
     ipcRenderer.send(IPC_CHANNELS.closeWindow);
+  },
+
+  minimizeWindow: (): void => {
+    ipcRenderer.send(IPC_CHANNELS.minimizeWindow);
+  },
+
+  maximizeWindow: (): void => {
+    ipcRenderer.send(IPC_CHANNELS.maximizeWindow);
+  },
+
+  getWindowState: (): Promise<WindowState> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getWindowState);
+  },
+
+  onWindowStateChanged: (callback: (state: WindowState) => void): Unsubscribe => {
+    const handler = (_event: unknown, state: WindowState) => {
+      try {
+        callback(state);
+      } catch (err) {
+        console.error('[Nexus Preload] Window state listener error:', err);
+      }
+    };
+    ipcRenderer.on(IPC_CHANNELS.windowStateChanged, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.windowStateChanged, handler);
+    };
   }
 };
 

@@ -96,7 +96,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForSelector('.cm-content', 15000);
 
     // Switch to Visual mode
-    await activeApp.click('.nexus-surface-switcher button:last-child');
+    await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
 
     // Verify visual widgets rendered
@@ -106,7 +106,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForSelector('.cm-visual-inline-math', 15000);
 
     // Switch back to Source mode
-    await activeApp.click('.nexus-surface-switcher button:first-child');
+    await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
     const sourceText = await activeApp.getText('.cm-content');
     expect(sourceText).toContain('\\sum_{i=1}^n x_i = X');
@@ -136,7 +136,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     );
 
     // Visual edit: enter the real code-block sub-editor and commit through its key path.
-    await activeApp.click('.nexus-surface-switcher button:last-child');
+    await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
     await activeApp.waitForSelector('.cm-code-body', 15000);
     await activeApp.click('.cm-code-body');
@@ -158,7 +158,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     );
 
     // Switch back to Source and verify both edits survive in canonical Markdown.
-    await activeApp.click('.nexus-surface-switcher button:first-child');
+    await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
     const sourceText = await activeApp.evaluate<string>(
       `window.nexusSession.getSnapshot().source`
@@ -399,11 +399,11 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     })()`);
 
     // Switch to Visual mode
-    await activeApp.click('.nexus-surface-switcher button:last-child');
+    await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
 
     // Switch back to Source mode
-    await activeApp.click('.nexus-surface-switcher button:first-child');
+    await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
 
     const updatedSource = await activeApp.evaluate(`window.nexusSession.getSnapshot().source`);
@@ -418,7 +418,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = await launchElectronApp({ filePath: extDoc });
     await activeApp.waitForSelector('.cm-content', 15000);
     
-    await activeApp.click('.nexus-surface-switcher button:last-child');
+    await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
     
     // Check if it creates math and mermaid preview elements
@@ -435,7 +435,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForSelector('.cm-content', 15000);
 
     // Initial theme should be light (or whatever is default)
-    let bodyClass = await activeApp.evaluate('document.body.className');
+    const bodyClass = await activeApp.evaluate('document.body.className');
     expect(bodyClass).not.toContain('theme-dark');
 
     // Open Command Palette: Mod-Shift-P

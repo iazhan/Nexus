@@ -1,20 +1,74 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import type { LaunchContext, Unsubscribe } from '@nexus/core';
 import {
   MarkdownDocumentSession,
   hasMathMarkers,
   openSearchPanel,
   ExtensionHost,
+  type EditorView,
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo
 } from '@nexus/editor';
 import { EditorSurface } from './editor/SourceEditor.js';
+import { MenuBar, type MenuBarMenu } from './MenuBar.js';
+import { WindowControls } from './WindowControls.js';
+import { formatShortcut, matchesShortcut } from './shortcut.js';
 import { commandRegistry } from './platform.js';
 import { useTheme, useLocale } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
+
+/** Source surface 图标：代码尖括号。 */
+const CodeIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="16 18 22 12 16 6" />
+    <polyline points="8 6 2 12 8 18" />
+  </svg>
+);
+
+/** Visual surface 图标：预览小眼睛。 */
+const EyeIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+/** 太阳图标：切换到亮色。 */
+const SunIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="5" />
+    <line x1="12" y1="1" x2="12" y2="3" />
+    <line x1="12" y1="21" x2="12" y2="23" />
+    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+    <line x1="1" y1="12" x2="3" y2="12" />
+    <line x1="21" y1="12" x2="23" y2="12" />
+    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+  </svg>
+);
+
+/** 月亮图标：切换到暗色。 */
+const MoonIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </svg>
+);
+
+/** 保存状态到标题栏文案的唯一映射，避免状态与展示在 JSX 中分叉。 */
+const SAVE_STATE_LABEL: Record<EditorSaveState, string> = {
+  clean: 'Saved',
+  saved: 'Saved',
+  dirty: 'Unsaved',
+  saving: 'Saving...',
+  error: 'Save Error',
+  readonly: 'Read Only',
+  'external-changed': 'Conflict',
+  deleted: 'Deleted'
+};
 
 /**
  * 检测数学扩展状态；解析器异常时仍保留普通 Markdown 编辑能力，并明确显示降级状态。
@@ -40,7 +94,7 @@ function getDocumentDirectory(filePath: string | null): string | null {
 
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
-  const { locale, setLocale } = useLocale();
+  const { locale, setLocale, t } = useLocale();
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   useEffect(() => {
@@ -450,37 +504,49 @@ export const App: React.FC = () => {
         titleKey: 'cmd.find',
         shortcut: 'Mod-F',
         execute: () => {
-          const activeView = (window as any).nexusActiveView;
+          const activeView = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
           if (activeView) openSearchPanel(activeView);
+        }
+      }),
+      commandRegistry.registerCommand({
+        id: 'replace',
+        titleKey: 'cmd.replace',
+        shortcut: 'Mod-H',
+        execute: () => {
+          const activeView = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
+          if (activeView) openSearchPanel(activeView);
+        }
+      }),
+      commandRegistry.registerCommand({
+        id: 'open-in-workspace',
+        titleKey: 'cmd.openInWorkspace',
+        execute: () => {
+          // Placeholder for opening current file in workspace
         }
       })
     ];
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
-      const isMod = e.ctrlKey || e.metaKey;
 
-      if (isMod && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+      if (matchesShortcut(e, 'Mod-K')) {
         e.preventDefault();
         setCommandPaletteOpen(true);
-      } else if (isMod && e.shiftKey && (e.key === 's' || e.key === 'S')) {
-        e.preventDefault();
-        commandRegistry.executeCommand('save-as');
-      } else if (isMod && (e.key === 's' || e.key === 'S')) {
-        e.preventDefault();
-        commandRegistry.executeCommand('save');
-      } else if (isMod && (e.key === 'o' || e.key === 'O')) {
-        e.preventDefault();
-        commandRegistry.executeCommand('open-file');
-      } else if (isMod && (e.key === 'm' || e.key === 'M')) {
-        e.preventDefault();
-        commandRegistry.executeCommand('toggle-surface');
-      } else if (isMod && (e.key === 'w' || e.key === 'W')) {
+        return;
+      }
+
+      if (matchesShortcut(e, 'Mod-W')) {
         e.preventDefault();
         if (window.nexus?.closeWindow) window.nexus.closeWindow();
-      } else if (isMod && (e.key === 'f' || e.key === 'F')) {
-        e.preventDefault();
-        commandRegistry.executeCommand('find');
+        return;
+      }
+
+      for (const cmd of commandRegistry.getCommands()) {
+        if (cmd.shortcut && matchesShortcut(e, cmd.shortcut)) {
+          e.preventDefault();
+          commandRegistry.executeCommand(cmd.id);
+          return;
+        }
       }
     };
 
@@ -508,9 +574,220 @@ export const App: React.FC = () => {
     updateSaveState('dirty');
   }, [updateSaveState]);
 
+  /** 双击标题栏最大化/还原；命中按钮或下拉菜单时不触发，避免误触。 */
+  const handleHeaderDoubleClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button, .nexus-menu-dropdown')) return;
+    window.nexus?.maximizeWindow?.();
+  }, []);
+
+  // 新建空文档：置空 filePath 会触发监听清理，文档回到未命名的干净状态。
+  const handleNewFile = useCallback(() => {
+    setFilePath(null);
+    initialContentRef.current = '';
+    session.replaceSource('', { selection: { anchor: 0, head: 0 } });
+    setSaveError(null);
+    updateSaveState('clean');
+  }, [session, updateSaveState]);
+
+  /**
+   * 撤销/重做走 session，与编辑器 Mod-z / Mod-Shift-z 共用同一份历史，
+   * 避免菜单与快捷键产生两条独立的 undo 栈。
+   */
+  const handleUndo = useCallback(() => {
+    session.undo();
+  }, [session]);
+
+  const handleRedo = useCallback(() => {
+    session.redo();
+  }, [session]);
+
+  /** 复制/剪切/粘贴依赖编辑器 DOM 选区，执行前把焦点交还给编辑器。 */
+  const focusActiveEditor = useCallback(() => {
+    const activeView = (window as unknown as { nexusActiveView?: { focus: () => void } })
+      .nexusActiveView;
+    activeView?.focus();
+  }, []);
+
+  const handleCopy = useCallback(async () => {
+    focusActiveEditor();
+    const { source, selection } = session.getSnapshot();
+    const from = Math.min(selection.anchor, selection.head);
+    const to = Math.max(selection.anchor, selection.head);
+    if (from === to) return;
+    const selectedText = source.slice(from, to);
+    try {
+      await navigator.clipboard?.writeText(selectedText);
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+  }, [focusActiveEditor, session]);
+
+  const handleCut = useCallback(async () => {
+    focusActiveEditor();
+    const { source, selection } = session.getSnapshot();
+    const from = Math.min(selection.anchor, selection.head);
+    const to = Math.max(selection.anchor, selection.head);
+    if (from === to) return;
+    const selectedText = source.slice(from, to);
+    try {
+      await navigator.clipboard?.writeText(selectedText);
+      session.dispatch({
+        changes: [{ from, to, insert: '' }],
+        selection: { anchor: from, head: from },
+        userEvent: 'delete.cut'
+      });
+    } catch (err) {
+      console.error('Cut failed:', err);
+    }
+  }, [focusActiveEditor, session]);
+
+  const handleSelectAll = useCallback(() => {
+    const { source } = session.getSnapshot();
+    session.dispatch({
+      changes: [],
+      selection: { anchor: 0, head: source.length }
+    });
+    focusActiveEditor();
+  }, [focusActiveEditor, session]);
+
+  /** 粘贴无法用 execCommand 触发，改为读取剪贴板文本后写入 canonical source。 */
+  const handlePaste = useCallback(async () => {
+    focusActiveEditor();
+    try {
+      const text = await navigator.clipboard?.readText();
+      if (!text) return;
+      const { selection } = session.getSnapshot();
+      const from = Math.min(selection.anchor, selection.head);
+      const to = Math.max(selection.anchor, selection.head);
+      const caret = from + text.length;
+      session.dispatch({
+        changes: [{ from, to, insert: text }],
+        selection: { anchor: caret, head: caret },
+        userEvent: 'input.paste'
+      });
+    } catch (err) {
+      console.error('Paste failed:', err);
+    }
+  }, [focusActiveEditor, session]);
+
   const displayMode = context
     ? context.mode.charAt(0).toUpperCase() + context.mode.slice(1)
     : 'Lightweight';
+
+  const menus = useMemo<MenuBarMenu[]>(
+    () => [
+      {
+        id: 'file',
+        label: t('menu.file'),
+        items: [
+          { label: t('cmd.newFile'), onSelect: () => void handleNewFile() },
+          {
+            label: t('cmd.openFile'),
+            shortcut: formatShortcut('Mod-O'),
+            onSelect: () => void handleOpenFile()
+          },
+          {
+            label: t('cmd.save'),
+            shortcut: formatShortcut('Mod-S'),
+            onSelect: () => void saveFile({ immediate: true })
+          },
+          {
+            label: t('cmd.saveAs'),
+            shortcut: formatShortcut('Mod-Shift-S'),
+            onSelect: () => void saveAs()
+          },
+          { label: '', separator: true },
+          {
+            label: t('cmd.openInWorkspace'),
+            onSelect: () => {
+              // Placeholder for opening in workspace
+            }
+          },
+          {
+            label: t('cmd.openContainingFolder'),
+            onSelect: () => {
+              // Placeholder for opening containing folder
+            }
+          },
+          {
+            label: t('cmd.revealInFileExplorer'),
+            onSelect: () => {
+              // Placeholder for revealing in file explorer
+            }
+          },
+          { label: '', separator: true },
+          {
+            label: t('cmd.closeFile'),
+            shortcut: formatShortcut('Mod-W'),
+            onSelect: () => {
+              if (window.nexus?.closeWindow) window.nexus.closeWindow();
+            }
+          }
+        ]
+      },
+      {
+        id: 'edit',
+        label: t('menu.edit'),
+        items: [
+          { label: t('cmd.undo'), shortcut: formatShortcut('Mod-Z'), onSelect: handleUndo },
+          { label: t('cmd.redo'), shortcut: formatShortcut('Mod-Shift-Z'), onSelect: handleRedo },
+          { label: t('cmd.copy'), shortcut: formatShortcut('Mod-C'), onSelect: handleCopy },
+          { label: t('cmd.cut'), shortcut: formatShortcut('Mod-X'), onSelect: handleCut },
+          {
+            label: t('cmd.paste'),
+            shortcut: formatShortcut('Mod-V'),
+            onSelect: () => void handlePaste()
+          },
+          { label: t('cmd.selectAll'), shortcut: formatShortcut('Mod-A'), onSelect: handleSelectAll }
+        ]
+      },
+      {
+        id: 'appearance',
+        label: t('menu.appearance'),
+        items: [
+          {
+            label: t('theme.light'),
+            active: theme.type === 'light',
+            onSelect: () => setTheme('light')
+          },
+          {
+            label: t('theme.dark'),
+            active: theme.type === 'dark',
+            onSelect: () => setTheme('dark')
+          },
+          { label: '', separator: true },
+          {
+            label: t('lang.zhCN'),
+            active: locale === 'zh-CN',
+            onSelect: () => setLocale('zh-CN')
+          },
+          {
+            label: t('lang.enUS'),
+            active: locale === 'en-US',
+            onSelect: () => setLocale('en-US')
+          }
+        ]
+      }
+    ],
+    [
+      t,
+      handleNewFile,
+      handleOpenFile,
+      saveFile,
+      saveAs,
+      handleUndo,
+      handleRedo,
+      handleCopy,
+      handleCut,
+      handlePaste,
+      handleSelectAll,
+      theme.type,
+      setTheme,
+      locale,
+      setLocale
+    ]
+  );
 
   const fileName = filePath ? filePath.replace(/^.*[\\/]/, '') : 'Untitled.md';
   const isDirty = saveState !== 'saved';
@@ -521,9 +798,10 @@ export const App: React.FC = () => {
   return (
     <div className="nexus-app-root">
       {/* Header Bar */}
-      <header className="nexus-header-bar">
+      <header className="nexus-header-bar" onDoubleClick={handleHeaderDoubleClick}>
         <div className="nexus-header-left">
           <span className="nexus-app-title">Nexus Lite</span>
+          <MenuBar menus={menus} />
           <span className="nexus-badge">{displayMode}</span>
         </div>
 
@@ -536,33 +814,44 @@ export const App: React.FC = () => {
         </div>
 
         <div className="nexus-header-right">
-          <div className="nexus-surface-switcher" role="group" aria-label="Editor surface">
-            <button
-              type="button"
-              className={surfaceKind === 'source' ? 'active' : ''}
-              aria-pressed={surfaceKind === 'source'}
-              onClick={() => setSurfaceKind('source')}
-            >
-              Source
-            </button>
-            <button
-              type="button"
-              className={surfaceKind === 'visual' ? 'active' : ''}
-              aria-pressed={surfaceKind === 'visual'}
-              onClick={() => setSurfaceKind('visual')}
-            >
-              Visual
-            </button>
-          </div>
-          <span className={`nexus-save-badge ${saveState}`}>
-            {saveState === 'dirty' && 'Unsaved'}
-            {saveState === 'saving' && 'Saving...'}
-            {(saveState === 'saved' || saveState === 'clean') && 'Saved'}
-            {saveState === 'error' && 'Save Error'}
-            {saveState === 'readonly' && 'Read Only'}
-            {saveState === 'external-changed' && 'Conflict'}
-            {saveState === 'deleted' && 'Deleted'}
+          <span
+            className={`nexus-save-badge ${saveState}`}
+            role="status"
+            aria-live="polite"
+            title={saveError ?? SAVE_STATE_LABEL[saveState]}
+          >
+            {SAVE_STATE_LABEL[saveState]}
           </span>
+
+          <button
+            type="button"
+            className="nexus-header-button nexus-theme-toggle"
+            onClick={() => setTheme(theme.type === 'light' ? 'dark' : 'light')}
+            aria-label={t('cmd.toggleTheme')}
+            title={t('cmd.toggleTheme')}
+          >
+            <span aria-hidden="true">{theme.type === 'light' ? MoonIcon : SunIcon}</span>
+          </button>
+
+          <button
+            type="button"
+            className="nexus-header-button nexus-surface-toggle"
+            onClick={() => setSurfaceKind(surfaceKind === 'source' ? 'visual' : 'source')}
+            aria-pressed={surfaceKind === 'visual'}
+            aria-label={surfaceKind === 'source' ? t('surface.toVisual') : t('surface.toSource')}
+            title={surfaceKind === 'source' ? t('surface.toVisual') : t('surface.toSource')}
+          >
+            {surfaceKind === 'source' ? CodeIcon : EyeIcon}
+          </button>
+
+          <WindowControls
+            labels={{
+              minimize: t('window.minimize'),
+              maximize: t('window.maximize'),
+              restore: t('window.restore'),
+              close: t('window.close')
+            }}
+          />
         </div>
       </header>
 

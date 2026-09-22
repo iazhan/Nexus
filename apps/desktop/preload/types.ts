@@ -4,6 +4,7 @@ import type {
   FileWatchListener,
   Unsubscribe
 } from '@nexus/core';
+import type { WindowState } from '../ipc/channels.js';
 
 export interface NexusBridge {
   getLaunchContext: () => Promise<LaunchContext>;
@@ -16,4 +17,8 @@ export interface NexusBridge {
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;
   closeWindow: () => void;
+  minimizeWindow: () => void;
+  maximizeWindow: () => void;
+  getWindowState: () => Promise<WindowState>;
+  onWindowStateChanged: (callback: (state: WindowState) => void) => Unsubscribe;
 }
