@@ -135,22 +135,18 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       15000
     );
 
-    // Visual edit: enter the real code-block sub-editor and commit through its key path.
+    // Visual edit: edit the code-block line in visual mode via native document line
     await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
-    await activeApp.waitForSelector('.cm-code-body', 15000);
-    await activeApp.click('.cm-code-body');
-    await activeApp.waitForSelector('.cm-code-editor', 15000);
+    await activeApp.waitForSelector('.cm-visual-code-content-line', 15000);
     await activeApp.evaluate(`(() => {
-      const editor = document.querySelector('.cm-code-editor');
-      if (!(editor instanceof HTMLTextAreaElement)) throw new Error('Code sub-editor is unavailable');
-      editor.value = 'Visual body edit.';
-      editor.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Enter',
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true
-      }));
+      const view = window.nexusActiveView;
+      if (!view) throw new Error('Active Visual EditorView is unavailable');
+      const doc = view.state.doc.toString();
+      const target = 'Body paragraph.';
+      const idx = doc.indexOf(target);
+      if (idx === -1) throw new Error('Could not find code body in doc');
+      view.dispatch({ changes: { from: idx, to: idx + target.length, insert: 'Visual body edit.' } });
     })()`);
     await activeApp.waitForFunction(
       `() => window.nexusSession.getSnapshot().source.includes('Visual body edit.')`,
@@ -455,5 +451,52 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     // The palette should be closed
     const paletteExists = await activeApp.evaluate('!!document.querySelector(".nexus-command-palette")');
     expect(paletteExists).toBe(false);
+  }, 25000);
+
+  it('13. renders syntax highlighting for CPP code block in Visual mode', async () => {
+    const cppDoc = path.join(tempDir, 'cpp-test.md');
+    const content = [
+      '# C++ Document',
+      '',
+      '```C++',
+      'uint8_t a = 999;',
+      'void aaa(uint8_t b){',
+      '    a += b;',
+      '}',
+      '```',
+      ''
+    ].join('\n');
+    fs.writeFileSync(cppDoc, content, 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: cppDoc });
+    await activeApp.waitForSelector('.cm-content', 15000);
+
+    // Switch to Visual mode
+    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
+
+    // Wait for code block content lines and async syntax highlighting tokens
+    await activeApp.waitForSelector('.cm-visual-code-content-line', 15000);
+    await activeApp.waitForSelector('[class*="tok-"]', 15000);
+
+    // Inspect tokens and controls via CDP evaluate
+    const tokenInfo = await activeApp.evaluate(`(() => {
+      const tokens = Array.from(document.querySelectorAll('[class*="tok-"]'));
+      const headerLine = document.querySelector('.cm-visual-code-header-line');
+      const langSelect = document.querySelector('.cm-code-language-select');
+      const copyBtn = document.querySelector('.cm-code-copy-btn');
+
+      return {
+        count: tokens.length,
+        hasHeaderLine: Boolean(headerLine),
+        hasLangSelect: Boolean(langSelect),
+        hasCopyBtn: Boolean(copyBtn)
+      };
+    })()`);
+
+    expect(tokenInfo.count).toBeGreaterThan(0);
+    expect(tokenInfo.hasHeaderLine).toBe(true);
+    expect(tokenInfo.hasLangSelect).toBe(true);
+    expect(tokenInfo.hasCopyBtn).toBe(true);
   }, 25000);
 });

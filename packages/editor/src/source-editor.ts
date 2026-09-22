@@ -6,6 +6,7 @@ import { history } from '@codemirror/commands';
 import { search } from '@codemirror/search';
 import { autocompletion } from '@codemirror/autocomplete';
 import { markdown } from '@codemirror/lang-markdown';
+import { getCodeLanguage } from './code-highlight.js';
 
 import { editorKeybindings } from './keymaps.js';
 import { markdownCompletionSource } from './completions.js';
@@ -35,7 +36,9 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
 
     search({ top: true }),
 
-    markdown(),
+    markdown({
+      codeLanguages: getCodeLanguage
+    }),
 
     
 

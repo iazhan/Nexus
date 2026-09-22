@@ -147,8 +147,7 @@ describe('P1-04R Visual semantic closure', () => {
 
   it.each([
     { label: 'link', markup: '[target](https://nexus.dev)', marker: '[' },
-    { label: 'list', markup: '- target', marker: '-' },
-    { label: 'blockquote', markup: '> target', marker: '>' }
+    { label: 'list', markup: '- target', marker: '-' }
   ])('reveals and restores the relevant $label marker', ({ markup, marker }) => {
     const source = `Before\n\n${markup}\n\nAfter`;
     const mounted = mountVisual(source, 'p1-04r-marker');
@@ -166,6 +165,34 @@ describe('P1-04R Visual semantic closure', () => {
       expect(mounted.parent.querySelectorAll('.cm-visual-delimiter-revealed')).toHaveLength(0);
       expect(mounted.session.getSnapshot()).toMatchObject({ source, revision: 0 });
       expect(mounted.session.canUndo).toBe(false);
+    } finally {
+      mounted.cleanup();
+    }
+  });
+
+  it('reveals blockquote > delimiter when caret is on the line, and hides it when caret is outside', () => {
+    const source = 'Before\n\n> target\n\nAfter';
+    const mounted = mountVisual(source, 'p1-04r-quote-marker');
+
+    try {
+      mounted.handle.view.focus();
+      // Caret inside blockquote: line is decorated and marker is revealed
+      mounted.handle.view.dispatch({ selection: EditorSelection.single(source.indexOf('target') + 1) });
+      const bqLine = mounted.parent.querySelector('.cm-visual-blockquote-line');
+      expect(bqLine).not.toBeNull();
+
+      const revealed = mounted.parent.querySelector('.cm-visual-delimiter-revealed');
+      expect(revealed).not.toBeNull();
+      expect(revealed?.textContent).toBe('> ');
+
+      // Caret outside blockquote: line decoration remains, marker is hidden
+      mounted.handle.view.dispatch({ selection: EditorSelection.single(0) });
+      const bqLineStillDecorated = mounted.parent.querySelector('.cm-visual-blockquote-line');
+      expect(bqLineStillDecorated).not.toBeNull();
+
+      const hidden = mounted.parent.querySelector<HTMLElement>('.cm-visual-hidden-delimiter');
+      expect(hidden).not.toBeNull();
+      expect(hidden?.dataset.delimiter).toBe('> ');
     } finally {
       mounted.cleanup();
     }

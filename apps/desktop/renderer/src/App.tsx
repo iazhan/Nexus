@@ -172,6 +172,30 @@ export const App: React.FC = () => {
     return queued;
   }, []);
 
+  const performSaveAs = useCallback(async (currentSource: string): Promise<boolean> => {
+    try {
+      if (!window.nexus?.saveAs) return false;
+      const chosenPath = await window.nexus.saveAs(currentSource);
+      if (!chosenPath) return false;
+      setFilePath(chosenPath);
+      const sourceStillCurrent = session.getSnapshot().source === currentSource;
+      if (sourceStillCurrent) {
+        initialContentRef.current = currentSource;
+        updateSaveState('saved');
+      } else {
+        updateSaveState('dirty');
+      }
+      setSaveError(null);
+      return sourceStillCurrent;
+    } catch (err: unknown) {
+      console.error('SaveAs failed:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError(msg);
+      updateSaveState('error');
+      return false;
+    }
+  }, [session, updateSaveState]);
+
   // Save implementation
   const saveFile = useCallback((_options: { immediate?: boolean } = {}): Promise<boolean> => {
     if (debounceTimerRef.current) {
@@ -179,32 +203,16 @@ export const App: React.FC = () => {
       debounceTimerRef.current = null;
     }
 
+    if (saveStateRef.current === 'saved') {
+      return Promise.resolve(true);
+    }
+
     return enqueueSave(async () => {
       const currentSource = session.getSnapshot().source;
 
       // Untitled document or readonly document: prompt saveAs
       if (!filePath || saveStateRef.current === 'readonly') {
-        try {
-          if (!window.nexus?.saveAs) return false;
-          const chosenPath = await window.nexus.saveAs(currentSource);
-          if (!chosenPath) return false;
-          setFilePath(chosenPath);
-          const sourceStillCurrent = session.getSnapshot().source === currentSource;
-          if (sourceStillCurrent) {
-            initialContentRef.current = currentSource;
-            updateSaveState('saved');
-          } else {
-            updateSaveState('dirty');
-          }
-          setSaveError(null);
-          return sourceStillCurrent;
-        } catch (err: unknown) {
-          console.error('SaveAs failed:', err);
-          const msg = err instanceof Error ? err.message : String(err);
-          setSaveError(msg);
-          updateSaveState('error');
-          return false;
-        }
+        return performSaveAs(currentSource);
       }
 
       updateSaveState('saving');
@@ -235,34 +243,11 @@ export const App: React.FC = () => {
         return false;
       }
     });
-  }, [enqueueSave, filePath, session, updateSaveState]);
+  }, [enqueueSave, filePath, performSaveAs, session, updateSaveState]);
 
   const saveAs = useCallback((): Promise<boolean> => {
-    return enqueueSave(async () => {
-      const currentSource = session.getSnapshot().source;
-      try {
-        if (!window.nexus?.saveAs) return false;
-        const chosenPath = await window.nexus.saveAs(currentSource);
-        if (!chosenPath) return false;
-        setFilePath(chosenPath);
-        const sourceStillCurrent = session.getSnapshot().source === currentSource;
-        if (sourceStillCurrent) {
-          initialContentRef.current = currentSource;
-          updateSaveState('saved');
-        } else {
-          updateSaveState('dirty');
-        }
-        setSaveError(null);
-        return sourceStillCurrent;
-      } catch (err: unknown) {
-        console.error('Save As failed:', err);
-        const msg = err instanceof Error ? err.message : String(err);
-        setSaveError(msg);
-        updateSaveState('error');
-        return false;
-      }
-    });
-  }, [enqueueSave, session, updateSaveState]);
+    return enqueueSave(() => performSaveAs(session.getSnapshot().source));
+  }, [enqueueSave, performSaveAs, session]);
 
   // Open file
   const handleOpenFile = useCallback(async () => {
@@ -529,7 +514,7 @@ export const App: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
 
-      if (matchesShortcut(e, 'Mod-K')) {
+      if (matchesShortcut(e, 'Mod-K') || matchesShortcut(e, 'Mod-Shift-P')) {
         e.preventDefault();
         setCommandPaletteOpen(true);
         return;

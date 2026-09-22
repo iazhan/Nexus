@@ -45,16 +45,17 @@ import {
   type TableCellContext
 } from './table-edit.js';
 import {
-  parseCodeBlockContext,
-  createCodeBlockValueTransaction,
-  createCodeBlockLanguageTransaction
+  dispatchCodeBlockLanguageChange
 } from './code-block-edit.js';
 import {
   parseBlockMathContext,
   createBlockMathEditTransaction
 } from './special-block-edit.js';
 import { walkBlockNodes } from './ast-walker.js';
-import { isFenceClosed } from './edit-transactions.js';
+import {
+  DEFAULT_CODE_LANGUAGES,
+  normalizeLanguage
+} from './code-highlight.js';
 
 /** 注册到单个 EditorView 的可关闭子编辑器。 */
 interface ActiveSubEditor {
@@ -507,6 +508,70 @@ function isMarkerAtLineEnd(lineText: string, markerEnd: number): boolean {
   return lineText.slice(markerEnd).trim().length === 0;
 }
 
+/**
+ * 引用块标记前缀长度：`>` 每层最多吞掉其后的一个空格/制表符，
+ * 其余空格属于代码自身缩进，必须保留（`>     indented` 里 4 个空格是代码内容）。
+ */
+function leadingQuoteMarkerLength(lineText: string): number {
+  const match = lineText.match(/^[ \t]*(?:>[ \t]?)+/);
+  return match ? match[0].length : 0;
+}
+
+/** 去掉引用标记后的行文本。 */
+function stripQuoteMarkers(lineText: string): string {
+  return lineText.slice(leadingQuoteMarkerLength(lineText));
+}
+
+/**
+ * `from` 之前的同一行内容是否只有引用标记。
+ *
+ * 引用块内的代码块 raw 只有首行不带 `>`、其余行带（`"```ts\n> code\n> ```"`），
+ * 所以判断「是否位于引用块内」不能只看节点自身文本，必须回看文档前缀。
+ */
+function isInsideQuotePrefix(source: string, from: number): boolean {
+  const lineStart = source.lastIndexOf('\n', from - 1) + 1;
+  return /^[ \t]*(?:>[ \t]*)+$/.test(source.slice(lineStart, from));
+}
+
+/**
+ * raw 首行是否带围栏起始。
+ *
+ * 用于区分「围栏代码块」与「缩进式代码块」：后者没有围栏行，
+ * 不能挂 header/exit widget，但仍应作为代码块渲染出行号与代码样式。
+ */
+function hasFenceOpener(raw: string, isQuoteNested: boolean): boolean {
+  const firstLine = raw.split(/\r?\n/, 1)[0] ?? '';
+  const text = isQuoteNested ? stripQuoteMarkers(firstLine) : firstLine;
+  return /^(`{3,}|~{3,})/.test(text.trim());
+}
+
+/**
+ * 围栏是否闭合，且兼容引用块内的代码块。
+ *
+ * `isFenceClosed` 直接检查 raw 首行是否以围栏开头，而引用块内的代码块
+ * raw 形如 "```ts\n> code\n> ```"（首行没有 `>`、其余行带），因此会被判为
+ * 未闭合而整块退化成原文，既没有行号也没有语法高亮。
+ * 这里在引用块场景下逐行剥离引用标记后再判定，
+ * 同时保持「未闭合围栏保留原文」的既有语义。
+ */
+function isClosedFence(raw: string, isQuoteNested: boolean): boolean {
+  const lines = raw
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .filter((line) => line.trim().length > 0);
+  if (lines.length < 2) return false;
+
+  const normalizeLine = (line: string) =>
+    (isQuoteNested ? stripQuoteMarkers(line) : line).trim();
+  const opener = normalizeLine(lines[0]!).match(/^(`{3,}|~{3,})/);
+  if (!opener) return false;
+
+  const fenceChar = opener[1]![0]!;
+  const minLength = opener[1]!.length;
+  return new RegExp(`^\\${fenceChar}{${minLength},}$`).test(
+    normalizeLine(lines[lines.length - 1]!)
+  );
+}
 
 
 export class HorizontalRuleWidget extends WidgetType {
@@ -516,6 +581,10 @@ export class HorizontalRuleWidget extends WidgetType {
     public readonly raw: string
   ) {
     super();
+  }
+
+  public get estimatedHeight(): number {
+    return 33;
   }
 
   public eq(other: WidgetType): boolean {
@@ -721,6 +790,10 @@ export class TableBlockWidget extends WidgetType {
     public readonly align: ('left' | 'center' | 'right' | null)[]
   ) {
     super();
+  }
+
+  public get estimatedHeight(): number {
+    return Math.max(80, (1 + this.rows.length) * 36 + 40);
   }
 
   public eq(other: WidgetType): boolean {
@@ -1148,6 +1221,202 @@ export class TableBlockWidget extends WidgetType {
   }
 }
 
+const COPY_ICON_SVG = `<svg class="cm-code-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+const CHECK_ICON_SVG = `<svg class="cm-code-copy-icon cm-code-copy-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+
+function bindClipboardCopy(
+  copyBtn: HTMLButtonElement,
+  getText: () => string,
+  setTimer?: (timer: ReturnType<typeof setTimeout> | null) => void
+): void {
+  copyBtn.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+  });
+
+  copyBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!navigator.clipboard?.writeText) {
+      copyBtn.dataset.copyState = 'error';
+      copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Failed</span>`;
+      return;
+    }
+    navigator.clipboard
+      .writeText(getText())
+      .then(() => {
+        copyBtn.dataset.copyState = 'success';
+        copyBtn.classList.add('copied');
+        copyBtn.innerHTML = `${CHECK_ICON_SVG}<span class="cm-code-copy-label">Copied!</span>`;
+        const timer = setTimeout(() => {
+          copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Copy</span>`;
+          copyBtn.classList.remove('copied');
+          delete copyBtn.dataset.copyState;
+          setTimer?.(null);
+        }, 2000);
+        setTimer?.(timer);
+      })
+      .catch(() => {
+        copyBtn.dataset.copyState = 'error';
+        copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Failed</span>`;
+      });
+  });
+}
+
+export class CodeBlockHeaderWidget extends WidgetType {
+  private copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  public constructor(
+    public readonly from: number,
+    public readonly firstLineTo: number,
+    public readonly language: string | undefined,
+    public readonly value: string
+  ) {
+    super();
+  }
+
+  public eq(other: WidgetType): boolean {
+    return (
+      other instanceof CodeBlockHeaderWidget &&
+      other.from === this.from &&
+      other.firstLineTo === this.firstLineTo &&
+      other.language === this.language &&
+      other.value === this.value
+    );
+  }
+
+  public toDOM(view: EditorView): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'cm-code-header-widget';
+
+    const select = document.createElement('select');
+    select.className = 'cm-code-language-select';
+    select.disabled = view.state.readOnly;
+    select.setAttribute('aria-label', 'Code block language');
+
+    const languages = [...DEFAULT_CODE_LANGUAGES];
+    const currentLang = this.language || '';
+    // 用归一化后的语言键匹配预设项，`C++` / `C#` / `ts` 这类手写围栏信息
+    // 应当选中已有预设，而不是追加一个重复的“自定义语言”选项。
+    const currentKey = currentLang ? normalizeLanguage(currentLang) : '';
+    const matchedPreset = currentKey
+      ? languages.find((l) => l.value !== '' && normalizeLanguage(l.value) === currentKey)
+      : undefined;
+    if (currentLang && !matchedPreset) {
+      languages.push({ label: currentLang, value: currentLang });
+    }
+
+    for (const lang of languages) {
+      const opt = document.createElement('option');
+      opt.value = lang.value;
+      opt.textContent = lang.label;
+      select.appendChild(opt);
+    }
+
+    // 所有 option 追加完成后再统一设置选中项：既不依赖 append 顺序，
+    // 也避免 option.selected 在后续 append 时被实现重置。
+    select.value = matchedPreset ? matchedPreset.value : currentLang;
+
+    select.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+    });
+
+    select.addEventListener('change', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dispatchCodeBlockLanguageChange(view, this.from, select.value.trim(), this.language);
+    });
+
+    const leftGroup = document.createElement('div');
+    leftGroup.className = 'cm-code-header-left';
+    leftGroup.appendChild(select);
+
+    const lineCount = this.value ? this.value.split(/\r?\n/).length : 0;
+    if (lineCount > 0) {
+      const countBadge = document.createElement('span');
+      countBadge.className = 'cm-code-line-count';
+      countBadge.textContent = `${lineCount} 行`;
+      leftGroup.appendChild(countBadge);
+    }
+
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'cm-code-copy-btn';
+    copyBtn.setAttribute('aria-label', 'Copy code');
+    copyBtn.title = 'Copy code';
+    copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Copy</span>`;
+
+    container.appendChild(leftGroup);
+    container.appendChild(copyBtn);
+
+    bindClipboardCopy(copyBtn, () => this.value, (timer) => {
+      if (this.copyTimer) clearTimeout(this.copyTimer);
+      this.copyTimer = timer;
+    });
+
+    return container;
+  }
+}
+
+export class CodeBlockExitWidget extends WidgetType {
+  public constructor(public readonly to: number) {
+    super();
+  }
+
+  public eq(other: WidgetType): boolean {
+    return other instanceof CodeBlockExitWidget && other.to === this.to;
+  }
+
+  public ignoreEvent(): boolean {
+    return true;
+  }
+
+  public toDOM(view: EditorView): HTMLElement {
+    const exit = document.createElement('div');
+    exit.className = 'cm-code-exit-widget';
+    exit.setAttribute('aria-hidden', 'true');
+
+    exit.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || view.state.readOnly) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const doc = view.state.doc;
+      const targetPos = Math.min(this.to, doc.length);
+
+      if (targetPos >= doc.length) {
+        // At EOF: insert newline and place cursor on the new line
+        const newline = doc.toString().includes('\r\n') ? '\r\n' : '\n';
+        view.dispatch({
+          changes: { from: targetPos, insert: newline },
+          selection: EditorSelection.cursor(targetPos + newline.length),
+          scrollIntoView: true
+        });
+      } else {
+        // Not at EOF: targetPos is after the closing fence newline
+        const isAlreadyEmptyLine =
+          doc.sliceString(targetPos, targetPos + 1) === '\n' ||
+          doc.sliceString(targetPos, targetPos + 2) === '\r\n';
+
+        if (isAlreadyEmptyLine) {
+          view.dispatch({
+            selection: EditorSelection.cursor(targetPos),
+            scrollIntoView: true
+          });
+        } else {
+          const newline = doc.toString().includes('\r\n') ? '\r\n' : '\n';
+          view.dispatch({
+            changes: { from: targetPos, insert: newline },
+            selection: EditorSelection.cursor(targetPos),
+            scrollIntoView: true
+          });
+        }
+      }
+      view.focus();
+    });
+
+    return exit;
+  }
+}
+
 export class CodeBlockWidget extends WidgetType {
   private copyTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1159,6 +1428,10 @@ export class CodeBlockWidget extends WidgetType {
     public readonly value: string
   ) {
     super();
+  }
+
+  public get estimatedHeight(): number {
+    return 140;
   }
 
   public eq(other: WidgetType): boolean {
@@ -1182,98 +1455,6 @@ export class CodeBlockWidget extends WidgetType {
     const langBadge = document.createElement('span');
     langBadge.className = 'cm-code-language';
     langBadge.textContent = this.language || 'text';
-
-    langBadge.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (view.state.readOnly) return;
-      if (header.querySelector('.cm-code-lang-input')) return;
-
-      const langInput = document.createElement('input');
-      langInput.type = 'text';
-      langInput.className = 'cm-code-lang-input';
-      langInput.value = this.language || '';
-
-      langBadge.style.display = 'none';
-      header.insertBefore(langInput, langBadge);
-      langInput.focus();
-      langInput.select();
-
-      const controller = createSubEditorController(view, () => {
-        langInput.remove();
-        langBadge.style.display = '';
-      });
-      const { signal } = controller;
-
-      let isComposing = false;
-      langInput.addEventListener(
-        'compositionstart',
-        () => {
-          isComposing = true;
-        },
-        { signal }
-      );
-      langInput.addEventListener(
-        'compositionend',
-        () => {
-          isComposing = false;
-        },
-        { signal }
-      );
-
-      const commit = () => {
-        if (!controller.isActive() || view.state.readOnly) {
-          controller.close();
-          return;
-        }
-        const nextLanguage = langInput.value.trim();
-        const src = view.state.doc.toString();
-        const parsed = parseMarkdown(src);
-        let target: Extract<MarkdownBlockNode, { type: 'code-block' }> | null = null;
-        walkBlockNodes(parsed.root.children, (child) => {
-          if (child.type === 'code-block' && child.range.from === this.from) {
-            target = child;
-            return true;
-          }
-          return false;
-        });
-        if (target) {
-          const ctx = parseCodeBlockContext(src, target);
-          const tx = createCodeBlockLanguageTransaction(src, ctx, nextLanguage);
-          if (tx) {
-            controller.close();
-            view.dispatch({ changes: tx.changes, userEvent: tx.userEvent });
-            return;
-          }
-        }
-        controller.close();
-      };
-
-      langInput.addEventListener(
-        'keydown',
-        (ke) => {
-          if (!controller.isActive() || isComposing || ke.isComposing) return;
-          if (ke.key === 'Enter') {
-            ke.preventDefault();
-            ke.stopPropagation();
-            commit();
-          } else if (ke.key === 'Escape') {
-            ke.preventDefault();
-            ke.stopPropagation();
-            controller.close();
-          }
-        },
-        { signal }
-      );
-
-      langInput.addEventListener(
-        'blur',
-        () => {
-          if (controller.isActive() && !isComposing) commit();
-        },
-        { signal }
-      );
-    });
-
     header.appendChild(langBadge);
 
     const isMermaid = this.language === 'mermaid';
@@ -1290,40 +1471,16 @@ export class CodeBlockWidget extends WidgetType {
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'cm-code-copy-btn';
-    copyBtn.textContent = 'Copy';
-
-    copyBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (this.copyTimer) {
-        clearTimeout(this.copyTimer);
-        this.copyTimer = null;
-      }
-      if (!navigator.clipboard?.writeText) {
-        copyBtn.dataset.copyState = 'error';
-        copyBtn.textContent = 'Failed';
-        copyBtn.title = 'Copy failed';
-        return;
-      }
-      navigator.clipboard
-        .writeText(this.value)
-        .then(() => {
-          copyBtn.dataset.copyState = 'success';
-          copyBtn.textContent = 'Copied!';
-          this.copyTimer = setTimeout(() => {
-            copyBtn.textContent = 'Copy';
-            delete copyBtn.dataset.copyState;
-            this.copyTimer = null;
-          }, 2000);
-        })
-        .catch(() => {
-          copyBtn.dataset.copyState = 'error';
-          copyBtn.textContent = 'Failed';
-          copyBtn.title = 'Copy failed';
-        });
-    });
+    copyBtn.setAttribute('aria-label', 'Copy code');
+    copyBtn.title = 'Copy code';
+    copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Copy</span>`;
     header.appendChild(copyBtn);
     container.appendChild(header);
+
+    bindClipboardCopy(copyBtn, () => this.value, (timer) => {
+      if (this.copyTimer) clearTimeout(this.copyTimer);
+      this.copyTimer = timer;
+    });
 
     let previewEl: HTMLElement | null = null;
     let control: EditorExtensionControl | undefined;
@@ -1341,6 +1498,10 @@ export class CodeBlockWidget extends WidgetType {
           const previewPre = document.createElement('pre');
           previewPre.textContent = this.value;
           previewEl!.appendChild(previewPre);
+          view.requestMeasure();
+        },
+        () => {
+          view.requestMeasure();
         }
       );
       (previewEl as any).__nexusExtensionControl = control;
@@ -1372,94 +1533,6 @@ export class CodeBlockWidget extends WidgetType {
       });
     }
 
-    pre.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (view.state.readOnly) return;
-      if (container.querySelector('.cm-code-editor')) return;
-
-      const textarea = document.createElement('textarea');
-      textarea.className = 'cm-code-editor';
-      textarea.value = this.value;
-
-      pre.style.display = 'none';
-      container.appendChild(textarea);
-      textarea.focus();
-
-      const controller = createSubEditorController(view, () => {
-        textarea.remove();
-        pre.style.display = '';
-      });
-      const { signal } = controller;
-
-      let isComposing = false;
-      textarea.addEventListener(
-        'compositionstart',
-        () => {
-          isComposing = true;
-        },
-        { signal }
-      );
-      textarea.addEventListener(
-        'compositionend',
-        () => {
-          isComposing = false;
-        },
-        { signal }
-      );
-
-      const commit = () => {
-        if (!controller.isActive() || view.state.readOnly) {
-          controller.close();
-          return;
-        }
-        const src = view.state.doc.toString();
-        const parsed = parseMarkdown(src);
-        let target: Extract<MarkdownBlockNode, { type: 'code-block' }> | null = null;
-        walkBlockNodes(parsed.root.children, (child) => {
-          if (child.type === 'code-block' && child.range.from === this.from) {
-            target = child;
-            return true;
-          }
-          return false;
-        });
-        if (target) {
-          const ctx = parseCodeBlockContext(src, target);
-          const tx = createCodeBlockValueTransaction(src, ctx, textarea.value);
-          if (tx) {
-            controller.close();
-            view.dispatch({ changes: tx.changes, userEvent: tx.userEvent });
-            return;
-          }
-        }
-        controller.close();
-      };
-
-      textarea.addEventListener(
-        'keydown',
-        (ke) => {
-          if (!controller.isActive() || isComposing || ke.isComposing) return;
-          if (ke.key === 'Enter' && (ke.ctrlKey || ke.metaKey)) {
-            ke.preventDefault();
-            ke.stopPropagation();
-            commit();
-          } else if (ke.key === 'Escape') {
-            ke.preventDefault();
-            ke.stopPropagation();
-            controller.close();
-          }
-        },
-        { signal }
-      );
-
-      textarea.addEventListener(
-        'blur',
-        () => {
-          if (controller.isActive() && !isComposing) commit();
-        },
-        { signal }
-      );
-    });
-
     return container;
   }
 
@@ -1485,6 +1558,10 @@ export class BlockMathWidget extends WidgetType {
     super();
   }
 
+  public get estimatedHeight(): number {
+    return 60;
+  }
+
   public eq(other: WidgetType): boolean {
     return (
       other instanceof BlockMathWidget &&
@@ -1495,12 +1572,13 @@ export class BlockMathWidget extends WidgetType {
     );
   }
 
-  public updateDOM(dom: HTMLElement, _view: EditorView): boolean {
+  public updateDOM(dom: HTMLElement, view: EditorView): boolean {
     if (dom.querySelector('.cm-block-math-editor')) return false;
     const control = (dom as any).__nexusExtensionControl as EditorExtensionControl | undefined;
     if (control) {
       control.update(this.formula);
       this.control = control;
+      view.requestMeasure();
       return true;
     }
     return false;
@@ -1523,6 +1601,10 @@ export class BlockMathWidget extends WidgetType {
         () => {
           container.innerHTML = '';
           container.textContent = `$$ ${this.formula} $$`;
+          view.requestMeasure();
+        },
+        () => {
+          view.requestMeasure();
         }
       );
       (container as any).__nexusExtensionControl = this.control;
@@ -2015,28 +2097,58 @@ export function buildVisualProjection(
         walkInline(child);
       }
     } else if (blockNode.type === 'blockquote') {
-      const isRevealed = isNodeRevealed(blockNode.range);
-      let offset = 0;
-      while (offset < blockNode.raw.length) {
-        const lineStart = offset;
-        const nextNl = blockNode.raw.indexOf('\n', lineStart);
-        const lineEnd = nextNl === -1 ? blockNode.raw.length : nextNl;
-        const lineText = blockNode.raw.slice(lineStart, lineEnd);
-        const match = lineText.match(/^([ \t]*)(>)/);
-        if (match && match[2]) {
-          const indentLen = match[1]?.length ?? 0;
-          const from = blockNode.range.from + lineStart + indentLen;
-          const to = from + 1;
-          // 该行只剩 `>` 时保持可见，否则光标无法落在引用标记之后
-          const lineRevealed = isRevealed || isMarkerAtLineEnd(lineText, indentLen + 1);
-          ranges.push({
-            from,
-            to,
-            decoration: Decoration.replace({ widget: new DelimiterWidget('>', lineRevealed) })
-          });
+      // 收集嵌套代码块所占用的文档行范围，避免 blockquote 抢先挂载 DelimiterWidget('>')
+      // 导致与代码块自身装饰（header/exit widget、内容行前缀隐藏）冲突或折行
+      const nestedCodeBlockRanges: { from: number; to: number }[] = [];
+      for (const child of blockNode.children) {
+        if (child.type === 'code-block') {
+          const codeStart = source.lastIndexOf('\n', child.range.from - 1) + 1;
+          const nextNl = source.indexOf('\n', child.range.to);
+          const codeEnd = nextNl === -1 ? source.length : nextNl;
+          nestedCodeBlockRanges.push({ from: codeStart, to: codeEnd });
         }
-        if (nextNl === -1) break;
-        offset = nextNl + 1;
+      }
+
+      const bqLines = splitTableLines(blockNode.raw, blockNode.range.from);
+      const bqLastIdx = bqLines.length - 1;
+      for (let i = 0; i < bqLines.length; i++) {
+        const bqLine = bqLines[i]!;
+        const isInsideNestedCode = nestedCodeBlockRanges.some(
+          (r) => bqLine.from >= r.from && bqLine.from <= r.to
+        );
+
+        if (!isInsideNestedCode) {
+          const classes = ['cm-visual-blockquote-line'];
+          if (i === 0) classes.push('cm-visual-blockquote-first-line');
+          if (i === bqLastIdx) classes.push('cm-visual-blockquote-last-line');
+
+          ranges.push({
+            from: bqLine.from,
+            to: bqLine.from,
+            decoration: Decoration.line({
+              class: classes.join(' ')
+            })
+          });
+
+          // 匹配引用标记 `> ` 或 `>`
+          const match = bqLine.text.match(/^([ \t]*)(>[ \t]?)/);
+          if (match && match[2]) {
+            const indentLen = match[1]?.length ?? 0;
+            const markerLen = match[2].length;
+            const from = bqLine.from + indentLen;
+            const to = from + markerLen;
+            const isRevealed =
+              isNodeRevealed({ from: bqLine.from, to: bqLine.to }) ||
+              isMarkerAtLineEnd(bqLine.text, indentLen + markerLen);
+            ranges.push({
+              from,
+              to,
+              decoration: Decoration.replace({
+                widget: new DelimiterWidget(match[2], isRevealed)
+              })
+            });
+          }
+        }
       }
       for (const child of blockNode.children) {
         walkBlock(child);
@@ -2081,22 +2193,165 @@ export function buildVisualProjection(
         })
       });
     } else if (blockNode.type === 'code-block') {
+      const lines = splitTableLines(blockNode.raw, blockNode.range.from);
+      if (lines.length === 0) return;
+
+      const firstLine = lines[0]!;
+      const isQuoteNested = isInsideQuotePrefix(source, blockNode.range.from);
+      // 引用块内嵌套时，首行在文档中的真实行起始位于 `>` 之前
+      const firstLineDocStart = isQuoteNested
+        ? source.lastIndexOf('\n', blockNode.range.from - 1) + 1
+        : firstLine.from;
+
+      // 缩进式代码块（4 空格缩进、无围栏）没有围栏行可替换，
+      // 因此不挂 header/exit widget，但仍应作为代码块渲染：
+      // 代码字体、行号，以及首末行的卡片边框。
+      if (!hasFenceOpener(blockNode.raw, isQuoteNested)) {
+        // 缩进式代码块按 CommonMark 在最后一个非空行结束，
+        // 尾部空行不应占用行号（避免空行上渲染出一个孤立行号）。
+        let contentLength = lines.length;
+        while (contentLength > 1 && lines[contentLength - 1]!.text.trim() === '') {
+          contentLength -= 1;
+        }
+        const plainLastIdx = contentLength - 1;
+        for (let index = 0; index < contentLength; index++) {
+          const line = lines[index]!;
+          const lineDocStart = index === 0 && isQuoteNested ? firstLineDocStart : line.from;
+          const classes = ['cm-visual-code-line', 'cm-visual-code-content-line'];
+          if (isQuoteNested) {
+            classes.unshift('cm-visual-blockquote-line', 'cm-visual-code-quote-nested');
+          }
+          if (index === 0) classes.push('cm-visual-code-plain-first-line');
+          if (index === plainLastIdx) classes.push('cm-visual-code-plain-last-line');
+          ranges.push({
+            from: lineDocStart,
+            to: lineDocStart,
+            decoration: Decoration.line({
+              class: classes.join(' '),
+              attributes: {
+                'data-code-line-number': String(index + 1)
+              }
+            })
+          });
+          if (isQuoteNested) {
+            const prefixLen = leadingQuoteMarkerLength(line.text);
+            if (prefixLen > 0) {
+              ranges.push({
+                from: line.from,
+                to: line.from + prefixLen,
+                decoration: Decoration.replace({
+                  widget: new DelimiterWidget(line.text.slice(0, prefixLen), false)
+                })
+              });
+            }
+          }
+        }
+        return;
+      }
+
       // 未闭合围栏保持原始文本可编辑，避免后续输入被 widget 吞掉
-      if (!isFenceClosed(blockNode.raw)) return;
+      if (!isClosedFence(blockNode.raw, isQuoteNested)) return;
+
+      const isMermaid = blockNode.language === 'mermaid' && !isQuoteNested;
+      if (isMermaid) {
+        ranges.push({
+          from: blockNode.range.from,
+          to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
+          decoration: Decoration.replace({
+            widget: new CodeBlockWidget(
+              blockNode.range.from,
+              blockNode.range.to,
+              blockNode.raw,
+              blockNode.language,
+              blockNode.value
+            ),
+            block: true
+          })
+        });
+        return;
+      }
+
+      // 1. 首行：header 行样式挂在真实行首，header widget 替换整行首行文本（包含引用前缀）
       ranges.push({
-        from: blockNode.range.from,
-        to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
-        decoration: Decoration.replace({
-          widget: new CodeBlockWidget(
-            blockNode.range.from,
-            blockNode.range.to,
-            blockNode.raw,
-            blockNode.language,
-            blockNode.value
-          ),
-          block: true
+        from: firstLineDocStart,
+        to: firstLineDocStart,
+        decoration: Decoration.line({
+          class: isQuoteNested
+            ? 'cm-visual-blockquote-line cm-visual-code-line cm-visual-code-quote-nested cm-visual-code-header-line'
+            : 'cm-visual-code-line cm-visual-code-header-line',
+          attributes: {
+            'data-code-block-from': String(blockNode.range.from)
+          }
         })
       });
+      ranges.push({
+        from: firstLineDocStart,
+        to: firstLine.to,
+        decoration: Decoration.replace({
+          widget: new CodeBlockHeaderWidget(
+            blockNode.range.from,
+            firstLine.to,
+            blockNode.language,
+            blockNode.value
+          )
+        })
+      });
+
+      // 2. 中间代码行：挂载行号与 content-line 类名；若嵌套在引用块内，将行首引用前缀无损隐藏
+      const lastLineIdx = lines.length - 1;
+      let codeLineNum = 1;
+      for (let i = 1; i < lastLineIdx; i++) {
+        const line = lines[i]!;
+        ranges.push({
+          from: line.from,
+          to: line.from,
+          decoration: Decoration.line({
+            class: isQuoteNested
+              ? 'cm-visual-blockquote-line cm-visual-code-line cm-visual-code-quote-nested cm-visual-code-content-line'
+              : 'cm-visual-code-line cm-visual-code-content-line',
+            attributes: {
+              'data-code-line-number': String(codeLineNum++),
+              'data-code-block-from': String(blockNode.range.from)
+            }
+          })
+        });
+        if (isQuoteNested) {
+          const prefixLen = leadingQuoteMarkerLength(line.text);
+          if (prefixLen > 0) {
+            ranges.push({
+              from: line.from,
+              to: line.from + prefixLen,
+              decoration: Decoration.replace({
+                widget: new DelimiterWidget(line.text.slice(0, prefixLen), false)
+              })
+            });
+          }
+        }
+      }
+
+      // 3. 末行：closing 行样式 + exit widget 替换整行围栏文本
+      if (lastLineIdx > 0) {
+        const lastLine = lines[lastLineIdx]!;
+        ranges.push({
+          from: lastLine.from,
+          to: lastLine.from,
+          decoration: Decoration.line({
+            class: isQuoteNested
+              ? 'cm-visual-blockquote-line cm-visual-code-line cm-visual-code-quote-nested cm-visual-code-closing-line'
+              : 'cm-visual-code-line cm-visual-code-closing-line',
+            attributes: {
+              'data-code-block-from': String(blockNode.range.from)
+            }
+          })
+        });
+        ranges.push({
+          from: lastLine.from,
+          to: lastLine.to,
+          decoration: Decoration.replace({
+            widget: new CodeBlockExitWidget(blockNode.range.to)
+          })
+        });
+      }
     } else if (blockNode.type === 'block-math') {
       ranges.push({
         from: blockNode.range.from,
@@ -2260,6 +2515,83 @@ export const tableWidgetSyncPlugin = ViewPlugin.fromClass(
   }
 );
 
+interface HoveredCodeBlockState {
+  readonly decorations: DecorationSet;
+  readonly from: number | null;
+}
+
+/**
+ * 设置/清除当前悬停代码块起始位置的状态效果。
+ */
+export const setHoveredCodeBlockEffect = StateEffect.define<number | null>({
+  map(value, changes) {
+    return value === null ? null : changes.mapPos(value, 1);
+  }
+});
+
+/**
+ * 悬停代码块 StateField：为当前悬停代码块的首行挂载 `data-code-block-hovered="true"` 属性，
+ * 触发语言选择与复制按钮的平滑淡入显示。
+ */
+export const hoveredCodeBlockField = StateField.define<HoveredCodeBlockState>({
+  create() {
+    return { decorations: Decoration.none, from: null };
+  },
+  update(prev, tr) {
+    let from = tr.docChanged && prev.from !== null ? tr.changes.mapPos(prev.from, 1) : prev.from;
+    for (const effect of tr.effects) {
+      if (effect.is(setHoveredCodeBlockEffect)) {
+        from = effect.value;
+      }
+    }
+    if (!tr.docChanged && from === prev.from) {
+      return prev;
+    }
+    if (from === null) {
+      return { decorations: Decoration.none, from: null };
+    }
+    try {
+      const line = tr.state.doc.lineAt(from);
+      return {
+        decorations: Decoration.set([
+          Decoration.line({
+            attributes: { 'data-code-block-hovered': 'true' }
+          }).range(line.from)
+        ]),
+        from
+      };
+    } catch {
+      return { decorations: Decoration.none, from: null };
+    }
+  },
+  provide: (field) => EditorView.decorations.from(field, (val) => val.decorations)
+});
+
+/**
+ * 代码块鼠标悬停事件监听插件：
+ * 基于 DOM `[data-code-block-from]` 极速查找代码块，无需 AST 遍历。
+ */
+export const codeBlockHoverPlugin = EditorView.domEventHandlers({
+  mouseleave(_event, view) {
+    const current = view.state.field(hoveredCodeBlockField, false);
+    if (current && current.from !== null) {
+      view.dispatch({ effects: setHoveredCodeBlockEffect.of(null) });
+    }
+    return false;
+  },
+  mousemove(event, view) {
+    const target = event.target instanceof Element ? event.target : null;
+    const rawFrom = target?.closest<HTMLElement>('[data-code-block-from]')?.dataset.codeBlockFrom;
+    const from = rawFrom !== undefined && rawFrom !== '' ? Number(rawFrom) : null;
+    const currentFrom = view.state.field(hoveredCodeBlockField, false)?.from ?? null;
+
+    if (from !== currentFrom) {
+      view.dispatch({ effects: setHoveredCodeBlockEffect.of(from) });
+    }
+    return false;
+  }
+});
+
 /** Visual surface 的基础扩展；不创建第二份文档。 */
 export const visualProjectionExtensions: Extension[] = [
   visualFocusField,
@@ -2268,5 +2600,7 @@ export const visualProjectionExtensions: Extension[] = [
   tableTargetField,
   tableWidgetSyncPlugin,
   visualProjectionField,
-  subEditorLifecyclePlugin
+  subEditorLifecyclePlugin,
+  hoveredCodeBlockField,
+  codeBlockHoverPlugin
 ];

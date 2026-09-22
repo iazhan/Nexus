@@ -147,18 +147,19 @@ describe('P1-04F Markra behavior compatibility', () => {
     const sourceHandle = mount(session, 'p1-04f-code-source', 'source');
     const visualHandle = mount(session, 'p1-04f-code-visual', 'visual');
 
-    expect(visualHandle.view.dom.querySelector('.cm-visual-code-block')).not.toBeNull();
+    expect(visualHandle.view.dom.querySelector('.cm-code-header-widget')).not.toBeNull();
     expect(visualHandle.view.dom.querySelectorAll('.cm-visual-inline-math')).toHaveLength(0);
     expect(visualHandle.view.dom.querySelectorAll('.cm-visual-wikilink')).toHaveLength(0);
 
-    (visualHandle.view.dom.querySelector('.cm-code-body') as HTMLElement).click();
-    const editor = visualHandle.view.dom.querySelector('.cm-code-editor') as HTMLTextAreaElement;
-    editor.value = '**still plain code**\n$still plain text$';
-    editor.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Enter',
-      ctrlKey: true,
-      bubbles: true
-    }));
+    const codePos = original.indexOf('**not bold**');
+    const oldSnippet = '**not bold** and $not math$';
+    visualHandle.view.dispatch({
+      changes: {
+        from: codePos,
+        to: codePos + oldSnippet.length,
+        insert: '**still plain code**\n$still plain text$'
+      }
+    });
 
     const updated = 'Before\n\n```markdown\n**still plain code**\n$still plain text$\n```\n\nAfter';
     expect(session.getSnapshot().source).toBe(updated);
@@ -347,21 +348,20 @@ describe('P1-04F Markra behavior compatibility', () => {
   });
 
   it('closes a stale Visual sub-editor on readOnly and rejects delayed commit', () => {
-    const original = '```ts\nconst value = 1;\n```';
+    const original = '| Col |\n| --- |\n| Cell |';
     const session = new MarkdownDocumentSession(original);
     const visualHandle = mount(session, 'p1-04f-readonly-visual', 'visual');
 
-    (visualHandle.view.dom.querySelector('.cm-code-body') as HTMLElement).click();
-    const editor = visualHandle.view.dom.querySelector('.cm-code-editor') as HTMLTextAreaElement;
-    editor.value = 'const value = 2;';
+    (visualHandle.view.dom.querySelector('.cm-visual-table td') as HTMLElement).click();
+    const editor = visualHandle.view.dom.querySelector('.cm-table-cell-editor') as HTMLInputElement;
+    editor.value = 'NewCell';
     const initialRevision = session.getSnapshot().revision;
 
     setEditorReadOnly(visualHandle.view, true);
-    expect(visualHandle.view.dom.querySelector('.cm-code-editor')).toBeNull();
+    expect(visualHandle.view.dom.querySelector('.cm-table-cell-editor')).toBeNull();
 
     editor.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Enter',
-      ctrlKey: true,
       bubbles: true
     }));
     expect(session.getSnapshot().revision).toBe(initialRevision);

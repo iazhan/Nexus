@@ -305,10 +305,10 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
         parent
       });
 
-      const codeBlockEl = handle.view.dom.querySelector('.cm-visual-code-block');
-      expect(codeBlockEl).not.toBeNull();
-      const langBadge = handle.view.dom.querySelector('.cm-code-language');
-      expect(langBadge?.textContent).toBe('typescript');
+      const headerWidget = handle.view.dom.querySelector('.cm-code-header-widget');
+      expect(headerWidget).not.toBeNull();
+      const langSelect = handle.view.dom.querySelector('.cm-code-language-select') as HTMLSelectElement | null;
+      expect(langSelect?.value).toBe('typescript');
       const copyBtn = handle.view.dom.querySelector('.cm-code-copy-btn');
       expect(copyBtn).not.toBeNull();
 
@@ -414,7 +414,7 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
       parent.remove();
     });
 
-    it('enters code body editing on click and commits changes via transaction', () => {
+    it('enters code body editing natively in-place and commits changes via transaction', () => {
       const session = new MarkdownDocumentSession(sampleCodeSource);
       const parent = document.createElement('div');
       document.body.appendChild(parent);
@@ -426,20 +426,19 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
         parent
       });
 
-      const codePre = handle.view.dom.querySelector('.cm-visual-code-block .cm-code-body') as HTMLElement;
-      expect(codePre).not.toBeNull();
+      // No detached textarea in line-decorated code block
+      expect(handle.view.dom.querySelector('.cm-code-editor')).toBeNull();
 
-      // Click to enter edit mode
-      codePre.click();
-
-      const textarea = handle.view.dom.querySelector('.cm-code-editor') as HTMLTextAreaElement | null;
-      expect(textarea).not.toBeNull();
-      expect(textarea!.value).toBe('const x = 1;\nconsole.log(x);');
-
+      // Native in-place editing: dispatch change directly to code block line
       const initialRev = session.getSnapshot().revision;
-      textarea!.value = 'const x = 99;\nconsole.log(x);';
-      // Press Ctrl+Enter to save
-      textarea!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+      const firstCodeLinePos = sampleCodeSource.indexOf('const x = 1;');
+      handle.view.dispatch({
+        changes: {
+          from: firstCodeLinePos,
+          to: firstCodeLinePos + 'const x = 1;'.length,
+          insert: 'const x = 99;'
+        }
+      });
 
       expect(session.getSnapshot().revision).toBe(initialRev + 1);
       expect(session.getSnapshot().source).toContain('const x = 99;');
@@ -452,7 +451,7 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
       parent.remove();
     });
 
-    it('enters language editing on language badge click and commits language change', () => {
+    it('changes code block language via select dropdown and commits language change', () => {
       const session = new MarkdownDocumentSession(sampleCodeSource);
       const parent = document.createElement('div');
       document.body.appendChild(parent);
@@ -464,18 +463,13 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
         parent
       });
 
-      const langBadge = handle.view.dom.querySelector('.cm-code-language') as HTMLElement;
-      expect(langBadge).not.toBeNull();
-
-      langBadge.click();
-
-      const langInput = handle.view.dom.querySelector('.cm-code-lang-input') as HTMLInputElement | null;
-      expect(langInput).not.toBeNull();
-      expect(langInput!.value).toBe('typescript');
+      const langSelect = handle.view.dom.querySelector('.cm-code-language-select') as HTMLSelectElement | null;
+      expect(langSelect).not.toBeNull();
+      expect(langSelect!.value).toBe('typescript');
 
       const initialRev = session.getSnapshot().revision;
-      langInput!.value = 'python';
-      langInput!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      langSelect!.value = 'python';
+      langSelect!.dispatchEvent(new Event('change', { bubbles: true }));
 
       expect(session.getSnapshot().revision).toBe(initialRev + 1);
       expect(session.getSnapshot().source).toContain('```python\nconst x = 1;');
@@ -529,11 +523,9 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
         parent
       });
 
-      const codePre = handle.view.dom.querySelector('.cm-visual-code-block .cm-code-body') as HTMLElement;
-      codePre.click();
-
-      const textarea = handle.view.dom.querySelector('.cm-code-editor');
-      expect(textarea).toBeNull();
+      const langSelect = handle.view.dom.querySelector('.cm-code-language-select') as HTMLSelectElement | null;
+      expect(langSelect?.disabled).toBe(true);
+      expect(handle.view.dom.querySelector('.cm-code-editor')).toBeNull();
 
       handle.destroy();
       parent.remove();
@@ -720,7 +712,7 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
       parent.remove();
     });
 
-    it('dynamically closes active .cm-code-editor and .cm-code-lang-input when readOnly is toggled, rejecting stale Enter', () => {
+    it('dynamically updates select disabled state when readOnly is toggled', () => {
       const session = new MarkdownDocumentSession('```js\nconsole.log(1);\n```');
       const parent = document.createElement('div');
       document.body.appendChild(parent);
@@ -732,40 +724,19 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
         parent
       });
 
-      const pre = handle.view.dom.querySelector('.cm-code-body') as HTMLElement;
-      expect(pre).not.toBeNull();
-
-      // Click pre to open textarea .cm-code-editor
-      pre.click();
-      const textarea = handle.view.dom.querySelector('.cm-code-editor') as HTMLTextAreaElement;
-      expect(textarea).not.toBeNull();
-      textarea.value = 'console.log(999);';
+      const langSelect = handle.view.dom.querySelector('.cm-code-language-select') as HTMLSelectElement;
+      expect(langSelect).not.toBeNull();
+      expect(langSelect.disabled).toBe(false);
 
       // Dynamically toggle readOnly = true
       setEditorReadOnly(handle.view, true);
+      const roSelect = handle.view.dom.querySelector('.cm-code-language-select') as HTMLSelectElement;
+      expect(roSelect.disabled).toBe(true);
 
-      // Active editor must be closed
-      expect(handle.view.dom.querySelector('.cm-code-editor')).toBeNull();
-
-      // Stale Enter on detached/stale textarea must NOT commit
-      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
-      expect(session.getSnapshot().source).not.toContain('999');
-
-      // Test language input: toggle back to editable
+      // Toggle back to editable
       setEditorReadOnly(handle.view, false);
-      const langBadge = handle.view.dom.querySelector('.cm-code-language') as HTMLElement;
-      langBadge.click();
-      const langInput = handle.view.dom.querySelector('.cm-code-lang-input') as HTMLInputElement;
-      expect(langInput).not.toBeNull();
-      langInput.value = 'python';
-
-      // Toggle readOnly = true again
-      setEditorReadOnly(handle.view, true);
-      expect(handle.view.dom.querySelector('.cm-code-lang-input')).toBeNull();
-
-      // Stale Enter on langInput must NOT commit
-      langInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-      expect(session.getSnapshot().source).not.toContain('python');
+      const editableSelect = handle.view.dom.querySelector('.cm-code-language-select') as HTMLSelectElement;
+      expect(editableSelect.disabled).toBe(false);
 
       handle.destroy();
       parent.remove();

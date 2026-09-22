@@ -288,15 +288,11 @@ describe('Visual surface projection', () => {
     expect((handle.view as unknown as Record<string, unknown>).__nexusDestroyed).toBeUndefined();
   });
 
-  it('closes all 5 sub-editor types (.cm-table-cell-editor, .cm-code-editor, .cm-code-lang-input, .cm-block-math-editor, .cm-raw-block-editor) in detached parent on readOnly, docChanged, and destroy', () => {
+  it('closes all sub-editor types (.cm-table-cell-editor, .cm-block-math-editor, .cm-raw-block-editor) in detached parent on readOnly, docChanged, and destroy', () => {
     const source = [
       '| A | B |',
       '| --- | --- |',
       '| 1 | 2 |',
-      '',
-      '```ts',
-      'const a = 1;',
-      '```',
       '',
       '$$',
       'E = mc^2',
@@ -305,7 +301,7 @@ describe('Visual surface projection', () => {
       '<div class="box">raw</div>'
     ].join('\n');
 
-    // Test 1: readOnly transition closes all 5 in detached parent
+    // Test 1: readOnly transition closes all sub-editors in detached parent
     {
       const session = new MarkdownDocumentSession(source);
       const detachedParent = document.createElement('div');
@@ -321,22 +317,12 @@ describe('Visual surface projection', () => {
       cell.click();
       expect(handle.view.dom.querySelector('.cm-table-cell-editor')).not.toBeNull();
 
-      // 2. code editor
-      const codeBody = handle.view.dom.querySelector('.cm-code-body') as HTMLElement;
-      codeBody.click();
-      expect(handle.view.dom.querySelector('.cm-code-editor')).not.toBeNull();
-
-      // 3. code lang input
-      const langBadge = handle.view.dom.querySelector('.cm-code-language') as HTMLElement;
-      langBadge.click();
-      expect(handle.view.dom.querySelector('.cm-code-lang-input')).not.toBeNull();
-
-      // 4. block math editor
+      // 2. block math editor
       const math = handle.view.dom.querySelector('.cm-visual-block-math') as HTMLElement;
       math.click();
       expect(handle.view.dom.querySelector('.cm-block-math-editor')).not.toBeNull();
 
-      // 5. raw block editor
+      // 3. raw block editor
       const raw = handle.view.dom.querySelector('.cm-visual-raw-block') as HTMLElement;
       raw.click();
       expect(handle.view.dom.querySelector('.cm-raw-block-editor')).not.toBeNull();
@@ -344,17 +330,15 @@ describe('Visual surface projection', () => {
       // Dispatch readOnly transition
       setEditorReadOnly(handle.view, true);
 
-      // ALL 5 elements must disappear immediately!
+      // ALL sub-editor elements must disappear immediately!
       expect(handle.view.dom.querySelector('.cm-table-cell-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-lang-input')).toBeNull();
       expect(handle.view.dom.querySelector('.cm-block-math-editor')).toBeNull();
       expect(handle.view.dom.querySelector('.cm-raw-block-editor')).toBeNull();
 
       handle.destroy();
     }
 
-    // Test 2: docChanged closes all 5 in detached parent
+    // Test 2: docChanged closes all sub-editors in detached parent
     {
       const session = new MarkdownDocumentSession(source);
       const detachedParent = document.createElement('div');
@@ -366,14 +350,10 @@ describe('Visual surface projection', () => {
       });
 
       (handle.view.dom.querySelector('.cm-visual-table [data-row="0"][data-col="0"]') as HTMLElement).click();
-      (handle.view.dom.querySelector('.cm-code-body') as HTMLElement).click();
-      (handle.view.dom.querySelector('.cm-code-language') as HTMLElement).click();
       (handle.view.dom.querySelector('.cm-visual-block-math') as HTMLElement).click();
       (handle.view.dom.querySelector('.cm-visual-raw-block') as HTMLElement).click();
 
       expect(handle.view.dom.querySelector('.cm-table-cell-editor')).not.toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-editor')).not.toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-lang-input')).not.toBeNull();
       expect(handle.view.dom.querySelector('.cm-block-math-editor')).not.toBeNull();
       expect(handle.view.dom.querySelector('.cm-raw-block-editor')).not.toBeNull();
 
@@ -383,15 +363,13 @@ describe('Visual surface projection', () => {
       });
 
       expect(handle.view.dom.querySelector('.cm-table-cell-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-lang-input')).toBeNull();
       expect(handle.view.dom.querySelector('.cm-block-math-editor')).toBeNull();
       expect(handle.view.dom.querySelector('.cm-raw-block-editor')).toBeNull();
 
       handle.destroy();
     }
 
-    // Test 3: destroy closes all 5 in detached parent
+    // Test 3: destroy closes all sub-editors in detached parent
     {
       const session = new MarkdownDocumentSession(source);
       const detachedParent = document.createElement('div');
@@ -403,22 +381,16 @@ describe('Visual surface projection', () => {
       });
 
       (handle.view.dom.querySelector('.cm-visual-table [data-row="0"][data-col="0"]') as HTMLElement).click();
-      (handle.view.dom.querySelector('.cm-code-body') as HTMLElement).click();
-      (handle.view.dom.querySelector('.cm-code-language') as HTMLElement).click();
       (handle.view.dom.querySelector('.cm-visual-block-math') as HTMLElement).click();
       (handle.view.dom.querySelector('.cm-visual-raw-block') as HTMLElement).click();
 
       expect(handle.view.dom.querySelector('.cm-table-cell-editor')).not.toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-editor')).not.toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-lang-input')).not.toBeNull();
       expect(handle.view.dom.querySelector('.cm-block-math-editor')).not.toBeNull();
       expect(handle.view.dom.querySelector('.cm-raw-block-editor')).not.toBeNull();
 
       handle.destroy();
 
       expect(handle.view.dom.querySelector('.cm-table-cell-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-code-lang-input')).toBeNull();
       expect(handle.view.dom.querySelector('.cm-block-math-editor')).toBeNull();
       expect(handle.view.dom.querySelector('.cm-raw-block-editor')).toBeNull();
     }

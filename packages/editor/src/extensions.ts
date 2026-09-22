@@ -36,7 +36,8 @@ export function mountExtension(
   marker: MarkdownMarker,
   container: HTMLElement,
   source: string,
-  fallbackRender: () => void
+  fallbackRender: () => void,
+  onLoaded?: () => void
 ): EditorExtensionControl | undefined {
   if (!host) {
     fallbackRender();
@@ -58,6 +59,7 @@ export function mountExtension(
     container.innerHTML = '';
     try {
       control = handler.activate(marker, container, source);
+      if (onLoaded) onLoaded();
     } catch (err) {
       console.error(`Extension activation failed for ${handler.id}:`, err);
       renderError();

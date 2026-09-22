@@ -1,4 +1,5 @@
 import { parseMarkdown, type MarkdownBlockNode, type SourceRange } from '@nexus/markdown';
+import type { EditorView } from '@codemirror/view';
 import type { MarkdownEditTransaction } from './types.js';
 import { walkBlockNodes } from './ast-walker.js';
 
@@ -205,19 +206,13 @@ export function createCodeBlockValueTransaction(
     newRaw += context.trailingNewline;
   }
 
-  const candidate =
-    source.slice(0, context.range.from) +
-    newRaw +
-    source.slice(context.range.to);
-
   if (
-    !verifyCandidateCodeBlock(
-      candidate,
-      context.range.from,
+    !buildAndVerifyCandidate(
+      source,
+      context,
+      newRaw,
       undefined,
       newValue,
-      context.range.from + newRaw.length,
-      newRaw,
       closeLine ?? undefined
     )
   ) {
@@ -228,6 +223,30 @@ export function createCodeBlockValueTransaction(
     changes: [{ from: context.range.from, to: context.range.to, insert: newRaw }],
     userEvent: 'code-block.value-edit'
   };
+}
+
+function buildAndVerifyCandidate(
+  source: string,
+  context: CodeBlockContext,
+  newRaw: string,
+  expectedLanguage?: string,
+  expectedValue?: string,
+  expectedClosingFence?: string
+): boolean {
+  const candidate =
+    source.slice(0, context.range.from) +
+    newRaw +
+    source.slice(context.range.to);
+
+  return verifyCandidateCodeBlock(
+    candidate,
+    context.range.from,
+    expectedLanguage,
+    expectedValue,
+    context.range.from + newRaw.length,
+    newRaw,
+    expectedClosingFence
+  );
 }
 
 /**
@@ -252,19 +271,13 @@ export function createCodeBlockLanguageTransaction(
     newRaw = firstLine;
   }
 
-  const candidate =
-    source.slice(0, context.range.from) +
-    newRaw +
-    source.slice(context.range.to);
-
   if (
-    !verifyCandidateCodeBlock(
-      candidate,
-      context.range.from,
+    !buildAndVerifyCandidate(
+      source,
+      context,
+      newRaw,
       newLanguage,
-      undefined,
-      context.range.from + newRaw.length,
-      newRaw
+      undefined
     )
   ) {
     return null;
@@ -275,3 +288,35 @@ export function createCodeBlockLanguageTransaction(
     userEvent: 'code-block.language-edit'
   };
 }
+
+/**
+ * 查找指定位置的代码块并向 EditorView 派发语言切换事务。
+ */
+export function dispatchCodeBlockLanguageChange(
+  view: EditorView,
+  from: number,
+  nextLang: string,
+  currentLang?: string
+): void {
+  if (view.state.readOnly) return;
+  if (nextLang === (currentLang || '')) return;
+
+  const src = view.state.doc.toString();
+  const parsed = parseMarkdown(src);
+  let target: Extract<MarkdownBlockNode, { type: 'code-block' }> | null = null;
+  walkBlockNodes(parsed.root.children, (child) => {
+    if (child.type === 'code-block' && child.range.from === from) {
+      target = child;
+      return true;
+    }
+    return false;
+  });
+  if (target) {
+    const ctx = parseCodeBlockContext(src, target);
+    const tx = createCodeBlockLanguageTransaction(src, ctx, nextLang);
+    if (tx) {
+      view.dispatch({ changes: tx.changes, userEvent: tx.userEvent });
+    }
+  }
+}
+

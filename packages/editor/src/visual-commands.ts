@@ -1,5 +1,6 @@
 import { EditorSelection, type EditorState } from '@codemirror/state';
 import { EditorView, keymap, type KeyBinding } from '@codemirror/view';
+import { insertNewlineAndIndent } from '@codemirror/commands';
 import {
   createParagraphOrHeadingSplitTransaction,
   createBlockMergeTransaction,
@@ -30,13 +31,76 @@ function isEditable(view: EditorView): boolean {
 }
 
 /**
+ * 智能代码块回车跳出 (Smart Code Block Enter)：
+ * 1. 如果光标在代码块末尾空行，清除该空行并跳出代码块至下方新段落。
+ * 2. 否则在代码块内正常插入换行。
+ */
+function handleCodeBlockEnter(view: EditorView, selection: MarkdownSelection): boolean {
+  if (selection.anchor !== selection.head) return false;
+  const source = view.state.doc.toString();
+  const pos = selection.head;
+  const { root } = parseMarkdown(source);
+  const block = findContainingBlock(root, pos, source.length);
+  if (!block || block.type !== 'code-block') return false;
+  if (!isFenceClosed(block.raw) || block.language === 'mermaid') return false;
+
+  const doc = view.state.doc;
+  const currentLine = doc.lineAt(pos);
+  const blockEnd = block.range.to;
+  const closingLine = doc.lineAt(Math.max(block.range.from, blockEnd - 1));
+
+  // 如果光标位于闭合围栏正前方的空行，触发智能跳出
+  if (currentLine.number === closingLine.number - 1 && currentLine.text.trim() === '') {
+    const openingLine = doc.lineAt(block.range.from);
+    let deleteFrom: number;
+    let deleteTo: number;
+    if (currentLine.number === openingLine.number + 1) {
+      // 紧随首行围栏的唯一空行：删除该空行及其后的换行，保留首行围栏换行
+      deleteFrom = currentLine.from;
+      deleteTo = Math.min(doc.length, currentLine.to + 1);
+    } else {
+      // 包含上一行的换行符
+      deleteFrom = currentLine.from - 1;
+      deleteTo = currentLine.to;
+    }
+
+    const afterBlockPos = block.range.to;
+    const isAlreadyEmptyAfter = afterBlockPos < doc.length && doc.sliceString(afterBlockPos, afterBlockPos + 1) === '\n';
+    const needInsertNl = !isAlreadyEmptyAfter;
+
+    const changes: { from: number; to?: number; insert: string }[] = [
+      { from: deleteFrom, to: deleteTo, insert: '' }
+    ];
+    if (needInsertNl) {
+      changes.push({ from: afterBlockPos, insert: '\n' });
+    }
+
+    const newCursor = afterBlockPos - (deleteTo - deleteFrom);
+    view.dispatch({
+      changes,
+      selection: EditorSelection.cursor(newCursor),
+      userEvent: 'input.enter'
+    });
+    return true;
+  }
+
+  // 正常在代码块内部使用 CodeMirror 原生智能缩进换行
+  return insertNewlineAndIndent(view);
+}
+
+/**
  * Visual Mode 专属回车分块处理：
- * 拆分段落/标题、拆分列表项或空列表退出、空引用退出。
+ * 拆分段落/标题、拆分列表项或空列表退出、空引用退出、智能代码块退出。
  */
 export function handleVisualEnter(view: EditorView): boolean {
   if (!isEditable(view)) return false;
   const source = view.state.doc.toString();
   const selection = selectionFromState(view.state);
+
+  if (handleCodeBlockEnter(view, selection)) {
+    return true;
+  }
+
   const tx = createParagraphOrHeadingSplitTransaction(source, selection);
   if (tx) {
     view.dispatch({

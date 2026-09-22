@@ -13,8 +13,11 @@ export const nexusBaseTheme = EditorView.theme({
   },
   ".cm-content": {
     caretColor: "var(--nexus-accent-primary)",
-    padding: "12px 16px",
+    padding: "12px 16px 12px 36px",
     lineHeight: "1.6"
+  },
+  ".cm-line": {
+    position: "relative"
   },
   "&.cm-focused .cm-cursor": {
     borderLeftColor: "var(--nexus-accent-primary)",
@@ -43,6 +46,45 @@ export const nexusBaseTheme = EditorView.theme({
   },
 
   // UI widgets and interactive elements
+  ".cm-visual-drag-handle": {
+    position: "absolute",
+    left: "-26px",
+    top: "calc(0.5lh)",
+    transform: "translateY(-50%)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "16px",
+    height: "18px",
+    color: "var(--nexus-text-muted)",
+    cursor: "grab",
+    userSelect: "none",
+    opacity: "0",
+    transition: "opacity 0.15s ease, color 0.15s ease",
+    zIndex: "5"
+  },
+  ".cm-visual-code-header-line > .cm-visual-drag-handle": {
+    top: "50%"
+  },
+  ".cm-visual-drag-handle::after": {
+    content: "''",
+    position: "absolute",
+    top: "0",
+    bottom: "0",
+    right: "-10px",
+    width: "10px"
+  },
+  ".cm-line:hover > .cm-visual-drag-handle, .cm-visual-drag-handle:focus-within, .cm-visual-drag-handle.is-dragging": {
+    opacity: "0.5"
+  },
+  ".cm-visual-drag-handle:hover": {
+    opacity: "1",
+    color: "var(--nexus-text-primary)"
+  },
+  ".cm-visual-drag-handle.disabled": {
+    cursor: "not-allowed",
+    opacity: "0 !important"
+  },
   ".cm-marker-inline-math": {
     color: "var(--nexus-accent-text)",
     backgroundColor: "var(--nexus-bg-surface-active)",
@@ -76,14 +118,312 @@ export const nexusBaseTheme = EditorView.theme({
     opacity: "0.7",
     color: "var(--nexus-text-muted)"
   },
+  ".cm-visual-quote-marker": {
+    color: "var(--nexus-text-muted)",
+    opacity: "0.8",
+    fontWeight: "500"
+  },
   ".cm-visual-strike": {
     textDecoration: "line-through"
+  },
+  ".cm-visual-hr-container": {
+    display: "block",
+    boxSizing: "border-box",
+    padding: "16px 0",
+    cursor: "pointer"
   },
   ".cm-visual-horizontal-rule": {
     border: "none",
     borderTop: "1px solid var(--nexus-border-strong)",
-    margin: "16px 0",
+    margin: "0",
+    width: "100%",
     cursor: "pointer"
+  },
+
+  // Blockquote styling
+  ".cm-visual-blockquote-line": {
+    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    paddingLeft: "16px",
+    paddingRight: "16px",
+    position: "relative"
+  },
+  ".cm-visual-blockquote-first-line": {
+    borderTopRightRadius: "6px",
+    paddingTop: "6px"
+  },
+  ".cm-visual-blockquote-last-line": {
+    borderBottomRightRadius: "6px",
+    paddingBottom: "6px"
+  },
+
+  // Code block line decorations and styling
+  ".cm-visual-code-line": {
+    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace",
+    paddingLeft: "12px",
+    paddingRight: "12px"
+  },
+  ".cm-visual-code-header-line": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopLeftRadius: "6px",
+    borderTopRightRadius: "6px",
+    borderTop: "1px solid var(--nexus-border-subtle)",
+    borderLeft: "1px solid var(--nexus-border-subtle)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
+    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    height: "28px",
+    minHeight: "28px",
+    lineHeight: "22px",
+    boxSizing: "border-box"
+  },
+  ".cm-visual-code-header-line .cm-widgetBuffer, .cm-visual-code-closing-line .cm-widgetBuffer": {
+    display: "none !important",
+    width: "0 !important",
+    height: "0 !important"
+  },
+  ".cm-code-header-widget": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    height: "100%",
+    lineHeight: "22px",
+    userSelect: "none"
+  },
+  ".cm-code-header-left": {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px"
+  },
+  ".cm-code-line-count": {
+    fontSize: "0.75em",
+    color: "var(--nexus-text-muted)",
+    userSelect: "none",
+    fontFamily: "inherit"
+  },
+  ".cm-code-language-select": {
+    appearance: "none",
+    WebkitAppearance: "none",
+    opacity: "0.85",
+    pointerEvents: "auto",
+    backgroundColor: "transparent",
+    color: "var(--nexus-text-muted)",
+    border: "none",
+    borderRadius: "3px",
+    height: "20px",
+    padding: "0",
+    fontSize: "0.75em",
+    fontWeight: "600",
+    textTransform: "uppercase",
+    fontFamily: "inherit",
+    cursor: "pointer",
+    boxSizing: "border-box",
+    transition: "color 0.15s ease"
+  },
+  ".cm-code-language-select:hover": {
+    color: "var(--nexus-text-primary)"
+  },
+  ".cm-code-copy-btn": {
+    opacity: "0",
+    pointerEvents: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "3px",
+    backgroundColor: "transparent",
+    color: "var(--nexus-text-secondary)",
+    border: "1px solid var(--nexus-border-subtle)",
+    borderRadius: "3px",
+    height: "20px",
+    padding: "0 6px",
+    fontSize: "0.75em",
+    cursor: "pointer",
+    boxSizing: "border-box",
+    transition: "opacity 0.15s ease-out, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease"
+  },
+  ".cm-visual-code-header-line:hover .cm-code-copy-btn, .cm-visual-code-header-line[data-code-block-hovered='true'] .cm-code-copy-btn, .cm-code-header-widget:focus-within .cm-code-copy-btn": {
+    opacity: "1 !important",
+    pointerEvents: "auto !important"
+  },
+  ".cm-code-copy-btn:hover": {
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    color: "var(--nexus-text-primary)"
+  },
+  ".cm-code-copy-btn.copied": {
+    color: "var(--nexus-status-success-text, #065f46)",
+    borderColor: "var(--nexus-status-success-border, #34d399)"
+  },
+  ".cm-code-copy-icon": {
+    flexShrink: "0",
+    transition: "transform 0.15s ease"
+  },
+  ".cm-code-copy-check": {
+    color: "var(--nexus-status-success-text, #065f46)"
+  },
+  ".cm-visual-code-content-line": {
+    borderLeft: "1px solid var(--nexus-border-subtle)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
+    position: "relative"
+  },
+  ".cm-visual-code-content-line[data-code-line-number]::before": {
+    content: "attr(data-code-line-number)",
+    display: "inline-block",
+    minWidth: "2.5ch",
+    marginRight: "12px",
+    paddingRight: "8px",
+    borderRight: "1px solid var(--nexus-border-default, #d4d4d4)",
+    color: "var(--nexus-text-muted)",
+    textAlign: "right",
+    userSelect: "none",
+    fontSize: "0.85em"
+  },
+  ".cm-visual-code-closing-line": {
+    borderBottomLeftRadius: "6px",
+    borderBottomRightRadius: "6px",
+    borderBottom: "1px solid var(--nexus-border-subtle)",
+    borderLeft: "1px solid var(--nexus-border-subtle)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
+    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    height: "22px",
+    minHeight: "22px",
+    lineHeight: "22px"
+  },
+  // 缩进式（无围栏）代码块没有 header/closing 行，
+  // 由首个与末尾内容行补出卡片上/下边框与圆角，保持与围栏代码块一致的外观。
+  ".cm-visual-code-plain-first-line": {
+    borderTop: "1px solid var(--nexus-border-subtle)",
+    borderTopLeftRadius: "6px",
+    borderTopRightRadius: "6px",
+    paddingTop: "6px"
+  },
+  ".cm-visual-code-plain-last-line": {
+    borderBottom: "1px solid var(--nexus-border-subtle)",
+    borderBottomLeftRadius: "6px",
+    borderBottomRightRadius: "6px",
+    paddingBottom: "6px"
+  },
+  ".cm-code-exit-widget": {
+    display: "block",
+    height: "100%",
+    width: "100%",
+    cursor: "text"
+  },
+
+  // Quote-nested code block styling:
+  // The outer .cm-line maintains the continuous blockquote blue accent bar and light-blue background.
+  // The code block is rendered as an inner card embedded inside the blockquote container.
+  ".cm-visual-code-line.cm-visual-code-quote-nested": {
+    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    borderRight: "none",
+    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    paddingLeft: "16px",
+    paddingRight: "16px",
+    position: "relative"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-header-line": {
+    display: "block",
+    border: "none",
+    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    borderRadius: "0",
+    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    padding: "8px 16px 0 16px",
+    height: "auto",
+    minHeight: "36px",
+    lineHeight: "normal",
+    boxSizing: "border-box"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-header-line .cm-code-header-widget": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    borderTop: "1px solid var(--nexus-border-subtle)",
+    borderLeft: "1px solid var(--nexus-border-subtle)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
+    borderBottom: "1px solid var(--nexus-border-subtle)",
+    borderTopLeftRadius: "6px",
+    borderTopRightRadius: "6px",
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    height: "28px",
+    minHeight: "28px",
+    lineHeight: "22px",
+    boxSizing: "border-box",
+    width: "100%"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-content-line": {
+    isolation: "isolate",
+    position: "relative",
+    border: "none",
+    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    paddingLeft: "28px",
+    paddingRight: "28px",
+    boxSizing: "border-box"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-content-line::after": {
+    content: "''",
+    position: "absolute",
+    top: "0",
+    bottom: "0",
+    left: "16px",
+    right: "16px",
+    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    borderLeft: "1px solid var(--nexus-border-subtle)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
+    zIndex: "-1",
+    pointerEvents: "none",
+    boxSizing: "border-box"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-closing-line": {
+    display: "block",
+    border: "none",
+    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    borderRadius: "0",
+    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    padding: "0 16px 8px 16px",
+    height: "auto",
+    minHeight: "0",
+    lineHeight: "0",
+    boxSizing: "border-box"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-closing-line .cm-code-exit-widget": {
+    display: "block",
+    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    borderBottom: "1px solid var(--nexus-border-subtle)",
+    borderLeft: "1px solid var(--nexus-border-subtle)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
+    borderTop: "none",
+    borderBottomLeftRadius: "6px",
+    borderBottomRightRadius: "6px",
+    height: "8px",
+    minHeight: "8px",
+    lineHeight: "8px",
+    boxSizing: "border-box",
+    width: "100%",
+    cursor: "pointer"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-plain-first-line": {
+    paddingTop: "8px"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-plain-first-line::after": {
+    top: "8px",
+    borderTop: "1px solid var(--nexus-border-subtle)",
+    borderTopLeftRadius: "6px",
+    borderTopRightRadius: "6px"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-plain-last-line": {
+    paddingBottom: "8px"
+  },
+  ".cm-visual-code-quote-nested.cm-visual-code-plain-last-line::after": {
+    bottom: "8px",
+    borderBottom: "1px solid var(--nexus-border-subtle)",
+    borderBottomLeftRadius: "6px",
+    borderBottomRightRadius: "6px"
   },
   
   // Extensions status
@@ -113,23 +453,68 @@ export const nexusBaseTheme = EditorView.theme({
   },
   ".nexus-ext-retry:hover": {
     backgroundColor: "var(--nexus-bg-surface-hover)"
-  }
+  },
+  ".tok-keyword, .cm-prism-token.tok-keyword": { color: "var(--nexus-syntax-keyword, #0000ff)" },
+  ".tok-control, .cm-prism-token.tok-control": { color: "var(--nexus-syntax-control, #af00db)" },
+  ".tok-string, .cm-prism-token.tok-string": { color: "var(--nexus-syntax-string, #a31515)" },
+  ".tok-comment, .cm-prism-token.tok-comment": { color: "var(--nexus-syntax-comment, #008000)", fontStyle: "italic" },
+  ".tok-number, .cm-prism-token.tok-number": { color: "var(--nexus-syntax-number, #098658)" },
+  ".tok-boolean, .cm-prism-token.tok-boolean": { color: "var(--nexus-syntax-bool, #0000ff)" },
+  ".tok-function, .cm-prism-token.tok-function": { color: "var(--nexus-syntax-function, #795e26)" },
+  ".tok-builtin, .cm-prism-token.tok-builtin": { color: "var(--nexus-syntax-builtin, #001080)" },
+  ".tok-operator, .cm-prism-token.tok-operator": { color: "var(--nexus-syntax-operator, #000000)" },
+  ".tok-punctuation, .cm-prism-token.tok-punctuation": { color: "var(--nexus-syntax-punctuation, #333333)" },
+  ".tok-type, .cm-prism-token.tok-class-name": { color: "var(--nexus-syntax-type, #267f99)" },
+  ".tok-property, .cm-prism-token.tok-property": { color: "var(--nexus-syntax-property, #001080)" },
+  ".tok-variable, .cm-prism-token.tok-variable": { color: "var(--nexus-syntax-variable, #001080)" },
+  ".tok-regex, .cm-prism-token.tok-regex": { color: "var(--nexus-syntax-string, #a31515)" },
+
+  // Prism fallback token coverage.
+  // Prism emits many more token types than Lezer. Any type without an explicit
+  // rule would inherit the code-fence marker colour, making a highlighted block
+  // look uniformly red/grey. Each entry below mirrors its Lezer counterpart.
+  ".tok-function-definition, .cm-prism-token.tok-function-definition, .tok-macro, .cm-prism-token.tok-macro, .tok-function-variable, .cm-prism-token.tok-function-variable": { color: "var(--nexus-syntax-function, #795e26)" },
+  ".tok-key, .cm-prism-token.tok-key, .tok-attr-name, .cm-prism-token.tok-attr-name, .tok-title, .cm-prism-token.tok-title, .tok-property-access, .cm-prism-token.tok-property-access, .tok-literal-property, .cm-prism-token.tok-literal-property": { color: "var(--nexus-syntax-property, #001080)" },
+  ".tok-attr-value, .cm-prism-token.tok-attr-value, .tok-char, .cm-prism-token.tok-char, .tok-entity, .cm-prism-token.tok-entity, .tok-interpolation, .cm-prism-token.tok-interpolation, .tok-triple-quoted-string, .cm-prism-token.tok-triple-quoted-string, .tok-string-property, .cm-prism-token.tok-string-property, .tok-template-string, .cm-prism-token.tok-template-string, .tok-value, .cm-prism-token.tok-value": { color: "var(--nexus-syntax-string, #a31515)" },
+  ".tok-tag, .cm-prism-token.tok-tag, .tok-selector, .cm-prism-token.tok-selector, .tok-namespace, .cm-prism-token.tok-namespace, .tok-generics, .cm-prism-token.tok-generics, .tok-maybe-class-name, .cm-prism-token.tok-maybe-class-name, .tok-class-reference, .cm-prism-token.tok-class-reference, .cm-prism-token.tok-type, .cm-prism-token.tok-section": { color: "var(--nexus-syntax-type, #267f99)" },
+  ".tok-atrule, .cm-prism-token.tok-atrule, .tok-important, .cm-prism-token.tok-important, .tok-annotation, .cm-prism-token.tok-annotation, .tok-attribute, .cm-prism-token.tok-attribute, .tok-decorator, .cm-prism-token.tok-decorator": { color: "var(--nexus-syntax-control, #af00db)" },
+  ".tok-constant, .cm-prism-token.tok-constant, .tok-symbol, .cm-prism-token.tok-symbol, .tok-version, .cm-prism-token.tok-version, .tok-datetime, .cm-prism-token.tok-datetime, .tok-lifetime, .cm-prism-token.tok-lifetime": { color: "var(--nexus-syntax-number, #098658)" },
+  ".tok-directive, .cm-prism-token.tok-directive, .tok-method, .cm-prism-token.tok-method, .tok-operation, .cm-prism-token.tok-operation, .tok-rule, .cm-prism-token.tok-rule": { color: "var(--nexus-syntax-keyword, #0000ff)" },
+  ".tok-label, .cm-prism-token.tok-label, .tok-parameter, .cm-prism-token.tok-parameter, .tok-package, .cm-prism-token.tok-package, .tok-global-variable, .cm-prism-token.tok-global-variable, .tok-argument, .cm-prism-token.tok-argument": { color: "var(--nexus-syntax-variable, #001080)" },
+  ".tok-delimiter, .cm-prism-token.tok-delimiter, .tok-punctuator, .cm-prism-token.tok-punctuator": { color: "var(--nexus-syntax-punctuation, #333333)" },
+  ".tok-url, .cm-prism-token.tok-url": { color: "var(--nexus-syntax-url, #007acc)" },
+  ".tok-doctype, .cm-prism-token.tok-doctype, .tok-prolog, .cm-prism-token.tok-prolog, .tok-cdata, .cm-prism-token.tok-cdata": { color: "var(--nexus-syntax-comment, #008000)" },
+  ".tok-inserted, .cm-prism-token.tok-inserted": { color: "var(--nexus-status-success-text, #065f46)" },
+  ".tok-deleted, .cm-prism-token.tok-deleted": { color: "var(--nexus-status-error-text, #991b1b)" },
+  ".tok-bold, .cm-prism-token.tok-bold": { fontWeight: "bold" },
+  ".tok-italic, .cm-prism-token.tok-italic": { fontStyle: "italic" }
 });
 
 export const markdownHighlightStyle = HighlightStyle.define([
-  { tag: t.heading1, fontSize: "1.4em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
-  { tag: t.heading2, fontSize: "1.25em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
-  { tag: t.heading3, fontSize: "1.1em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
-  { tag: t.heading, fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
-  { tag: t.strong, fontWeight: "bold", color: "var(--nexus-text-primary)" },
-  { tag: t.emphasis, fontStyle: "italic", color: "var(--nexus-text-primary)" },
-  { tag: t.link, color: "var(--nexus-syntax-url)", textDecoration: "underline" },
-  { tag: t.url, color: "var(--nexus-syntax-url)" },
-  { tag: t.monospace, color: "var(--nexus-syntax-inline-code-text)", backgroundColor: "var(--nexus-syntax-inline-code-bg)" },
-  { tag: t.quote, color: "var(--nexus-text-secondary)", fontStyle: "italic" },
-  { tag: t.keyword, color: "var(--nexus-syntax-keyword)" },
-  { tag: t.string, color: "var(--nexus-syntax-string)" },
-  { tag: t.comment, color: "var(--nexus-syntax-comment)", fontStyle: "italic" }
+  { tag: t.heading1, fontSize: "1.4em", fontWeight: "bold", color: "var(--nexus-syntax-heading, #000000)" },
+  { tag: t.heading2, fontSize: "1.25em", fontWeight: "bold", color: "var(--nexus-syntax-heading, #000000)" },
+  { tag: t.heading3, fontSize: "1.1em", fontWeight: "bold", color: "var(--nexus-syntax-heading, #000000)" },
+  { tag: t.heading, fontWeight: "bold", color: "var(--nexus-syntax-heading, #000000)" },
+  { tag: t.strong, fontWeight: "bold", color: "var(--nexus-text-primary, #333333)" },
+  { tag: t.emphasis, fontStyle: "italic", color: "var(--nexus-text-primary, #333333)" },
+  { tag: t.link, color: "var(--nexus-syntax-url, #007acc)", textDecoration: "underline" },
+  { tag: t.url, color: "var(--nexus-syntax-url, #007acc)" },
+  { tag: t.monospace, color: "var(--nexus-syntax-inline-code-text, #24292e)", backgroundColor: "var(--nexus-syntax-inline-code-bg, rgba(27,31,35,0.05))" },
+  { tag: t.quote, color: "var(--nexus-text-secondary, #666666)", fontStyle: "italic" },
+  { tag: t.controlKeyword, class: "tok-control", color: "var(--nexus-syntax-control, #af00db)" },
+  { tag: t.moduleKeyword, class: "tok-control", color: "var(--nexus-syntax-module, #af00db)" },
+  { tag: [t.keyword, t.self, t.modifier, t.null, t.atom], class: "tok-keyword", color: "var(--nexus-syntax-keyword, #0000ff)" },
+  { tag: [t.string, t.special(t.string), t.regexp, t.escape], class: "tok-string", color: "var(--nexus-syntax-string, #a31515)" },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], class: "tok-comment", color: "var(--nexus-syntax-comment, #008000)", fontStyle: "italic" },
+  { tag: t.number, class: "tok-number", color: "var(--nexus-syntax-number, #098658)" },
+  { tag: t.bool, class: "tok-boolean", color: "var(--nexus-syntax-bool, #0000ff)" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName))], class: "tok-function", color: "var(--nexus-syntax-function, #795e26)" },
+  { tag: t.standard(t.variableName), class: "tok-builtin", color: "var(--nexus-syntax-builtin, #001080)" },
+  { tag: [t.propertyName, t.labelName], class: "tok-property", color: "var(--nexus-syntax-property, #001080)" },
+  { tag: [t.variableName, t.definition(t.variableName)], class: "tok-variable", color: "var(--nexus-syntax-variable, #001080)" },
+  { tag: [t.typeName, t.className, t.namespace], class: "tok-type", color: "var(--nexus-syntax-type, #267f99)" },
+  { tag: t.operator, class: "tok-operator", color: "var(--nexus-syntax-operator, #000000)" },
+  { tag: t.punctuation, class: "tok-punctuation", color: "var(--nexus-syntax-punctuation, #333333)" }
 ]);
 
 export const editorSyntaxHighlighting = syntaxHighlighting(markdownHighlightStyle, {

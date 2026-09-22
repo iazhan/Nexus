@@ -8,7 +8,11 @@ export default defineConfig(({ command }) => {
     ? {
         alias: {
           '@nexus/core': resolve(__dirname, '../../packages/core/src/index.ts'),
-          '@nexus/editor': resolve(__dirname, '../../packages/editor/src/index.ts')
+          '@nexus/theme': resolve(__dirname, '../../packages/theme/src/index.ts'),
+          '@nexus/editor': resolve(__dirname, '../../packages/editor/src/index.ts'),
+          '@nexus/command': resolve(__dirname, '../../packages/command/src/index.ts'),
+          '@nexus/i18n': resolve(__dirname, '../../packages/i18n/src/index.ts'),
+          '@nexus/markdown': resolve(__dirname, '../../packages/markdown/src/index.ts')
         }
       }
     : undefined;
@@ -18,7 +22,14 @@ export default defineConfig(({ command }) => {
       resolve: resolveConfig,
       plugins: [
         externalizeDepsPlugin({
-          exclude: ['@nexus/core', '@nexus/editor']
+          exclude: [
+            '@nexus/core',
+            '@nexus/theme',
+            '@nexus/editor',
+            '@nexus/command',
+            '@nexus/i18n',
+            '@nexus/markdown'
+          ]
         })
       ],
       build: {
@@ -37,7 +48,14 @@ export default defineConfig(({ command }) => {
       resolve: resolveConfig,
       plugins: [
         externalizeDepsPlugin({
-          exclude: ['@nexus/core', '@nexus/editor']
+          exclude: [
+            '@nexus/core',
+            '@nexus/theme',
+            '@nexus/editor',
+            '@nexus/command',
+            '@nexus/i18n',
+            '@nexus/markdown'
+          ]
         })
       ],
       build: {
@@ -58,6 +76,16 @@ export default defineConfig(({ command }) => {
       server: {
         host: '127.0.0.1',
         port: 6200
+      },
+      optimizeDeps: {
+        exclude: [
+          '@nexus/core',
+          '@nexus/theme',
+          '@nexus/editor',
+          '@nexus/command',
+          '@nexus/i18n',
+          '@nexus/markdown'
+        ]
       },
       plugins: [react()],
       build: {

@@ -160,6 +160,16 @@ export function collectDraggableBlocks(root: MarkdownRoot, source: string): Drag
     }
 
     // 叶子块（paragraph, heading, code-block, table, block-math, raw 等）
+    if (node.type === 'code-block') {
+      const lineStart = source.lastIndexOf('\n', node.range.from - 1) + 1;
+      const isQuote = /^[ \t]*(?:>[ \t]*)+$/.test(source.slice(lineStart, node.range.from));
+      blocks.push({
+        from: isQuote ? lineStart : node.range.from,
+        to: getContentEnd(source, node.range)
+      });
+      return;
+    }
+
     blocks.push({
       from: node.range.from,
       to: getContentEnd(source, node.range)

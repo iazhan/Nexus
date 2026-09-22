@@ -7,7 +7,7 @@ import {
 } from '../src/index.js';
 
 describe('Real CodeMirror KeyboardEvent & DOM Widget Integration', () => {
-  it('dispatches Enter keyboard event on contentDOM and intercepts in paragraph, but no-ops in code block', () => {
+  it('dispatches Enter keyboard event on contentDOM and intercepts in paragraph, and supports native newline in code block', () => {
     const parent = document.createElement('div');
     const source = 'Paragraph text\n\n```ts\nconst x = 1;\n```';
     const session = new MarkdownDocumentSession(source);
@@ -20,6 +20,7 @@ describe('Real CodeMirror KeyboardEvent & DOM Widget Integration', () => {
 
     // 1. In paragraph: cursor at 'Paragraph| text' (pos 9)
     handle.view.dispatch({ selection: EditorSelection.cursor(9) });
+
     const enterEvent1 = new KeyboardEvent('keydown', {
       key: 'Enter',
       code: 'Enter',
@@ -43,9 +44,10 @@ describe('Real CodeMirror KeyboardEvent & DOM Widget Integration', () => {
     });
     handle.view.contentDOM.dispatchEvent(enterEvent2);
 
-    // Must be no-op (defaultPrevented false)
-    expect(enterEvent2.defaultPrevented).toBe(false);
-    expect(session.getSnapshot().revision).toBe(1); // Revision unchanged
+    // Native in-place editing: handled and inserts newline
+    expect(enterEvent2.defaultPrevented).toBe(true);
+    expect(session.getSnapshot().revision).toBe(2);
+    expect(session.getSnapshot().source).toBe('Paragraph\ntext\n\n```ts\n\nconst x = 1;\n```');
 
     handle.destroy();
   });
