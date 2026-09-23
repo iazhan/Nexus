@@ -15,6 +15,14 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'renderer',
+          globals: true,
+          environment: 'happy-dom',
+          include: ['apps/desktop/renderer/test/**/*.test.tsx']
+        }
+      },
+      {
+        test: {
           name: 'desktop',
           globals: true,
           environment: 'node',

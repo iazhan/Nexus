@@ -1362,17 +1362,24 @@ export function createInlineEditExtension(
         const target = event.target as HTMLElement | null;
         if (!target) return;
 
+        // 行内代码与链接都已改为就地可编辑：正文是真实文档文本，只由
+        // cm-visual-inline-code / cm-visual-link mark 装饰承载，没有 data-from/to。
+        // 它们必须留在选择器之外，否则会被这里的 preventDefault 吞掉点击、导致光标
+        // 无法落入。表单元格内的行内代码同理。只有 raw 结构畸形时降级出的
+        // InlineCodeWidget / LinkWidget 仍走 popover，故按 widget 专属类名匹配。
         const widgetEl = target.closest(
-          '.cm-visual-link, .cm-visual-image, .cm-visual-inline-math, .cm-visual-inline-code, .cm-visual-wikilink'
+          '.cm-visual-image, .cm-visual-inline-math, .cm-visual-wikilink, .cm-visual-inline-code-widget, .cm-visual-link-widget'
         ) as HTMLElement | null;
         if (!widgetEl) return;
 
-        event.preventDefault();
-        event.stopPropagation();
-
+        // 守卫先于 preventDefault：命中没有 source range 的元素时直接放行，
+        // 把事件交回浏览器，让光标正常落到真实文本上。
         const from = Number(widgetEl.dataset.from);
         const to = Number(widgetEl.dataset.to);
         if (isNaN(from) || isNaN(to)) return;
+
+        event.preventDefault();
+        event.stopPropagation();
 
         const currentSource = session.getSnapshot().source;
         const raw = currentSource.slice(from, to);

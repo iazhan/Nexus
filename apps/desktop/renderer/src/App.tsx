@@ -1,16 +1,20 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import type { LaunchContext, Unsubscribe } from '@nexus/core';
+import type { FileDocument, LaunchContext, Unsubscribe } from '@nexus/core';
 import {
   MarkdownDocumentSession,
   hasMathMarkers,
   openSearchPanel,
+  resolveRelativePath,
+  revealHeadingAnchor,
   ExtensionHost,
   type EditorView,
   type EditorSurfaceKind,
   type EditorSaveState,
-  type EditorSelectionInfo
+  type EditorSelectionInfo,
+  type LinkNavigator
 } from '@nexus/editor';
 import { EditorSurface } from './editor/SourceEditor.js';
+import { ErrorBoundary } from './ErrorBoundary.js';
 import { MenuBar, type MenuBarMenu } from './MenuBar.js';
 import { WindowControls } from './WindowControls.js';
 import { formatShortcut, matchesShortcut } from './shortcut.js';
@@ -109,6 +113,13 @@ export const App: React.FC = () => {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<EditorSaveState>('saved');
   const [saveError, setSaveError] = useState<string | null>(null);
+  /**
+   * Ctrl+左键跳转失败的可见反馈。
+   *
+   * 没有它，点一个指向不存在文件的链接（`docs/markdown-syntax-reference.md` 里就有两条）
+   * 会完全静默——用户分不清是"链接坏了"还是"这个功能没做"。
+   */
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [surfaceKind, setSurfaceKind] = useState<EditorSurfaceKind>('source');
   const [selection, setSelection] = useState<EditorSelectionInfo>({
     line: 1,
@@ -249,13 +260,12 @@ export const App: React.FC = () => {
     return enqueueSave(() => performSaveAs(session.getSnapshot().source));
   }, [enqueueSave, performSaveAs, session]);
 
-  // Open file
-  const handleOpenFile = useCallback(async () => {
-    try {
-      if (!window.nexus?.openFile) return;
-      const fileDoc = await window.nexus.openFile();
-      if (!fileDoc) return;
-
+  /**
+   * 把已打开的文件灌进 session。系统对话框与链接跳转共用这一段，
+   * 避免两条路径在 dirty / readOnly / 错误清理上出现分歧。
+   */
+  const applyOpenedDocument = useCallback(
+    (fileDoc: FileDocument) => {
       setFilePath(fileDoc.path);
       initialContentRef.current = fileDoc.content;
       session.replaceSource(fileDoc.content, {
@@ -263,10 +273,41 @@ export const App: React.FC = () => {
       });
       updateSaveState(fileDoc.readOnly ? 'readonly' : 'clean');
       setSaveError(null);
+    },
+    [session, updateSaveState]
+  );
+
+  // Open file via the system dialog
+  const handleOpenFile = useCallback(async () => {
+    try {
+      if (!window.nexus?.openFile) return;
+      const fileDoc = await window.nexus.openFile();
+      if (!fileDoc) return;
+      applyOpenedDocument(fileDoc);
     } catch (err: unknown) {
       console.error('Open file failed:', err);
     }
-  }, [session, updateSaveState]);
+  }, [applyOpenedDocument]);
+
+  /** 按已知路径打开文档，供链接跳转使用（不弹对话框）。 */
+  const openDocumentAt = useCallback(
+    async (targetPath: string): Promise<boolean> => {
+      if (!window.nexus?.openFile) return false;
+      try {
+        const fileDoc = await window.nexus.openFile(targetPath);
+        if (!fileDoc) return false;
+        applyOpenedDocument(fileDoc);
+        setLinkError(null);
+        return true;
+      } catch (err: unknown) {
+        console.error('Failed to open linked document:', err);
+        // 跳转失败必须可见，否则用户分不清"链接坏了"和"功能没做"。
+        setLinkError(`无法打开链接目标：${targetPath}（${err instanceof Error ? err.message : String(err)}）`);
+        return false;
+      }
+    },
+    [applyOpenedDocument]
+  );
 
   // Watch file for external modifications
   useEffect(() => {
@@ -453,9 +494,86 @@ export const App: React.FC = () => {
     return unbind;
   }, [saveFile]);
 
+  // 新建空文档：置空 filePath 会触发监听清理，文档回到未命名的干净状态。
+  // 定义在快捷键 effect 之前，否则 effect 的依赖数组会在渲染期读到未初始化的绑定（TDZ）。
+  const handleNewFile = useCallback(() => {
+    setFilePath(null);
+    initialContentRef.current = '';
+    session.replaceSource('', { selection: { anchor: 0, head: 0 } });
+    setSaveError(null);
+    updateSaveState('clean');
+  }, [session, updateSaveState]);
+
+  /**
+   * Ctrl/Cmd+左键的链接跳转策略。
+   *
+   * 编辑器只负责识别（命中哪个链接、href 是什么），"往哪去"在这里定：
+   *   1. `#anchor`         → 文档内标题跳转，不离开当前文档
+   *   2. http/https/mailto → 交给系统默认浏览器
+   *   3. 相对路径           → 按当前文档目录解析，再由编辑器打开
+   *
+   * 返回 false 表示不处理，事件交回浏览器，保持默认的落光标行为。
+   */
+  const handleLinkNavigation = useCallback<LinkNavigator>(
+    ({ href }) => {
+      const target = href.trim();
+      if (!target) return false;
+
+      // 1. 文档内锚点：光标落到标题上并滚动过去
+      if (target.startsWith('#')) {
+        const view = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
+        if (!view) return false;
+        if (revealHeadingAnchor(view, target)) {
+          setLinkError(null);
+          return true;
+        }
+        setLinkError(`文档内找不到锚点：${target}`);
+        return true;
+      }
+
+      // 2. 外部协议。这里再判一次白名单，是不把"净化器放行过"当成"一定能开"；
+      //    主进程侧还有第三道校验，被拒时它返回 false。
+      if (/^(?:https?|mailto):/i.test(target)) {
+        const openExternal = window.nexus?.openExternal;
+        if (!openExternal) return false;
+        void openExternal(target)
+          .then((opened) => {
+            setLinkError(opened ? null : `系统未接受这个链接：${target}`);
+          })
+          .catch((err: unknown) => {
+            console.error('Failed to open external link:', err);
+            setLinkError(`无法打开外部链接：${target}`);
+          });
+        return true;
+      }
+
+      // 3. 相对路径：必须相对当前文档目录解析，否则会被当成进程 cwd。
+      const directory = getDocumentDirectory(filePath);
+      if (!directory) {
+        setLinkError(`当前文档尚未保存，无法解析相对链接：${target}`);
+        return true;
+      }
+      const resolved = resolveRelativePath(directory, target);
+      if (!resolved) {
+        setLinkError(`无法解析这个相对链接：${target}`);
+        return true;
+      }
+
+      void openDocumentAt(resolved);
+      return true;
+    },
+    [filePath, openDocumentAt]
+  );
+
   // Global keyboard shortcuts and commands
   useEffect(() => {
     const unsubs = [
+      commandRegistry.registerCommand({
+        id: 'new-file',
+        titleKey: 'cmd.newFile',
+        shortcut: 'Mod-N',
+        execute: () => void handleNewFile()
+      }),
       commandRegistry.registerCommand({
         id: 'open-file',
         titleKey: 'cmd.openFile',
@@ -572,15 +690,6 @@ export const App: React.FC = () => {
     window.nexus?.maximizeWindow?.();
   }, []);
 
-  // 新建空文档：置空 filePath 会触发监听清理，文档回到未命名的干净状态。
-  const handleNewFile = useCallback(() => {
-    setFilePath(null);
-    initialContentRef.current = '';
-    session.replaceSource('', { selection: { anchor: 0, head: 0 } });
-    setSaveError(null);
-    updateSaveState('clean');
-  }, [session, updateSaveState]);
-
   /**
    * 撤销/重做走 session，与编辑器 Mod-z / Mod-Shift-z 共用同一份历史，
    * 避免菜单与快捷键产生两条独立的 undo 栈。
@@ -672,7 +781,11 @@ export const App: React.FC = () => {
         id: 'file',
         label: t('menu.file'),
         items: [
-          { label: t('cmd.newFile'), onSelect: () => void handleNewFile() },
+          {
+            label: t('cmd.newFile'),
+            shortcut: formatShortcut('Mod-N'),
+            onSelect: () => void handleNewFile()
+          },
           {
             label: t('cmd.openFile'),
             shortcut: formatShortcut('Mod-O'),
@@ -846,6 +959,20 @@ export const App: React.FC = () => {
         </div>
       </header>
 
+      {/* Link Navigation Failure Banner */}
+      {linkError && (
+        <div className="nexus-warning-banner" role="alert">
+          <span>{linkError}</span>
+          <button
+            type="button"
+            className="nexus-banner-dismiss-btn"
+            onClick={() => setLinkError(null)}
+          >
+            知道了
+          </button>
+        </div>
+      )}
+
       {/* ReadOnly Banner */}
       {saveState === 'readonly' && (
         <div className="nexus-warning-banner" role="alert">
@@ -941,21 +1068,27 @@ export const App: React.FC = () => {
           </div>
         )}
         {status === 'ready' && (
-          <EditorSurface
-            session={session}
-            surfaceId="main-editor"
-            surfaceKind={surfaceKind}
-            saveState={saveState}
-            saveError={saveError}
-            readOnly={saveState === 'readonly'}
-            documentDirectory={getDocumentDirectory(filePath)}
-            extensionHost={extensionHostRef.current ?? undefined}
-            theme={theme.type}
-            locale={locale}
-            onChange={handleContentChange}
-            onSelectionChange={handleSelectionChange}
-            className="nexus-editor-full"
-          />
+          // 只包编辑区：投影抛错时保留顶栏、菜单栏和状态栏，
+          // 让 Mod-M 切换 surface 成为一条真实可用的恢复路径。
+          // resetKey 绑 surfaceKind，切回 Source 会自动清除错误状态。
+          <ErrorBoundary resetKey={surfaceKind} title="Unable to render this surface">
+            <EditorSurface
+              session={session}
+              surfaceId="main-editor"
+              surfaceKind={surfaceKind}
+              saveState={saveState}
+              saveError={saveError}
+              readOnly={saveState === 'readonly'}
+              documentDirectory={getDocumentDirectory(filePath)}
+              linkNavigator={handleLinkNavigation}
+              extensionHost={extensionHostRef.current ?? undefined}
+              theme={theme.type}
+              locale={locale}
+              onChange={handleContentChange}
+              onSelectionChange={handleSelectionChange}
+              className="nexus-editor-full"
+            />
+          </ErrorBoundary>
         )}
       </main>
 

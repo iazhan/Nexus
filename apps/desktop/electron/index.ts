@@ -38,6 +38,26 @@ function getPreloadPath(): string {
   return path.join(__dirname, '../preload/index.js');
 }
 
+/**
+ * 允许交给系统默认程序打开的协议白名单。
+ *
+ * 主进程必须自己再判一次：渲染进程传来的字符串不可信——即使它已经过 `sanitizeUrl`，
+ * 也不能把"净化器放行过"当成"shell.openExternal 可以无条件执行"。少了这道闸，
+ * openExternal 就是一个任意协议执行入口（例如 `ms-msdt:`、自定义 handler）。
+ */
+const EXTERNAL_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+function toAllowedExternalUrl(rawUrl: unknown): string | null {
+  if (typeof rawUrl !== 'string' || !rawUrl) return null;
+  try {
+    const parsed = new URL(rawUrl);
+    if (!EXTERNAL_URL_PROTOCOLS.has(parsed.protocol)) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 function createWindow(): BrowserWindowType {
   const mainWindow = new BrowserWindow({
     width: 960,
@@ -114,9 +134,13 @@ function createWindow(): BrowserWindowType {
     }
   });
 
-  // Open external links in user's default browser
+  // Open external links in user's default browser.
+  // 与 openExternal IPC 共用同一份协议白名单，避免两条路径出现两种策略。
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    const allowed = toAllowedExternalUrl(details.url);
+    if (allowed) {
+      void shell.openExternal(allowed);
+    }
     return { action: 'deny' };
   });
 
@@ -185,6 +209,18 @@ ipcMain.handle(IPC_CHANNELS.getLaunchContext, () => {
 ipcMain.handle(IPC_CHANNELS.openFile, async (event, filePath?: string) => {
   const session = getOrCreateSession(event.sender);
   return await session.service.openFile(filePath);
+});
+
+ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, url: unknown) => {
+  const allowed = toAllowedExternalUrl(url);
+  if (!allowed) return false;
+  try {
+    await shell.openExternal(allowed);
+    return true;
+  } catch (err) {
+    console.error('[Nexus Shell] Failed to open external URL:', err);
+    return false;
+  }
 });
 
 ipcMain.handle(IPC_CHANNELS.readFile, async (event, filePath: string) => {

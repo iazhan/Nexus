@@ -26,6 +26,10 @@ import { visualCommandsExtension } from './visual-commands.js';
 import { createVisualDragExtension } from './drag-handle.js';
 import { createInlineEditExtension, type ImageSourceResolver } from './inline-edit.js';
 import {
+  createLinkNavigationExtension,
+  type LinkNavigator
+} from './link-navigation.js';
+import {
   createImeCompositionExtension,
   isEditorComposing,
   setComposingEffect
@@ -41,6 +45,8 @@ export interface CreateSessionEditorStateOptions {
   readOnly?: boolean;
   documentDirectory?: string | null;
   imageSourceResolver?: ImageSourceResolver;
+  /** Ctrl/Cmd+左键点击普通链接时的导航策略，由宿主提供；缺省表示不导航。 */
+  linkNavigator?: LinkNavigator;
   extensionHost?: import('./extensions.js').ExtensionHost;
   onSelectionChange?: (selection: MarkdownSelection) => void;
   theme?: 'light' | 'dark';
@@ -352,6 +358,7 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
         ...(options.documentDirectory !== undefined
           ? [documentDirectoryField.init(() => options.documentDirectory ?? null)]
           : []),
+        ...(options.linkNavigator ? [createLinkNavigationExtension(options.linkNavigator)] : []),
         ...visualProjectionExtensions
       ]
     : [];

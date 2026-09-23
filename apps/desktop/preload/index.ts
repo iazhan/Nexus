@@ -54,6 +54,10 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.openFile, filePath);
   },
 
+  openExternal: (url: string): Promise<boolean> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openExternal, url);
+  },
+
   readFile: (filePath: string): Promise<string> => {
     return ipcRenderer.invoke(IPC_CHANNELS.readFile, filePath);
   },

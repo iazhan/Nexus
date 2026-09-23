@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { EditorSelection } from '@codemirror/state';
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
   MarkdownDocumentSession,
@@ -99,55 +100,48 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     handle.destroy();
   });
 
-  it('keeps Popover open and displays error when invalid URL is submitted, without changing source', () => {
+  it('renders a link as blocked when its destination is rewritten to a dangerous protocol', () => {
     const source = 'Check [Doc](https://nexus.dev) out.';
     const session = new MarkdownDocumentSession(source);
 
     const visualHandle = createSessionEditorView({
       parent,
       session,
-      surfaceId: 'v-invalid-url-test',
+      surfaceId: 'v-blocked-url-test',
       surfaceKind: 'visual'
     });
 
-    const linkWidget = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    // 链接文字是真实文档文本，目的地由 data-safe-href 承载
+    const linkText = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
+    expect(linkText).not.toBeNull();
+    expect(linkText.textContent).toBe('Doc');
+    expect(linkText.getAttribute('data-safe-href')).toBe('https://nexus.dev');
+    expect(linkText.classList.contains('cm-visual-link-blocked')).toBe(false);
 
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    expect(popover).not.toBeNull();
+    // 就地改写目的地，等价于用户在 `](...)` 区间内输入
+    const destStart = source.indexOf('https://nexus.dev');
+    visualHandle.view.dispatch({
+      changes: {
+        from: destStart,
+        to: destStart + 'https://nexus.dev'.length,
+        insert: 'javascript:alert(1)'
+      }
+    });
 
-    const destInput = popover.querySelector('.cm-link-dest-input') as HTMLInputElement;
-    destInput.value = 'javascript:alert(1)';
-    destInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-    const saveBtn = popover.querySelector('.cm-inline-edit-save') as HTMLButtonElement;
-    saveBtn.click();
-
-    // Popover MUST remain open
-    expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).not.toBeNull();
-    const errorEl = popover.querySelector('.cm-inline-edit-error') as HTMLElement;
-    expect(errorEl.textContent).toContain('Blocked');
-
-    // Source, revision, history must NOT change
-    expect(session.getSnapshot().source).toBe('Check [Doc](https://nexus.dev) out.');
-    expect(session.getSnapshot().revision).toBe(0);
-    expect(session.canUndo).toBe(false);
-
-    // Now enter valid URL and submit
-    destInput.value = 'https://nexus.dev/documentation';
-    destInput.dispatchEvent(new Event('input', { bubbles: true }));
-    saveBtn.click();
-
-    // Now it should close and update
-    expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
-    expect(session.getSnapshot().source).toBe('Check [Doc](https://nexus.dev/documentation) out.');
-    expect(session.getSnapshot().revision).toBe(1);
+    const blocked = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
+    expect(blocked.classList.contains('cm-visual-link-blocked')).toBe(true);
+    expect(blocked.getAttribute('aria-disabled')).toBe('true');
+    // 危险协议绝不进入任何可点击属性
+    expect(blocked.getAttribute('data-safe-href')).toBeNull();
+    expect(blocked.getAttribute('href')).toBeNull();
+    // 正文本身保持可编辑，不会被降级成不可编辑的占位
+    expect(blocked.textContent).toBe('Doc');
 
     visualHandle.destroy();
   });
 
   it('clicking Save without modifying values cleanly closes Popover without error or revision increment', () => {
-    const source = 'Check [Doc](https://nexus.dev) out.';
+    const source = 'See [[Doc]] here.';
     const session = new MarkdownDocumentSession(source);
 
     const visualHandle = createSessionEditorView({
@@ -157,10 +151,11 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    const linkWidget = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const wikiWidget = visualHandle.view.dom.querySelector('.cm-visual-wikilink') as HTMLElement;
+    wikiWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
+    expect(popover).not.toBeNull();
     const saveBtn = popover.querySelector('.cm-inline-edit-save') as HTMLButtonElement;
     saveBtn.click();
 
@@ -231,7 +226,7 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     visualHandle.destroy();
   });
 
-  it('clicking inline code widget opens code editor, modifying code updates session', () => {
+  it('renders inline code as in-place editable text with hidden backticks and no popover', () => {
     const source = 'Run `npm test` here.';
     const session = new MarkdownDocumentSession(source);
 
@@ -242,27 +237,77 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    const codeWidget = visualHandle.view.dom.querySelector('.cm-visual-inline-code') as HTMLElement;
-    expect(codeWidget).not.toBeNull();
+    // 与 bold/italic 同构：正文是真实文档文本，只被 mark 装饰包裹，不再是 widget。
+    expect(visualHandle.view.dom.querySelector('.cm-visual-inline-code-widget')).toBeNull();
 
-    codeWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const codeText = visualHandle.view.dom.querySelector('.cm-visual-inline-code') as HTMLElement;
+    expect(codeText).not.toBeNull();
+    expect(codeText.textContent).toBe('npm test');
 
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    expect(popover).not.toBeNull();
+    // 反引号围栏被替换为隐藏 delimiter，与 ** 的显隐契约一致。
+    const backtickDelimiters = Array.from(
+      visualHandle.view.dom.querySelectorAll('.cm-visual-hidden-delimiter')
+    ).filter((element) => (element as HTMLElement).dataset.delimiter === '`');
+    expect(backtickDelimiters).toHaveLength(2);
 
-    const codeInput = popover.querySelector('.cm-code-input') as HTMLInputElement;
-    expect(codeInput).not.toBeNull();
-    expect(codeInput.value).toBe('npm test');
-
-    codeInput.value = 'pnpm test';
-    codeInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-    const saveBtn = popover.querySelector('.cm-inline-edit-save') as HTMLButtonElement;
-    saveBtn.click();
-
+    // 点击不再被拦截，也不再打开 popover：事件必须原样交回 CodeMirror，
+    // 否则光标落不进去、就地编辑形同虚设。
+    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    codeText.dispatchEvent(clickEvent);
+    expect(clickEvent.defaultPrevented).toBe(false);
     expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
-    expect(session.getSnapshot().source).toBe('Run `pnpm test` here.');
-    expect(session.getSnapshot().revision).toBe(1);
+
+    visualHandle.destroy();
+  });
+
+  it('keeps multi-backtick fences intact so code containing a backtick stays editable', () => {
+    const source = 'Run ``a`b`` here.';
+    const session = new MarkdownDocumentSession(source);
+
+    const visualHandle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'v-code-fence',
+      surfaceKind: 'visual'
+    });
+
+    expect(visualHandle.view.dom.querySelector('.cm-visual-inline-code-widget')).toBeNull();
+    expect(visualHandle.view.dom.querySelector('.cm-visual-inline-code')?.textContent).toBe('a`b');
+
+    // 围栏长度必须按原文长度成对隐藏，不能塌缩成单反引号。
+    const fences = Array.from(
+      visualHandle.view.dom.querySelectorAll('.cm-visual-hidden-delimiter')
+    ).filter((element) => (element as HTMLElement).dataset.delimiter === '``');
+    expect(fences).toHaveLength(2);
+    expect(session.getSnapshot().source).toBe(source);
+
+    visualHandle.destroy();
+  });
+
+  it('reveals backtick delimiters when the caret enters the inline code span', () => {
+    const source = 'Run `npm test` here.';
+    const session = new MarkdownDocumentSession(source);
+
+    const visualHandle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'v-code-reveal',
+      surfaceKind: 'visual'
+    });
+
+    visualHandle.view.focus();
+    expect(visualHandle.view.dom.querySelectorAll('.cm-visual-delimiter-revealed')).toHaveLength(0);
+
+    // 光标落在正文内部：围栏显示出来，用户可以看清并直接编辑 Markdown 结构。
+    visualHandle.view.dispatch({
+      selection: EditorSelection.single(source.indexOf('npm test') + 3)
+    });
+
+    const revealed = visualHandle.view.dom.querySelectorAll('.cm-visual-delimiter-revealed');
+    expect(revealed).toHaveLength(2);
+    expect(Array.from(revealed, (element) => element.textContent).join('')).toBe('``');
+    // 仅进入投影，不产生任何编辑。
+    expect(session.getSnapshot()).toMatchObject({ source, revision: 0 });
 
     visualHandle.destroy();
   });
@@ -309,7 +354,7 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
   });
 
   it('stale revision immediately closes Popover without commit or fake error text', () => {
-    const source = 'Check [Doc](https://nexus.dev) out.';
+    const source = 'See [[Doc]] here.';
     const session = new MarkdownDocumentSession(source);
 
     const visualHandle = createSessionEditorView({
@@ -319,14 +364,14 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    const linkWidget = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const wikiWidget = visualHandle.view.dom.querySelector('.cm-visual-wikilink') as HTMLElement;
+    wikiWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).not.toBeNull();
 
     // External change to source
     session.dispatch({
-      changes: [{ from: 0, to: 5, insert: 'Read' }],
+      changes: [{ from: 0, to: 3, insert: 'Read' }],
       userEvent: 'external.update'
     });
 
@@ -383,31 +428,30 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     });
 
     const initialRevision = session.getSnapshot().revision;
-    const codeWidget = visualHandle.view.dom.querySelector('.cm-visual-inline-code') as HTMLElement;
-    codeWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const codeInput = popover.querySelector('.cm-code-input') as HTMLInputElement;
-    codeInput.value = 'pnpm test';
-    codeInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-    const saveBtn = popover.querySelector('.cm-inline-edit-save') as HTMLButtonElement;
-    saveBtn.click();
+    // 就地编辑 = 直接改写正文区间的普通 source transaction，与用户敲键产生的编辑等价。
+    // 没有 popover、输入框和提交按钮参与，也不需要任何专用事务构造函数。
+    const innerFrom = source.indexOf('`') + 1;
+    const innerTo = source.indexOf('`', innerFrom);
+    visualHandle.view.dispatch({
+      changes: { from: innerFrom, to: innerTo, insert: 'pnpm test' },
+      selection: EditorSelection.single(innerFrom + 'pnpm test'.length)
+    });
 
     expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
     expect(session.getSnapshot().source).toBe('Run `pnpm test` here.');
     expect(session.getSnapshot().revision).toBe(initialRevision + 1);
     expect(sourceHandle.view.state.doc.toString()).toBe('Run `pnpm test` here.');
 
-    const updatedWidget = visualHandle.view.dom.querySelector('.cm-visual-inline-code') as HTMLElement;
-    expect(updatedWidget.textContent).toBe('pnpm test');
+    const updatedCode = visualHandle.view.dom.querySelector('.cm-visual-inline-code') as HTMLElement;
+    expect(updatedCode.textContent).toBe('pnpm test');
 
     // 1 Undo
     session.undo();
     expect(session.getSnapshot().source).toBe('Run `npm test` here.');
     expect(sourceHandle.view.state.doc.toString()).toBe('Run `npm test` here.');
-    const revertedWidget = visualHandle.view.dom.querySelector('.cm-visual-inline-code') as HTMLElement;
-    expect(revertedWidget.textContent).toBe('npm test');
+    const revertedCode = visualHandle.view.dom.querySelector('.cm-visual-inline-code') as HTMLElement;
+    expect(revertedCode.textContent).toBe('npm test');
 
     // Redo
     session.redo();
@@ -476,7 +520,7 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
   });
 
   it('two Visual Surfaces opening popovers do not clean up or pollute each other', () => {
-    const source = 'Visit [Link](https://nexus.dev) and ![Img](./pic.png)';
+    const source = 'Visit [[Link]] and ![Img](./pic.png)';
     const session = new MarkdownDocumentSession(source);
     const parent2 = document.createElement('div');
     document.body.appendChild(parent2);
@@ -494,8 +538,8 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    const linkWidget1 = visual1.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const wikiWidget1 = visual1.view.dom.querySelector('.cm-visual-wikilink') as HTMLElement;
+    wikiWidget1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     const imgWidget2 = visual2.view.dom.querySelector('.cm-visual-image') as HTMLElement;
     imgWidget2.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -511,8 +555,8 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     altInput2.value = 'Different Alt';
     altInput2.dispatchEvent(new Event('input', { bubbles: true }));
 
-    const labelInput1 = popover1!.querySelector('.cm-link-label-input') as HTMLInputElement;
-    expect(labelInput1.value).toBe('Link');
+    const targetInput1 = popover1!.querySelector('.cm-wikilink-target-input') as HTMLInputElement;
+    expect(targetInput1.value).toBe('Link');
 
     // Cancel Popover 2 -> Popover 1 remains open
     const cancelBtn2 = popover2!.querySelector('.cm-inline-edit-cancel') as HTMLButtonElement;
@@ -631,7 +675,7 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     visualHandle.destroy();
   });
 
-  it('disables destination input in Popover for reference-style link and prevents silent inline mutation', () => {
+  it('keeps reference-style links editable in place without touching the definition line', () => {
     const source = 'See [My Ref][ref1] here.\n\n[ref1]: https://nexus.dev';
     const session = new MarkdownDocumentSession(source);
 
@@ -642,14 +686,158 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    const linkWidget = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    // 链接文字是真实文档文本；`][ref1]` 与定义行都由投影隐藏，不会被 popover 改写
+    const linkText = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
+    expect(linkText).not.toBeNull();
+    expect(linkText.textContent).toBe('My Ref');
+    // 目的地由定义行解析而来，只作信息承载，不产生可点击目标
+    expect(linkText.getAttribute('data-safe-href')).toBe('https://nexus.dev');
+    expect(linkText.getAttribute('href')).toBeNull();
 
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    expect(popover).not.toBeNull();
+    // 点击不再开 popover，也就没有「误改引用标签」的路径
+    linkText.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
 
-    const destInput = popover.querySelector('.cm-link-dest-input') as HTMLInputElement;
-    expect(destInput.disabled || destInput.readOnly).toBe(true);
+    // 就地改写链接文字：引用标签与定义行必须原样保留
+    const textStart = source.indexOf('My Ref');
+    visualHandle.view.dispatch({
+      changes: { from: textStart, to: textStart + 'My Ref'.length, insert: 'Renamed' }
+    });
+
+    expect(session.getSnapshot().source).toBe(
+      'See [Renamed][ref1] here.\n\n[ref1]: https://nexus.dev'
+    );
+
+    visualHandle.destroy();
+  });
+
+  it('renders visible list markers for unordered, ordered and task items', () => {
+    const source = [
+      '- Alpha',
+      '- Beta',
+      '',
+      '1. First',
+      '2. Second',
+      '',
+      '10. Tenth',
+      '',
+      '- [ ] Todo',
+      '- [x] Done'
+    ].join('\n');
+    const session = new MarkdownDocumentSession(source);
+
+    const visualHandle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'v-list-marker',
+      surfaceKind: 'visual'
+    });
+
+    // 回归：有序列表的数字曾被 DelimiterWidget 吞掉（落进 display:none 的隐藏分隔符），
+    // 行首只剩空白，编号整段消失。现在统一由 ListMarkerWidget 提供可见替身。
+    const markers = Array.from(
+      visualHandle.view.dom.querySelectorAll('.cm-visual-list-marker')
+    ) as HTMLElement[];
+    expect(markers.map((marker) => marker.textContent)).toEqual([
+      '•',
+      '•',
+      '1.',
+      '2.',
+      '10.',
+      '•',
+      '•'
+    ]);
+
+    // 替身必须真的可见，不能混进隐藏分隔符
+    for (const marker of markers) {
+      expect(marker.classList.contains('cm-visual-hidden-delimiter')).toBe(false);
+    }
+    expect(visualHandle.view.dom.querySelectorAll('.cm-visual-hidden-delimiter').length).toBe(0);
+
+    // 有序标记单独成类，供 tabular-nums 对齐
+    const orderedMarkers = visualHandle.view.dom.querySelectorAll('.cm-visual-list-marker-ordered');
+    expect(orderedMarkers.length).toBe(3);
+
+    // 任务项的 `-` 也换成与普通项一致的圆点，只剩复选框作为差异
+    expect(visualHandle.view.dom.querySelectorAll('.cm-visual-task-checkbox').length).toBe(2);
+    expect(visualHandle.view.dom.textContent).not.toContain('- [ ]');
+
+    visualHandle.destroy();
+  });
+
+  it('reveals the raw list marker text when the caret enters the item', () => {
+    const source = '- Alpha\n\n1. First';
+    const session = new MarkdownDocumentSession(source);
+
+    const visualHandle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'v-list-marker-reveal',
+      surfaceKind: 'visual'
+    });
+
+    // 光标在项外：显示替身
+    expect(
+      Array.from(visualHandle.view.dom.querySelectorAll('.cm-visual-list-marker')).map(
+        (marker) => marker.textContent
+      )
+    ).toEqual(['•', '1.']);
+
+    // reveal 只在聚焦时生效，与 bold / 行内代码共用同一套契约
+    visualHandle.view.focus();
+
+    // 光标落进第一项正文：marker 还原为真实源码文本，保证可以直接改 `-` 为 `1.`
+    visualHandle.view.dispatch({ selection: EditorSelection.single(3) });
+    const revealed = Array.from(
+      visualHandle.view.dom.querySelectorAll('.cm-visual-delimiter-revealed')
+    ).map((element) => (element as HTMLElement).dataset.delimiter);
+    expect(revealed).toContain('-');
+
+    // 第二项没被选中，仍保持替身
+    expect(
+      Array.from(visualHandle.view.dom.querySelectorAll('.cm-visual-list-marker')).map(
+        (marker) => marker.textContent
+      )
+    ).toEqual(['1.']);
+
+    visualHandle.destroy();
+  });
+
+  it('opens no popover when clicking a normal link, and keeps the label as real editable text', () => {
+    const source = 'Read [the guide](https://nexus.dev/guide) now.';
+    const session = new MarkdownDocumentSession(source);
+
+    const visualHandle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'v-link-inplace',
+      surfaceKind: 'visual'
+    });
+
+    // 回归：链接此前是整节点 widget（带编辑按钮的 popover），现在与 bold / 行内代码同构
+    expect(visualHandle.view.dom.querySelector('.cm-visual-link-widget')).toBeNull();
+
+    const linkText = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
+    expect(linkText).not.toBeNull();
+    expect(linkText.textContent).toBe('the guide');
+
+    // 链接文字必须是真实文档文本：能在文档里定位到，且与源码字节一致
+    const textPos = visualHandle.view.posAtDOM(linkText, 0);
+    expect(visualHandle.view.state.doc.sliceString(textPos, textPos + 'the guide'.length)).toBe(
+      'the guide'
+    );
+
+    // 方括号与 `](...)` 都收进隐藏分隔符，点击不再被拦截
+    const delimiters = Array.from(
+      visualHandle.view.dom.querySelectorAll('.cm-visual-hidden-delimiter')
+    ).map((element) => (element as HTMLElement).dataset.delimiter);
+    expect(delimiters).toContain('[');
+    expect(delimiters).toContain('](https://nexus.dev/guide)');
+
+    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    linkText.dispatchEvent(clickEvent);
+    expect(clickEvent.defaultPrevented).toBe(false);
+    expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
 
     visualHandle.destroy();
   });
@@ -813,8 +1001,8 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     visualHandle.destroy();
   });
 
-  it('disables title input in Popover for reference-style link and image', () => {
-    const source = 'See [My Ref][ref1] and ![My Img][img1].\n\n[ref1]: https://nexus.dev "Link Title"\n[img1]: /img.png "Img Title"';
+  it('disables title input in Popover for reference-style image', () => {
+    const source = 'See ![My Img][img1].\n\n[img1]: /img.png "Img Title"';
     const session = new MarkdownDocumentSession(source);
 
     const visualHandle = createSessionEditorView({
@@ -824,19 +1012,6 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    // 1. Link reference popover
-    const linkWidget = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const linkPopover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    expect(linkPopover).not.toBeNull();
-    const linkTitleInput = linkPopover.querySelector('.cm-link-title-input') as HTMLInputElement;
-    expect(linkTitleInput.disabled || linkTitleInput.readOnly).toBe(true);
-
-    // Close popover
-    linkPopover.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-
-    // 2. Image reference popover
     const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
     imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
@@ -848,7 +1023,7 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     visualHandle.destroy();
   });
 
-  it('disables label/alt input and save button for shortcut reference', () => {
+  it('keeps shortcut reference links editable in place', () => {
     const source = 'See [myref] shortcut.\n\n[myref]: https://nexus.dev';
     const session = new MarkdownDocumentSession(source);
 
@@ -859,21 +1034,29 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    const linkWidget = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const linkText = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
+    expect(linkText).not.toBeNull();
+    expect(linkText.textContent).toBe('myref');
 
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    expect(popover).not.toBeNull();
-    const labelInput = popover.querySelector('.cm-link-label-input') as HTMLInputElement;
-    const saveBtn = popover.querySelector('.cm-inline-edit-save') as HTMLButtonElement;
-    expect(labelInput.disabled || labelInput.readOnly).toBe(true);
-    expect(saveBtn.disabled).toBe(true);
+    // 不再有 popover，也就没有 label 输入框或 Save 按钮可供误用
+    linkText.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
+
+    // 就地改写快捷引用的标签，定义行保持原样
+    const textStart = source.indexOf('[myref]') + 1;
+    visualHandle.view.dispatch({
+      changes: { from: textStart, to: textStart + 'myref'.length, insert: 'renamed' }
+    });
+
+    expect(session.getSnapshot().source).toBe(
+      'See [renamed] shortcut.\n\n[myref]: https://nexus.dev'
+    );
 
     visualHandle.destroy();
   });
 
   it('destroying Surface 2 does NOT close Surface 1 active popover', () => {
-    const source = 'See [Nexus](https://nexus.dev) in visual mode.';
+    const source = 'See [[Nexus]] in visual mode.';
     const session = new MarkdownDocumentSession(source);
 
     const parent2 = document.createElement('div');
@@ -893,8 +1076,8 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    const linkWidget1 = visual1.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const wikiWidget1 = visual1.view.dom.querySelector('.cm-visual-wikilink') as HTMLElement;
+    wikiWidget1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     expect(visual1.view.dom.querySelector('.cm-inline-edit-popover')).not.toBeNull();
 
@@ -910,7 +1093,7 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
   });
 
   it('clicking normal editing area of another Surface closes current popover', () => {
-    const source = 'Line 1: [Nexus](https://nexus.dev)\nLine 2: Other content';
+    const source = 'Line 1: [[Nexus]]\nLine 2: Other content';
     const session = new MarkdownDocumentSession(source);
 
     const parent2 = document.createElement('div');
@@ -931,8 +1114,8 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     });
 
     // Open popover on visual 1
-    const linkWidget1 = visual1.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    linkWidget1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const wikiWidget1 = visual1.view.dom.querySelector('.cm-visual-wikilink') as HTMLElement;
+    wikiWidget1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     expect(visual1.view.dom.querySelector('.cm-inline-edit-popover')).not.toBeNull();
 

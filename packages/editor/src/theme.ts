@@ -118,6 +118,25 @@ export const nexusBaseTheme = EditorView.theme({
     opacity: "0.7",
     color: "var(--nexus-text-muted)"
   },
+  // 列表标记的视觉替身（无序 `•` / 有序编号）。未进入编辑态时取代被隐藏的 source marker，
+  // 因此必须有独立的可见样式，不能落到 .cm-visual-hidden-delimiter 的 display: none。
+  ".cm-visual-list-marker": {
+    color: "var(--nexus-text-secondary, #666666)"
+  },
+  ".cm-visual-list-marker-ordered": {
+    fontVariantNumeric: "tabular-nums"
+  },
+  // 链接文字现在是真实文档文本（mark 装饰），不再有原生 <a> 的默认链接样式，
+  // 必须显式声明，否则链接看起来和普通文字没有区别。
+  ".cm-visual-link": {
+    color: "var(--nexus-syntax-url, #007acc)",
+    textDecoration: "underline"
+  },
+  // 被拦截的协议（javascript:、file: 等）不产生任何可点击目标，视觉上明确区分。
+  ".cm-visual-link-blocked": {
+    color: "var(--nexus-text-muted, #888888)",
+    textDecoration: "underline dashed"
+  },
   ".cm-visual-quote-marker": {
     color: "var(--nexus-text-muted)",
     opacity: "0.8",

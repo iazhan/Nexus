@@ -41,6 +41,9 @@ coverage/
 # Development documents
 docs/
 
+# 仓库根的临时验证样本：手工拷出来的草稿，不进版本库
+code-blocks-showcase.md
+
 # Local agent instructions
 AGENTS.md
 

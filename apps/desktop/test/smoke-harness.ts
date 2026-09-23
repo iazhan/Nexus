@@ -220,7 +220,7 @@ export class ElectronAppInstance {
     })()`);
   }
 
-  public async mouseClick(selector: string): Promise<void> {
+  public async mouseClick(selector: string, modifiers = 0): Promise<void> {
     await this.waitForSelector(selector);
     const rect = await this.evaluate<{ x: number; y: number; width: number; height: number }>(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -230,46 +230,35 @@ export class ElectronAppInstance {
     })()`);
     const x = Math.round(rect.x + rect.width / 2);
     const y = Math.round(rect.y + rect.height / 2);
-    await this.sendCommand('Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
-      x,
-      y
-    });
-    await this.sendCommand('Input.dispatchMouseEvent', {
-      type: 'mousePressed',
-      x,
-      y,
-      button: 'left',
-      clickCount: 1
-    });
-    await this.sendCommand('Input.dispatchMouseEvent', {
-      type: 'mouseReleased',
-      x,
-      y,
-      button: 'left',
-      clickCount: 1
-    });
+    await this.mouseClickCoords(x, y, modifiers);
   }
 
-  public async mouseClickCoords(x: number, y: number): Promise<void> {
+  /**
+   * `modifiers` 用 CDP 的位掩码：1=Alt、2=Ctrl、4=Meta、8=Shift。
+   * 不传则与普通左键点击完全一致。
+   */
+  public async mouseClickCoords(x: number, y: number, modifiers = 0): Promise<void> {
     await this.sendCommand('Input.dispatchMouseEvent', {
       type: 'mouseMoved',
       x,
-      y
+      y,
+      modifiers
     });
     await this.sendCommand('Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x,
       y,
       button: 'left',
-      clickCount: 1
+      clickCount: 1,
+      modifiers
     });
     await this.sendCommand('Input.dispatchMouseEvent', {
       type: 'mouseReleased',
       x,
       y,
       button: 'left',
-      clickCount: 1
+      clickCount: 1,
+      modifiers
     });
   }
 

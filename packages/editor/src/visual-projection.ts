@@ -527,6 +527,31 @@ function isMarkerAtLineEnd(lineText: string, markerEnd: number): boolean {
 }
 
 /**
+ * 链接文字在 raw 中的结束位置（返回 `]` 的下标），找不到返回 -1。
+ *
+ * 不能用 `raw.indexOf(']')`：链接文字里可以嵌套方括号，例如图片链接
+ * `[![alt](img)](url)` 的第一个 `]` 属于内层图片，用 indexOf 会把链接文字截成
+ * `![alt`、把 `](img)](url)` 整段当成闭合分隔符隐藏掉。这里按嵌套深度配对。
+ */
+function findLinkTextEnd(raw: string): number {
+  let depth = 0;
+  for (let index = 1; index < raw.length; index++) {
+    const char = raw[index];
+    if (char === '\\') {
+      index++;
+      continue;
+    }
+    if (char === '[') {
+      depth++;
+    } else if (char === ']') {
+      if (depth === 0) return index;
+      depth--;
+    }
+  }
+  return -1;
+}
+
+/**
  * 引用块标记前缀长度：`>` 每层最多吞掉其后的一个空格/制表符，
  * 其余空格属于代码自身缩进，必须保留（`>     indented` 里 4 个空格是代码内容）。
  */
@@ -795,6 +820,52 @@ export class TaskCheckboxWidget extends WidgetType {
 
   public ignoreEvent(): boolean {
     return false;
+  }
+}
+
+/**
+ * 列表标记的视觉替身。
+ *
+ * 无序列表的 `-`/`*`/`+` 与有序列表的 `1.` 都是 source 语法标记，未进入编辑态时
+ * 被 `DelimiterWidget` 隐藏（`.cm-visual-hidden-delimiter { display: none }`）。
+ * 但列表标记同时也是读者可见的结构信息，隐藏后必须画出替身，否则整行既没有
+ * 圆点也没有编号：
+ *
+ * - 无序列表画 `•`；
+ * - 有序列表画 source 里的编号本身。刻意不做自动重编号：本编辑器的第一原则是
+ *   「所见即文件内容」，显示的编号必须能在 source 里找到对应。
+ *
+ * 光标进入该列表项后改由 `DelimiterWidget` 显示真实 marker，可直接编辑。
+ */
+export class ListMarkerWidget extends WidgetType {
+  public constructor(
+    public readonly marker: string,
+    public readonly ordered: boolean
+  ) {
+    super();
+  }
+
+  public toDOM(): HTMLElement {
+    const element = document.createElement('span');
+    element.className = this.ordered
+      ? 'cm-visual-list-marker cm-visual-list-marker-ordered'
+      : 'cm-visual-list-marker';
+    element.setAttribute('aria-hidden', 'true');
+    element.dataset.marker = this.marker;
+    element.textContent = this.ordered ? this.marker : '•';
+    return element;
+  }
+
+  public eq(other: WidgetType): boolean {
+    return (
+      other instanceof ListMarkerWidget &&
+      other.marker === this.marker &&
+      other.ordered === this.ordered
+    );
+  }
+
+  public ignoreEvent(): boolean {
+    return true;
   }
 }
 
@@ -2764,33 +2835,15 @@ export function buildVisualProjection(
       }
     } else if (inlineNode.type === 'link') {
       const isRevealed = isNodeRevealed(inlineNode.range);
-      if (isRevealed) {
-        const rightBracketIdx = inlineNode.raw.indexOf(']');
-        if (rightBracketIdx !== -1) {
-          const closeFrom = inlineNode.range.from + rightBracketIdx;
-          const closeDelim = inlineNode.raw.slice(rightBracketIdx);
-          ranges.push({
-            from: inlineNode.range.from,
-            to: inlineNode.range.from + 1,
-            decoration: Decoration.replace({ widget: new DelimiterWidget('[', true) })
-          });
-          if (closeFrom < inlineNode.range.to) {
-            ranges.push({
-              from: closeFrom,
-              to: inlineNode.range.to,
-              decoration: Decoration.replace({ widget: new DelimiterWidget(closeDelim, true) })
-            });
-          }
-          for (const child of inlineNode.children) {
-            walkInline(child);
-          }
-        } else {
-          for (const child of inlineNode.children) {
-            walkInline(child);
-          }
-        }
-      } else {
-        const label = getInlineNodePlainText(inlineNode);
+      // 链接与 bold/italic/inline-code 同构：只替换 `[` 与 `](url)`，链接文字保留为
+      // 真实文档文本。这样点击即落光标、直接输入即可改写，不需要 popover 与按钮。
+      //
+      // 安全契约不变：被拦截的协议依然不会产生任何可点击目标。差别只是承载方式由
+      // `<a href>` 换成了 mark 装饰上的 `data-safe-href`——链接文字现在是可编辑文本，
+      // 本来就不该是导航目标。
+      const textEndIdx = findLinkTextEnd(inlineNode.raw);
+      if (textEndIdx === -1) {
+        // raw 结构不可解析：保守降级为整体替换，保持原样展示
         ranges.push({
           from: inlineNode.range.from,
           to: inlineNode.range.to,
@@ -2799,13 +2852,56 @@ export function buildVisualProjection(
               inlineNode.range.from,
               inlineNode.range.to,
               inlineNode.raw,
-              label,
+              getInlineNodePlainText(inlineNode),
               inlineNode.safeHref,
               Boolean(inlineNode.isBlocked),
               inlineNode.title
             )
           })
         });
+      } else {
+        const openFrom = inlineNode.range.from;
+        const textFrom = openFrom + 1;
+        const closeFrom = openFrom + textEndIdx;
+        const closeDelim = inlineNode.raw.slice(textEndIdx);
+
+        ranges.push({
+          from: openFrom,
+          to: textFrom,
+          decoration: Decoration.replace({ widget: new DelimiterWidget('[', isRevealed) })
+        });
+        if (closeFrom < inlineNode.range.to) {
+          ranges.push({
+            from: closeFrom,
+            to: inlineNode.range.to,
+            decoration: Decoration.replace({ widget: new DelimiterWidget(closeDelim, isRevealed) })
+          });
+        }
+
+        if (closeFrom > textFrom) {
+          const isBlocked = Boolean(inlineNode.isBlocked) || !inlineNode.safeHref;
+          const attributes: Record<string, string> = {};
+          if (isBlocked) {
+            attributes['aria-disabled'] = 'true';
+          } else {
+            attributes['data-safe-href'] = inlineNode.safeHref as string;
+          }
+          if (inlineNode.title) {
+            attributes.title = inlineNode.title;
+          }
+          ranges.push({
+            from: textFrom,
+            to: closeFrom,
+            decoration: Decoration.mark({
+              class: isBlocked ? 'cm-visual-link cm-visual-link-blocked' : 'cm-visual-link',
+              attributes
+            })
+          });
+        }
+
+        for (const child of inlineNode.children) {
+          walkInline(child);
+        }
       }
     } else if (inlineNode.type === 'image') {
       const displaySrc = inlineNode.isBlocked
@@ -2841,18 +2937,50 @@ export function buildVisualProjection(
         })
       });
     } else if (inlineNode.type === 'inline-code') {
-      ranges.push({
-        from: inlineNode.range.from,
-        to: inlineNode.range.to,
-        decoration: Decoration.replace({
-          widget: new InlineCodeWidget(
-            inlineNode.range.from,
-            inlineNode.range.to,
-            inlineNode.raw,
-            inlineNode.value
-          )
-        })
-      });
+      // 行内代码与 bold/italic 同构：只把反引号围栏替换为 delimiter widget，
+      // 正文保留为真实文档文本。这样光标可以原生落入、输入即编辑，不需要
+      // popover、输入框和提交按钮。仅当围栏不配对（畸形 source）时才降级为
+      // 整体替换，避免把不可解析的内容渲染成可编辑文本。
+      const raw = inlineNode.raw;
+      const openMatch = raw.match(/^`+/);
+      const fenceLen = openMatch ? openMatch[0].length : 1;
+      const fence = '`'.repeat(fenceLen);
+      const innerFrom = inlineNode.range.from + fenceLen;
+      const innerTo = inlineNode.range.to - fenceLen;
+
+      if (raw.length < fenceLen * 2 || !raw.endsWith(fence) || innerTo < innerFrom) {
+        ranges.push({
+          from: inlineNode.range.from,
+          to: inlineNode.range.to,
+          decoration: Decoration.replace({
+            widget: new InlineCodeWidget(
+              inlineNode.range.from,
+              inlineNode.range.to,
+              inlineNode.raw,
+              inlineNode.value
+            )
+          })
+        });
+      } else {
+        const isRevealed = isNodeRevealed(inlineNode.range);
+        ranges.push({
+          from: inlineNode.range.from,
+          to: innerFrom,
+          decoration: Decoration.replace({ widget: new DelimiterWidget(fence, isRevealed) })
+        });
+        ranges.push({
+          from: innerTo,
+          to: inlineNode.range.to,
+          decoration: Decoration.replace({ widget: new DelimiterWidget(fence, isRevealed) })
+        });
+        if (innerTo > innerFrom) {
+          ranges.push({
+            from: innerFrom,
+            to: innerTo,
+            decoration: Decoration.mark({ class: 'cm-visual-inline-code' })
+          });
+        }
+      }
     } else if (inlineNode.type === 'wikilink') {
       ranges.push({
         from: inlineNode.range.from,
@@ -3180,13 +3308,57 @@ export function buildVisualProjection(
     }
   }
 
+  /**
+   * 未进入编辑态时给列表标记画替身，进入后交回 DelimiterWidget 显示真实 marker。
+   *
+   * 两者必须成对出现：只隐藏不画，整行就会既没有圆点也没有编号（有序列表尤其明显）。
+   */
+  function pushListMarker(
+    marker: string,
+    markerFrom: number,
+    markerTo: number,
+    lineEndOffset: number,
+    line: string,
+    revealed: boolean
+  ): void {
+    // 列表标记独占行时保持可见，否则后续输入会落到文档开头
+    const itemRevealed = revealed || isMarkerAtLineEnd(line, lineEndOffset);
+    ranges.push({
+      from: markerFrom,
+      to: markerTo,
+      decoration: Decoration.replace({
+        widget: itemRevealed
+          ? new DelimiterWidget(marker, true)
+          : new ListMarkerWidget(marker, /^\d/.test(marker))
+      })
+    });
+  }
+
   function walkListItem(item: MarkdownListItem): void {
     const isRevealed = isNodeRevealed(item.range);
+    const firstLine = item.raw.split(/\r?\n/)[0] ?? '';
     if (item.task) {
-      const firstLine = item.raw.split(/\r?\n/)[0] ?? '';
       const match = firstLine.match(/^([ \t]*>(?:[ \t]*>)*)?([ \t]*(?:[-+*]|\d+[.)])[ \t]+)(\[[ xX]\])/);
       if (match && match[3]) {
-        const prefixLen = (match[1] ?? '').length + (match[2] ?? '').length;
+        const quoteLen = (match[1] ?? '').length;
+        const prefixLen = quoteLen + (match[2] ?? '').length;
+
+        // 任务项此前把 `- ` 留在正文里，会和普通列表项的 `•` 并列出现，观感不一致。
+        // 这里同样用替身替换掉 marker，只保留复选框 widget。
+        const markerMatch = (match[2] ?? '').match(/^([ \t]*)([-+*]|\d+[.)])/);
+        if (markerMatch && markerMatch[2]) {
+          const markerIndentLen = markerMatch[1]?.length ?? 0;
+          const markerFrom = item.range.from + quoteLen + markerIndentLen;
+          pushListMarker(
+            markerMatch[2],
+            markerFrom,
+            markerFrom + markerMatch[2].length,
+            quoteLen + markerIndentLen + markerMatch[2].length,
+            firstLine,
+            isRevealed
+          );
+        }
+
         const from = item.range.from + prefixLen;
         const to = from + match[3].length;
         const isChecked = Boolean(item.checked);
@@ -3197,21 +3369,18 @@ export function buildVisualProjection(
         });
       }
     } else {
-      const firstLine = item.raw.split(/\r?\n/)[0] ?? '';
       const match = firstLine.match(/^([ \t]*)([-+*]|\d+[.)])/);
       if (match && match[2]) {
         const indentLen = match[1]?.length ?? 0;
-        const from = item.range.from + indentLen;
-        const to = from + match[2].length;
-        // 列表标记独占行时保持可见，否则后续输入会落到文档开头
-        const itemRevealed = isRevealed || isMarkerAtLineEnd(firstLine, indentLen + match[2].length);
-        ranges.push({
-          from,
-          to,
-          decoration: Decoration.replace({
-            widget: new DelimiterWidget(match[2], itemRevealed)
-          })
-        });
+        const markerFrom = item.range.from + indentLen;
+        pushListMarker(
+          match[2],
+          markerFrom,
+          markerFrom + match[2].length,
+          indentLen + match[2].length,
+          firstLine,
+          isRevealed
+        );
       }
     }
 
@@ -3239,7 +3408,18 @@ export function buildVisualProjection(
     walkBlock(block);
   }
 
-  ranges.sort((left, right) => left.from - right.from || left.to - right.to);
+  // RangeSetBuilder 只接受按 (from, value.startSide) 升序的输入——这是
+  // @codemirror/state 里 cmpRange 的硬契约，不是可选的偏好。
+  // 只按 from/to 排序不够：同一 from 上 mark 的 startSide 是 500000000，
+  // 而 replace 是 499999999，所以 mark 必须排在 replace **之后**。
+  // 反例：`[![alt](img)](url)`——链接文字本身就是一个图片 widget，链接 mark 与图片
+  // replace 的 from/to 完全相同，先推 mark 会让 builder 抛
+  // "Ranges must be added sorted by `from` position and `startSide`"；
+  // EditorState 构造失败后 React 没有错误边界，整棵树被卸载，表现为整窗白屏。
+  ranges.sort(
+    (left, right) =>
+      left.from - right.from || left.decoration.startSide - right.decoration.startSide
+  );
   const builder = new RangeSetBuilder<Decoration>();
   for (const range of ranges) {
     if (range.from <= range.to) {

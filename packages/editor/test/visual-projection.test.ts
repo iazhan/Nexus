@@ -527,4 +527,119 @@ describe('Visual surface projection', () => {
     handle.destroy();
     parent.remove();
   });
+
+  describe('decoration ordering contract', () => {
+    // RangeSetBuilder 只接受按 (from, value.startSide) 升序的输入。
+    // 同一 from 上 mark 的 startSide 是 500000000，replace 是 499999999，
+    // 所以 mark 必须排在 replace 之后——只按 from/to 排序会漏掉这一层。
+    //
+    // 回归背景：`[![alt](img)](url)` 的链接文字本身就是一个图片 widget，
+    // 链接 mark 与图片 replace 的 from/to 完全相同。投影顺序反了会让
+    // buildVisualProjection 抛 "Ranges must be added sorted by `from` position and `startSide`"，
+    // 而它在 StateField.create 里被调用 → EditorState 构造失败 → React 没有错误边界
+    // 会卸载整棵树 → 打开文件直接白屏（2026-09-23 实际发生过）。
+    const orderingCases: Array<[string, string]> = [
+      ['链接文字是图片', '[![Nexus 图标](./assets/logo.png)](https://example.com)'],
+      ['链接文字是加粗', '[**bold**](https://example.com)'],
+      ['链接文字是行内代码', '[`code`](https://example.com)'],
+      ['链接文字是纯文本', '[plain](https://example.com)'],
+      ['链接文字是删除线', '[~~gone~~](https://example.com)'],
+      ['链接文字是行内公式', '[$E=mc^2$](https://example.com)'],
+      ['链接图片与普通链接混排', '[![a](./a.png)](https://e.com) 和 [b](https://e.com)'],
+      ['引用块内嵌列表与代码块', '> 段落\n>\n> - 项一\n> - 项二\n>\n> ```text\n> 引用里的代码\n> ```'],
+      ['引用块内嵌链接图片', '> 见 [![图](./a.png)](https://e.com) 说明'],
+      ['三层嵌套引用', '> 一层\n>\n> > 二层\n> >\n> > > 三层'],
+      ['四反引号围栏包三反引号', '````text\n```\n````'],
+      ['列表项内嵌引用', '- 项\n\n  > 引用一\n  > 引用二']
+    ];
+
+    for (const [label, source] of orderingCases) {
+      it(`projects ${label} without breaking the RangeSetBuilder order contract`, () => {
+        expect(() =>
+          createSessionEditorState({
+            session: new MarkdownDocumentSession(source),
+            surfaceId: `ordering-${label}`,
+            surfaceKind: 'visual'
+          })
+        ).not.toThrow();
+      });
+    }
+
+    it('renders a linked image as an image widget with both link delimiters hidden', () => {
+      const source = '[![Nexus 图标](./assets/logo.png)](https://example.com)';
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+      const handle = createSessionEditorView({
+        parent,
+        session: new MarkdownDocumentSession(source),
+        surfaceId: 'ordering-linked-image-dom',
+        surfaceKind: 'visual'
+      });
+
+      expect(handle.view.dom.querySelectorAll('.cm-visual-image').length).toBe(1);
+      expect(handle.view.dom.querySelectorAll('.cm-visual-image-widget').length).toBe(1);
+
+      // `[` 与 `](url)` 都被收进隐藏分隔符，正文只剩图片 widget
+      const delimiters = Array.from(
+        handle.view.dom.querySelectorAll('.cm-visual-hidden-delimiter')
+      ).map((element) => (element as HTMLElement).dataset.delimiter);
+      expect(delimiters).toEqual(['[', '](https://example.com)']);
+
+      // 源码字节不被改动
+      expect(handle.view.state.doc.toString()).toBe(source);
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('keeps the whole decoration set ordered for a document mixing every tricky nesting', () => {
+      const source = [
+        '# 标题',
+        '',
+        '[![图标](./a.png)](https://example.com)',
+        '',
+        '[**粗**](https://e.com) 与 [`码`](https://e.com) 与 [$x$](https://e.com)',
+        '',
+        '> 引用段落',
+        '>',
+        '> - 引用里的列表',
+        '>',
+        '> ```text',
+        '> 引用里的代码',
+        '> ```',
+        '',
+        '````text',
+        '```',
+        '````',
+        '',
+        '- 列表项',
+        '  - 嵌套项 [![n](./n.png)](https://e.com)',
+        '',
+        '- [ ] 任务项',
+        '- [x] 已完成',
+        '',
+        '| 列 | 说明 |',
+        '| --- | --- |',
+        '| `code` | [link](https://e.com) |',
+        '',
+        '$$',
+        'E = mc^2',
+        '$$'
+      ].join('\n');
+
+      const state = createSessionEditorState({
+        session: new MarkdownDocumentSession(source),
+        surfaceId: 'ordering-kitchen-sink',
+        surfaceKind: 'visual'
+      });
+
+      // 遍历本身就会在顺序非法时抛错，这里再显式确认装饰集合非空且已建立
+      let count = 0;
+      state.field(visualProjectionField).between(0, state.doc.length, () => {
+        count++;
+      });
+      expect(count).toBeGreaterThan(50);
+      expect(state.doc.toString()).toBe(source);
+    });
+  });
 });

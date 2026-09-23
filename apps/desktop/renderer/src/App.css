@@ -440,6 +440,7 @@ body {
 .nexus-conflict-reload-btn,
 .nexus-conflict-keep-btn,
 .nexus-banner-saveas-btn,
+.nexus-banner-dismiss-btn,
 .nexus-save-error-retry,
 .nexus-save-error-saveas {
   padding: 3px 10px;
@@ -465,6 +466,7 @@ body {
 
 .nexus-conflict-keep-btn,
 .nexus-banner-saveas-btn,
+.nexus-banner-dismiss-btn,
 .nexus-save-error-saveas {
   background-color: #374151;
   color: #e5e7eb;
@@ -473,6 +475,7 @@ body {
 
 .nexus-conflict-keep-btn:hover,
 .nexus-banner-saveas-btn:hover,
+.nexus-banner-dismiss-btn:hover,
 .nexus-save-error-saveas:hover {
   background-color: #4b5563;
 }

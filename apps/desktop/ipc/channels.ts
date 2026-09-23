@@ -6,6 +6,7 @@ import type { FileWatchEvent } from '@nexus/core';
 export const IPC_CHANNELS = {
   getLaunchContext: 'nexus:get-launch-context',
   openFile: 'nexus:open-file',
+  openExternal: 'nexus:open-external',
   readFile: 'nexus:read-file',
   writeFile: 'nexus:write-file',
   saveAs: 'nexus:save-as',

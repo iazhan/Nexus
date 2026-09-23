@@ -12,6 +12,8 @@ export * from './edit-transactions.js';
 export * from './visual-commands.js';
 export * from './drag-handle.js';
 export * from './inline-edit.js';
+export * from './link-navigation.js';
+export * from './heading-anchor.js';
 export * from './table-edit.js';
 export * from './code-block-edit.js';
 export * from './special-block-edit.js';

@@ -109,31 +109,43 @@ describe('P1-04F Markra behavior compatibility', () => {
     expect(session.canRedo).toBe(false);
   });
 
-  it('commits a Visual inline link edit to canonical source and synchronizes Source plus undo/redo', () => {
+  it('commits in-place Visual link edits to canonical source and synchronizes Source plus undo/redo', () => {
     const original = 'Read [the guide](https://nexus.dev/guide) now.';
     const session = new MarkdownDocumentSession(original);
     const sourceHandle = mount(session, 'p1-04f-link-source', 'source');
     const visualHandle = mount(session, 'p1-04f-link-visual', 'visual');
 
-    const link = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
-    link.click();
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const destination = popover.querySelector('.cm-link-dest-input') as HTMLInputElement;
-    destination.value = 'https://nexus.dev/guide/v2';
-    destination.dispatchEvent(new Event('input', { bubbles: true }));
-    (popover.querySelector('.cm-inline-edit-save') as HTMLButtonElement).click();
+    // 链接文字是真实文档文本，直接改写即可，不需要 popover 与 Save 按钮
+    const linkText = visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement;
+    expect(linkText.textContent).toBe('the guide');
+    expect(linkText.getAttribute('data-safe-href')).toBe('https://nexus.dev/guide');
+    expect(visualHandle.view.dom.querySelector('.cm-visual-link-widget')).toBeNull();
 
-    const updated = 'Read [the guide](https://nexus.dev/guide/v2) now.';
+    const labelStart = original.indexOf('the guide');
+    const destStart = original.indexOf('https://nexus.dev/guide');
+    visualHandle.view.dispatch({
+      changes: [
+        { from: labelStart, to: labelStart + 'the guide'.length, insert: 'the manual' },
+        {
+          from: destStart,
+          to: destStart + 'https://nexus.dev/guide'.length,
+          insert: 'https://nexus.dev/guide/v2'
+        }
+      ]
+    });
+
+    const updated = 'Read [the manual](https://nexus.dev/guide/v2) now.';
+    expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
     expect(session.getSnapshot().source).toBe(updated);
     expect(session.getSnapshot().revision).toBe(1);
     expect(sourceHandle.view.state.doc.toString()).toBe(updated);
-    expect((visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLAnchorElement).getAttribute('href'))
+    expect((visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement).getAttribute('data-safe-href'))
       .toBe('https://nexus.dev/guide/v2');
 
     expect(session.undo()).toBe(true);
     expect(session.getSnapshot().source).toBe(original);
     expect(sourceHandle.view.state.doc.toString()).toBe(original);
-    expect((visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLAnchorElement).getAttribute('href'))
+    expect((visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement).getAttribute('data-safe-href'))
       .toBe('https://nexus.dev/guide');
 
     expect(session.redo()).toBe(true);
@@ -275,7 +287,7 @@ describe('P1-04F Markra behavior compatibility', () => {
     const updated = 'Open [Doc](https://nexus.dev/v2) now.';
     expect(session.getSnapshot().source).toBe(updated);
     expect(visualHandle.view.state.doc.toString()).toBe(updated);
-    expect((visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLAnchorElement).href)
+    expect((visualHandle.view.dom.querySelector('.cm-visual-link') as HTMLElement).getAttribute('data-safe-href'))
       .toContain('https://nexus.dev/v2');
 
     sourceHandle.view.dispatch({ selection: { anchor: 4, head: 8 } });
@@ -369,12 +381,12 @@ describe('P1-04F Markra behavior compatibility', () => {
   });
 
   it('isolates Surface lifecycle so destroying one Visual surface keeps another popover alive', () => {
-    const source = 'Read [the guide](https://nexus.dev/guide) now.';
+    const source = 'Read [[the guide]] now.';
     const session = new MarkdownDocumentSession(source);
     const firstVisual = mount(session, 'p1-04f-lifecycle-first', 'visual');
     const secondVisual = mount(session, 'p1-04f-lifecycle-second', 'visual');
 
-    (firstVisual.view.dom.querySelector('.cm-visual-link') as HTMLElement).click();
+    (firstVisual.view.dom.querySelector('.cm-visual-wikilink') as HTMLElement).click();
     expect(firstVisual.view.dom.querySelector('.cm-inline-edit-popover')).not.toBeNull();
 
     destroyMounted(secondVisual);

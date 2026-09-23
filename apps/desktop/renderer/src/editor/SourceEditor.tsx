@@ -10,7 +10,8 @@ import {
   type EditorSaveState,
   type EditorSelectionInfo,
   type MarkdownDocumentSession,
-  type SessionEditorViewHandle
+  type SessionEditorViewHandle,
+  type LinkNavigator
 } from '@nexus/editor';
 
 export type { EditorSaveState, EditorSelectionInfo };
@@ -23,6 +24,8 @@ export interface SourceEditorProps {
   saveError?: string | null;
   readOnly?: boolean;
   documentDirectory?: string | null;
+  /** Ctrl/Cmd+左键点击普通链接时的导航策略。 */
+  linkNavigator?: LinkNavigator;
   extensionHost?: import('@nexus/editor').ExtensionHost;
   theme?: 'light' | 'dark';
   locale?: string;
@@ -41,6 +44,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   surfaceKind = 'source',
   readOnly = false,
   documentDirectory,
+  linkNavigator,
   extensionHost,
   theme,
   locale,
@@ -57,6 +61,11 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
 
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
+
+  // 导航策略会随 filePath 变化（相对链接要按当前文档目录解析），但 EditorView 只在
+  // session/surface 变化时重建。用 ref 转发，保证回调永远是最新那一个。
+  const linkNavigatorRef = useRef(linkNavigator);
+  linkNavigatorRef.current = linkNavigator;
 
   useEffect(() => {
     return session.subscribe((snapshot, transaction) => {
@@ -83,6 +92,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       surfaceKind,
       readOnly,
       documentDirectory,
+      linkNavigator: (request) => linkNavigatorRef.current?.(request),
       extensionHost,
       theme,
       locale,
