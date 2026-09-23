@@ -818,7 +818,7 @@ export class TableBlockWidget extends WidgetType {
   }
 
   public get estimatedHeight(): number {
-    return Math.max(80, (1 + this.rows.length) * 36 + 40);
+    return Math.max(100, (1 + this.rows.length) * 36 + 50);
   }
 
   public eq(other: WidgetType): boolean {
@@ -1663,6 +1663,7 @@ export class TableBlockWidget extends WidgetType {
     if (typeof updateButtons === 'function') {
       updateButtons();
     }
+    view.requestMeasure();
     return true;
   }
 

@@ -251,6 +251,28 @@ export class ElectronAppInstance {
     });
   }
 
+  public async mouseClickCoords(x: number, y: number): Promise<void> {
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x,
+      y
+    });
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1
+    });
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1
+    });
+  }
+
   public async pressKey(key: string, modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean }): Promise<void> {
     const isCtrl = Boolean(modifiers?.ctrl);
     const isShift = Boolean(modifiers?.shift);

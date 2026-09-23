@@ -499,4 +499,64 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     expect(tokenInfo.hasLangSelect).toBe(true);
     expect(tokenInfo.hasCopyBtn).toBe(true);
   }, 25000);
+
+  it('14. clicks content line below table accurately without coordinate drift in Visual mode', async () => {
+    const tableDoc = path.join(tempDir, 'table-click-test.md');
+    const content = [
+      '# Table Document',
+      '',
+      '| Col 1 | Col 2 |',
+      '| :--- | :--- |',
+      '| Val 1 | Val 2 |',
+      '',
+      'Target line directly below table.',
+      'Second line below table.'
+    ].join('\n');
+    fs.writeFileSync(tableDoc, content, 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: tableDoc });
+    await activeApp.waitForSelector('.cm-content', 15000);
+
+    // Switch to Visual mode
+    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
+    await activeApp.waitForSelector('.cm-visual-table-container', 15000);
+
+    // Locate the target line below the table in the DOM
+    const targetLineInfo = await activeApp.evaluate(`(() => {
+      const lines = Array.from(document.querySelectorAll('.cm-line'));
+      const targetLine = lines.find((l) => l.textContent && l.textContent.includes('Target line directly below table.'));
+      if (!targetLine) return null;
+      const rect = targetLine.getBoundingClientRect();
+      return {
+        text: targetLine.textContent,
+        x: Math.round(rect.left + 30),
+        y: Math.round(rect.top + rect.height / 2)
+      };
+    })()`);
+
+    expect(targetLineInfo).not.toBeNull();
+
+    // Click at the exact physical center of the target line
+    await activeApp.mouseClickCoords(targetLineInfo!.x, targetLineInfo!.y);
+
+    // Verify where the cursor lands in the editor active line
+    const cursorInfo = await activeApp.evaluate(`(() => {
+      const view = window.nexusActiveView;
+      const head = view ? view.state.selection.main.head : -1;
+      const lineAtCursor = view && head >= 0 ? view.state.doc.lineAt(head).text : '';
+      const posAtTarget = view ? view.posAtCoords({ x: ${targetLineInfo!.x}, y: ${targetLineInfo!.y} }) : null;
+      const lineAtTarget = view && posAtTarget !== null ? view.state.doc.lineAt(posAtTarget).text : '';
+      return {
+        head,
+        lineAtCursor,
+        posAtTarget,
+        lineAtTarget
+      };
+    })()`);
+
+    expect(cursorInfo.lineAtTarget).toContain('Target line directly below table.');
+    expect(cursorInfo.lineAtCursor).toContain('Target line directly below table.');
+  }, 25000);
 });
+

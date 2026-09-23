@@ -428,7 +428,8 @@ export const nexusBaseTheme = EditorView.theme({
   // Table visual styling & floating controls
   ".cm-visual-table-container": {
     position: "relative",
-    margin: "24px 0",
+    margin: "0",
+    padding: "34px 0 16px 0",
     overflow: "visible",
     boxSizing: "border-box",
     maxWidth: "100%"
@@ -530,7 +531,7 @@ export const nexusBaseTheme = EditorView.theme({
   // Floating toolbar
   ".cm-table-toolbar, .cm-table-floating-toolbar": {
     position: "absolute",
-    top: "-38px",
+    top: "2px",
     left: "0",
     zIndex: "20",
     display: "flex",
@@ -653,6 +654,7 @@ export const nexusBaseTheme = EditorView.theme({
     justifyContent: "center",
     cursor: "pointer",
     opacity: "0",
+    pointerEvents: "none",
     transition: "opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease",
     zIndex: "15",
     fontSize: "14px",
@@ -660,20 +662,22 @@ export const nexusBaseTheme = EditorView.theme({
     color: "var(--nexus-text-secondary, #64748b)"
   },
   ".cm-visual-table-container:hover .cm-table-handle-add-col": {
-    opacity: "0.75"
+    opacity: "0.75",
+    pointerEvents: "auto"
   },
   ".cm-table-handle-add-col:hover": {
     opacity: "1 !important",
+    pointerEvents: "auto !important",
     backgroundColor: "var(--nexus-bg-surface-hover, #f1f5f9)",
     color: "var(--nexus-accent-primary, #3b82f6)"
   },
   ".cm-table-handle-add-row": {
     position: "absolute",
-    bottom: "-14px",
+    bottom: "2px",
     left: "50%",
     transform: "translateX(-50%)",
     width: "28px",
-    height: "22px",
+    height: "20px",
     borderRadius: "4px",
     backgroundColor: "var(--nexus-bg-surface, #ffffff)",
     border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
@@ -683,6 +687,7 @@ export const nexusBaseTheme = EditorView.theme({
     justifyContent: "center",
     cursor: "pointer",
     opacity: "0",
+    pointerEvents: "none",
     transition: "opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease",
     zIndex: "15",
     fontSize: "14px",
@@ -690,10 +695,12 @@ export const nexusBaseTheme = EditorView.theme({
     color: "var(--nexus-text-secondary, #64748b)"
   },
   ".cm-visual-table-container:hover .cm-table-handle-add-row": {
-    opacity: "0.75"
+    opacity: "0.75",
+    pointerEvents: "auto"
   },
   ".cm-table-handle-add-row:hover": {
     opacity: "1 !important",
+    pointerEvents: "auto !important",
     backgroundColor: "var(--nexus-bg-surface-hover, #f1f5f9)",
     color: "var(--nexus-accent-primary, #3b82f6)"
   },

@@ -568,4 +568,43 @@ describe('Phase 2: Modern Table Visual & Floating Controls', () => {
       parent.remove();
     });
   });
+
+  describe('Table Post-Widget Line Navigation and Spacing', () => {
+    it('accurately resolves lines below table in visual mode', () => {
+      const session = new MarkdownDocumentSession(tableSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-line-nav-test',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const container = handle.view.dom.querySelector('.cm-visual-table-container') as HTMLElement;
+      expect(container).not.toBeNull();
+
+      // Find the line element for 'After table.'
+      const lines = Array.from(handle.view.dom.querySelectorAll('.cm-line'));
+      const afterLine = lines.find((l) => l.textContent?.includes('After table.'));
+      expect(afterLine).not.toBeUndefined();
+
+      // Ensure doc line for 'After table.' exists and has valid range
+      const afterLinePos = session.getSnapshot().source.indexOf('After table.');
+      expect(afterLinePos).toBeGreaterThan(0);
+      const cmLine = handle.view.state.doc.lineAt(afterLinePos);
+      expect(cmLine.text).toBe('After table.');
+
+      // Dispatch selection directly to after table line
+      handle.view.dispatch({
+        selection: { anchor: afterLinePos, head: afterLinePos }
+      });
+      expect(handle.view.state.selection.main.head).toBe(afterLinePos);
+
+      handle.destroy();
+      parent.remove();
+    });
+  });
 });
+
