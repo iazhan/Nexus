@@ -76,7 +76,10 @@ const CASES: TypingCase[] = [
     name: '代码块（含围栏中间换行）',
     typed: '```js\nconst a = 1;\n```',
     expected: ['```js\nconst a = 1;\n```'],
-    dom: '.cm-visual-code-block'
+    // 普通代码块在 ADR-0001 之后改为行级装饰流：围栏行由 CodeBlockHeaderWidget
+    // 承载（.cm-code-header-widget），不再整体替换为 .cm-visual-code-block
+    // ——后者现在只用于 mermaid 预览卡片。
+    dom: '.cm-code-header-widget'
   },
   {
     id: 'math',

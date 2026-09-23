@@ -516,6 +516,23 @@ export const nexusBaseTheme = EditorView.theme({
     minWidth: "1em",
     minHeight: "1.2em"
   },
+  ".cm-table-inline-math": {
+    display: "inline-flex",
+    alignItems: "center",
+    fontFamily: "var(--nexus-font-mono, monospace)",
+    backgroundColor: "var(--nexus-bg-surface, rgba(0, 0, 0, 0.04))",
+    padding: "1px 4px",
+    borderRadius: "3px",
+    fontSize: "0.9em"
+  },
+  ".cm-table-math-render": {
+    fontStyle: "italic"
+  },
+  ".cm-table-cell-content": {
+    minHeight: "1.4em",
+    outline: "none",
+    boxSizing: "border-box"
+  },
   ".cm-table-cell-editor": {
     width: "100%",
     boxSizing: "border-box",

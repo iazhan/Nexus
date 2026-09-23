@@ -804,6 +804,266 @@ const TABLE_ALIGN_RIGHT_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 
 const TABLE_GRID_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>`;
 const TABLE_TRASH_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
 
+export function renderTableCellNodes(nodes: MarkdownInlineNode[], parentEl: HTMLElement): void {
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'text': {
+        parentEl.appendChild(document.createTextNode(node.value));
+        break;
+      }
+      case 'bold': {
+        const strong = document.createElement('strong');
+        const leftDelim = document.createElement('span');
+        leftDelim.className = 'cm-visual-hidden-delimiter';
+        leftDelim.setAttribute('aria-hidden', 'true');
+        leftDelim.dataset.delimiter = '**';
+        leftDelim.textContent = '**';
+        strong.appendChild(leftDelim);
+
+        if (node.children) {
+          renderTableCellNodes(node.children, strong);
+        }
+
+        const rightDelim = document.createElement('span');
+        rightDelim.className = 'cm-visual-hidden-delimiter';
+        rightDelim.setAttribute('aria-hidden', 'true');
+        rightDelim.dataset.delimiter = '**';
+        rightDelim.textContent = '**';
+        strong.appendChild(rightDelim);
+
+        parentEl.appendChild(strong);
+        break;
+      }
+      case 'italic': {
+        const em = document.createElement('em');
+        const leftDelim = document.createElement('span');
+        leftDelim.className = 'cm-visual-hidden-delimiter';
+        leftDelim.setAttribute('aria-hidden', 'true');
+        leftDelim.dataset.delimiter = '*';
+        leftDelim.textContent = '*';
+        em.appendChild(leftDelim);
+
+        if (node.children) {
+          renderTableCellNodes(node.children, em);
+        }
+
+        const rightDelim = document.createElement('span');
+        rightDelim.className = 'cm-visual-hidden-delimiter';
+        rightDelim.setAttribute('aria-hidden', 'true');
+        rightDelim.dataset.delimiter = '*';
+        rightDelim.textContent = '*';
+        em.appendChild(rightDelim);
+
+        parentEl.appendChild(em);
+        break;
+      }
+      case 'strike': {
+        const del = document.createElement('del');
+        del.className = 'cm-visual-strike';
+        const leftDelim = document.createElement('span');
+        leftDelim.className = 'cm-visual-hidden-delimiter';
+        leftDelim.setAttribute('aria-hidden', 'true');
+        leftDelim.dataset.delimiter = '~~';
+        leftDelim.textContent = '~~';
+        del.appendChild(leftDelim);
+
+        if (node.children) {
+          renderTableCellNodes(node.children, del);
+        }
+
+        const rightDelim = document.createElement('span');
+        rightDelim.className = 'cm-visual-hidden-delimiter';
+        rightDelim.setAttribute('aria-hidden', 'true');
+        rightDelim.dataset.delimiter = '~~';
+        rightDelim.textContent = '~~';
+        del.appendChild(rightDelim);
+
+        parentEl.appendChild(del);
+        break;
+      }
+      case 'inline-code': {
+        const code = document.createElement('code');
+        code.className = 'cm-visual-inline-code';
+        const leftDelim = document.createElement('span');
+        leftDelim.className = 'cm-visual-hidden-delimiter';
+        leftDelim.setAttribute('aria-hidden', 'true');
+        leftDelim.dataset.delimiter = '`';
+        leftDelim.textContent = '`';
+        code.appendChild(leftDelim);
+
+        code.appendChild(document.createTextNode(node.value));
+
+        const rightDelim = document.createElement('span');
+        rightDelim.className = 'cm-visual-hidden-delimiter';
+        rightDelim.setAttribute('aria-hidden', 'true');
+        rightDelim.dataset.delimiter = '`';
+        rightDelim.textContent = '`';
+        code.appendChild(rightDelim);
+
+        parentEl.appendChild(code);
+        break;
+      }
+      case 'link': {
+        const a = document.createElement('a');
+        a.className = 'cm-visual-link';
+        // Keep the original href/title for lossless serialization, but only ever
+        // expose a sanitized href to the DOM. Mirrors the LinkWidget policy in
+        // inline-edit.ts: blocked protocols must never become live anchors.
+        a.dataset.rawHref = node.href ?? '';
+        if (node.title) a.dataset.rawTitle = node.title;
+        if (node.isBlocked || !node.safeHref) {
+          a.classList.add('cm-visual-link-blocked');
+          a.setAttribute('aria-disabled', 'true');
+        } else {
+          a.setAttribute('href', node.safeHref);
+          if (node.title) a.setAttribute('title', node.title);
+          a.setAttribute('target', '_blank');
+          a.setAttribute('rel', 'noopener noreferrer');
+        }
+
+        const leftDelim = document.createElement('span');
+        leftDelim.className = 'cm-visual-hidden-delimiter';
+        leftDelim.setAttribute('aria-hidden', 'true');
+        leftDelim.dataset.delimiter = '[';
+        leftDelim.textContent = '[';
+        a.appendChild(leftDelim);
+
+        if (node.children) {
+          renderTableCellNodes(node.children, a);
+        }
+
+        const rightDelim = document.createElement('span');
+        rightDelim.className = 'cm-visual-hidden-delimiter';
+        rightDelim.setAttribute('aria-hidden', 'true');
+        rightDelim.dataset.delimiter = `](${node.href || ''})`;
+        rightDelim.textContent = `](${node.href || ''})`;
+        a.appendChild(rightDelim);
+
+        parentEl.appendChild(a);
+        break;
+      }
+      case 'inline-math': {
+        const mathSpan = document.createElement('span');
+        mathSpan.className = 'cm-table-inline-math';
+        mathSpan.dataset.formula = node.formula;
+        const leftDelim = document.createElement('span');
+        leftDelim.className = 'cm-visual-hidden-delimiter';
+        leftDelim.setAttribute('aria-hidden', 'true');
+        leftDelim.dataset.delimiter = '$';
+        leftDelim.textContent = '$';
+        mathSpan.appendChild(leftDelim);
+
+        const formulaText = document.createElement('span');
+        formulaText.className = 'cm-table-math-render';
+        formulaText.textContent = node.formula;
+        mathSpan.appendChild(formulaText);
+
+        const rightDelim = document.createElement('span');
+        rightDelim.className = 'cm-visual-hidden-delimiter';
+        rightDelim.setAttribute('aria-hidden', 'true');
+        rightDelim.dataset.delimiter = '$';
+        rightDelim.textContent = '$';
+        mathSpan.appendChild(rightDelim);
+
+        parentEl.appendChild(mathSpan);
+        break;
+      }
+      case 'wikilink': {
+        const wikiSpan = document.createElement('span');
+        wikiSpan.className = 'cm-visual-wikilink';
+        // Preserve target/alias so serialization can rebuild [[target|alias]].
+        wikiSpan.dataset.wikiTarget = node.target;
+        if (node.alias) wikiSpan.dataset.wikiAlias = node.alias;
+        wikiSpan.textContent = node.alias || node.target;
+        parentEl.appendChild(wikiSpan);
+        break;
+      }
+      case 'raw': {
+        if (/<br\s*\/?>/i.test(node.value)) {
+          parentEl.appendChild(document.createElement('br'));
+        } else {
+          parentEl.appendChild(document.createTextNode(node.value));
+        }
+        break;
+      }
+      default: {
+        if ('value' in node && typeof (node as any).value === 'string') {
+          parentEl.appendChild(document.createTextNode((node as any).value));
+        } else if ('raw' in node && typeof (node as any).raw === 'string') {
+          parentEl.appendChild(document.createTextNode((node as any).raw));
+        }
+        break;
+      }
+    }
+  }
+}
+
+export function serializeTableCellDOM(el: HTMLElement): string {
+  let result = '';
+  for (const child of Array.from(el.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      result += child.textContent ?? '';
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const elem = child as HTMLElement;
+      if (
+        elem.classList.contains('cm-visual-hidden-delimiter') ||
+        elem.classList.contains('cm-visual-delimiter-revealed') ||
+        elem.getAttribute('aria-hidden') === 'true'
+      ) {
+        continue;
+      }
+      if (elem.classList.contains('cm-table-cell-placeholder')) {
+        continue;
+      }
+      const tag = elem.tagName.toLowerCase();
+      if (tag === 'br') {
+        result += '<br>';
+      } else if (tag === 'strong' || tag === 'b') {
+        result += `**${serializeTableCellDOM(elem)}**`;
+      } else if (tag === 'em' || tag === 'i') {
+        result += `*${serializeTableCellDOM(elem)}*`;
+      } else if (tag === 'del' || tag === 's' || elem.classList.contains('cm-visual-strike')) {
+        result += `~~${serializeTableCellDOM(elem)}~~`;
+      } else if (tag === 'code' || elem.classList.contains('cm-visual-inline-code')) {
+        result += `\`${serializeTableCellDOM(elem)}\``;
+      } else if (tag === 'a' || elem.classList.contains('cm-visual-link')) {
+        const href = elem.dataset.rawHref ?? elem.getAttribute('href') ?? '';
+        const title = elem.dataset.rawTitle;
+        result += `[${serializeTableCellDOM(elem)}](${href}${title ? ` "${title}"` : ''})`;
+      } else if (elem.classList.contains('cm-table-inline-math') || elem.dataset.formula) {
+        const formula = elem.dataset.formula ?? elem.textContent ?? '';
+        result += `$${formula}$`;
+      } else if (elem.classList.contains('cm-visual-wikilink')) {
+        const target = elem.dataset.wikiTarget ?? '';
+        const alias = elem.dataset.wikiAlias;
+        result += alias ? `[[${target}|${alias}]]` : `[[${target}]]`;
+      } else {
+        result += serializeTableCellDOM(elem);
+      }
+    }
+  }
+  return result;
+}
+
+export function populateTableCellDOM(cellEl: HTMLElement, cellNodes: MarkdownInlineNode[]): void {
+  cellEl.textContent = '';
+  const contentWrap = document.createElement('div');
+  contentWrap.className = 'cm-table-cell-content';
+  const cellRaw = cellNodes
+    .map((n) => ('value' in n && typeof (n as any).value === 'string' ? (n as any).value : n.raw))
+    .join('');
+  if (!cellRaw.trim() && !cellNodes.some((n) => n.type === 'raw' && /<br\s*\/?>/i.test(n.value))) {
+    const placeholder = document.createElement('span');
+    placeholder.className = 'cm-table-cell-placeholder';
+    const br = document.createElement('br');
+    placeholder.appendChild(br);
+    contentWrap.appendChild(placeholder);
+  } else {
+    renderTableCellNodes(cellNodes, contentWrap);
+  }
+  cellEl.appendChild(contentWrap);
+}
+
 export class TableBlockWidget extends WidgetType {
   public constructor(
     public readonly from: number,
@@ -1261,15 +1521,7 @@ export class TableBlockWidget extends WidgetType {
       }
       const align = this.align[colIdx];
       if (align) th.style.textAlign = align;
-      const cellText = cell.map((node) => ('value' in node ? node.value : node.raw)).join('');
-      if (cellText.trim()) {
-        th.textContent = cellText;
-      } else {
-        const placeholder = document.createElement('span');
-        placeholder.className = 'cm-table-cell-placeholder';
-        placeholder.textContent = ' ';
-        th.appendChild(placeholder);
-      }
+      populateTableCellDOM(th, cell);
 
       th.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1282,7 +1534,7 @@ export class TableBlockWidget extends WidgetType {
         const updateButtons = (container as any).__nexusUpdateTableToolbar;
         if (typeof updateButtons === 'function') updateButtons();
         if (view.state.readOnly) return;
-        this.startCellEdit(view, th, -1, colIdx, cellText);
+        this.startCellEdit(view, th, -1, colIdx);
       });
 
       headerTr.appendChild(th);
@@ -1302,15 +1554,7 @@ export class TableBlockWidget extends WidgetType {
         }
         const align = this.align[colIdx];
         if (align) td.style.textAlign = align;
-        const cellText = cell.map((node) => ('value' in node ? node.value : node.raw)).join('');
-        if (cellText.trim()) {
-          td.textContent = cellText;
-        } else {
-          const placeholder = document.createElement('span');
-          placeholder.className = 'cm-table-cell-placeholder';
-          placeholder.textContent = ' ';
-          td.appendChild(placeholder);
-        }
+        populateTableCellDOM(td, cell);
 
         td.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -1323,7 +1567,7 @@ export class TableBlockWidget extends WidgetType {
           const updateButtons = (container as any).__nexusUpdateTableToolbar;
           if (typeof updateButtons === 'function') updateButtons();
           if (view.state.readOnly) return;
-          this.startCellEdit(view, td, rowIdx, colIdx, cellText);
+          this.startCellEdit(view, td, rowIdx, colIdx);
         });
 
         tr.appendChild(td);
@@ -1338,46 +1582,98 @@ export class TableBlockWidget extends WidgetType {
     view: EditorView,
     cellEl: HTMLElement,
     rowIndex: number,
-    colIndex: number,
-    initialValue: string
+    colIndex: number
   ): void {
     if (view.state.readOnly || cellEl.querySelector('.cm-table-cell-editor')) return;
 
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'cm-table-cell-editor';
-    input.value = initialValue.trim();
+    let contentWrap = cellEl.querySelector('.cm-table-cell-content') as HTMLElement | null;
+    if (!contentWrap) {
+      contentWrap = document.createElement('div');
+      contentWrap.className = 'cm-table-cell-content';
+      while (cellEl.firstChild) {
+        contentWrap.appendChild(cellEl.firstChild);
+      }
+      cellEl.appendChild(contentWrap);
+    }
 
-    cellEl.textContent = '';
-    cellEl.appendChild(input);
-    input.focus();
-    input.select();
+    contentWrap.classList.add('cm-table-cell-editor');
+    contentWrap.contentEditable = 'true';
+
+    // Reveal delimiters in the active cell
+    contentWrap.querySelectorAll('.cm-visual-hidden-delimiter').forEach((el) => {
+      el.className = 'cm-visual-delimiter-revealed';
+    });
+
+    // Remove placeholder span if present
+    const placeholder = contentWrap.querySelector('.cm-table-cell-placeholder');
+    if (placeholder) {
+      placeholder.remove();
+      if (!contentWrap.childNodes.length) {
+        contentWrap.appendChild(document.createElement('br'));
+      }
+    }
+
+    // Baseline captured from the rendered DOM rather than from the AST: activating
+    // a cell and leaving it without editing must never dispatch a transaction.
+    const baselineValue = serializeTableCellDOM(contentWrap);
+
+    // The cell editor is an editable island nested inside CodeMirror's own editable
+    // content. Chromium's native SelectAll therefore resolves against the whole
+    // editor, so a plain Ctrl/Cmd+A would select the entire document and the next
+    // keystroke would replace the file. Scope it to the cell instead.
+    const selectAllCellContent = () => {
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(contentWrap!);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    };
+
+    // Property compatibility: .value getter/setter
+    Object.defineProperty(contentWrap, 'value', {
+      get() {
+        return serializeTableCellDOM(contentWrap!);
+      },
+      set(val: string) {
+        contentWrap!.textContent = val;
+      },
+      configurable: true
+    });
+
+    // Selection helper for compatibility
+    (contentWrap as any).select = selectAllCellContent;
+
+    contentWrap.focus();
 
     const controller = createSubEditorController(view, () => {
-      // 取消、只读切换和无变更退出都恢复展示；提交后由新投影显示新正文。
-      if (cellEl.contains(input)) {
-        cellEl.textContent = '';
-        if (initialValue.trim()) {
-          cellEl.textContent = initialValue;
-        } else {
+      if (cellEl.contains(contentWrap)) {
+        contentWrap!.contentEditable = 'false';
+        contentWrap!.classList.remove('cm-table-cell-editor');
+        contentWrap!.querySelectorAll('.cm-visual-delimiter-revealed').forEach((el) => {
+          el.className = 'cm-visual-hidden-delimiter';
+        });
+        if (!contentWrap!.textContent?.trim() && !contentWrap!.querySelector('br')) {
+          contentWrap!.textContent = '';
           const placeholder = document.createElement('span');
           placeholder.className = 'cm-table-cell-placeholder';
-          placeholder.textContent = ' ';
-          cellEl.appendChild(placeholder);
+          const br = document.createElement('br');
+          placeholder.appendChild(br);
+          contentWrap!.appendChild(placeholder);
         }
       }
     });
     const { signal } = controller;
 
     let isComposing = false;
-    input.addEventListener(
+    contentWrap.addEventListener(
       'compositionstart',
       () => {
         isComposing = true;
       },
       { signal }
     );
-    input.addEventListener(
+    contentWrap.addEventListener(
       'compositionend',
       () => {
         isComposing = false;
@@ -1391,8 +1687,8 @@ export class TableBlockWidget extends WidgetType {
         return;
       }
 
-      const newValue = input.value;
-      if (newValue === initialValue.trim()) {
+      const newValue = serializeTableCellDOM(contentWrap!);
+      if (newValue === baselineValue) {
         controller.close();
         return;
       }
@@ -1448,10 +1744,34 @@ export class TableBlockWidget extends WidgetType {
       );
     };
 
-    input.addEventListener(
+    contentWrap.addEventListener(
       'keydown',
       (e) => {
         if (!controller.isActive() || isComposing || e.isComposing) return;
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'a') {
+          e.preventDefault();
+          e.stopPropagation();
+          selectAllCellContent();
+          return;
+        }
+        if (e.key === 'Enter' && e.shiftKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            const br = document.createElement('br');
+            range.insertNode(br);
+            range.setStartAfter(br);
+            range.setEndAfter(br);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } else {
+            contentWrap!.appendChild(document.createElement('br'));
+          }
+          return;
+        }
         if (e.key === 'Enter') {
           e.preventDefault();
           e.stopPropagation();
@@ -1567,7 +1887,7 @@ export class TableBlockWidget extends WidgetType {
       { signal }
     );
 
-    input.addEventListener(
+    contentWrap.addEventListener(
       'blur',
       () => {
         if (controller.isActive() && !isComposing) {
@@ -1578,7 +1898,18 @@ export class TableBlockWidget extends WidgetType {
     );
   }
 
-  public ignoreEvent(): boolean {
+  public ignoreEvent(event: Event): boolean {
+    const target = event.target as HTMLElement | null;
+    if (!target) return false;
+    if (
+      target.isContentEditable ||
+      target.closest?.('[contenteditable="true"]') ||
+      target.closest?.('.cm-table-cell-editor') ||
+      target.closest?.('.cm-table-floating-toolbar') ||
+      target.closest?.('.cm-table-grid-popover')
+    ) {
+      return true;
+    }
     return false;
   }
 

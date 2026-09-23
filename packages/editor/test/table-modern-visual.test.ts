@@ -6,6 +6,7 @@ import {
   findTableAtPosition,
   createTableDeleteTransaction,
   createTableResizeTransaction,
+  serializeTableCellDOM,
   setEditorLocale
 } from '../src/index.js';
 
@@ -769,6 +770,572 @@ describe('Phase 2: Modern Table Visual & Floating Controls', () => {
         selection: { anchor: afterLinePos, head: afterLinePos }
       });
       expect(handle.view.state.selection.main.head).toBe(afterLinePos);
+
+      handle.destroy();
+      parent.remove();
+    });
+  });
+
+  describe('Phase 3: Cell Rich-Text Rendering & Empty Anti-Collapse (Seam 1)', () => {
+    const richTableSource = [
+      '# Rich Table Document',
+      '',
+      '| **Bold H** | *Italic H* | `Code H` | [Link H](https://example.com) | $x^2$ | ~~Strike H~~ | Multi<br>Line | Empty |',
+      '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
+      '| **bold cell** | *italic cell* | `code cell` | [Visit](https://nexus.test) | $E=mc^2$ | ~~strike cell~~ | top<br>bottom |   |',
+      '',
+      'End.'
+    ].join('\n');
+
+    it('renders cell inline Markdown nodes as rich DOM elements instead of plain text', () => {
+      const session = new MarkdownDocumentSession(richTableSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-rich-table-test',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const table = handle.view.dom.querySelector('.cm-visual-table') as HTMLTableElement;
+      expect(table).not.toBeNull();
+
+      // Check header row (row -1)
+      const thBold = table.querySelector('th[data-col="0"]') as HTMLElement;
+      expect(thBold.querySelector('strong')).not.toBeNull();
+      expect(thBold.querySelector('strong')?.textContent).toContain('Bold H');
+
+      const thItalic = table.querySelector('th[data-col="1"]') as HTMLElement;
+      expect(thItalic.querySelector('em')).not.toBeNull();
+      expect(thItalic.querySelector('em')?.textContent).toContain('Italic H');
+
+      const thCode = table.querySelector('th[data-col="2"]') as HTMLElement;
+      expect(thCode.querySelector('code')).not.toBeNull();
+      expect(thCode.querySelector('code')?.textContent).toContain('Code H');
+
+      const thLink = table.querySelector('th[data-col="3"]') as HTMLElement;
+      const linkEl = thLink.querySelector('a') as HTMLAnchorElement;
+      expect(linkEl).not.toBeNull();
+      expect(linkEl.getAttribute('href')).toBe('https://example.com');
+      expect(linkEl.textContent).toContain('Link H');
+
+      const thMath = table.querySelector('th[data-col="4"]') as HTMLElement;
+      const mathEl = thMath.querySelector('.cm-table-inline-math') as HTMLElement;
+      expect(mathEl).not.toBeNull();
+      expect(mathEl.dataset.formula).toBe('x^2');
+
+      const thStrike = table.querySelector('th[data-col="5"]') as HTMLElement;
+      expect(thStrike.querySelector('del, .cm-visual-strike')).not.toBeNull();
+
+      // Check data row 0
+      const tdBold = table.querySelector('td[data-row="0"][data-col="0"]') as HTMLElement;
+      expect(tdBold.querySelector('strong')).not.toBeNull();
+      expect(tdBold.querySelector('strong')?.textContent).toContain('bold cell');
+
+      const tdItalic = table.querySelector('td[data-row="0"][data-col="1"]') as HTMLElement;
+      expect(tdItalic.querySelector('em')).not.toBeNull();
+      expect(tdItalic.querySelector('em')?.textContent).toContain('italic cell');
+
+      const tdCode = table.querySelector('td[data-row="0"][data-col="2"]') as HTMLElement;
+      expect(tdCode.querySelector('code')).not.toBeNull();
+      expect(tdCode.querySelector('code')?.textContent).toContain('code cell');
+
+      const tdLink = table.querySelector('td[data-row="0"][data-col="3"]') as HTMLElement;
+      const tdLinkEl = tdLink.querySelector('a') as HTMLAnchorElement;
+      expect(tdLinkEl).not.toBeNull();
+      expect(tdLinkEl.getAttribute('href')).toBe('https://nexus.test');
+      expect(tdLinkEl.textContent).toContain('Visit');
+
+      const tdMath = table.querySelector('td[data-row="0"][data-col="4"]') as HTMLElement;
+      const tdMathEl = tdMath.querySelector('.cm-table-inline-math') as HTMLElement;
+      expect(tdMathEl).not.toBeNull();
+      expect(tdMathEl.dataset.formula).toBe('E=mc^2');
+
+      const tdStrike = table.querySelector('td[data-row="0"][data-col="5"]') as HTMLElement;
+      expect(tdStrike.querySelector('del, .cm-visual-strike')).not.toBeNull();
+
+      // Check line break <br>
+      const tdBr = table.querySelector('td[data-row="0"][data-col="6"]') as HTMLElement;
+      expect(tdBr.querySelector('br')).not.toBeNull();
+
+      // Check empty cell anti-collapse: renders <br> placeholder
+      const tdEmpty = table.querySelector('td[data-row="0"][data-col="7"]') as HTMLElement;
+      expect(tdEmpty.querySelector('br')).not.toBeNull();
+
+      handle.destroy();
+      parent.remove();
+    });
+  });
+
+  describe('Phase 3: In-Place contenteditable Activation & Unified Reveal Policy (Seam 2)', () => {
+    const tableSource = [
+      '| **Header A** | Header B |',
+      '| :--- | :--- |',
+      '| **bold value** | plain value |'
+    ].join('\n');
+
+    it('activates contenteditable="true" in-place on cell click without creating <input> overlay', () => {
+      const session = new MarkdownDocumentSession(tableSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-inplace-contenteditable-test',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const cell = handle.view.dom.querySelector('.cm-visual-table td[data-row="0"][data-col="0"]') as HTMLElement;
+      expect(cell).not.toBeNull();
+
+      // Before click: inactive preview, no input, delimiters hidden
+      expect(cell.querySelector('input')).toBeNull();
+      const hiddenDelimsBefore = cell.querySelectorAll('.cm-visual-hidden-delimiter');
+      expect(hiddenDelimsBefore.length).toBeGreaterThan(0);
+
+      // Click cell to activate in-place editing
+      cell.click();
+
+      // Must be in-place contenteditable (no <input> element!)
+      expect(cell.querySelector('input')).toBeNull();
+      const editorEl = cell.querySelector('.cm-table-cell-editor') as HTMLElement;
+      expect(editorEl).not.toBeNull();
+      expect(editorEl.tagName.toLowerCase()).not.toBe('input');
+      expect(editorEl.isContentEditable).toBe(true);
+
+      // Delimiters should be revealed in edit state
+      const revealedDelims = cell.querySelectorAll('.cm-visual-delimiter-revealed');
+      expect(revealedDelims.length).toBeGreaterThan(0);
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('respects readOnly mode: cell click does not activate contenteditable', () => {
+      const session = new MarkdownDocumentSession(tableSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-ro-contenteditable-test',
+        surfaceKind: 'visual',
+        readOnly: true,
+        parent
+      });
+
+      const cell = handle.view.dom.querySelector('.cm-visual-table td[data-row="0"][data-col="0"]') as HTMLElement;
+      cell.click();
+
+      expect(cell.querySelector('input')).toBeNull();
+      expect(cell.querySelector('.cm-table-cell-editor')).toBeNull();
+      expect(cell.isContentEditable).toBe(false);
+
+      handle.destroy();
+      parent.remove();
+    });
+  });
+
+  describe('Phase 3: Rich DOM-to-Markdown Serialization & Transaction Dispatch (Seam 3)', () => {
+    const tableSource = [
+      '| Header 1 | Header 2 |',
+      '| :--- | :--- |',
+      '| Initial 1 | Initial 2 |'
+    ].join('\n');
+
+    it('serializes rich DOM elements (strong, em, del, code, link, math, br) to Markdown on blur', () => {
+      const session = new MarkdownDocumentSession(tableSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-serialize-blur-test',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const cell = handle.view.dom.querySelector('.cm-visual-table td[data-row="0"][data-col="0"]') as HTMLElement;
+      cell.click();
+
+      const editorEl = cell.querySelector('.cm-table-cell-editor') as HTMLElement;
+      expect(editorEl).not.toBeNull();
+
+      // Clear and insert rich HTML nodes directly into the contenteditable element
+      editorEl.innerHTML = '';
+      const strong = document.createElement('strong');
+      strong.textContent = 'Bold';
+      const em = document.createElement('em');
+      em.textContent = 'Italic';
+      const br = document.createElement('br');
+      const code = document.createElement('code');
+      code.textContent = 'code()';
+
+      editorEl.appendChild(strong);
+      editorEl.appendChild(document.createTextNode(' and '));
+      editorEl.appendChild(em);
+      editorEl.appendChild(br);
+      editorEl.appendChild(code);
+
+      // Trigger blur to commit
+      editorEl.dispatchEvent(new Event('blur'));
+
+      const newSource = session.getSnapshot().source;
+      expect(newSource).toContain('**Bold** and *Italic*<br>`code()`');
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('serializes empty cell to empty slot and maintains anti-collapse placeholder', () => {
+      const session = new MarkdownDocumentSession(tableSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-serialize-empty-test',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const cell = handle.view.dom.querySelector('.cm-visual-table td[data-row="0"][data-col="1"]') as HTMLElement;
+      cell.click();
+
+      const editorEl = cell.querySelector('.cm-table-cell-editor') as HTMLElement;
+      expect(editorEl).not.toBeNull();
+
+      // Clear all content from editor element
+      editorEl.innerHTML = '';
+
+      // Trigger blur to commit
+      editorEl.dispatchEvent(new Event('blur'));
+
+      const newSource = session.getSnapshot().source;
+      expect(newSource).toMatch(/\|\s*Initial 1\s*\|\s*\|/);
+
+      handle.destroy();
+      parent.remove();
+    });
+  });
+
+  describe('Phase 3: Office Standard Keyboard Flow (Seam 4)', () => {
+    const tableSource = [
+      '| Header 1 | Header 2 |',
+      '| :--- | :--- |',
+      '| Cell 1 | Cell 2 |',
+      '| Cell 3 | Cell 4 |'
+    ].join('\n');
+
+    it('Shift + Enter inserts <br> within cell without committing or exiting edit mode', () => {
+      const session = new MarkdownDocumentSession(tableSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-shift-enter-test',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const cell = handle.view.dom.querySelector('.cm-visual-table td[data-row="0"][data-col="0"]') as HTMLElement;
+      cell.click();
+
+      const editorEl = cell.querySelector('.cm-table-cell-editor') as HTMLElement;
+      expect(editorEl).not.toBeNull();
+
+      // Press Shift + Enter
+      editorEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));
+
+      // Editor must still be active and contain <br>
+      expect(cell.querySelector('.cm-table-cell-editor')).not.toBeNull();
+      expect(editorEl.querySelector('br')).not.toBeNull();
+
+      // Append text after <br> and blur
+      editorEl.appendChild(document.createTextNode('Appended Line'));
+      editorEl.dispatchEvent(new Event('blur'));
+
+      const newSource = session.getSnapshot().source;
+      expect(newSource).toContain('Cell 1<br>Appended Line');
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('Escape cancels active cell editing without committing changes', () => {
+      const session = new MarkdownDocumentSession(tableSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-escape-test',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const cell = handle.view.dom.querySelector('.cm-visual-table td[data-row="0"][data-col="0"]') as HTMLElement;
+      cell.click();
+
+      const editorEl = cell.querySelector('.cm-table-cell-editor') as HTMLElement;
+      expect(editorEl).not.toBeNull();
+
+      // Mutate content
+      editorEl.textContent = 'This Should Not Be Saved';
+
+      // Press Escape
+      editorEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      // Editor should be closed
+      expect(cell.querySelector('.cm-table-cell-editor')).toBeNull();
+
+      // Document source should NOT contain the unsaved text
+      expect(session.getSnapshot().source).not.toContain('This Should Not Be Saved');
+      expect(session.getSnapshot().source).toContain('Cell 1');
+
+      handle.destroy();
+      parent.remove();
+    });
+  });
+
+  describe('Cell round-trip integrity and blocked-link safety', () => {
+    const inlineCases: Array<[string, string]> = [
+      ['plain text', 'plain'],
+      ['bold', '**bold**'],
+      ['italic', '*italic*'],
+      ['strike', '~~strike~~'],
+      ['inline code', '`code()`'],
+      ['link', '[text](https://e.test)'],
+      ['link with title', '[text](https://e.test "tip")'],
+      ['inline math', '$x^2$'],
+      ['wikilink', '[[STM32]]'],
+      ['wikilink with escaped alias', '[[STM32\\|实时系统]]'],
+      ['escaped pipe text', 'a \\| b'],
+      ['line break', 'top<br>bottom']
+    ];
+
+    const mountCell = (cell: string, surfaceId: string) => {
+      const source = `| H1 | H2 |\n| --- | --- |\n| ${cell} | plain |`;
+      const session = new MarkdownDocumentSession(source);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+      const handle = createSessionEditorView({
+        session,
+        surfaceId,
+        surfaceKind: 'visual',
+        parent
+      });
+      const cellEl = handle.view.dom.querySelector(
+        '.cm-visual-table td[data-row="0"][data-col="0"]'
+      ) as HTMLElement;
+      return { source, session, parent, handle, cellEl };
+    };
+
+    for (const [name, cell] of inlineCases) {
+      it(`renders and serializes ${name} losslessly`, () => {
+        const { handle, parent, cellEl } = mountCell(cell, `visual-rt-${name.replace(/\s+/g, '-')}`);
+
+        expect(cellEl).not.toBeNull();
+        const content = cellEl.querySelector('.cm-table-cell-content') as HTMLElement;
+        expect(content).not.toBeNull();
+        expect(serializeTableCellDOM(content)).toBe(cell);
+
+        handle.destroy();
+        parent.remove();
+      });
+
+      it(`keeps source unchanged when ${name} is activated and blurred without editing`, () => {
+        const { source, session, handle, parent, cellEl } = mountCell(
+          cell,
+          `visual-noop-${name.replace(/\s+/g, '-')}`
+        );
+
+        const revisionBefore = session.getSnapshot().revision;
+
+        cellEl.click();
+        const editorEl = cellEl.querySelector('.cm-table-cell-editor') as HTMLElement;
+        expect(editorEl).not.toBeNull();
+
+        // No modification at all: only blur.
+        editorEl.dispatchEvent(new Event('blur'));
+
+        expect(session.getSnapshot().source).toBe(source);
+        // A no-op edit must not produce a transaction at all.
+        expect(session.getSnapshot().revision).toBe(revisionBefore);
+
+        handle.destroy();
+        parent.remove();
+      });
+    }
+
+    it('does not expose blocked link protocols as live anchors inside a table cell', () => {
+      const source = [
+        '| H1 | H2 |',
+        '| --- | --- |',
+        '| [click](javascript:alert(1)) | [calc](file:///C:/Windows/System32/calc.exe) |'
+      ].join('\n');
+
+      const session = new MarkdownDocumentSession(source);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-blocked-link-cell',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const anchors = Array.from(
+        handle.view.dom.querySelectorAll('.cm-visual-table .cm-visual-link')
+      ) as HTMLAnchorElement[];
+      expect(anchors.length).toBe(2);
+
+      for (const anchor of anchors) {
+        expect(anchor.getAttribute('href')).toBeNull();
+        expect(anchor.getAttribute('target')).toBeNull();
+      }
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('keeps blocked link source intact through a no-op cell edit', () => {
+      const source = [
+        '| H1 | H2 |',
+        '| --- | --- |',
+        '| [click](javascript:alert(1)) | plain |'
+      ].join('\n');
+
+      const session = new MarkdownDocumentSession(source);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-blocked-link-roundtrip',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const cellEl = handle.view.dom.querySelector(
+        '.cm-visual-table td[data-row="0"][data-col="0"]'
+      ) as HTMLElement;
+      cellEl.click();
+      const editorEl = cellEl.querySelector('.cm-table-cell-editor') as HTMLElement;
+      expect(editorEl).not.toBeNull();
+      editorEl.dispatchEvent(new Event('blur'));
+
+      expect(session.getSnapshot().source).toBe(source);
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    for (const [label, modifiers] of [
+      ['Ctrl+A', { ctrlKey: true }],
+      ['Cmd+A', { metaKey: true }]
+    ] as Array<[string, KeyboardEventInit]>) {
+      it(`scopes ${label} to the cell instead of the whole document`, () => {
+        const source = ['| H1 | H2 |', '| --- | --- |', '| 单元格3 | 单元格4 |'].join('\n');
+        const session = new MarkdownDocumentSession(source);
+        const parent = document.createElement('div');
+        document.body.appendChild(parent);
+
+        const handle = createSessionEditorView({
+          session,
+          surfaceId: `visual-select-all-${label.replace('+', '-')}`,
+          surfaceKind: 'visual',
+          parent
+        });
+
+        const cellEl = handle.view.dom.querySelector(
+          '.cm-visual-table td[data-row="0"][data-col="1"]'
+        ) as HTMLElement;
+        cellEl.click();
+        const editorEl = cellEl.querySelector('.cm-table-cell-editor') as HTMLElement;
+        expect(editorEl).not.toBeNull();
+
+        const cmSelectionBefore = handle.view.state.selection.main;
+        const revisionBefore = session.getSnapshot().revision;
+
+        const event = new KeyboardEvent('keydown', {
+          key: 'a',
+          bubbles: true,
+          cancelable: true,
+          ...modifiers
+        });
+        editorEl.dispatchEvent(event);
+
+        // The cell editor must consume the event rather than leaving it to the
+        // browser's document-wide SelectAll.
+        expect(event.defaultPrevented).toBe(true);
+
+        // CodeMirror must not have run its own selectAll over the document.
+        const cmSelectionAfter = handle.view.state.selection.main;
+        expect(cmSelectionAfter.from).toBe(cmSelectionBefore.from);
+        expect(cmSelectionAfter.to).toBe(cmSelectionBefore.to);
+
+        // The DOM selection must be scoped inside the cell editor.
+        const selection = window.getSelection();
+        expect(selection).not.toBeNull();
+        expect(selection!.rangeCount).toBeGreaterThan(0);
+        expect(editorEl.contains(selection!.getRangeAt(0).commonAncestorContainer)).toBe(true);
+
+        // Selecting is not an edit.
+        expect(session.getSnapshot().revision).toBe(revisionBefore);
+        expect(session.getSnapshot().source).toBe(source);
+
+        handle.destroy();
+        parent.remove();
+      });
+    }
+
+    it('scopes Ctrl+A to the cell when the key event resolves against the editor content', () => {
+      const source = ['| H1 | H2 |', '| --- | --- |', '| 单元格3 | 单元格4 |'].join('\n');
+      const session = new MarkdownDocumentSession(source);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-keymap-select-all',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      const cellEl = handle.view.dom.querySelector(
+        '.cm-visual-table td[data-row="0"][data-col="1"]'
+      ) as HTMLElement;
+      cellEl.click();
+      const editorEl = cellEl.querySelector('.cm-table-cell-editor') as HTMLElement;
+      expect(editorEl).not.toBeNull();
+
+      const cmSelectionBefore = handle.view.state.selection.main;
+      const docLength = handle.view.state.doc.length;
+
+      // Chromium resolves the key event against the outer editing host, so it lands on
+      // CodeMirror's own content rather than on the cell editor.
+      handle.view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true })
+      );
+
+      // CodeMirror's default selectAll must not have run over the whole document.
+      const cmSelectionAfter = handle.view.state.selection.main;
+      expect(cmSelectionAfter.from).toBe(cmSelectionBefore.from);
+      expect(cmSelectionAfter.to).toBe(cmSelectionBefore.to);
+      expect(cmSelectionAfter.to - cmSelectionAfter.from).not.toBe(docLength);
+
+      // The cell editor must stay open and own the selection.
+      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).not.toBeNull();
+      const selection = window.getSelection();
+      expect(selection).not.toBeNull();
+      expect(selection!.rangeCount).toBeGreaterThan(0);
+      expect(editorEl.contains(selection!.getRangeAt(0).commonAncestorContainer)).toBe(true);
 
       handle.destroy();
       parent.remove();

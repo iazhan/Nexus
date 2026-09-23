@@ -232,7 +232,15 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
     // 7b. Verify cell edit blur/commit via CDP toolbar click
     // Click on cell (row 1, col 1 -> '单元格4')
     await activeApp.mouseClick('.cm-visual-table td[data-row="1"][data-col="1"]');
-    await activeApp.waitForSelector('.cm-visual-table td[data-row="1"][data-col="1"] input', 5000);
+    await activeApp.waitForSelector('.cm-visual-table td[data-row="1"][data-col="1"] .cm-table-cell-editor', 5000);
+    // 单元格编辑器已由 <input> 换为 contenteditable 原位编辑，光标落在点击处，
+    // 直接 insertText 只会插在光标位置。先选中整格内容再输入，等价于用户在
+    // 单元格内按 Ctrl/Cmd+A 后替换。
+    await activeApp.evaluate(`(() => {
+      const editor = document.querySelector('.cm-visual-table td[data-row="1"][data-col="1"] .cm-table-cell-editor');
+      editor.select();
+      return true;
+    })()`);
     await activeApp.insertText('已修改4');
     const editedCellSource = initialContent.replace('单元格4', '已修改4');
     const editedAlignedSource = editedCellSource.replace('| :--- | --- |', '| :--- | ---: |');

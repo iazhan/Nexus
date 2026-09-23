@@ -227,7 +227,13 @@ export function findTableCellAtPosition(
 function getCellVal(nodes?: MarkdownInlineNode[]): string {
   if (!nodes) return '';
   return nodes
-    .map((n) => ('value' in n && typeof (n as { value?: unknown }).value === 'string' ? (n as { value: string }).value : n.raw))
+    .map((n) =>
+      typeof n.raw === 'string'
+        ? n.raw
+        : 'value' in n && typeof (n as { value?: unknown }).value === 'string'
+          ? (n as { value: string }).value
+          : ''
+    )
     .join('')
     .replace(/\\\|/g, '|');
 }

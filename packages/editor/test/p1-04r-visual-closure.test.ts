@@ -867,16 +867,16 @@ describe('P1-04R Visual semantic closure', () => {
       assert(td00);
       td00.click();
 
-      const cellInput = td00.querySelector('input');
-      assert(cellInput, 'Expected cell input editor');
+      const cellInput = td00.querySelector('.cm-table-cell-editor');
+      assert(cellInput, 'Expected cell editor');
 
       // Click toolbar button
       const alignCenterBtn = mounted.parent.querySelector('[data-table-action="align-center"]') as HTMLButtonElement;
       assert(alignCenterBtn);
       alignCenterBtn.click();
 
-      // Cell input was closed, align-center committed
-      expect(td00.querySelector('input')).toBeNull();
+      // Cell editor was closed, align-center committed
+      expect(td00.querySelector('.cm-table-cell-editor')).toBeNull();
       expect(mounted.session.getSnapshot().source).toBe('| A | B |\n| :---: | --- |\n| 1 | 2 |');
     } finally {
       mounted.cleanup();

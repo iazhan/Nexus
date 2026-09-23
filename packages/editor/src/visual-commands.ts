@@ -346,10 +346,32 @@ export function handleVisualMoveBlockDown(view: EditorView): boolean {
   return true;
 }
 
+/**
+ * Visual Mode 全选处理（Mod-A 键）：
+ * 表格单元格编辑器是嵌套在 CodeMirror 可编辑内容里的独立编辑岛。浏览器原生
+ * SelectAll 会按整个编辑器解析选区，导致 Ctrl/Cmd+A 直接关闭单元格编辑器并把焦点
+ * 交还给文档，随后的输入就会落到整篇文档上。这里把全选限制在当前激活的单元格内；
+ * 没有激活的单元格时返回 false，交回默认的 selectAll。
+ */
+export function handleVisualModA(view: EditorView): boolean {
+  const cellEditor = view.dom.querySelector('.cm-table-cell-editor') as HTMLElement | null;
+  if (!cellEditor) return false;
+
+  const selection = window.getSelection();
+  if (!selection) return true;
+
+  const range = document.createRange();
+  range.selectNodeContents(cellEditor);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
 export const visualKeybindings: KeyBinding[] = [
   { key: 'Enter', run: handleVisualEnter },
   { key: 'Backspace', run: handleVisualBackspace },
   { key: 'Tab', run: handleVisualTab, shift: handleVisualShiftTab },
+  { key: 'Mod-a', run: handleVisualModA },
   { key: 'Mod-b', run: handleVisualModB },
   { key: 'Mod-i', run: handleVisualModI },
   { key: 'Mod-Shift-x', run: handleVisualModStrike },

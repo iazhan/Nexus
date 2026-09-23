@@ -43,3 +43,6 @@ docs/
 
 # Local agent instructions
 AGENTS.md
+
+# Local agent workspace data
+.workbuddy-ai/

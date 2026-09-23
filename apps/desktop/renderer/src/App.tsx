@@ -297,6 +297,12 @@ export const App: React.FC = () => {
           if (isDocClean && window.nexus?.readFile) {
             try {
               const freshContent = await window.nexus.readFile(filePath);
+              // 应用自己的 writeFile 同样会唤醒这个 watcher。内容与当前文档完全一致时
+              // 说明没有任何外部修改，必须直接忽略：整篇 replaceSource 会把光标映射到
+              // 文档末尾，表现为自动保存后光标跳到文件尾部。
+              if (freshContent === session.getSnapshot().source) {
+                return;
+              }
               initialContentRef.current = freshContent;
               session.replaceSource(freshContent);
               updateSaveState('clean');
