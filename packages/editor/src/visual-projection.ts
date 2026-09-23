@@ -1041,10 +1041,16 @@ export class TableBlockWidget extends WidgetType {
       e.stopPropagation();
       if (view.state.readOnly) return;
       const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const target = view.state.field(tableTargetField, false);
+      const activeRow =
+        target && target.tableFrom === currentWidget.from ? target.activeRow : null;
+      const targetRowIndex =
+        activeRow !== null ? (activeRow === -1 ? 0 : activeRow + 1) : undefined;
+
       const source = view.state.doc.toString();
       const tableCtx = findTableAtPosition(source, currentWidget.from);
       if (tableCtx) {
-        const tx = createTableAddRowTransaction(source, tableCtx);
+        const tx = createTableAddRowTransaction(source, tableCtx, targetRowIndex);
         if (tx) {
           view.dispatch({
             changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
@@ -1059,10 +1065,15 @@ export class TableBlockWidget extends WidgetType {
       e.stopPropagation();
       if (view.state.readOnly) return;
       const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const target = view.state.field(tableTargetField, false);
+      const activeCol =
+        target && target.tableFrom === currentWidget.from ? target.activeCol : null;
+      const targetColIndex = activeCol !== null ? activeCol + 1 : undefined;
+
       const source = view.state.doc.toString();
       const tableCtx = findTableAtPosition(source, currentWidget.from);
       if (tableCtx) {
-        const tx = createTableAddColumnTransaction(source, tableCtx);
+        const tx = createTableAddColumnTransaction(source, tableCtx, targetColIndex);
         if (tx) {
           view.dispatch({
             changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),

@@ -216,6 +216,174 @@ describe('Phase 2: Modern Table Visual & Floating Controls', () => {
       parent.remove();
     });
 
+    it('toolbar add-row button inserts new row directly below currently focused row', () => {
+      const multiRowSource = [
+        '| Col A | Col B |',
+        '| --- | --- |',
+        '| Row 0 | Val 0 |',
+        '| Row 1 | Val 1 |'
+      ].join('\n');
+
+      const session = new MarkdownDocumentSession(multiRowSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-toolbar-add-row-focused',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      // 1. Focus Row 0 (activeRow = 0)
+      const row0Cell = handle.view.dom.querySelector('.cm-visual-table td[data-row="0"][data-col="0"]') as HTMLElement;
+      expect(row0Cell).not.toBeNull();
+      row0Cell.click();
+
+      // 2. Click toolbar + row button
+      const addRowBtn = handle.view.dom.querySelector('.cm-table-btn-add-row') as HTMLButtonElement;
+      expect(addRowBtn).not.toBeNull();
+      addRowBtn.click();
+
+      // 3. Verify in document: the new row is inserted between Row 0 and Row 1
+      const updatedSource = session.getSnapshot().source;
+      const lines = updatedSource.trim().split('\n');
+      expect(lines.length).toBe(5); // header + delimiter + row0 + newRow + row1
+      expect(lines[2]).toContain('Row 0');
+      // Line 3 should be the newly inserted blank row
+      expect(lines[3]).toMatch(/\|\s+\|\s+\|/);
+      // Line 4 should be Row 1 (pushed down)
+      expect(lines[4]).toContain('Row 1');
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('toolbar add-column button inserts new column directly to the right of currently focused column', () => {
+      const multiColSource = [
+        '| Col A | Col B |',
+        '| --- | --- |',
+        '| Val 0 | Val 1 |'
+      ].join('\n');
+
+      const session = new MarkdownDocumentSession(multiColSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-toolbar-add-col-focused',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      // 1. Focus Col A (activeCol = 0)
+      const colACell = handle.view.dom.querySelector('.cm-visual-table th[data-col="0"]') as HTMLElement;
+      expect(colACell).not.toBeNull();
+      colACell.click();
+
+      // 2. Click toolbar + col button
+      const addColBtn = handle.view.dom.querySelector('.cm-table-btn-add-col') as HTMLButtonElement;
+      expect(addColBtn).not.toBeNull();
+      addColBtn.click();
+
+      // 3. Verify in document: the new column is inserted between Col A and Col B
+      const updatedSource = session.getSnapshot().source;
+      const lines = updatedSource.trim().split('\n');
+      // Header: | Col A |   | Col B |
+      expect(lines[0]).toMatch(/\|\s*Col A\s*\|\s+\|\s*Col B\s*\|/);
+      // Body: | Val 0 |   | Val 1 |
+      expect(lines[2]).toMatch(/\|\s*Val 0\s*\|\s+\|\s*Val 1\s*\|/);
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('toolbar add-row and add-column buttons append at the end when no cell is focused', () => {
+      const multiColSource = [
+        '| Col A | Col B |',
+        '| --- | --- |',
+        '| Val 0 | Val 1 |'
+      ].join('\n');
+
+      const session = new MarkdownDocumentSession(multiColSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-toolbar-add-unfocused',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      // No cell is clicked. Click toolbar add row button.
+      const addRowBtn = handle.view.dom.querySelector('.cm-table-btn-add-row') as HTMLButtonElement;
+      expect(addRowBtn).not.toBeNull();
+      addRowBtn.click();
+
+      // Row should be appended at the bottom (total rows: 2 data rows)
+      let lines = session.getSnapshot().source.trim().split('\n');
+      expect(lines.length).toBe(4); // header + delimiter + Val0/1 + blank
+      expect(lines[2]).toContain('Val 0');
+      expect(lines[3]).toMatch(/\|\s+\|\s+\|/);
+
+      // Click toolbar add column button.
+      const addColBtn = handle.view.dom.querySelector('.cm-table-btn-add-col') as HTMLButtonElement;
+      expect(addColBtn).not.toBeNull();
+      addColBtn.click();
+
+      // Column should be appended at the rightmost end (total cols: 3)
+      lines = session.getSnapshot().source.trim().split('\n');
+      expect(lines[0]).toMatch(/\|\s*Col A\s*\|\s*Col B\s*\|\s+\|/);
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('toolbar add-row button inserts new row at row index 0 when header cell is focused', () => {
+      const multiRowSource = [
+        '| Col A | Col B |',
+        '| --- | --- |',
+        '| Row 0 | Val 0 |',
+        '| Row 1 | Val 1 |'
+      ].join('\n');
+
+      const session = new MarkdownDocumentSession(multiRowSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'visual-toolbar-add-row-header-focused',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      // 1. Focus Header (activeRow = -1)
+      const headerCell = handle.view.dom.querySelector('.cm-visual-table th[data-row="-1"][data-col="0"]') as HTMLElement;
+      expect(headerCell).not.toBeNull();
+      headerCell.click();
+
+      // 2. Click toolbar + row button
+      const addRowBtn = handle.view.dom.querySelector('.cm-table-btn-add-row') as HTMLButtonElement;
+      expect(addRowBtn).not.toBeNull();
+      addRowBtn.click();
+
+      // 3. Verify in document: the new row is inserted directly below header/delimiter (before original Row 0)
+      const updatedSource = session.getSnapshot().source;
+      const lines = updatedSource.trim().split('\n');
+      expect(lines.length).toBe(5); // header + delimiter + newRow + row0 + row1
+      // Line 2 should be the newly inserted blank row
+      expect(lines[2]).toMatch(/\|\s+\|\s+\|/);
+      // Line 3 should be original Row 0 (pushed down)
+      expect(lines[3]).toContain('Row 0');
+      expect(lines[4]).toContain('Row 1');
+
+      handle.destroy();
+      parent.remove();
+    });
+
     it('delete table button removes table from document', () => {
       const session = new MarkdownDocumentSession(tableSource);
       const parent = document.createElement('div');
