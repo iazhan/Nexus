@@ -36,6 +36,22 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'cmd.openContainingFolder': 'Open Containing Folder',
     'cmd.revealInFileExplorer': 'Reveal in File Explorer',
     'cmd.closeFile': 'Close File',
+    'table.addRow': 'Add Row',
+    'table.addColumn': 'Add Column',
+    'table.deleteRow': 'Delete Row',
+    'table.deleteColumn': 'Delete Column',
+    'table.alignLeft': 'Align Left',
+    'table.alignCenter': 'Align Center',
+    'table.alignRight': 'Align Right',
+    'table.resizeTable': 'Resize Table',
+    'table.deleteTable': 'Delete Table',
+    'table.btnRow': '+ Row',
+    'table.btnCol': '+ Col',
+    'table.btnDelRow': '- Row',
+    'table.btnDelCol': '- Col',
+    'table.btnResize': 'Resize',
+    'table.btnDelete': 'Delete Table',
+    'table.gridFooter': '{rows} rows × {cols} cols',
   },
   'zh-CN': {
     'app.title': 'Nexus 编辑器',
@@ -72,10 +88,45 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'cmd.openContainingFolder': '打开所在文件夹',
     'cmd.revealInFileExplorer': '在文件管理器中显示',
     'cmd.closeFile': '关闭文件',
+    'table.addRow': '添加行',
+    'table.addColumn': '添加列',
+    'table.deleteRow': '删除行',
+    'table.deleteColumn': '删除列',
+    'table.alignLeft': '左对齐',
+    'table.alignCenter': '居中对齐',
+    'table.alignRight': '右对齐',
+    'table.resizeTable': '调整表格',
+    'table.deleteTable': '删除整表',
+    'table.btnRow': '+ 行',
+    'table.btnCol': '+ 列',
+    'table.btnDelRow': '- 行',
+    'table.btnDelCol': '- 列',
+    'table.btnResize': '调整',
+    'table.btnDelete': '删除表格',
+    'table.gridFooter': '{rows} 行 × {cols} 列',
   }
 };
 
 type Listener = (locale: string) => void;
+
+export function translate(locale: string, key: string, variables?: Record<string, string>): string {
+  const dict = dictionaries[locale] || dictionaries['en-US'];
+  let str = dict?.[key];
+  if (str === undefined) {
+    str = dictionaries['en-US']?.[key];
+  }
+  if (str === undefined) {
+    return key;
+  }
+
+  if (variables) {
+    return str.replace(/\{(\w+)\}/g, (match, p1) => {
+      return variables[p1] ?? match;
+    });
+  }
+
+  return str;
+}
 
 export class LocaleManager {
   private currentLocale = 'en-US';
@@ -93,22 +144,7 @@ export class LocaleManager {
   }
 
   t(key: string, variables?: Record<string, string>): string {
-    const dict = dictionaries[this.currentLocale] || dictionaries['en-US'];
-    let str = dict?.[key];
-    if (str === undefined) {
-      str = dictionaries['en-US']?.[key];
-    }
-    if (str === undefined) {
-      return key;
-    }
-
-    if (variables) {
-      return str.replace(/\{(\w+)\}/g, (match, p1) => {
-        return variables[p1] ?? match;
-      });
-    }
-
-    return str;
+    return translate(this.currentLocale, key, variables);
   }
 
   subscribe(listener: Listener): () => void {

@@ -434,8 +434,8 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     const bodyClass = await activeApp.evaluate('document.body.className');
     expect(bodyClass).not.toContain('theme-dark');
 
-    // Open Command Palette: Mod-Shift-P
-    await activeApp.pressKey('p', { ctrl: true, shift: true });
+    // Open Command Palette: Mod-K
+    await activeApp.pressKey('k', { ctrl: true });
     await activeApp.waitForSelector('.nexus-command-palette', 15000);
     await new Promise(r => setTimeout(r, 200));
 

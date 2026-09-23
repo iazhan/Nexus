@@ -425,6 +425,278 @@ export const nexusBaseTheme = EditorView.theme({
     borderBottomLeftRadius: "6px",
     borderBottomRightRadius: "6px"
   },
+  // Table visual styling & floating controls
+  ".cm-visual-table-container": {
+    position: "relative",
+    margin: "24px 0",
+    overflow: "visible",
+    boxSizing: "border-box",
+    maxWidth: "100%"
+  },
+  ".cm-visual-table-scroll": {
+    position: "relative",
+    overflowX: "auto",
+    width: "100%",
+    maxWidth: "100%",
+    boxSizing: "border-box",
+    borderRadius: "6px",
+    "&::-webkit-scrollbar": {
+      height: "6px",
+      width: "6px"
+    },
+    "&::-webkit-scrollbar-track": {
+      background: "transparent"
+    },
+    "&::-webkit-scrollbar-thumb": {
+      background: "var(--nexus-border-subtle, rgba(0, 0, 0, 0.15))",
+      borderRadius: "3px"
+    },
+    "&::-webkit-scrollbar-thumb:hover": {
+      background: "var(--nexus-border-strong, rgba(0, 0, 0, 0.3))"
+    }
+  },
+  ".cm-visual-table": {
+    borderCollapse: "separate",
+    borderSpacing: "0",
+    width: "100%",
+    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    borderRadius: "6px",
+    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    tableLayout: "auto"
+  },
+  ".cm-visual-table th": {
+    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    color: "var(--nexus-text-primary, #1e293b)",
+    fontWeight: "600",
+    padding: "8px 12px",
+    borderBottom: "2px solid var(--nexus-border-strong, #cbd5e1)",
+    borderRight: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    minWidth: "3.5em",
+    minHeight: "1.6em",
+    textAlign: "left",
+    boxSizing: "border-box",
+    cursor: "cell",
+    userSelect: "text",
+    "&:last-child": {
+      borderRight: "none"
+    }
+  },
+  ".cm-visual-table td": {
+    padding: "8px 12px",
+    borderBottom: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    borderRight: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    minWidth: "3.5em",
+    minHeight: "1.6em",
+    color: "var(--nexus-text-primary, #1e293b)",
+    boxSizing: "border-box",
+    cursor: "cell",
+    userSelect: "text",
+    transition: "background-color 0.15s ease, outline 0.1s ease",
+    "&:last-child": {
+      borderRight: "none"
+    },
+    "&:hover": {
+      backgroundColor: "var(--nexus-bg-surface-hover, rgba(0, 0, 0, 0.03))"
+    },
+    "&.is-active, &:focus-within": {
+      outline: "2px solid var(--nexus-accent-primary, #3b82f6)",
+      outlineOffset: "-2px"
+    }
+  },
+  ".cm-visual-table tr:last-child td": {
+    borderBottom: "none"
+  },
+  ".cm-table-cell-placeholder": {
+    color: "var(--nexus-text-muted, #94a3b8)",
+    opacity: "0.4",
+    pointerEvents: "none",
+    userSelect: "none",
+    display: "inline-block",
+    minWidth: "1em",
+    minHeight: "1.2em"
+  },
+  ".cm-table-cell-editor": {
+    width: "100%",
+    boxSizing: "border-box",
+    background: "transparent",
+    border: "none",
+    outline: "none",
+    color: "inherit",
+    font: "inherit",
+    padding: "0",
+    margin: "0"
+  },
+
+  // Floating toolbar
+  ".cm-table-toolbar, .cm-table-floating-toolbar": {
+    position: "absolute",
+    top: "-38px",
+    left: "0",
+    zIndex: "20",
+    display: "flex",
+    alignItems: "center",
+    gap: "3px",
+    padding: "3px 6px",
+    borderRadius: "6px",
+    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    backdropFilter: "blur(8px)",
+    WebkitBackdropFilter: "blur(8px)",
+    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)",
+    opacity: "0",
+    pointerEvents: "none",
+    transition: "opacity 0.15s ease, transform 0.15s ease",
+    transform: "translateY(2px)"
+  },
+  ".cm-visual-table-container:hover .cm-table-toolbar, .cm-visual-table-container:hover .cm-table-floating-toolbar, .cm-visual-table-container:focus-within .cm-table-toolbar, .cm-visual-table-container:focus-within .cm-table-floating-toolbar, .cm-table-toolbar.is-open, .cm-table-floating-toolbar.is-open": {
+    opacity: "1 !important",
+    pointerEvents: "auto !important",
+    transform: "translateY(0)"
+  },
+  ".cm-table-toolbar button, .cm-table-floating-toolbar button": {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "4px",
+    height: "24px",
+    padding: "0 6px",
+    borderRadius: "4px",
+    border: "1px solid transparent",
+    backgroundColor: "transparent",
+    color: "var(--nexus-text-secondary, #64748b)",
+    fontSize: "12px",
+    cursor: "pointer",
+    boxSizing: "border-box",
+    transition: "all 0.15s ease",
+    "&:hover:not(:disabled)": {
+      backgroundColor: "var(--nexus-bg-surface-hover, rgba(0, 0, 0, 0.05))",
+      color: "var(--nexus-text-primary, #0f172a)"
+    },
+    "&:disabled": {
+      opacity: "0.35",
+      cursor: "not-allowed"
+    },
+    "&.is-active": {
+      backgroundColor: "var(--nexus-bg-surface-active, rgba(59, 130, 246, 0.1))",
+      color: "var(--nexus-accent-primary, #3b82f6)",
+      borderColor: "var(--nexus-border-subtle, #e2e8f0)",
+      fontWeight: "500"
+    }
+  },
+  ".cm-table-btn-del-table": {
+    color: "var(--nexus-status-error, #ef4444) !important",
+    "&:hover:not(:disabled)": {
+      backgroundColor: "var(--nexus-status-error-bg, rgba(239, 68, 68, 0.1)) !important",
+      color: "var(--nexus-status-error, #ef4444) !important"
+    }
+  },
+
+  // 8x10 Grid Resizer popover
+  ".cm-table-grid-popover": {
+    position: "absolute",
+    top: "calc(100% + 6px)",
+    left: "0",
+    zIndex: "35",
+    backgroundColor: "var(--nexus-bg-surface, #ffffff)",
+    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    borderRadius: "8px",
+    padding: "8px",
+    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
+    display: "none",
+    flexDirection: "column",
+    gap: "6px",
+    userSelect: "none",
+    "&.is-visible": {
+      display: "flex"
+    }
+  },
+  ".cm-table-grid-matrix": {
+    display: "grid",
+    gridTemplateColumns: "repeat(8, 16px)",
+    gridGap: "3px"
+  },
+  ".cm-table-grid-cell": {
+    width: "16px",
+    height: "16px",
+    borderRadius: "2px",
+    border: "1px solid var(--nexus-border-subtle, #cbd5e1)",
+    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    cursor: "pointer",
+    transition: "background-color 0.1s ease, border-color 0.1s ease",
+    "&.is-highlighted": {
+      backgroundColor: "var(--nexus-accent-primary, #3b82f6)",
+      borderColor: "var(--nexus-accent-primary, #3b82f6)",
+      opacity: "0.85"
+    }
+  },
+  ".cm-table-grid-footer": {
+    fontSize: "11px",
+    color: "var(--nexus-text-muted, #94a3b8)",
+    textAlign: "center",
+    fontVariantNumeric: "tabular-nums"
+  },
+
+  // Floating hover handles (+ buttons)
+  ".cm-table-handle-add-col": {
+    position: "absolute",
+    right: "-14px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: "22px",
+    height: "28px",
+    borderRadius: "4px",
+    backgroundColor: "var(--nexus-bg-surface, #ffffff)",
+    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.08)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    opacity: "0",
+    transition: "opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease",
+    zIndex: "15",
+    fontSize: "14px",
+    fontWeight: "bold",
+    color: "var(--nexus-text-secondary, #64748b)"
+  },
+  ".cm-visual-table-container:hover .cm-table-handle-add-col": {
+    opacity: "0.75"
+  },
+  ".cm-table-handle-add-col:hover": {
+    opacity: "1 !important",
+    backgroundColor: "var(--nexus-bg-surface-hover, #f1f5f9)",
+    color: "var(--nexus-accent-primary, #3b82f6)"
+  },
+  ".cm-table-handle-add-row": {
+    position: "absolute",
+    bottom: "-14px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "28px",
+    height: "22px",
+    borderRadius: "4px",
+    backgroundColor: "var(--nexus-bg-surface, #ffffff)",
+    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.08)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    opacity: "0",
+    transition: "opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease",
+    zIndex: "15",
+    fontSize: "14px",
+    fontWeight: "bold",
+    color: "var(--nexus-text-secondary, #64748b)"
+  },
+  ".cm-visual-table-container:hover .cm-table-handle-add-row": {
+    opacity: "0.75"
+  },
+  ".cm-table-handle-add-row:hover": {
+    opacity: "1 !important",
+    backgroundColor: "var(--nexus-bg-surface-hover, #f1f5f9)",
+    color: "var(--nexus-accent-primary, #3b82f6)"
+  },
   
   // Extensions status
   ".nexus-ext-loading": {

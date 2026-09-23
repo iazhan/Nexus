@@ -16,7 +16,11 @@ import {
   sessionDocSyncAnnotation,
   sessionSelectionSyncAnnotation
 } from './document-session.js';
-import { getSourceEditorExtensions } from './source-editor.js';
+import {
+  getSourceEditorExtensions,
+  editorLocaleCompartment,
+  editorLocaleFacet
+} from './source-editor.js';
 import { visualProjectionExtensions, documentDirectoryField } from './visual-projection.js';
 import { visualCommandsExtension } from './visual-commands.js';
 import { createVisualDragExtension } from './drag-handle.js';
@@ -40,6 +44,7 @@ export interface CreateSessionEditorStateOptions {
   extensionHost?: import('./extensions.js').ExtensionHost;
   onSelectionChange?: (selection: MarkdownSelection) => void;
   theme?: 'light' | 'dark';
+  locale?: string;
 }
 
 export interface CreateSessionEditorViewOptions extends CreateSessionEditorStateOptions {
@@ -359,6 +364,7 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
         surfaceId: options.surfaceId,
         readOnly: options.readOnly
       }),
+      editorLocaleCompartment.of(editorLocaleFacet.of(options.locale ?? 'zh-CN')),
       ...visualExtensions,
       ...sourceExtensions,
       ...createSessionSurfaceExtensions(options)

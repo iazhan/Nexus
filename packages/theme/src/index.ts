@@ -143,7 +143,9 @@ type Listener = (theme: ThemeDefinition) => void;
   }
 
   setTheme(themeId: string): void {
-    const theme = this.presets.get(themeId);
+    const theme =
+      this.presets.get(themeId) ||
+      (themeId === 'dark' ? this.presets.get('nexus-dark') : themeId === 'light' ? this.presets.get('nexus-light') : undefined);
     if (!theme) return;
     
     if (this.activeTheme.id !== theme.id) {

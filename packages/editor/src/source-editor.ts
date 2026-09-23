@@ -1,4 +1,4 @@
-import { EditorState, Compartment, type Extension } from '@codemirror/state';
+import { EditorState, Compartment, Facet, type Extension } from '@codemirror/state';
 import { EditorView, lineNumbers, keymap } from '@codemirror/view';
 export { EditorView } from '@codemirror/view';
 export { EditorState } from '@codemirror/state';
@@ -19,6 +19,11 @@ import { extensionHostFacet } from './extensions.js';
 export const readOnlyCompartment = new Compartment();
 export const editableCompartment = new Compartment();
 export const themeCompartment = new Compartment();
+export const editorLocaleCompartment = new Compartment();
+
+export const editorLocaleFacet = Facet.define<string, string>({
+  combine: (values) => values[0] || 'zh-CN'
+});
 
 /**
  * Builds the standard extensions array for Nexus Markdown Source Mode.
@@ -118,6 +123,17 @@ export function setEditorThemeConfig(view: EditorView, _theme: 'light' | 'dark')
   view.dispatch({
     effects: [
       themeCompartment.reconfigure(getEditorTheme())
+    ]
+  });
+}
+
+/**
+ * Reconfigures the locale of an existing EditorView.
+ */
+export function setEditorLocale(view: EditorView, locale: string): void {
+  view.dispatch({
+    effects: [
+      editorLocaleCompartment.reconfigure(editorLocaleFacet.of(locale))
     ]
   });
 }

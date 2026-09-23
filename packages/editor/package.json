@@ -31,6 +31,7 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.0",
     "@lezer/highlight": "^1.2.1",
+    "@nexus/i18n": "workspace:*",
     "@nexus/markdown": "workspace:*"
   },
   "devDependencies": {

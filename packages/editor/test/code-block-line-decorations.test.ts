@@ -319,7 +319,9 @@ describe('Phase 1 - Code Block Line Decorations (Slice 1)', () => {
     parent.remove();
   });
 
-  it('resolves hand-written C# / C++ / lowercase aliases to a grammar and canonical preset option', () => {
+  it('resolves hand-written C# / C++ / lowercase aliases to a grammar and canonical preset option', async () => {
+    await Promise.all(['csharp', 'cpp'].map(ensureLanguageLoaded));
+
     const cFamilySource = [
       '# C Family',
       '',

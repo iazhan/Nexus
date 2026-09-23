@@ -514,7 +514,7 @@ export const App: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
 
-      if (matchesShortcut(e, 'Mod-K') || matchesShortcut(e, 'Mod-Shift-P')) {
+      if (matchesShortcut(e, 'Mod-K')) {
         e.preventDefault();
         setCommandPaletteOpen(true);
         return;
@@ -945,6 +945,7 @@ export const App: React.FC = () => {
             documentDirectory={getDocumentDirectory(filePath)}
             extensionHost={extensionHostRef.current ?? undefined}
             theme={theme.type}
+            locale={locale}
             onChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
             className="nexus-editor-full"

@@ -40,11 +40,13 @@ export interface TableCellContext {
  * 表格编辑操作类型与参数。
  */
 export interface TableEditValue {
-  kind: 'edit-cell' | 'add-row' | 'delete-row' | 'add-col' | 'delete-col' | 'set-align';
+  kind: 'edit-cell' | 'add-row' | 'delete-row' | 'add-col' | 'delete-col' | 'set-align' | 'resize' | 'delete';
   rowIndex?: number;
   colIndex?: number;
   value?: string;
   align?: 'left' | 'center' | 'right' | null;
+  targetRows?: number;
+  targetCols?: number;
 }
 
 export type TableEditTransaction = MarkdownEditTransaction;
@@ -246,7 +248,8 @@ export type TableVerificationCriteria =
   | { op: 'delete-row'; expectedRowCount: number; originalContext?: TableContext }
   | { op: 'add-column'; expectedColCount: number; targetColIndex?: number; originalContext?: TableContext }
   | { op: 'delete-column'; expectedColCount: number; targetColIndex?: number; originalContext?: TableContext }
-  | { op: 'set-align'; colIndex: number; expectedAlign: 'left' | 'center' | 'right' | null; originalContext?: TableContext };
+  | { op: 'set-align'; colIndex: number; expectedAlign: 'left' | 'center' | 'right' | null; originalContext?: TableContext }
+  | { op: 'resize'; expectedRowCount: number; expectedColCount: number; originalContext?: TableContext };
 
 /**
  * 校验候选 Markdown 文本重新解析后是否依然在对应位置形成合法表格，并按操作精确验证语义：
@@ -418,6 +421,29 @@ export function verifyCandidateTable(
           }
           case 'set-align': {
             if (child.align[criteria.colIndex] !== criteria.expectedAlign) return false;
+            break;
+          }
+          case 'resize': {
+            if (child.rows.length !== criteria.expectedRowCount) return false;
+            if (child.headers.length !== criteria.expectedColCount) return false;
+            if (child.align.length !== criteria.expectedColCount) return false;
+            if (criteria.originalContext) {
+              const orig = criteria.originalContext;
+              const minCols = Math.min(orig.headers.length, criteria.expectedColCount);
+              for (let c = 0; c < minCols; c++) {
+                if (decode(getCellVal(child.headers[c])) !== decode(getCellVal(orig.headers[c]))) return false;
+              }
+              const minRows = Math.min(orig.rows.length, criteria.expectedRowCount);
+              for (let r = 0; r < minRows; r++) {
+                const origRow = orig.rows[r] ?? [];
+                const childRow = child.rows[r] ?? [];
+                for (let c = 0; c < minCols; c++) {
+                  if (c < origRow.length && c < childRow.length) {
+                    if (decode(getCellVal(childRow[c])) !== decode(getCellVal(origRow[c]))) return false;
+                  }
+                }
+              }
+            }
             break;
           }
         }
@@ -852,5 +878,148 @@ export function createTableSetAlignTransaction(
   return {
     changes: [{ from: targetFrom, to: targetTo, insert: marker }],
     userEvent: 'table.set-align'
+  };
+}
+
+/**
+ * 创建删除整张表格的事务。
+ * 清除表格的所有源码行（含尾随换行符）。
+ */
+export function createTableDeleteTransaction(
+  source: string,
+  context: TableContext
+): TableEditTransaction | null {
+  if (source !== context.source) return null;
+  if (source.slice(context.tableRange.from, context.tableRange.to) !== context.raw) {
+    return null;
+  }
+
+  const delFrom = context.tableRange.from;
+  const delTo = context.tableRange.to;
+
+  const changes: MarkdownChange[] = [{ from: delFrom, to: delTo, insert: '' }];
+  const candidate = applyChangesToSource(source, changes);
+
+  // 校验：表格已被完全移除，且剩余文本能被正常解析
+  const { root } = parseMarkdown(candidate);
+  let tableStillExists = false;
+  walkBlockNodes(root.children, (child) => {
+    if (child.type === 'table' && child.range.from === delFrom && child.raw === context.raw) {
+      tableStillExists = true;
+      return true;
+    }
+    return false;
+  });
+  if (tableStillExists) return null;
+
+  return {
+    changes,
+    userEvent: 'table.delete'
+  };
+}
+
+/**
+ * 创建调整表格尺寸（行列数）的事务。
+ * targetRows 表示总行数（含表头，即 1 行表头 + (targetRows - 1) 行数据行，最小为 1）。
+ * targetCols 表示总列数（最小为 1）。
+ * 调整时保留原有重叠区域单元格的文本内容与对齐设置。
+ */
+export function createTableResizeTransaction(
+  source: string,
+  context: TableContext,
+  targetRows: number,
+  targetCols: number
+): TableEditTransaction | null {
+  if (source !== context.source) return null;
+  if (source.slice(context.tableRange.from, context.tableRange.to) !== context.raw) {
+    return null;
+  }
+  if (targetRows < 1 || targetCols < 1) return null;
+
+  const targetDataRows = targetRows - 1;
+  const curCols = context.headers.length;
+  const curDataRows = context.rows.length;
+
+  if (targetDataRows === curDataRows && targetCols === curCols) {
+    return null;
+  }
+
+  const lines = splitTableLines(context.raw, context.tableRange.from);
+  if (lines.length < 2) return null;
+
+  const prefixMatch = lines[0]!.text.match(/^([ \t]*(?:>[ \t]*)*)/);
+  const quotePrefix = prefixMatch ? prefixMatch[0]! : '';
+
+  const origHeaderCells = getRawTableLineCells(lines[0]!.text).cells;
+
+  // 1. 构建新表头行
+  const newHeaderCells: string[] = [];
+  for (let c = 0; c < targetCols; c++) {
+    if (c < origHeaderCells.length) {
+      const orig = origHeaderCells[c]!;
+      newHeaderCells.push(orig.trim() ? ` ${orig.trim()} ` : '   ');
+    } else {
+      newHeaderCells.push('   ');
+    }
+  }
+  const newHeaderLine = `${quotePrefix}|${newHeaderCells.join('|')}|`;
+
+  // 2. 构建新分隔行
+  const newDelimCells: string[] = [];
+  for (let c = 0; c < targetCols; c++) {
+    const align = c < context.align.length ? context.align[c] : null;
+    if (align === 'center') newDelimCells.push(' :---: ');
+    else if (align === 'right') newDelimCells.push(' ---: ');
+    else if (align === 'left') newDelimCells.push(' :--- ');
+    else newDelimCells.push(' --- ');
+  }
+  const newDelimLine = `${quotePrefix}|${newDelimCells.join('|')}|`;
+
+  // 3. 构建新数据行
+  const newDataLines: string[] = [];
+  for (let r = 0; r < targetDataRows; r++) {
+    const rowCells: string[] = [];
+    if (r < curDataRows && 2 + r < lines.length) {
+      const origRowCells = getRawTableLineCells(lines[2 + r]!.text).cells;
+      for (let c = 0; c < targetCols; c++) {
+        if (c < origRowCells.length) {
+          const orig = origRowCells[c]!;
+          rowCells.push(orig.trim() ? ` ${orig.trim()} ` : '   ');
+        } else {
+          rowCells.push('   ');
+        }
+      }
+    } else {
+      for (let c = 0; c < targetCols; c++) {
+        rowCells.push('   ');
+      }
+    }
+    newDataLines.push(`${quotePrefix}|${rowCells.join('|')}|`);
+  }
+
+  const newline = context.raw.includes('\r\n') ? '\r\n' : '\n';
+  const hasTrailingNl = context.raw.endsWith('\n');
+  const allLines = [newHeaderLine, newDelimLine, ...newDataLines];
+  const newTableRaw = allLines.join(newline) + (hasTrailingNl ? newline : '');
+
+  const changes: MarkdownChange[] = [
+    { from: context.tableRange.from, to: context.tableRange.to, insert: newTableRaw }
+  ];
+
+  const candidate = applyChangesToSource(source, changes);
+  if (
+    !verifyCandidateTable(candidate, context.tableRange.from, {
+      op: 'resize',
+      expectedRowCount: targetDataRows,
+      expectedColCount: targetCols,
+      originalContext: context
+    })
+  ) {
+    return null;
+  }
+
+  return {
+    changes,
+    userEvent: 'table.resize'
   };
 }

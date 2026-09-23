@@ -5,6 +5,7 @@ import {
   setEditorReadOnly,
   setDocumentDirectory,
   setEditorThemeConfig,
+  setEditorLocale,
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo,
@@ -24,6 +25,7 @@ export interface SourceEditorProps {
   documentDirectory?: string | null;
   extensionHost?: import('@nexus/editor').ExtensionHost;
   theme?: 'light' | 'dark';
+  locale?: string;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
   className?: string;
@@ -41,6 +43,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   documentDirectory,
   extensionHost,
   theme,
+  locale,
   onChange,
   onSelectionChange,
   className
@@ -82,6 +85,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       documentDirectory,
       extensionHost,
       theme,
+      locale,
       onSelectionChange: () => {
         const view = handleRef.current?.view;
         if (view) {
@@ -128,6 +132,17 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       }
     }
   }, [theme]);
+
+  // Dynamic locale configuration
+  const prevLocaleRef = useRef(locale);
+  useEffect(() => {
+    if (prevLocaleRef.current !== locale) {
+      prevLocaleRef.current = locale;
+      if (handleRef.current && locale) {
+        setEditorLocale(handleRef.current.view, locale);
+      }
+    }
+  }, [locale]);
 
   // Dynamic document directory configuration
   const prevDocDirRef = useRef(documentDirectory);

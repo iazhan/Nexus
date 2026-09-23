@@ -41,6 +41,8 @@ import {
   createTableDeleteColumnTransaction,
   createTableSetAlignTransaction,
   createTableCellEditTransaction,
+  createTableDeleteTransaction,
+  createTableResizeTransaction,
   splitTableLines,
   type TableCellContext
 } from './table-edit.js';
@@ -56,6 +58,8 @@ import {
   DEFAULT_CODE_LANGUAGES,
   normalizeLanguage
 } from './code-highlight.js';
+import { translate } from '@nexus/i18n';
+import { editorLocaleFacet } from './source-editor.js';
 
 /** 注册到单个 EditorView 的可关闭子编辑器。 */
 interface ActiveSubEditor {
@@ -201,8 +205,22 @@ export const visualFocusPlugin = ViewPlugin.fromClass(
       if (event.relatedTarget && this.view.dom.contains(event.relatedTarget as Node)) {
         return;
       }
+      if (!this.view.dom.isConnected) return;
+      if (this.view.dom.contains(document.activeElement)) return;
       if (this.view.state.field(visualFocusField, false)) {
-        this.view.dispatch({ effects: setVisualFocusEffect.of(false) });
+        try {
+          this.view.dispatch({ effects: setVisualFocusEffect.of(false) });
+        } catch {
+          queueMicrotask(() => {
+            if (
+              this.view.dom.isConnected &&
+              !this.view.dom.contains(document.activeElement) &&
+              this.view.state.field(visualFocusField, false)
+            ) {
+              this.view.dispatch({ effects: setVisualFocusEffect.of(false) });
+            }
+          });
+        }
       }
     };
     destroy() {
@@ -780,6 +798,12 @@ export class TaskCheckboxWidget extends WidgetType {
   }
 }
 
+const TABLE_ALIGN_LEFT_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="15" y1="12" x2="3" y2="12"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>`;
+const TABLE_ALIGN_CENTER_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="19" y1="12" x2="5" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>`;
+const TABLE_ALIGN_RIGHT_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="9" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>`;
+const TABLE_GRID_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>`;
+const TABLE_TRASH_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+
 export class TableBlockWidget extends WidgetType {
   public constructor(
     public readonly from: number,
@@ -787,7 +811,8 @@ export class TableBlockWidget extends WidgetType {
     public readonly raw: string,
     public readonly headers: MarkdownInlineNode[][],
     public readonly rows: MarkdownInlineNode[][][],
-    public readonly align: ('left' | 'center' | 'right' | null)[]
+    public readonly align: ('left' | 'center' | 'right' | null)[],
+    public readonly locale: string = 'zh-CN'
   ) {
     super();
   }
@@ -801,58 +826,185 @@ export class TableBlockWidget extends WidgetType {
       other instanceof TableBlockWidget &&
       other.from === this.from &&
       other.to === this.to &&
-      other.raw === this.raw
+      other.raw === this.raw &&
+      other.locale === this.locale
     );
   }
 
   public toDOM(view: EditorView): HTMLElement {
     const container = document.createElement('div');
     container.className = 'cm-visual-table-container';
+    container.dataset.tableFrom = String(this.from);
+
+    const t = (key: string, vars?: Record<string, string>) => translate(this.locale, key, vars);
 
     const toolbar = document.createElement('div');
-    toolbar.className = 'cm-table-toolbar';
+    toolbar.className = 'cm-table-toolbar cm-table-floating-toolbar';
 
     const addRowBtn = document.createElement('button');
     addRowBtn.type = 'button';
     addRowBtn.className = 'cm-table-btn-add-row';
-    addRowBtn.textContent = '+ Row';
+    addRowBtn.dataset.tableAction = 'add-row';
+    addRowBtn.title = t('table.addRow');
+    addRowBtn.textContent = t('table.btnRow');
 
     const addColBtn = document.createElement('button');
     addColBtn.type = 'button';
     addColBtn.className = 'cm-table-btn-add-col';
-    addColBtn.textContent = '+ Col';
+    addColBtn.dataset.tableAction = 'add-column';
+    addColBtn.title = t('table.addColumn');
+    addColBtn.textContent = t('table.btnCol');
 
     const delRowBtn = document.createElement('button');
     delRowBtn.type = 'button';
     delRowBtn.className = 'cm-table-btn-del-row';
     delRowBtn.dataset.tableAction = 'delete-row';
-    delRowBtn.textContent = '- Row';
+    delRowBtn.title = t('table.deleteRow');
+    delRowBtn.textContent = t('table.btnDelRow');
 
     const delColBtn = document.createElement('button');
     delColBtn.type = 'button';
     delColBtn.className = 'cm-table-btn-del-col';
     delColBtn.dataset.tableAction = 'delete-column';
-    delColBtn.textContent = '- Col';
+    delColBtn.title = t('table.deleteColumn');
+    delColBtn.textContent = t('table.btnDelCol');
 
     const alignLeftBtn = document.createElement('button');
     alignLeftBtn.type = 'button';
     alignLeftBtn.className = 'cm-table-btn-align-left';
     alignLeftBtn.dataset.tableAction = 'align-left';
-    alignLeftBtn.textContent = 'Align Left';
+    alignLeftBtn.title = t('table.alignLeft');
+    alignLeftBtn.innerHTML = `${TABLE_ALIGN_LEFT_ICON_SVG}<span class="cm-table-btn-text">${t('table.alignLeft')}</span>`;
 
     const alignCenterBtn = document.createElement('button');
     alignCenterBtn.type = 'button';
     alignCenterBtn.className = 'cm-table-btn-align-center';
     alignCenterBtn.dataset.tableAction = 'align-center';
-    alignCenterBtn.textContent = 'Align Center';
+    alignCenterBtn.title = t('table.alignCenter');
+    alignCenterBtn.innerHTML = `${TABLE_ALIGN_CENTER_ICON_SVG}<span class="cm-table-btn-text">${t('table.alignCenter')}</span>`;
 
     const alignRightBtn = document.createElement('button');
     alignRightBtn.type = 'button';
     alignRightBtn.className = 'cm-table-btn-align-right';
     alignRightBtn.dataset.tableAction = 'align-right';
-    alignRightBtn.textContent = 'Align Right';
+    alignRightBtn.title = t('table.alignRight');
+    alignRightBtn.innerHTML = `${TABLE_ALIGN_RIGHT_ICON_SVG}<span class="cm-table-btn-text">${t('table.alignRight')}</span>`;
+
+    const gridPickerBtn = document.createElement('button');
+    gridPickerBtn.type = 'button';
+    gridPickerBtn.className = 'cm-table-btn-grid-picker';
+    gridPickerBtn.dataset.tableAction = 'grid-picker';
+    gridPickerBtn.title = t('table.resizeTable');
+    gridPickerBtn.innerHTML = `${TABLE_GRID_ICON_SVG}<span class="cm-table-btn-text">${t('table.btnResize')}</span>`;
+
+    const delTableBtn = document.createElement('button');
+    delTableBtn.type = 'button';
+    delTableBtn.className = 'cm-table-btn-del-table';
+    delTableBtn.dataset.tableAction = 'delete-table';
+    delTableBtn.title = t('table.deleteTable');
+    delTableBtn.innerHTML = `${TABLE_TRASH_ICON_SVG}<span class="cm-table-btn-text">${t('table.btnDelete')}</span>`;
+
+    // 8x10 Grid Resizer popover
+    const gridPopover = document.createElement('div');
+    gridPopover.className = 'cm-table-grid-popover';
+
+    const gridMatrix = document.createElement('div');
+    gridMatrix.className = 'cm-table-grid-matrix';
+
+    const gridFooter = document.createElement('div');
+    gridFooter.className = 'cm-table-grid-footer';
+
+    const MAX_ROWS = 10;
+    const MAX_COLS = 8;
+    const gridCells: HTMLDivElement[][] = [];
+
+    for (let r = 0; r < MAX_ROWS; r++) {
+      gridCells[r] = [];
+      for (let c = 0; c < MAX_COLS; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'cm-table-grid-cell';
+        cell.dataset.row = String(r);
+        cell.dataset.col = String(c);
+        gridMatrix.appendChild(cell);
+        gridCells[r]![c] = cell;
+      }
+    }
+
+    const highlightGrid = (rows: number, cols: number) => {
+      for (let r = 0; r < MAX_ROWS; r++) {
+        for (let c = 0; c < MAX_COLS; c++) {
+          gridCells[r]![c]!.classList.toggle('is-highlighted', r < rows && c < cols);
+        }
+      }
+      gridFooter.textContent = t('table.gridFooter', { rows: String(rows), cols: String(cols) });
+    };
+
+    gridMatrix.addEventListener('mousemove', (e) => {
+      const target = (e.target as HTMLElement).closest('.cm-table-grid-cell') as HTMLElement | null;
+      if (!target) return;
+      const r = parseInt(target.dataset.row ?? '0', 10);
+      const c = parseInt(target.dataset.col ?? '0', 10);
+      highlightGrid(r + 1, c + 1);
+    });
+
+    gridMatrix.addEventListener('mouseleave', () => {
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const curRows = Math.min(MAX_ROWS, 1 + currentWidget.rows.length);
+      const curCols = Math.min(MAX_COLS, currentWidget.headers.length);
+      highlightGrid(curRows, curCols);
+    });
+
+    gridMatrix.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const target = (e.target as HTMLElement).closest('.cm-table-grid-cell') as HTMLElement | null;
+      if (!target || view.state.readOnly) return;
+      const targetRows = parseInt(target.dataset.row ?? '0', 10) + 1;
+      const targetCols = parseInt(target.dataset.col ?? '0', 10) + 1;
+      gridPopover.classList.remove('is-visible');
+
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const source = view.state.doc.toString();
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
+      if (tableCtx) {
+        const tx = createTableResizeTransaction(source, tableCtx, targetRows, targetCols);
+        if (tx) {
+          view.dispatch({
+            changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+            userEvent: tx.userEvent
+          });
+        }
+      }
+    });
+
+    gridPickerBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const isVisible = gridPopover.classList.contains('is-visible');
+      if (isVisible) {
+        gridPopover.classList.remove('is-visible');
+      } else {
+        const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+        const curRows = Math.min(MAX_ROWS, 1 + currentWidget.rows.length);
+        const curCols = Math.min(MAX_COLS, currentWidget.headers.length);
+        highlightGrid(curRows, curCols);
+        gridPopover.classList.add('is-visible');
+      }
+    });
+
+    gridPopover.appendChild(gridMatrix);
+    gridPopover.appendChild(gridFooter);
+
+    const onDocClick = (e: MouseEvent) => {
+      if (!gridPopover.contains(e.target as Node) && !gridPickerBtn.contains(e.target as Node)) {
+        gridPopover.classList.remove('is-visible');
+      }
+    };
+    document.addEventListener('click', onDocClick);
+    (container as any).__nexusTableDocClickHandler = onDocClick;
 
     (container as any).__nexusTableWidget = this;
+    (container as any).__nexusTableLocale = this.locale;
 
     const updateButtons = () => {
       const isRo = view.state.readOnly;
@@ -870,6 +1022,16 @@ export class TableBlockWidget extends WidgetType {
       alignLeftBtn.disabled = isRo || activeCol === null;
       alignCenterBtn.disabled = isRo || activeCol === null;
       alignRightBtn.disabled = isRo || activeCol === null;
+      delTableBtn.disabled = isRo;
+      gridPickerBtn.disabled = isRo;
+
+      const currentAlign =
+        activeCol !== null && currentWidget.align && activeCol < currentWidget.align.length
+          ? currentWidget.align[activeCol]
+          : null;
+      alignLeftBtn.classList.toggle('is-active', currentAlign === 'left');
+      alignCenterBtn.classList.toggle('is-active', currentAlign === 'center');
+      alignRightBtn.classList.toggle('is-active', currentAlign === 'right');
     };
 
     (container as any).__nexusUpdateTableToolbar = updateButtons;
@@ -954,6 +1116,25 @@ export class TableBlockWidget extends WidgetType {
       }
     });
 
+    delTableBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (view.state.readOnly) return;
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const source = view.state.doc.toString();
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
+      if (tableCtx) {
+        const tx = createTableDeleteTransaction(source, tableCtx);
+        if (tx) {
+          view.dispatch({
+            changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+            userEvent: tx.userEvent,
+            effects: setTableTargetEffect.of(null)
+          });
+        }
+      }
+    });
+
     const createAlignHandler = (align: 'left' | 'center' | 'right') => (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
@@ -988,10 +1169,64 @@ export class TableBlockWidget extends WidgetType {
     toolbar.appendChild(alignLeftBtn);
     toolbar.appendChild(alignCenterBtn);
     toolbar.appendChild(alignRightBtn);
+    toolbar.appendChild(gridPickerBtn);
+    toolbar.appendChild(delTableBtn);
+    toolbar.appendChild(gridPopover);
     container.appendChild(toolbar);
 
+    // Floating hover handles for adding rows and columns
+    const handleAddRow = document.createElement('div');
+    handleAddRow.className = 'cm-table-handle-add-row';
+    handleAddRow.title = t('table.addRow');
+    handleAddRow.textContent = '+';
+    handleAddRow.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (view.state.readOnly) return;
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const source = view.state.doc.toString();
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
+      if (tableCtx) {
+        const tx = createTableAddRowTransaction(source, tableCtx);
+        if (tx) {
+          view.dispatch({
+            changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+            userEvent: tx.userEvent
+          });
+        }
+      }
+    });
+
+    const handleAddCol = document.createElement('div');
+    handleAddCol.className = 'cm-table-handle-add-col';
+    handleAddCol.title = t('table.addColumn');
+    handleAddCol.textContent = '+';
+    handleAddCol.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (view.state.readOnly) return;
+      const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
+      const source = view.state.doc.toString();
+      const tableCtx = findTableAtPosition(source, currentWidget.from);
+      if (tableCtx) {
+        const tx = createTableAddColumnTransaction(source, tableCtx);
+        if (tx) {
+          view.dispatch({
+            changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+            userEvent: tx.userEvent
+          });
+        }
+      }
+    });
+
+    container.appendChild(handleAddRow);
+    container.appendChild(handleAddCol);
+
+    const scrollWrap = document.createElement('div');
+    scrollWrap.className = 'cm-visual-table-scroll';
     const table = this.buildTableDOM(view, container);
-    container.appendChild(table);
+    scrollWrap.appendChild(table);
+    container.appendChild(scrollWrap);
 
     return container;
   }
@@ -1000,19 +1235,35 @@ export class TableBlockWidget extends WidgetType {
     const table = document.createElement('table');
     table.className = 'cm-visual-table';
 
+    const target = view.state.field(tableTargetField, false);
+    const activeRow = target && target.tableFrom === this.from ? target.activeRow : null;
+    const activeCol = target && target.tableFrom === this.from ? target.activeCol : null;
+
     const thead = document.createElement('thead');
     const headerTr = document.createElement('tr');
     this.headers.forEach((cell, colIdx) => {
       const th = document.createElement('th');
       th.dataset.row = '-1';
       th.dataset.col = String(colIdx);
+      if (activeRow === -1 && activeCol === colIdx) {
+        th.classList.add('is-active');
+      }
       const align = this.align[colIdx];
       if (align) th.style.textAlign = align;
-      const cellText = cell.map((node) => ('value' in node ? node.value : node.raw)).join('') || ' ';
-      th.textContent = cellText;
+      const cellText = cell.map((node) => ('value' in node ? node.value : node.raw)).join('');
+      if (cellText.trim()) {
+        th.textContent = cellText;
+      } else {
+        const placeholder = document.createElement('span');
+        placeholder.className = 'cm-table-cell-placeholder';
+        placeholder.textContent = ' ';
+        th.appendChild(placeholder);
+      }
 
       th.addEventListener('click', (e) => {
         e.stopPropagation();
+        table.querySelectorAll('.is-active').forEach((el) => el.classList.remove('is-active'));
+        th.classList.add('is-active');
         const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
         view.dispatch({
           effects: setTableTargetEffect.of({ tableFrom: currentWidget.from, activeRow: -1, activeCol: colIdx })
@@ -1035,13 +1286,25 @@ export class TableBlockWidget extends WidgetType {
         const td = document.createElement('td');
         td.dataset.row = String(rowIdx);
         td.dataset.col = String(colIdx);
+        if (activeRow === rowIdx && activeCol === colIdx) {
+          td.classList.add('is-active');
+        }
         const align = this.align[colIdx];
         if (align) td.style.textAlign = align;
-        const cellText = cell.map((node) => ('value' in node ? node.value : node.raw)).join('') || ' ';
-        td.textContent = cellText;
+        const cellText = cell.map((node) => ('value' in node ? node.value : node.raw)).join('');
+        if (cellText.trim()) {
+          td.textContent = cellText;
+        } else {
+          const placeholder = document.createElement('span');
+          placeholder.className = 'cm-table-cell-placeholder';
+          placeholder.textContent = ' ';
+          td.appendChild(placeholder);
+        }
 
         td.addEventListener('click', (e) => {
           e.stopPropagation();
+          table.querySelectorAll('.is-active').forEach((el) => el.classList.remove('is-active'));
+          td.classList.add('is-active');
           const currentWidget: TableBlockWidget = (container as any).__nexusTableWidget || this;
           view.dispatch({
             effects: setTableTargetEffect.of({ tableFrom: currentWidget.from, activeRow: rowIdx, activeCol: colIdx })
@@ -1081,7 +1344,17 @@ export class TableBlockWidget extends WidgetType {
 
     const controller = createSubEditorController(view, () => {
       // 取消、只读切换和无变更退出都恢复展示；提交后由新投影显示新正文。
-      if (cellEl.contains(input)) cellEl.textContent = initialValue;
+      if (cellEl.contains(input)) {
+        cellEl.textContent = '';
+        if (initialValue.trim()) {
+          cellEl.textContent = initialValue;
+        } else {
+          const placeholder = document.createElement('span');
+          placeholder.className = 'cm-table-cell-placeholder';
+          placeholder.textContent = ' ';
+          cellEl.appendChild(placeholder);
+        }
+      }
     });
     const { signal } = controller;
 
@@ -1153,6 +1426,17 @@ export class TableBlockWidget extends WidgetType {
       controller.close();
     };
 
+    const initialContainer = cellEl.closest('.cm-visual-table-container') as HTMLElement | null;
+    const currentTableFrom =
+      (initialContainer as any)?.__nexusTableWidget?.from ?? this.from;
+
+    const findCurrentTableContainer = (): HTMLElement | null => {
+      if (initialContainer && initialContainer.isConnected) return initialContainer;
+      return view.dom.querySelector(
+        `.cm-visual-table-container[data-table-from="${currentTableFrom}"]`
+      );
+    };
+
     input.addEventListener(
       'keydown',
       (e) => {
@@ -1161,6 +1445,24 @@ export class TableBlockWidget extends WidgetType {
           e.preventDefault();
           e.stopPropagation();
           commit();
+          const targetContainer = findCurrentTableContainer();
+          const currentWidget: TableBlockWidget =
+            (targetContainer as any)?.__nexusTableWidget || (initialContainer as any)?.__nexusTableWidget || this;
+          const nextRow = rowIndex === -1 ? 0 : rowIndex + 1;
+          if (nextRow < currentWidget.rows.length) {
+            const lifecycle = view.plugin(subEditorLifecyclePlugin);
+            const currentGen = lifecycle ? lifecycle.generation : 0;
+            queueMicrotask(() => {
+              if (!lifecycle || lifecycle.disposed || lifecycle.generation !== currentGen) return;
+              const liveContainer = findCurrentTableContainer();
+              const targetCell = liveContainer?.querySelector(
+                `.cm-visual-table [data-row="${nextRow}"][data-col="${colIndex}"]`
+              ) as HTMLElement | null;
+              if (targetCell && !view.state.readOnly) {
+                targetCell.click();
+              }
+            });
+          }
         } else if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
@@ -1169,18 +1471,86 @@ export class TableBlockWidget extends WidgetType {
           e.preventDefault();
           e.stopPropagation();
           commit();
-          const nextCol = e.shiftKey ? colIndex - 1 : colIndex + 1;
-          const lifecycle = view.plugin(subEditorLifecyclePlugin);
-          const currentGen = lifecycle ? lifecycle.generation : 0;
-          queueMicrotask(() => {
-            if (!lifecycle || lifecycle.disposed || lifecycle.generation !== currentGen) return;
-            const targetCell = view.dom.querySelector(
-              `.cm-visual-table [data-row="${rowIndex}"][data-col="${nextCol}"]`
-            ) as HTMLElement | null;
-            if (targetCell && !view.state.readOnly) {
-              targetCell.click();
+          const targetContainer = findCurrentTableContainer();
+          const currentWidget: TableBlockWidget =
+            (targetContainer as any)?.__nexusTableWidget || (initialContainer as any)?.__nexusTableWidget || this;
+          const totalCols = currentWidget.headers.length;
+          const totalRows = currentWidget.rows.length;
+
+          if (!e.shiftKey) {
+            // Check if last cell in the table
+            if (rowIndex === totalRows - 1 && colIndex === totalCols - 1) {
+              const source = view.state.doc.toString();
+              const tableCtx = findTableAtPosition(source, currentWidget.from);
+              if (tableCtx) {
+                const tx = createTableAddRowTransaction(source, tableCtx);
+                if (tx) {
+                  view.dispatch({
+                    changes: tx.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+                    userEvent: tx.userEvent
+                  });
+                  const newRowIdx = rowIndex + 1;
+                  const lifecycle = view.plugin(subEditorLifecyclePlugin);
+                  const currentGen = lifecycle ? lifecycle.generation : 0;
+                  queueMicrotask(() => {
+                    if (!lifecycle || lifecycle.disposed || lifecycle.generation !== currentGen) return;
+                    const liveContainer = findCurrentTableContainer();
+                    const targetCell = liveContainer?.querySelector(
+                      `.cm-visual-table [data-row="${newRowIdx}"][data-col="0"]`
+                    ) as HTMLElement | null;
+                    if (targetCell && !view.state.readOnly) {
+                      targetCell.click();
+                    }
+                  });
+                  return;
+                }
+              }
             }
-          });
+
+            // Normal tab forward
+            let nextRow = rowIndex;
+            let nextCol = colIndex + 1;
+            if (nextCol >= totalCols) {
+              nextCol = 0;
+              nextRow = rowIndex === -1 ? 0 : rowIndex + 1;
+            }
+            if (nextRow < totalRows) {
+              const lifecycle = view.plugin(subEditorLifecyclePlugin);
+              const currentGen = lifecycle ? lifecycle.generation : 0;
+              queueMicrotask(() => {
+                if (!lifecycle || lifecycle.disposed || lifecycle.generation !== currentGen) return;
+                const liveContainer = findCurrentTableContainer();
+                const targetCell = liveContainer?.querySelector(
+                  `.cm-visual-table [data-row="${nextRow}"][data-col="${nextCol}"]`
+                ) as HTMLElement | null;
+                if (targetCell && !view.state.readOnly) {
+                  targetCell.click();
+                }
+              });
+            }
+          } else {
+            // Shift + Tab backward
+            let prevRow = rowIndex;
+            let prevCol = colIndex - 1;
+            if (prevCol < 0) {
+              prevCol = totalCols - 1;
+              prevRow = rowIndex === 0 ? -1 : rowIndex - 1;
+            }
+            if (prevRow >= -1) {
+              const lifecycle = view.plugin(subEditorLifecyclePlugin);
+              const currentGen = lifecycle ? lifecycle.generation : 0;
+              queueMicrotask(() => {
+                if (!lifecycle || lifecycle.disposed || lifecycle.generation !== currentGen) return;
+                const liveContainer = findCurrentTableContainer();
+                const targetCell = liveContainer?.querySelector(
+                  `.cm-visual-table [data-row="${prevRow}"][data-col="${prevCol}"]`
+                ) as HTMLElement | null;
+                if (targetCell && !view.state.readOnly) {
+                  targetCell.click();
+                }
+              });
+            }
+          }
         }
       },
       { signal }
@@ -1206,18 +1576,101 @@ export class TableBlockWidget extends WidgetType {
       return false;
     }
     (dom as any).__nexusTableWidget = this;
+    dom.dataset.tableFrom = String(this.from);
+
+    const scrollWrap = dom.querySelector('.cm-visual-table-scroll') as HTMLElement | null;
     const oldTable = dom.querySelector('.cm-visual-table');
     const newTable = this.buildTableDOM(view, dom);
-    if (oldTable) {
-      dom.replaceChild(newTable, oldTable);
+
+    if (scrollWrap) {
+      if (oldTable && oldTable.parentElement === scrollWrap) {
+        scrollWrap.replaceChild(newTable, oldTable);
+      } else {
+        scrollWrap.appendChild(newTable);
+      }
     } else {
-      dom.appendChild(newTable);
+      const newScrollWrap = document.createElement('div');
+      newScrollWrap.className = 'cm-visual-table-scroll';
+      newScrollWrap.appendChild(newTable);
+      dom.appendChild(newScrollWrap);
     }
+
+    if ((dom as any).__nexusTableLocale !== this.locale) {
+      (dom as any).__nexusTableLocale = this.locale;
+      const t = (key: string, vars?: Record<string, string>) => translate(this.locale, key, vars);
+
+      const addRowBtn = dom.querySelector('.cm-table-btn-add-row') as HTMLButtonElement | null;
+      if (addRowBtn) {
+        addRowBtn.title = t('table.addRow');
+        addRowBtn.textContent = t('table.btnRow');
+      }
+      const addColBtn = dom.querySelector('.cm-table-btn-add-col') as HTMLButtonElement | null;
+      if (addColBtn) {
+        addColBtn.title = t('table.addColumn');
+        addColBtn.textContent = t('table.btnCol');
+      }
+      const delRowBtn = dom.querySelector('.cm-table-btn-del-row') as HTMLButtonElement | null;
+      if (delRowBtn) {
+        delRowBtn.title = t('table.deleteRow');
+        delRowBtn.textContent = t('table.btnDelRow');
+      }
+      const delColBtn = dom.querySelector('.cm-table-btn-del-col') as HTMLButtonElement | null;
+      if (delColBtn) {
+        delColBtn.title = t('table.deleteColumn');
+        delColBtn.textContent = t('table.btnDelCol');
+      }
+      const alignLeftBtn = dom.querySelector('.cm-table-btn-align-left') as HTMLButtonElement | null;
+      if (alignLeftBtn) {
+        alignLeftBtn.title = t('table.alignLeft');
+        const textSpan = alignLeftBtn.querySelector('.cm-table-btn-text');
+        if (textSpan) textSpan.textContent = t('table.alignLeft');
+      }
+      const alignCenterBtn = dom.querySelector('.cm-table-btn-align-center') as HTMLButtonElement | null;
+      if (alignCenterBtn) {
+        alignCenterBtn.title = t('table.alignCenter');
+        const textSpan = alignCenterBtn.querySelector('.cm-table-btn-text');
+        if (textSpan) textSpan.textContent = t('table.alignCenter');
+      }
+      const alignRightBtn = dom.querySelector('.cm-table-btn-align-right') as HTMLButtonElement | null;
+      if (alignRightBtn) {
+        alignRightBtn.title = t('table.alignRight');
+        const textSpan = alignRightBtn.querySelector('.cm-table-btn-text');
+        if (textSpan) textSpan.textContent = t('table.alignRight');
+      }
+      const gridPickerBtn = dom.querySelector('.cm-table-btn-grid-picker') as HTMLButtonElement | null;
+      if (gridPickerBtn) {
+        gridPickerBtn.title = t('table.resizeTable');
+        const textSpan = gridPickerBtn.querySelector('.cm-table-btn-text');
+        if (textSpan) textSpan.textContent = t('table.btnResize');
+      }
+      const delTableBtn = dom.querySelector('.cm-table-btn-del-table') as HTMLButtonElement | null;
+      if (delTableBtn) {
+        delTableBtn.title = t('table.deleteTable');
+        const textSpan = delTableBtn.querySelector('.cm-table-btn-text');
+        if (textSpan) textSpan.textContent = t('table.btnDelete');
+      }
+      const handleAddRow = dom.querySelector('.cm-table-handle-add-row') as HTMLElement | null;
+      if (handleAddRow) {
+        handleAddRow.title = t('table.addRow');
+      }
+      const handleAddCol = dom.querySelector('.cm-table-handle-add-col') as HTMLElement | null;
+      if (handleAddCol) {
+        handleAddCol.title = t('table.addColumn');
+      }
+    }
+
     const updateButtons = (dom as any).__nexusUpdateTableToolbar;
     if (typeof updateButtons === 'function') {
       updateButtons();
     }
     return true;
+  }
+
+  public override destroy(dom: HTMLElement): void {
+    const onDocClick = (dom as any).__nexusTableDocClickHandler;
+    if (onDocClick) {
+      document.removeEventListener('click', onDocClick);
+    }
   }
 }
 
@@ -1834,7 +2287,8 @@ export function buildVisualProjection(
   source: string,
   selection: EditorSelection | null = null,
   isFocused: boolean = false,
-  documentDirectory: string | null = null
+  documentDirectory: string | null = null,
+  locale: string = 'zh-CN'
 ): DecorationSet {
   const ranges: ProjectionRange[] = [];
   const { root } = parseMarkdown(source);
@@ -2187,7 +2641,8 @@ export function buildVisualProjection(
             blockNode.raw,
             blockNode.headers,
             blockNode.rows,
-            blockNode.align
+            blockNode.align,
+            locale
           ),
           block: true
         })
@@ -2456,16 +2911,20 @@ export const visualProjectionField = StateField.define<DecorationSet>({
   create(state) {
     const isFocused = state.field(visualFocusField, false);
     const docDir = state.field(documentDirectoryField, false);
-    return buildVisualProjection(state.doc.toString(), state.selection, isFocused, docDir);
+    const locale = state.facet(editorLocaleFacet);
+    return buildVisualProjection(state.doc.toString(), state.selection, isFocused, docDir, locale);
   },
   update(decorations, transaction) {
     const isFocused = transaction.state.field(visualFocusField, false);
     const docDir = transaction.state.field(documentDirectoryField, false);
+    const locale = transaction.state.facet(editorLocaleFacet);
 
     const prevFocused = transaction.startState.field(visualFocusField, false);
     const prevDocDir = transaction.startState.field(documentDirectoryField, false);
+    const prevLocale = transaction.startState.facet(editorLocaleFacet);
     const focusChanged = isFocused !== prevFocused;
     const docDirChanged = docDir !== prevDocDir;
+    const localeChanged = locale !== prevLocale;
     const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
     const selectionChanged = !transaction.startState.selection.eq(transaction.state.selection);
 
@@ -2473,6 +2932,7 @@ export const visualProjectionField = StateField.define<DecorationSet>({
       transaction.docChanged ||
       focusChanged ||
       docDirChanged ||
+      localeChanged ||
       readOnlyChanged ||
       selectionChanged ||
       transaction.effects.some((e) => e.is(setComposingEffect) && !e.value)
@@ -2484,7 +2944,8 @@ export const visualProjectionField = StateField.define<DecorationSet>({
         transaction.state.doc.toString(),
         transaction.state.selection,
         isFocused,
-        docDir
+        docDir,
+        locale
       );
     }
     return decorations;
