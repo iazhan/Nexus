@@ -53,12 +53,35 @@ export interface CreateSessionEditorStateOptions {
   locale?: string;
 }
 
+/**
+ * 跨 surface 传递的滚动锚点，由 `EditorView.scrollSnapshot()` 生成。
+ *
+ * 刻意做成不透明类型：内部的 `ScrollTarget` 不在 `@codemirror/view` 的公开导出里，
+ * 所以用返回类型反推，宿主只负责搬运、不需要也不应该解构它。
+ *
+ * 它记录的是**位置语义**——「视口顶边落在哪个 block 的哪个亚行偏移」——而不是像素值。
+ * 这是跨 surface 搬运滚动位置的唯一正确做法：视觉投影把表格 / 代码块 / mermaid 渲染成
+ * 块级 widget，同一份 source 在两个 surface 里的像素高度不同，直接搬 `scrollTop` 会落错位置。
+ * 恢复时 `scrollTop = lineBlockAt(range.head).top - yMargin`，是在**新 view 的高度表里**重算的。
+ */
+export type EditorScrollAnchor = ReturnType<EditorView['scrollSnapshot']>;
+
 export interface CreateSessionEditorViewOptions extends CreateSessionEditorStateOptions {
   parent: HTMLElement;
+  /**
+   * 初始滚动位置，通常来自上一个 view 的 `captureScroll()`。
+   * 交给 `EditorViewConfig.scrollTo`，在第一次 measure 时应用。
+   */
+  scrollTo?: EditorScrollAnchor;
 }
 
 export interface SessionEditorViewHandle {
   view: EditorView;
+  /**
+   * 捕获当前滚动位置，供下一个 view 用 `scrollTo` 恢复。
+   * **必须在 `destroy()` 之前调用**——销毁之后 viewState 就没了。
+   */
+  captureScroll: () => EditorScrollAnchor;
   destroy: () => void;
 }
 
@@ -365,6 +388,9 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
 
   return EditorState.create({
     doc,
+    // 初始选区直接取自 session：否则新 view 会先落在 0，再由 `registerSurface()`
+    // 补一次 dispatch 才回到正确位置。同一 tick 内虽无可见闪烁，但状态序列是错的。
+    selection: toEditorSelection(options.session.getSnapshot().selection),
     extensions: [
       createImeCompositionExtension(),
       createClipboardExtension(options.session, {
@@ -385,7 +411,15 @@ export function createSessionEditorView(
 ): SessionEditorViewHandle {
   const view = new EditorView({
     state: createSessionEditorState(options),
-    parent: options.parent
+    parent: options.parent,
+    // 恢复上一个 view 的滚动位置。必须走 `scrollTo` 而不是建完之后再滚：
+    // 它会在第一次 measure 时应用，用户看不到"先跳到 0 再跳回来"。
+    //
+    // 另一条容易踩的：这里设置的 scrollTarget 之所以不会被随后的选区同步覆盖，
+    // 是因为 `Transaction.scrollIntoView` 默认是 `false`（state 包
+    // `scrollIntoView: !!spec.scrollIntoView`），而 `registerSurface()` 只发 selection。
+    // 谁给那些同步 dispatch 加上 `scrollIntoView: true`，视口顶边就会丢、新 view 会去追光标。
+    scrollTo: options.scrollTo
   });
   const unregister = options.session.registerSurface({
     id: options.surfaceId,
@@ -397,6 +431,7 @@ export function createSessionEditorView(
 
   return {
     view,
+    captureScroll: () => view.scrollSnapshot(),
     destroy: () => {
       unregister();
       view.destroy();

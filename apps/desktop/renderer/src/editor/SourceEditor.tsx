@@ -11,6 +11,7 @@ import {
   type EditorSelectionInfo,
   type MarkdownDocumentSession,
   type SessionEditorViewHandle,
+  type EditorScrollAnchor,
   type LinkNavigator
 } from '@nexus/editor';
 
@@ -55,6 +56,20 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<SessionEditorViewHandle | null>(null);
 
+  /**
+   * 上一个 view 销毁前捕获的滚动锚点，交给下一个 view 恢复。
+   *
+   * 跨 surface 切换时，`[session, surfaceId, surfaceKind]` 变化会让 effect 重跑：
+   * 先跑旧 effect 的 cleanup（捕获），再跑新 effect（恢复）。App 里的 `<EditorSurface>`
+   * 没有 key，所以是同一个组件实例，ref 能跨切换存活。
+   *
+   * 不能搬 `scrollTop`：视觉投影把表格 / 代码块 / mermaid 渲染成块级 widget，
+   * 同一份 source 在两个 surface 里的像素高度不同。锚点是位置语义，能跨布局差异。
+   */
+  const pendingScrollRef = useRef<EditorScrollAnchor | null>(null);
+  /** 首次挂载不抢焦点（文档刚载入时焦点该留在顶栏/对话框上）。 */
+  const hasMountedRef = useRef(false);
+
   // Store latest callbacks in refs so we do not recreate EditorView on parent re-renders
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -96,6 +111,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       extensionHost,
       theme,
       locale,
+      scrollTo: pendingScrollRef.current ?? undefined,
       onSelectionChange: () => {
         const view = handleRef.current?.view;
         if (view) {
@@ -103,6 +119,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
         }
       }
     });
+    pendingScrollRef.current = null;
 
     handleRef.current = handle;
     if (typeof window !== 'undefined') {
@@ -110,7 +127,18 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
     }
     onSelectionChangeRef.current?.(getSelectionInfo(handle.view.state));
 
+    // 切 surface 时把焦点还给编辑器：旧 view 一销毁，焦点就落到 body，新 view 不聚焦则
+    // 光标不可见、也打不了字——"保持光标位置"就只剩一个看不见的 offset。
+    // 顺序上必须在构造（已带 scrollTo）之后：`view.focus()` 内部走 `focusPreventScroll`，
+    // 不会滚动，所以不会把刚恢复的视口顶边带跑。
+    if (hasMountedRef.current) {
+      handle.view.focus();
+    }
+    hasMountedRef.current = true;
+
     return () => {
+      // 必须在 destroy() 之前捕获：销毁之后 viewState 就没了。
+      pendingScrollRef.current = handle.captureScroll();
       handle.destroy();
       if (typeof window !== 'undefined' && (window as any).nexusActiveView === handle.view) {
         (window as any).nexusActiveView = null;
