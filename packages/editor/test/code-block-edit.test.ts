@@ -5,6 +5,7 @@ import {
   MarkdownDocumentSession,
   createSessionEditorView,
   setEditorReadOnly,
+  setVisualFocusEffect,
   parseCodeBlockContext,
   createCodeBlockValueTransaction,
   createCodeBlockLanguageTransaction,
@@ -395,6 +396,8 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
         session,
         surfaceId: 'code-copy-sec',
         surfaceKind: 'visual',
+        // 文案走 i18n，断言的是英文文案就显式声明语言，别依赖 facet 默认值
+        locale: 'en-US',
         parent
       });
 
@@ -478,7 +481,7 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
       parent.remove();
     });
 
-    it('renders Mermaid fenced code block with preview/source toggle and safe fallback preview', () => {
+    it('renders Mermaid fenced code block as a preview card, with no source/preview toggle', () => {
       const mermaidSource = [
         '```mermaid',
         'graph TD;',
@@ -497,14 +500,15 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
         parent
       });
 
-      const mermaidBlock = handle.view.dom.querySelector('.cm-visual-code-block');
-      expect(mermaidBlock).not.toBeNull();
-
-      const toggleBtn = handle.view.dom.querySelector('.cm-mermaid-toggle') as HTMLButtonElement | null;
-      expect(toggleBtn).not.toBeNull();
-
-      const preview = handle.view.dom.querySelector('.cm-mermaid-preview');
-      expect(preview).not.toBeNull();
+      // 预览态：整块替换成卡片（header + 预览体）
+      expect(handle.view.dom.querySelector('.cm-visual-code-block')).not.toBeNull();
+      expect(handle.view.dom.querySelector('.cm-mermaid-preview')).not.toBeNull();
+      // header 上有 Source/Preview 切换按钮（默认关掉"点图揭示"，按钮是默认路径），
+      // 但没有静态 <pre> —— 源码由**揭示**给出，不是 widget 内部的一段死文本
+      expect(handle.view.dom.querySelector('.cm-mermaid-toggle')).not.toBeNull();
+      expect(handle.view.dom.querySelector('.cm-code-body')).toBeNull();
+      // 源码行此刻被替换吞掉，不是真实文本
+      expect(handle.view.dom.querySelector('.cm-visual-code-header-line')).toBeNull();
 
       handle.destroy();
       parent.remove();
@@ -673,7 +677,7 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
       expect(next.endsWith('```')).toBe(false);
     });
 
-    it('initializes Mermaid preview toggle button with next action "Source" and toggles correctly', () => {
+    it('reveals the editable Mermaid source when the caret enters the block', () => {
       const mermaidSource = '```mermaid\ngraph TD;\n  A-->B;\n```';
       const session = new MarkdownDocumentSession(mermaidSource);
       const parent = document.createElement('div');
@@ -681,32 +685,25 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
 
       const handle = createSessionEditorView({
         session,
-        surfaceId: 'visual-mermaid-btn',
+        surfaceId: 'visual-mermaid-reveal',
         surfaceKind: 'visual',
         parent
       });
 
-      const toggleBtn = handle.view.dom.querySelector('.cm-mermaid-toggle') as HTMLButtonElement;
-      expect(toggleBtn).not.toBeNull();
+      expect(handle.view.dom.querySelector('.cm-visual-code-block')).not.toBeNull();
 
-      // Initial state: preview is visible, button text must indicate next action "Source"
-      expect(toggleBtn.textContent).toBe('Source');
-      const previewEl = handle.view.dom.querySelector('.cm-mermaid-preview') as HTMLElement;
-      const codeBody = handle.view.dom.querySelector('.cm-code-body') as HTMLElement;
-      expect(previewEl.style.display).not.toBe('none');
-      expect(codeBody.style.display).toBe('none');
+      // 光标进入块内 → 整块替换撤掉，源码行变回真实文档文本，
+      // 走普通代码块那套逐行装饰（因此可编辑、有高亮、自带 header 与复制按钮）
+      handle.view.dispatch({
+        selection: { anchor: mermaidSource.indexOf('graph TD;') },
+        effects: setVisualFocusEffect.of(true)
+      });
+      expect(handle.view.dom.querySelector('.cm-visual-code-block')).toBeNull();
+      expect(handle.view.dom.querySelector('.cm-visual-code-header-line')).not.toBeNull();
 
-      // Click to toggle to source
-      toggleBtn.click();
-      expect(toggleBtn.textContent).toBe('Preview');
-      expect(previewEl.style.display).toBe('none');
-      expect(codeBody.style.display).not.toBe('none');
-
-      // Click to toggle back to preview
-      toggleBtn.click();
-      expect(toggleBtn.textContent).toBe('Source');
-      expect(previewEl.style.display).not.toBe('none');
-      expect(codeBody.style.display).toBe('none');
+      // 光标移出块外 → 回到预览
+      handle.view.dispatch({ selection: { anchor: 0 } });
+      expect(handle.view.dom.querySelector('.cm-visual-code-block')).not.toBeNull();
 
       handle.destroy();
       parent.remove();

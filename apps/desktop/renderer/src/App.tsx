@@ -18,6 +18,7 @@ import { ErrorBoundary } from './ErrorBoundary.js';
 import { MenuBar, type MenuBarMenu } from './MenuBar.js';
 import { WindowControls } from './WindowControls.js';
 import { formatShortcut, matchesShortcut } from './shortcut.js';
+import { mermaidPreviewPreference } from './platform.js';
 import { commandRegistry } from './platform.js';
 import { useTheme, useLocale } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
@@ -157,6 +158,8 @@ export const App: React.FC = () => {
   // Expose session on window for smoke testing and developer debugging
   if (typeof window !== 'undefined') {
     (window as any).nexusSession = session;
+    // Mermaid 显示偏好还没有设置界面，先从这里暴露给 E2E 翻转
+    (window as any).nexusMermaidPreview = mermaidPreviewPreference;
   }
 
   // Synchronize dirty state with Electron main process

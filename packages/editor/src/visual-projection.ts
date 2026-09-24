@@ -3,6 +3,8 @@ import {
   RangeSetBuilder,
   StateEffect,
   EditorSelection,
+  Compartment,
+  Facet,
   type Extension
 } from '@codemirror/state';
 import {
@@ -2090,7 +2092,8 @@ const CHECK_ICON_SVG = `<svg class="cm-code-copy-icon cm-code-copy-check" width=
 function bindClipboardCopy(
   copyBtn: HTMLButtonElement,
   getText: () => string,
-  setTimer?: (timer: ReturnType<typeof setTimeout> | null) => void
+  setTimer: ((timer: ReturnType<typeof setTimeout> | null) => void) | undefined,
+  t: (key: string) => string
 ): void {
   copyBtn.addEventListener('mousedown', (e) => {
     e.stopPropagation();
@@ -2101,7 +2104,7 @@ function bindClipboardCopy(
     e.stopPropagation();
     if (!navigator.clipboard?.writeText) {
       copyBtn.dataset.copyState = 'error';
-      copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Failed</span>`;
+      copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">${t('codeBlock.copyFailed')}</span>`;
       return;
     }
     navigator.clipboard
@@ -2109,9 +2112,9 @@ function bindClipboardCopy(
       .then(() => {
         copyBtn.dataset.copyState = 'success';
         copyBtn.classList.add('copied');
-        copyBtn.innerHTML = `${CHECK_ICON_SVG}<span class="cm-code-copy-label">Copied!</span>`;
+        copyBtn.innerHTML = `${CHECK_ICON_SVG}<span class="cm-code-copy-label">${t('codeBlock.copied')}</span>`;
         const timer = setTimeout(() => {
-          copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Copy</span>`;
+          copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">${t('codeBlock.copy')}</span>`;
           copyBtn.classList.remove('copied');
           delete copyBtn.dataset.copyState;
           setTimer?.(null);
@@ -2132,7 +2135,10 @@ export class CodeBlockHeaderWidget extends WidgetType {
     public readonly from: number,
     public readonly firstLineTo: number,
     public readonly language: string | undefined,
-    public readonly value: string
+    public readonly value: string,
+    public readonly blockTo: number,
+    /** 按钮文案依赖语言：进 eq() 才能让运行时切语言时重建 DOM，而不是留着旧文案。 */
+    public readonly locale: string
   ) {
     super();
   }
@@ -2143,11 +2149,15 @@ export class CodeBlockHeaderWidget extends WidgetType {
       other.from === this.from &&
       other.firstLineTo === this.firstLineTo &&
       other.language === this.language &&
-      other.value === this.value
+      other.value === this.value &&
+      other.blockTo === this.blockTo &&
+      other.locale === this.locale
     );
   }
 
   public toDOM(view: EditorView): HTMLElement {
+    const t = (key: string) => translate(view.state.facet(editorLocaleFacet), key);
+
     const container = document.createElement('div');
     container.className = 'cm-code-header-widget';
 
@@ -2204,17 +2214,31 @@ export class CodeBlockHeaderWidget extends WidgetType {
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'cm-code-copy-btn';
-    copyBtn.setAttribute('aria-label', 'Copy code');
-    copyBtn.title = 'Copy code';
-    copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Copy</span>`;
+    copyBtn.setAttribute('aria-label', t('codeBlock.copyAria'));
+    copyBtn.title = t('codeBlock.copyAria');
+    copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">${t('codeBlock.copy')}</span>`;
+
+    const actions = document.createElement('div');
+    actions.className = 'cm-code-header-actions';
+    if (this.language === 'mermaid') {
+      // 揭示态走的是普通代码块的逐行装饰，按钮得在这里再放一份，
+      // 否则进了源码态就切不回预览（预览 widget 已经不在了）。
+      actions.appendChild(createMermaidModeToggle(view, this.from, this.blockTo, true));
+    }
+    actions.appendChild(copyBtn);
 
     container.appendChild(leftGroup);
-    container.appendChild(copyBtn);
+    container.appendChild(actions);
 
-    bindClipboardCopy(copyBtn, () => this.value, (timer) => {
-      if (this.copyTimer) clearTimeout(this.copyTimer);
-      this.copyTimer = timer;
-    });
+    bindClipboardCopy(
+      copyBtn,
+      () => this.value,
+      (timer) => {
+        if (this.copyTimer) clearTimeout(this.copyTimer);
+        this.copyTimer = timer;
+      },
+      t
+    );
 
     return container;
   }
@@ -2280,6 +2304,56 @@ export class CodeBlockExitWidget extends WidgetType {
   }
 }
 
+/**
+ * Mermaid 块的显示模式切换按钮。
+ *
+ * 它**只写 pin**，不直接翻转 DOM —— 渲染层按 `isMermaidSourceMode()` 派生结果，
+ * 所以按钮与"点图揭示"两条路径共用同一个状态，不会互相覆盖：按钮是**粘性**的
+ * （显式表态后一直有效），点图是**瞬时**的（光标一离开就回预览）。
+ *
+ * 两处渲染各要一份：预览 widget 的 header（`.cm-code-header`）与揭示态普通代码块的
+ * header（`.cm-code-header-widget`）—— 揭示态走的是围栏代码块那套逐行装饰。
+ */
+function createMermaidModeToggle(
+  view: EditorView,
+  from: number,
+  to: number,
+  isSourceMode: boolean
+): HTMLButtonElement {
+  const locale = view.state.facet(editorLocaleFacet);
+  const t = (key: string) => translate(locale, key);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'cm-mermaid-toggle';
+  // 标签描述"下一个动作"，与当前显示态相反
+  button.textContent = isSourceMode ? t('codeBlock.showPreview') : t('codeBlock.showSource');
+  button.title = isSourceMode ? t('codeBlock.showPreviewAria') : t('codeBlock.showSourceAria');
+  button.setAttribute('aria-label', button.title);
+  // 别让 CM 把光标挪走（mousedown 会冒泡到 contentDOM）
+  button.addEventListener('mousedown', (event) => event.stopPropagation());
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!isSourceMode) {
+      view.dispatch({ effects: setMermaidPreviewPinEffect.of({ from, mode: 'source' }) });
+      return;
+    }
+
+    const pinPreview = setMermaidPreviewPinEffect.of({ from, mode: 'preview' });
+    const head = view.state.selection.main.head;
+    if (head > from && head <= to) {
+      // 光标还在块内时只写 pin 不够：派生式里的光标项会立刻把它拉回源码态，
+      // 按钮看起来"点了没反应"。顺手把光标移出块外。
+      view.dispatch({ selection: { anchor: from }, effects: pinPreview });
+    } else {
+      view.dispatch({ effects: pinPreview });
+    }
+  });
+  return button;
+}
+
 export class CodeBlockWidget extends WidgetType {
   private copyTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -2288,7 +2362,9 @@ export class CodeBlockWidget extends WidgetType {
     public readonly to: number,
     public readonly raw: string,
     public readonly language: string | undefined,
-    public readonly value: string
+    public readonly value: string,
+    /** 按钮文案依赖语言：进 eq() 才能让运行时切语言时重建 DOM，而不是留着旧文案。 */
+    public readonly locale: string
   ) {
     super();
   }
@@ -2304,11 +2380,14 @@ export class CodeBlockWidget extends WidgetType {
       other.to === this.to &&
       other.raw === this.raw &&
       other.language === this.language &&
-      other.value === this.value
+      other.value === this.value &&
+      other.locale === this.locale
     );
   }
 
   public toDOM(view: EditorView): HTMLElement {
+    const t = (key: string) => translate(view.state.facet(editorLocaleFacet), key);
+
     const container = document.createElement('div');
     container.className = 'cm-visual-code-block';
 
@@ -2320,81 +2399,72 @@ export class CodeBlockWidget extends WidgetType {
     langBadge.textContent = this.language || 'text';
     header.appendChild(langBadge);
 
-    const isMermaid = this.language === 'mermaid';
-    let toggleBtn: HTMLButtonElement | null = null;
-
-    if (isMermaid) {
-      toggleBtn = document.createElement('button');
-      toggleBtn.type = 'button';
-      toggleBtn.className = 'cm-mermaid-toggle';
-      toggleBtn.textContent = 'Source';
-      header.appendChild(toggleBtn);
-    }
-
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'cm-code-copy-btn';
-    copyBtn.setAttribute('aria-label', 'Copy code');
-    copyBtn.title = 'Copy code';
-    copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">Copy</span>`;
-    header.appendChild(copyBtn);
+    copyBtn.setAttribute('aria-label', t('codeBlock.copyAria'));
+    copyBtn.title = t('codeBlock.copyAria');
+    copyBtn.innerHTML = `${COPY_ICON_SVG}<span class="cm-code-copy-label">${t('codeBlock.copy')}</span>`;
+
+    // 按钮是"进源码"的默认路径（`clickToReveal` 默认关）。
+    const modeToggle = createMermaidModeToggle(view, this.from, this.to, false);
+    const actions = document.createElement('div');
+    actions.className = 'cm-code-header-actions';
+    actions.appendChild(modeToggle);
+    actions.appendChild(copyBtn);
+
+    header.appendChild(actions);
     container.appendChild(header);
 
-    bindClipboardCopy(copyBtn, () => this.value, (timer) => {
-      if (this.copyTimer) clearTimeout(this.copyTimer);
-      this.copyTimer = timer;
+    bindClipboardCopy(
+      copyBtn,
+      () => this.value,
+      (timer) => {
+        if (this.copyTimer) clearTimeout(this.copyTimer);
+        this.copyTimer = timer;
+      },
+      t
+    );
+
+    // 只有预览体，没有"源码态"——源码由**揭示**给出：点击预览把光标送进块内，
+    // 下一次投影重建时整块替换消失，` ``` ` 围栏与正文变回真实文档文本，
+    // 走普通代码块那套逐行装饰（可编辑、有高亮、自带 header 与复制按钮）。
+    //
+    // 早先的做法是在 widget 内部放一个 <pre> 和一个 Source/Preview 切换按钮：
+    // 那个 <pre> 只是静态文本，真实文档被替换吞掉了，所以"Source 态"根本没法编辑。
+    const previewEl = document.createElement('div');
+    previewEl.className = 'cm-mermaid-preview';
+    const host = view.state.facet(extensionHostFacet);
+    mountExtension(
+      host,
+      { type: 'code-fence', from: this.from, to: this.to, text: this.value, language: this.language },
+      previewEl,
+      this.value,
+      () => {
+        previewEl.innerHTML = '';
+        const previewPre = document.createElement('pre');
+        previewPre.textContent = this.value;
+        previewEl.appendChild(previewPre);
+        view.requestMeasure();
+      },
+      () => {
+        view.requestMeasure();
+      }
+    );
+    container.appendChild(previewEl);
+
+    previewEl.addEventListener('mousedown', (event) => {
+      // 设置关闭时（默认）点图不揭示：把事件交回 CM —— 被整块替换的范围承载不了光标，
+      // CM 只能把它贴到 from / to 边界上，严格揭示判据不成立，所以块保持预览态。
+      if (!view.state.facet(mermaidPreviewSettingsFacet).clickToReveal) return;
+      event.preventDefault();
+      event.stopPropagation();
+      // 落点取代码正文起点（跳过开围栏与语言标记），光标直接落在可编辑的内容行上。
+      const contentOffset = this.raw.indexOf(this.value);
+      const anchor = this.from + (contentOffset > 0 ? contentOffset : 1);
+      view.focus();
+      view.dispatch({ selection: { anchor: Math.min(anchor, this.to) } });
     });
-
-    let previewEl: HTMLElement | null = null;
-    let control: EditorExtensionControl | undefined;
-    if (isMermaid) {
-      previewEl = document.createElement('div');
-      previewEl.className = 'cm-mermaid-preview';
-      const host = view.state.facet(extensionHostFacet);
-      control = mountExtension(
-        host,
-        { type: 'code-fence', from: this.from, to: this.to, text: this.value, language: this.language },
-        previewEl,
-        this.value,
-        () => {
-          previewEl!.innerHTML = '';
-          const previewPre = document.createElement('pre');
-          previewPre.textContent = this.value;
-          previewEl!.appendChild(previewPre);
-          view.requestMeasure();
-        },
-        () => {
-          view.requestMeasure();
-        }
-      );
-      (previewEl as any).__nexusExtensionControl = control;
-      container.appendChild(previewEl);
-    }
-
-    const pre = document.createElement('pre');
-    pre.className = 'cm-code-body';
-    const code = document.createElement('code');
-    code.textContent = this.value;
-    pre.appendChild(code);
-    container.appendChild(pre);
-
-    if (isMermaid && toggleBtn && previewEl) {
-      let isShowingPreview = true;
-      pre.style.display = 'none';
-      toggleBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        isShowingPreview = !isShowingPreview;
-        if (isShowingPreview) {
-          previewEl!.style.display = '';
-          pre.style.display = 'none';
-          toggleBtn!.textContent = 'Source';
-        } else {
-          previewEl!.style.display = 'none';
-          pre.style.display = '';
-          toggleBtn!.textContent = 'Preview';
-        }
-      });
-    }
 
     return container;
   }
@@ -2690,16 +2760,13 @@ export class RawBlockWidget extends WidgetType {
  * 构建最小 Visual surface 投影。
  * source 仍然是 EditorState.doc，视觉层只通过 decoration/widget 隐藏语法定界符。
  */
-/**
- * 构建最小 Visual surface 投影。
- * source 仍然是 EditorState.doc，视觉层只通过 decoration/widget 隐藏语法定界符。
- */
 export function buildVisualProjection(
   source: string,
   selection: EditorSelection | null = null,
   isFocused: boolean = false,
   documentDirectory: string | null = null,
-  locale: string = 'zh-CN'
+  locale: string = 'zh-CN',
+  mermaidPins: ReadonlyMap<number, MermaidPreviewPin> = EMPTY_MERMAID_PINS
 ): DecorationSet {
   const ranges: ProjectionRange[] = [];
   const { root } = parseMarkdown(source);
@@ -2732,6 +2799,24 @@ export function buildVisualProjection(
       return selFrom >= range.from && selFrom <= range.to;
     }
     return selFrom <= range.to && selTo >= range.from;
+  }
+
+  /**
+   * Mermaid 块当前该显示源码还是预览。
+   *
+   * 两种交互（header 按钮 / 点图）不是两条渲染路径，而是**同一个状态的两种输入**：
+   * - 按钮写 `pin`（粘性：显式表态后一直有效）
+   * - 点图不发 pin，只把光标送进块内（瞬时：光标一离开就回预览）
+   * 渲染层只读这里派生出的结果，所以两者不竞争。
+   *
+   * 光标项是**必需**的、不是可选优化：被整块替换的块承载不了光标，所以只要光标在块内
+   * 就必须处于源码态，否则编辑无从谈起。
+   */
+  function isMermaidSourceMode(from: number, range: SourceRange): boolean {
+    const pin = mermaidPins.get(from);
+    if (pin === 'source') return true;
+    if (pin === 'preview') return false;
+    return isNodeRevealed(range);
   }
 
   /**
@@ -3229,8 +3314,18 @@ export function buildVisualProjection(
       // 未闭合围栏保持原始文本可编辑，避免后续输入被 widget 吞掉
       if (!isClosedFence(blockNode.raw, isQuoteNested)) return;
 
+      // Mermaid 块只在**未揭示**时整块替换成预览 widget。
+      //
+      // 光标进入块内时不能发这个替换：替换会把真实文档文本吞掉，源码就只剩 widget
+      // 内部一个静态 <pre>，"Source 态"天生只读、根本没法编辑。揭示态直接走下面
+      // 普通代码块的逐行装饰路径——源码行是真实文本，可编辑、有高亮，还自带
+      // 代码块那套 header 与复制按钮。
+      //
+      // 判据用严格的 `isNodeRevealed`（不像块级公式那样放宽边界）：闭合围栏行末尾
+      // 属于"已经离开代码块"，那里折叠回预览是符合预期的；而块级公式的闭合 `$$`
+      // 是公式体的一部分，必须能点进去。
       const isMermaid = blockNode.language === 'mermaid' && !isQuoteNested;
-      if (isMermaid) {
+      if (isMermaid && !isMermaidSourceMode(blockNode.range.from, blockNode.range)) {
         ranges.push({
           from: blockNode.range.from,
           to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
@@ -3240,7 +3335,8 @@ export function buildVisualProjection(
               blockNode.range.to,
               blockNode.raw,
               blockNode.language,
-              blockNode.value
+              blockNode.value,
+              locale
             ),
             block: true
           })
@@ -3269,7 +3365,9 @@ export function buildVisualProjection(
             blockNode.range.from,
             firstLine.to,
             blockNode.language,
-            blockNode.value
+            blockNode.value,
+            blockNode.range.to,
+            locale
           )
         })
       });
@@ -3508,13 +3606,101 @@ export function buildVisualProjection(
   return builder.finish();
 }
 
+/** 空 pin 表：让 `buildVisualProjection` 的默认参数不用每次 new 一个。 */
+const EMPTY_MERMAID_PINS: ReadonlyMap<number, MermaidPreviewPin> = new Map();
+
+/** Mermaid 块的显示模式。`auto` 交给派生逻辑，`source` / `preview` 是用户按按钮钉住的显式选择。 */
+export type MermaidPreviewPin = 'source' | 'preview';
+
+/** 用户对 Mermaid 块"怎么进源码"的偏好。 */
+export interface MermaidPreviewSettings {
+  /**
+   * 点击预览图是否直接露出源码。
+   *
+   * 关（默认）时只有 header 上的按钮能切到源码 —— 按钮是显式动作、效果可预期；
+   * 开时点图 = 瞥一眼源码，光标一离开就回到预览。
+   */
+  clickToReveal: boolean;
+}
+
+export const DEFAULT_MERMAID_PREVIEW_SETTINGS: MermaidPreviewSettings = {
+  clickToReveal: false
+};
+
+/**
+ * 应用级偏好注入点。
+ *
+ * 投影层**不读** localStorage —— 设置由宿主（`platform.ts`）持久化后经这个 facet 注入，
+ * 与 `editorLocaleFacet` 同一套做法，包间边界不破。
+ */
+export const mermaidPreviewSettingsFacet = Facet.define<
+  MermaidPreviewSettings,
+  MermaidPreviewSettings
+>({
+  combine: (values) => values[0] ?? DEFAULT_MERMAID_PREVIEW_SETTINGS
+});
+
+export const mermaidPreviewCompartment = new Compartment();
+
+/** 运行时改设置：reconfigure 后投影 field 会重建（见 `visualProjectionField.update`）。 */
+export function setMermaidPreviewSettings(view: EditorView, settings: MermaidPreviewSettings): void {
+  view.dispatch({
+    effects: mermaidPreviewCompartment.reconfigure(mermaidPreviewSettingsFacet.of(settings))
+  });
+}
+
+/**
+ * 每个 Mermaid 块钉住的显示模式，键是块的起始偏移。
+ *
+ * 这是**文档态**（跟着块走），所以放 StateField 而不是应用偏好：位置随
+ * `changes.mapPos` 映射，块被删掉后自然失配、不残留。
+ */
+export const setMermaidPreviewPinEffect = StateEffect.define<{
+  from: number;
+  mode: MermaidPreviewPin | null;
+}>();
+
+export const mermaidPreviewPinField = StateField.define<Map<number, MermaidPreviewPin>>({
+  create() {
+    return new Map();
+  },
+  update(pins, transaction) {
+    let next = pins;
+    if (transaction.docChanged) {
+      const mapped = new Map<number, MermaidPreviewPin>();
+      for (const [position, mode] of pins) {
+        mapped.set(transaction.changes.mapPos(position, 1), mode);
+      }
+      next = mapped;
+    }
+    for (const effect of transaction.effects) {
+      if (!effect.is(setMermaidPreviewPinEffect)) continue;
+      if (next === pins) next = new Map(pins);
+      const { from, mode } = effect.value;
+      if (mode === null) {
+        next.delete(from);
+      } else {
+        next.set(from, mode);
+      }
+    }
+    return next;
+  }
+});
+
 /** Visual surface 的 source-aligned decoration field。 */
 export const visualProjectionField = StateField.define<DecorationSet>({
   create(state) {
     const isFocused = state.field(visualFocusField, false);
     const docDir = state.field(documentDirectoryField, false);
     const locale = state.facet(editorLocaleFacet);
-    return buildVisualProjection(state.doc.toString(), state.selection, isFocused, docDir, locale);
+    return buildVisualProjection(
+      state.doc.toString(),
+      state.selection,
+      isFocused,
+      docDir,
+      locale,
+      state.field(mermaidPreviewPinField, false)
+    );
   },
   update(decorations, transaction) {
     const isFocused = transaction.state.field(visualFocusField, false);
@@ -3529,6 +3715,10 @@ export const visualProjectionField = StateField.define<DecorationSet>({
     const localeChanged = locale !== prevLocale;
     const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
     const selectionChanged = !transaction.startState.selection.eq(transaction.state.selection);
+    // pin 表在没变时返回同一个引用，所以身份比较就够。
+    const mermaidPins = transaction.state.field(mermaidPreviewPinField, false);
+    const mermaidPinsChanged =
+      mermaidPins !== transaction.startState.field(mermaidPreviewPinField, false);
 
     if (
       transaction.docChanged ||
@@ -3537,6 +3727,7 @@ export const visualProjectionField = StateField.define<DecorationSet>({
       localeChanged ||
       readOnlyChanged ||
       selectionChanged ||
+      mermaidPinsChanged ||
       transaction.effects.some((e) => e.is(setComposingEffect) && !e.value)
     ) {
       if (isEditorComposing(transaction.state)) {
@@ -3547,7 +3738,8 @@ export const visualProjectionField = StateField.define<DecorationSet>({
         transaction.state.selection,
         isFocused,
         docDir,
-        locale
+        locale,
+        mermaidPins
       );
     }
     return decorations;
@@ -3663,6 +3855,8 @@ export const visualProjectionExtensions: Extension[] = [
   tableTargetField,
   tableWidgetSyncPlugin,
   visualProjectionField,
+  mermaidPreviewPinField,
+  mermaidPreviewCompartment.of(mermaidPreviewSettingsFacet.of(DEFAULT_MERMAID_PREVIEW_SETTINGS)),
   subEditorLifecyclePlugin,
   hoveredCodeBlockField,
   codeBlockHoverPlugin

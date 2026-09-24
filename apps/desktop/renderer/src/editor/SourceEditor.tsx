@@ -6,6 +6,7 @@ import {
   setDocumentDirectory,
   setEditorThemeConfig,
   setEditorLocale,
+  setMermaidPreviewSettings,
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo,
@@ -14,6 +15,7 @@ import {
   type EditorScrollAnchor,
   type LinkNavigator
 } from '@nexus/editor';
+import { mermaidPreviewPreference } from '../platform';
 
 export type { EditorSaveState, EditorSelectionInfo };
 
@@ -181,6 +183,18 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       }
     }
   }, [locale]);
+
+  // Mermaid 块显示偏好（只有 visual surface 装了那个 Compartment）
+  useEffect(() => {
+    if (surfaceKind !== 'visual') return;
+    const apply = (clickToReveal: boolean) => {
+      if (handleRef.current) {
+        setMermaidPreviewSettings(handleRef.current.view, { clickToReveal });
+      }
+    };
+    apply(mermaidPreviewPreference.get());
+    return mermaidPreviewPreference.subscribe(apply);
+  }, [surfaceKind]);
 
   // Dynamic document directory configuration
   const prevDocDirRef = useRef(documentDirectory);

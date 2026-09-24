@@ -54,6 +54,14 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'table.gridFooter': '{rows} rows × {cols} cols',
     'editor.editInlineMath': 'Edit inline formula source',
     'editor.editBlockMath': 'Edit block formula source',
+    'codeBlock.copy': 'Copy',
+    'codeBlock.copied': 'Copied!',
+    'codeBlock.copyFailed': 'Failed',
+    'codeBlock.copyAria': 'Copy code',
+    'codeBlock.showSource': 'Source',
+    'codeBlock.showPreview': 'Preview',
+    'codeBlock.showSourceAria': 'Show source',
+    'codeBlock.showPreviewAria': 'Show diagram',
   },
   'zh-CN': {
     'app.title': 'Nexus 编辑器',
@@ -108,6 +116,14 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'table.gridFooter': '{rows} 行 × {cols} 列',
     'editor.editInlineMath': '编辑行内公式源码',
     'editor.editBlockMath': '编辑块级公式源码',
+    'codeBlock.copy': '复制',
+    'codeBlock.copied': '已复制！',
+    'codeBlock.copyFailed': '复制失败',
+    'codeBlock.copyAria': '复制代码',
+    'codeBlock.showSource': '源码',
+    'codeBlock.showPreview': '预览',
+    'codeBlock.showSourceAria': '显示源码',
+    'codeBlock.showPreviewAria': '显示图表',
   }
 };
 

@@ -293,7 +293,10 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-code-language-select:hover": {
     color: "var(--nexus-text-primary)"
   },
-  ".cm-code-copy-btn": {
+  // 代码块右上角的操作按钮（复制源码 / Mermaid 源码切换）共用一套外观：
+  // 默认完全隐藏，只在悬停该块、或用键盘把焦点移进来时出现。
+  // 注意 `font: inherit` —— 原生 button 不继承字体，不写会掉回系统 UI 字体。
+  ".cm-code-copy-btn, .cm-mermaid-toggle": {
     opacity: "0",
     pointerEvents: "none",
     display: "inline-flex",
@@ -305,16 +308,24 @@ export const nexusBaseTheme = EditorView.theme({
     borderRadius: "3px",
     height: "20px",
     padding: "0 6px",
+    fontFamily: "inherit",
     fontSize: "0.75em",
+    lineHeight: "1",
+    whiteSpace: "nowrap",
     cursor: "pointer",
     boxSizing: "border-box",
     transition: "opacity 0.15s ease-out, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease"
   },
-  ".cm-visual-code-header-line:hover .cm-code-copy-btn, .cm-visual-code-header-line[data-code-block-hovered='true'] .cm-code-copy-btn, .cm-code-header-widget:focus-within .cm-code-copy-btn": {
+  // 两条揭示路径都要覆盖：
+  // - 普通代码块走行装饰，hover 目标是 `.cm-visual-code-header-line`；
+  // - Mermaid 块整块是一个 widget（`.cm-visual-code-block`），里面既没有
+  //   `.cm-visual-code-header-line` 也没有 `.cm-code-header-widget`，
+  //   少了后两条选择器它的按钮会**永远显示不出来**。
+  ".cm-visual-code-header-line:hover .cm-code-copy-btn, .cm-visual-code-header-line:hover .cm-mermaid-toggle, .cm-visual-code-header-line[data-code-block-hovered='true'] .cm-code-copy-btn, .cm-code-header-widget:focus-within .cm-code-copy-btn, .cm-code-header-widget:focus-within .cm-mermaid-toggle, .cm-visual-code-block:hover .cm-code-copy-btn, .cm-visual-code-block:hover .cm-mermaid-toggle, .cm-visual-code-block:focus-within .cm-code-copy-btn, .cm-visual-code-block:focus-within .cm-mermaid-toggle": {
     opacity: "1 !important",
     pointerEvents: "auto !important"
   },
-  ".cm-code-copy-btn:hover": {
+  ".cm-code-copy-btn:hover, .cm-mermaid-toggle:hover": {
     backgroundColor: "var(--nexus-bg-surface-hover)",
     color: "var(--nexus-text-primary)"
   },
@@ -345,6 +356,57 @@ export const nexusBaseTheme = EditorView.theme({
     textAlign: "right",
     userSelect: "none",
     fontSize: "0.85em"
+  },
+  // Mermaid 块是**整块一个 widget**（`.cm-visual-code-block`），走不了上面那套
+  // 逐行装饰，所以卡片外观要在这里重画一遍，视觉语言与代码块保持一致：
+  // 28px 灰 header 栏 + 1px 边框 + 6px 圆角。
+  //
+  // 用 border + `overflow: hidden` 而不是 margin：块级 widget 的高度测量只算
+  // `offsetHeight`、不含 margin，而且 `<pre>` 默认带 `margin: 1em 0`——
+  // 不挡住的话，切到源码态时下方内容的点击命中区会整体下移（同 KaTeX 那次）。
+  ".cm-visual-code-block": {
+    display: "flex",
+    flexDirection: "column",
+    border: "1px solid var(--nexus-border-subtle)",
+    borderRadius: "6px",
+    overflow: "hidden",
+    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    boxSizing: "border-box"
+  },
+  ".cm-code-header": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    height: "28px",
+    minHeight: "28px",
+    padding: "0 12px",
+    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    borderBottom: "1px solid var(--nexus-border-subtle)",
+    boxSizing: "border-box"
+  },
+  // header 右侧的按钮组：两处渲染（预览 widget / 揭示态代码块）共用。
+  ".cm-code-header-actions": {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    flexShrink: "0"
+  },
+  ".cm-code-language": {
+    color: "var(--nexus-text-secondary, #64748b)",
+    fontSize: "0.75em",
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    whiteSpace: "nowrap"
+  },
+  // 预览体：点它会把光标送进块内、露出可编辑的源码，所以给 text 光标做暗示。
+  ".cm-mermaid-preview": {
+    padding: "12px",
+    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    overflowX: "auto",
+    textAlign: "center",
+    cursor: "text",
+    boxSizing: "border-box"
   },
   ".cm-visual-code-closing-line": {
     borderBottomLeftRadius: "6px",
