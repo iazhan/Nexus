@@ -3,7 +3,6 @@ import { parseMarkdown } from '@nexus/markdown';
 import {
   createLinkEditTransaction,
   createImageEditTransaction,
-  createInlineMathEditTransaction,
   createInlineCodeEditTransaction,
   createWikiLinkEditTransaction,
   applyChangesToSource,
@@ -392,79 +391,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('C. Inline Math Edit Transactions', () => {
-    it('modifies inline math formula preserving $ delimiters', () => {
-      const source = 'Energy $E = mc^2$ in physics.';
-      const parsed = parseMarkdown(source);
-      const p = parsed.root.children[0]!;
-      const math = ('children' in p ? p.children : []).find((c) => c.type === 'inline-math')!;
-
-      const context: InlineEditContext = {
-        nodeType: 'inline-math',
-        range: { from: math.range.from, to: math.range.to },
-        raw: math.raw,
-        source
-      };
-
-      const tx = createInlineMathEditTransaction(source, context, {
-        value: 'a^2 + b^2 = c^2'
-      });
-
-      expect(tx).not.toBeNull();
-      const nextSource = applyChangesToSource(source, tx!.changes);
-      expect(nextSource).toBe('Energy $a^2 + b^2 = c^2$ in physics.');
-      expect(tx!.userEvent).toBe('math.edit');
-    });
-
-    it('rejects unescaped $ inside single dollar delimiter that would prematurely close formula', () => {
-      const source = 'Formula $x$ end.';
-      const parsed = parseMarkdown(source);
-      const p = parsed.root.children[0]!;
-      const math = ('children' in p ? p.children : []).find((c) => c.type === 'inline-math')!;
-
-      const context: InlineEditContext = {
-        nodeType: 'inline-math',
-        range: { from: math.range.from, to: math.range.to },
-        raw: math.raw,
-        source
-      };
-
-      // Unescaped $ inside single dollar delimiter would split or break AST
-      const tx = createInlineMathEditTransaction(source, context, {
-        value: 'x $ y',
-        delimiter: '$'
-      });
-
-      expect(tx).toBeNull();
-    });
-
-    it('rejects CR/LF newlines in inline math formula', () => {
-      const source = 'Formula $x$ end.';
-      const context: InlineEditContext = {
-        nodeType: 'inline-math',
-        range: { from: 8, to: 11 },
-        raw: '$x$',
-        source
-      };
-
-      expect(createInlineMathEditTransaction(source, context, { value: 'x\ny' })).toBeNull();
-      expect(createInlineMathEditTransaction(source, context, { value: 'x\r\ny' })).toBeNull();
-    });
-
-    it('rejects when context.source does not match current source', () => {
-      const source = 'Formula $x$ end.';
-      const context: InlineEditContext = {
-        nodeType: 'inline-math',
-        range: { from: 8, to: 11 },
-        raw: '$x$',
-        source: 'Old source string'
-      };
-
-      expect(createInlineMathEditTransaction(source, context, { value: 'y' })).toBeNull();
-    });
-  });
-
-  describe('D. Inline Code Edit Transactions', () => {
+  describe('C. Inline Code Edit Transactions', () => {
     it('modifies inline code and automatically expands backtick count if value contains backticks', () => {
       const source = 'Run `npm test` here.';
       const parsed = parseMarkdown(source);
@@ -526,7 +453,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('E. WikiLink Edit Transactions', () => {
+  describe('D. WikiLink Edit Transactions', () => {
     it('modifies target and alias of WikiLink', () => {
       const source = 'See [[OldTarget|OldAlias]] link.';
       const parsed = parseMarkdown(source);
@@ -613,7 +540,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('F. Nested AST Nodes (List, Table, Bold, Italic, Heading, Blockquote)', () => {
+  describe('E. Nested AST Nodes (List, Table, Bold, Italic)', () => {
     function findFirstNode(root: unknown, type: string): MarkdownInlineNode | null {
       let found: MarkdownInlineNode | null = null;
       function walk(n: unknown) {
@@ -694,30 +621,6 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
       expect(next).toBe('- Parent list\n  - Subitem with ![Nested Img](./sub-new.png) end.');
     });
 
-    it('updates inline math inside blockquote', () => {
-      const source = '> Quote with formula $a+b$ here.';
-      const parsed = parseMarkdown(source);
-      const math = findFirstNode(parsed.root, 'inline-math')!;
-      expect(math).toBeDefined();
-
-      const tx = createInlineMathEditTransaction(
-        source,
-        {
-          nodeType: 'inline-math',
-          range: { from: math.range.from, to: math.range.to },
-          raw: math.raw,
-          source
-        },
-        {
-          value: 'c+d'
-        }
-      );
-
-      expect(tx).not.toBeNull();
-      const next = applyChangesToSource(source, tx!.changes);
-      expect(next).toBe('> Quote with formula $c+d$ here.');
-    });
-
     it('updates inline code nested inside bold formatting', () => {
       const source = 'See **bold `my_fn()` call** here.';
       const parsed = parseMarkdown(source);
@@ -791,33 +694,9 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
       const next = applyChangesToSource(source, tx!.changes);
       expect(next).toBe('| Col A |\n| --- |\n| [Cell Link](https://new.dev) |');
     });
-
-    it('updates math inside heading', () => {
-      const source = '## Heading with $x^2$ here';
-      const parsed = parseMarkdown(source);
-      const math = findFirstNode(parsed.root, 'inline-math')!;
-      expect(math).toBeDefined();
-
-      const tx = createInlineMathEditTransaction(
-        source,
-        {
-          nodeType: 'inline-math',
-          range: { from: math.range.from, to: math.range.to },
-          raw: math.raw,
-          source
-        },
-        {
-          value: 'y^3'
-        }
-      );
-
-      expect(tx).not.toBeNull();
-      const next = applyChangesToSource(source, tx!.changes);
-      expect(next).toBe('## Heading with $y^3$ here');
-    });
   });
 
-  describe('G. Autolink and Reference-Style Links and Images', () => {
+  describe('F. Autolink and Reference-Style Links and Images', () => {
     it('editing destination of an autolink preserves autolink syntax', () => {
       const source = 'Visit <https://nexus.dev> here.';
       const parsed = parseMarkdown(source);
@@ -966,7 +845,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('H. WikiLink Semantic Validation & Whitespace Fidelity', () => {
+  describe('G. WikiLink Semantic Validation & Whitespace Fidelity', () => {
     it('rejects target containing pipe character', () => {
       const source = 'See [[ValidTarget]] link.';
       const context: InlineEditContext = {
@@ -1029,7 +908,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('I. Comprehensive Inline Code Boundary Cases', () => {
+  describe('H. Comprehensive Inline Code Boundary Cases', () => {
     it('handles runs of 2 consecutive backticks in content', () => {
       const source = 'Run `code` here.';
       const parsed = parseMarkdown(source);
@@ -1191,7 +1070,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('J. Plain-Text Link Label Contract and Markdown Inline Delimiter Escaping', () => {
+  describe('I. Plain-Text Link Label Contract and Markdown Inline Delimiter Escaping', () => {
     it('treats label as plain text escaping inline markdown delimiters (*, _, `, $, [[...]], <tag>, \\, CJK, Emoji)', () => {
       const source = 'See [Original](https://example.com) now.';
       const parsed = parseMarkdown(source);
@@ -1250,7 +1129,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('K. parseLocalParenDescriptor Finite-State Local Scanner', () => {
+  describe('J. parseLocalParenDescriptor Finite-State Local Scanner', () => {
     it('preserves normal destination with balanced parentheses without forcing angle brackets', () => {
       const source = 'Go to [Wiki](https://en.wikipedia.org/wiki/Nexus_(disambiguation)) please.';
       const parsed = parseMarkdown(source);
@@ -1355,7 +1234,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('L. Reference-Style Links and Images Full vs Collapsed vs Shortcut', () => {
+  describe('K. Reference-Style Links and Images Full vs Collapsed vs Shortcut', () => {
     it('full reference [label][id] permits updating label while preserving [id]', () => {
       const source = 'Check [Old Label][doc1] now.\n\n[doc1]: https://nexus.dev';
       const parsed = parseMarkdown(source);
@@ -1492,7 +1371,7 @@ describe('P1-04D Inline Edit Transactions (Pure AST & SourceRange)', () => {
     });
   });
 
-  describe('M. Inline Code Fence Length Preservation & Expansion', () => {
+  describe('L. Inline Code Fence Length Preservation & Expansion', () => {
     it('preserves original 3-backtick fence when editing content if internal run does not exceed fence', () => {
       const source = 'Run ``` old ``` here.';
       const parsed = parseMarkdown(source);

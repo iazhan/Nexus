@@ -372,20 +372,63 @@ function collectOpaqueRanges(root: MarkdownNode): { from: number; to: number; ty
 
 
 /**
+ * 块级公式底纹的**行装饰**类名。
+ *
+ * 与 `.cm-marker-block-math`（mark span 版本）共用同一套视觉，但只负责把底色铺满
+ * 整行——mark span 覆盖不到没有字符的空行。
+ */
+export const BLOCK_MATH_BAND_CLASS = 'cm-marker-block-math-band';
+
+/**
  * Builds a CodeMirror DecorationSet from scanned markdown markers.
  */
 export function buildMarkerDecorations(content: string): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>();
-  const markers = findMarkdownMarkers(content);
+  const ranges: Array<{ from: number; to: number; decoration: Decoration }> = [];
 
-  for (const marker of markers) {
-    builder.add(
-      marker.from,
-      marker.to,
-      Decoration.mark({
+  for (const marker of findMarkdownMarkers(content)) {
+    ranges.push({
+      from: marker.from,
+      to: marker.to,
+      decoration: Decoration.mark({
         class: `cm-marker cm-marker-${marker.type}`
       })
-    );
+    });
+
+    // `Decoration.mark` 跨行时只会给**有字符的行**生成 span，而块级公式的底纹
+    // （`.cm-marker-block-math` 的背景与左侧竖条）正是画在这个 span 上的。
+    // 公式内部的空行一个字符都没有 → 没有 span → 没有底色，整条底纹被切成几段，
+    // 视觉上就是"空白行缺失应有的样式"。
+    //
+    // 这里按行补一层**只画底纹**的行装饰把范围铺满：文字颜色与内边距仍由 mark span
+    // 承担，非空行的两层底纹完全重合，视觉不变；空行则由行装饰兜住。
+    if (marker.type !== 'block-math') continue;
+    if (!content.slice(marker.from, marker.to).includes('\n')) continue;
+
+    let lineStart = content.lastIndexOf('\n', Math.max(0, marker.from - 1)) + 1;
+    while (lineStart <= marker.to) {
+      ranges.push({
+        from: lineStart,
+        to: lineStart,
+        decoration: Decoration.line({ class: BLOCK_MATH_BAND_CLASS })
+      });
+      const nextBreak = content.indexOf('\n', lineStart);
+      if (nextBreak === -1) break;
+      lineStart = nextBreak + 1;
+    }
+  }
+
+  // RangeSetBuilder 只接受按 (from, startSide) 升序的输入——行装饰的 startSide
+  // 是负数（排在 mark 之前），所以必须先排序再添加，不能依赖插入顺序。
+  ranges.sort(
+    (left, right) =>
+      left.from - right.from || left.decoration.startSide - right.decoration.startSide
+  );
+
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const range of ranges) {
+    if (range.from <= range.to) {
+      builder.add(range.from, range.to, range.decoration);
+    }
   }
 
   return builder.finish();

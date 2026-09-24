@@ -16,7 +16,6 @@ export * from './link-navigation.js';
 export * from './heading-anchor.js';
 export * from './table-edit.js';
 export * from './code-block-edit.js';
-export * from './special-block-edit.js';
 export * from './ime-composition.js';
 export * from './clipboard.js';
 export * from './ast-walker.js';

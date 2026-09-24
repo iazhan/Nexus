@@ -288,7 +288,9 @@ describe('Visual surface projection', () => {
     expect((handle.view as unknown as Record<string, unknown>).__nexusDestroyed).toBeUndefined();
   });
 
-  it('closes all sub-editor types (.cm-table-cell-editor, .cm-block-math-editor, .cm-raw-block-editor) in detached parent on readOnly, docChanged, and destroy', () => {
+  it('closes all sub-editor types (.cm-table-cell-editor, .cm-raw-block-editor) in detached parent on readOnly, docChanged, and destroy', () => {
+    // 块级公式已改为「源码 + 实时预览」的就地编辑，不再有 textarea 子编辑器，
+    // 所以这里只覆盖仍在用子编辑器的两类：表格单元格与 raw 块。
     const source = [
       '| A | B |',
       '| --- | --- |',
@@ -301,98 +303,61 @@ describe('Visual surface projection', () => {
       '<div class="box">raw</div>'
     ].join('\n');
 
-    // Test 1: readOnly transition closes all sub-editors in detached parent
-    {
-      const session = new MarkdownDocumentSession(source);
-      const detachedParent = document.createElement('div');
-      const handle = createSessionEditorView({
-        session,
-        surfaceId: 'sub-detached-ro',
+    type Handle = ReturnType<typeof createSessionEditorView>;
+    const openSubEditors = (handle: Handle) => {
+      (handle.view.dom.querySelector('.cm-visual-table [data-row="0"][data-col="0"]') as HTMLElement).click();
+      (handle.view.dom.querySelector('.cm-visual-raw-block') as HTMLElement).click();
+    };
+    const expectSubEditorsOpen = (handle: Handle) => {
+      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).not.toBeNull();
+      expect(handle.view.dom.querySelector('.cm-raw-block-editor')).not.toBeNull();
+    };
+    const expectSubEditorsClosed = (handle: Handle) => {
+      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).toBeNull();
+      expect(handle.view.dom.querySelector('.cm-raw-block-editor')).toBeNull();
+    };
+    const mount = (surfaceId: string) =>
+      createSessionEditorView({
+        session: new MarkdownDocumentSession(source),
+        surfaceId,
         surfaceKind: 'visual',
-        parent: detachedParent
+        parent: document.createElement('div')
       });
 
-      // 1. table cell editor
-      const cell = handle.view.dom.querySelector('.cm-visual-table [data-row="0"][data-col="0"]') as HTMLElement;
-      cell.click();
-      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).not.toBeNull();
+    // Test 1: readOnly transition closes all sub-editors in detached parent
+    {
+      const handle = mount('sub-detached-ro');
+      openSubEditors(handle);
+      expectSubEditorsOpen(handle);
 
-      // 2. block math editor
-      const math = handle.view.dom.querySelector('.cm-visual-block-math') as HTMLElement;
-      math.click();
-      expect(handle.view.dom.querySelector('.cm-block-math-editor')).not.toBeNull();
-
-      // 3. raw block editor
-      const raw = handle.view.dom.querySelector('.cm-visual-raw-block') as HTMLElement;
-      raw.click();
-      expect(handle.view.dom.querySelector('.cm-raw-block-editor')).not.toBeNull();
-
-      // Dispatch readOnly transition
       setEditorReadOnly(handle.view, true);
-
-      // ALL sub-editor elements must disappear immediately!
-      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-block-math-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-raw-block-editor')).toBeNull();
+      expectSubEditorsClosed(handle);
 
       handle.destroy();
     }
 
     // Test 2: docChanged closes all sub-editors in detached parent
     {
-      const session = new MarkdownDocumentSession(source);
-      const detachedParent = document.createElement('div');
-      const handle = createSessionEditorView({
-        session,
-        surfaceId: 'sub-detached-doc',
-        surfaceKind: 'visual',
-        parent: detachedParent
-      });
+      const handle = mount('sub-detached-doc');
+      openSubEditors(handle);
+      expectSubEditorsOpen(handle);
 
-      (handle.view.dom.querySelector('.cm-visual-table [data-row="0"][data-col="0"]') as HTMLElement).click();
-      (handle.view.dom.querySelector('.cm-visual-block-math') as HTMLElement).click();
-      (handle.view.dom.querySelector('.cm-visual-raw-block') as HTMLElement).click();
-
-      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).not.toBeNull();
-      expect(handle.view.dom.querySelector('.cm-block-math-editor')).not.toBeNull();
-      expect(handle.view.dom.querySelector('.cm-raw-block-editor')).not.toBeNull();
-
-      // Dispatch doc change
       handle.view.dispatch({
         changes: { from: 0, to: handle.view.state.doc.length, insert: '# Replaced' }
       });
-
-      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-block-math-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-raw-block-editor')).toBeNull();
+      expectSubEditorsClosed(handle);
 
       handle.destroy();
     }
 
     // Test 3: destroy closes all sub-editors in detached parent
     {
-      const session = new MarkdownDocumentSession(source);
-      const detachedParent = document.createElement('div');
-      const handle = createSessionEditorView({
-        session,
-        surfaceId: 'sub-detached-destroy',
-        surfaceKind: 'visual',
-        parent: detachedParent
-      });
-
-      (handle.view.dom.querySelector('.cm-visual-table [data-row="0"][data-col="0"]') as HTMLElement).click();
-      (handle.view.dom.querySelector('.cm-visual-block-math') as HTMLElement).click();
-      (handle.view.dom.querySelector('.cm-visual-raw-block') as HTMLElement).click();
-
-      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).not.toBeNull();
-      expect(handle.view.dom.querySelector('.cm-block-math-editor')).not.toBeNull();
-      expect(handle.view.dom.querySelector('.cm-raw-block-editor')).not.toBeNull();
+      const handle = mount('sub-detached-destroy');
+      openSubEditors(handle);
+      expectSubEditorsOpen(handle);
 
       handle.destroy();
-
-      expect(handle.view.dom.querySelector('.cm-table-cell-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-block-math-editor')).toBeNull();
-      expect(handle.view.dom.querySelector('.cm-raw-block-editor')).toBeNull();
+      expectSubEditorsClosed(handle);
     }
   });
 

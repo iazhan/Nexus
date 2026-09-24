@@ -9,6 +9,8 @@ import {
   WidgetType
 } from '@codemirror/view';
 import { extensionHostFacet, mountExtension, type EditorExtensionControl } from './extensions.js';
+import { editorLocaleFacet } from './source-editor.js';
+import { translate } from '@nexus/i18n';
 import {
   parseMarkdown,
   sanitizeUrl,
@@ -22,7 +24,7 @@ import type {
   MarkdownSelection
 } from './types.js';
 
-export type InlineEditNodeType = 'link' | 'image' | 'inline-math' | 'inline-code' | 'wikilink';
+export type InlineEditNodeType = 'link' | 'image' | 'inline-code' | 'wikilink';
 
 export interface InlineEditContext {
   nodeType: InlineEditNodeType;
@@ -42,11 +44,6 @@ export interface ImageEditValue {
   alt: string;
   destination: string;
   title?: string;
-}
-
-export interface InlineMathEditValue {
-  value: string;
-  delimiter?: '$' | '$$';
 }
 
 export interface InlineCodeEditValue {
@@ -728,89 +725,6 @@ export function createImageEditTransaction(
   };
 }
 
-export function createInlineMathEditTransaction(
-  source: string,
-  context: InlineEditContext,
-  value: InlineMathEditValue,
-  selection?: MarkdownSelection
-): MarkdownEditTransaction | null {
-  if (context.source !== source) {
-    return null;
-  }
-  if (
-    context.range.from < 0 ||
-    context.range.to > source.length ||
-    context.range.from > context.range.to ||
-    source.slice(context.range.from, context.range.to) !== context.raw
-  ) {
-    return null;
-  }
-
-  if (/[\r\n]/.test(value.value)) {
-    return null;
-  }
-
-  const { root } = parseMarkdown(source);
-  const targetNode = findInlineNodeAtRange(root, 'inline-math', context.range);
-  if (!targetNode || targetNode.type !== 'inline-math') {
-    return null;
-  }
-
-  const origDelim = context.raw.startsWith('$$') ? '$$' : '$';
-  const delim = value.delimiter ?? origDelim;
-  if (delim !== '$' && delim !== '$$') {
-    return null;
-  }
-
-  if (delim === '$' && /(?<!\\)\$/.test(value.value)) {
-    return null;
-  }
-  if (delim === '$$' && /(?<!\\)\$\$/.test(value.value)) {
-    return null;
-  }
-
-  let newRaw: string;
-  if (value.value === '') {
-    newRaw = '$$$$';
-  } else {
-    newRaw = `${delim}${value.value}${delim}`;
-  }
-
-  if (newRaw === context.raw) {
-    return null;
-  }
-
-  const semanticValidator = (node: MarkdownInlineNode): boolean => {
-    if (node.type !== 'inline-math') return false;
-    if (node.formula !== value.value) return false;
-    return true;
-  };
-
-  const candidateSource =
-    source.slice(0, context.range.from) + newRaw + source.slice(context.range.to);
-  const newEnd = context.range.from + newRaw.length;
-  if (!verifyCandidateNode(candidateSource, context.range.from, newEnd, 'inline-math', newRaw, semanticValidator)) {
-    return null;
-  }
-
-  const changes: MarkdownChange[] = [
-    {
-      from: context.range.from,
-      to: context.range.to,
-      insert: newRaw
-    }
-  ];
-
-  const nextPos = context.range.from + newRaw.length;
-  const nextSelection: MarkdownSelection = selection ?? { anchor: nextPos, head: nextPos };
-
-  return {
-    changes,
-    selection: nextSelection,
-    userEvent: 'math.edit'
-  };
-}
-
 export function createInlineCodeEditTransaction(
   source: string,
   context: InlineEditContext,
@@ -1155,6 +1069,35 @@ export class ImageWidget extends WidgetType {
   }
 }
 
+/**
+ * 激活公式时应该把光标落在哪个偏移：紧跟在起始定界符之后，并夹在 `to - 1` 之内
+ * （空公式 `$$` 时 `from + 2` 会越界）。
+ */
+export function mathActivationAnchor(from: number, to: number, raw: string): number {
+  const delimiterLength = raw.match(/^\$+/)?.[0].length ?? 1;
+  return Math.max(from, Math.min(to - 1, from + delimiterLength));
+}
+
+/**
+ * 把光标送进「被整体替换」的公式范围内部。
+ *
+ * 为什么需要它：整节点替换的 widget 会把点击吞掉，CodeMirror 只能把光标贴到 range
+ * 的**边界**，而揭示判据（`isNodeRevealed()` / markra 的 `selectionRevealsRange`）要求
+ * 光标**严格落在范围内部**——于是永远揭示不了，公式永远停在渲染态。
+ * 这里显式 dispatch 一个内部位置，下一帧装饰重建时替换消失、源码变回真实文本。
+ */
+export function activateMathSource(
+  view: EditorView,
+  from: number,
+  to: number,
+  raw: string
+): void {
+  view.focus();
+  view.dispatch({
+    selection: { anchor: mathActivationAnchor(from, to, raw) }
+  });
+}
+
 export class InlineMathWidget extends WidgetType {
   public constructor(
     public readonly from: number,
@@ -1172,9 +1115,15 @@ export class InlineMathWidget extends WidgetType {
     span.className = 'cm-visual-inline-math cm-visual-inline-math-widget';
     span.dataset.from = String(this.from);
     span.dataset.to = String(this.to);
-    span.setAttribute('role', 'math');
-    span.setAttribute('tabindex', '-1');
-    
+    // 渲染体本身就是一个可激活的编辑入口：点击/回车把光标送进 range 内部，
+    // 下一次投影重建时这个 widget 消失、`$...$` 变回可编辑的真实文本。
+    span.setAttribute('role', 'button');
+    span.setAttribute('tabindex', '0');
+    span.setAttribute(
+      'aria-label',
+      translate(view.state.facet(editorLocaleFacet), 'editor.editInlineMath')
+    );
+
     const host = view.state.facet(extensionHostFacet);
 
     this.control = mountExtension(
@@ -1189,8 +1138,16 @@ export class InlineMathWidget extends WidgetType {
     );
     (span as any).__nexusExtensionControl = this.control;
 
-    span.addEventListener('click', (e) => {
-      e.preventDefault();
+    const activate = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      activateMathSource(view, this.from, this.to, this.raw);
+    };
+    // 用 mousedown 而不是 click：CM 的落光标逻辑也走 mousedown，
+    // 晚一步处理就会先把光标贴到 widget 边界。
+    span.addEventListener('mousedown', activate);
+    span.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') activate(event);
     });
 
     return span;
@@ -1362,13 +1319,14 @@ export function createInlineEditExtension(
         const target = event.target as HTMLElement | null;
         if (!target) return;
 
-        // 行内代码与链接都已改为就地可编辑：正文是真实文档文本，只由
-        // cm-visual-inline-code / cm-visual-link mark 装饰承载，没有 data-from/to。
-        // 它们必须留在选择器之外，否则会被这里的 preventDefault 吞掉点击、导致光标
-        // 无法落入。表单元格内的行内代码同理。只有 raw 结构畸形时降级出的
-        // InlineCodeWidget / LinkWidget 仍走 popover，故按 widget 专属类名匹配。
+        // 行内代码、普通链接与行内公式都已改为就地可编辑：正文是真实文档文本，
+        // 只由 cm-visual-inline-code / cm-visual-link / cm-visual-inline-math-source
+        // mark 装饰承载，没有 data-from/to。它们必须留在选择器之外，否则会被这里的
+        // preventDefault 吞掉点击、导致光标无法落入。表单元格内的行内代码同理。
+        // 只有 raw 结构畸形时降级出的 InlineCodeWidget / LinkWidget 仍走 popover，
+        // 故按 widget 专属类名匹配。
         const widgetEl = target.closest(
-          '.cm-visual-image, .cm-visual-inline-math, .cm-visual-wikilink, .cm-visual-inline-code-widget, .cm-visual-link-widget'
+          '.cm-visual-image, .cm-visual-wikilink, .cm-visual-inline-code-widget, .cm-visual-link-widget'
         ) as HTMLElement | null;
         if (!widgetEl) return;
 
@@ -1388,7 +1346,6 @@ export function createInlineEditExtension(
         let nodeType: InlineEditNodeType | null = null;
         if (widgetEl.classList.contains('cm-visual-link')) nodeType = 'link';
         else if (widgetEl.classList.contains('cm-visual-image')) nodeType = 'image';
-        else if (widgetEl.classList.contains('cm-visual-inline-math')) nodeType = 'inline-math';
         else if (widgetEl.classList.contains('cm-visual-inline-code')) nodeType = 'inline-code';
         else if (widgetEl.classList.contains('cm-visual-wikilink')) nodeType = 'wikilink';
 
@@ -1675,32 +1632,6 @@ export function createInlineEditExtension(
               (vals.title || '') === initialVals.title
             );
           };
-        } else if (context.nodeType === 'inline-math' && node.type === 'inline-math') {
-          const mathField = document.createElement('label');
-          mathField.className = 'cm-inline-edit-field';
-          const mathTitle = document.createElement('span');
-          mathTitle.className = 'cm-inline-edit-label';
-          mathTitle.textContent = 'LaTeX Formula';
-          const formulaInput = document.createElement('input');
-          formulaInput.type = 'text';
-          formulaInput.className = 'cm-math-formula-input';
-          formulaInput.setAttribute('aria-label', 'LaTeX formula');
-          formulaInput.value = node.formula;
-          mathField.appendChild(mathTitle);
-          mathField.appendChild(formulaInput);
-
-          popover.appendChild(mathField);
-          firstInput = formulaInput;
-
-          const initialFormula = formulaInput.value;
-          getValues = (): InlineMathEditValue => ({
-            value: formulaInput.value
-          });
-
-          isUnchanged = () => {
-            const vals = getValues() as InlineMathEditValue;
-            return vals.value === initialFormula;
-          };
         } else if (context.nodeType === 'inline-code' && node.type === 'inline-code') {
           const codeField = document.createElement('label');
           codeField.className = 'cm-inline-edit-field';
@@ -1797,18 +1728,6 @@ export function createInlineEditExtension(
             if (sRes.isBlocked) {
               return { isValid: false, error: sRes.reason ?? 'Blocked potentially unsafe image protocol', isUnchanged: false };
             }
-          } else if (context.nodeType === 'inline-math') {
-            const m = vals as InlineMathEditValue;
-            if (/[\r\n]/.test(m.value)) {
-              return { isValid: false, error: 'Newlines (CR/LF) are not permitted in inline math.', isUnchanged: false };
-            }
-            const delim = m.delimiter ?? (context.raw.startsWith('$$') ? '$$' : '$');
-            if (delim === '$' && /(?<!\\)\$/.test(m.value)) {
-              return { isValid: false, error: 'Unescaped $ inside single dollar delimiter is not permitted.', isUnchanged: false };
-            }
-            if (delim === '$$' && /(?<!\\)\$\$/.test(m.value)) {
-              return { isValid: false, error: 'Unescaped $$ inside double dollar delimiter is not permitted.', isUnchanged: false };
-            }
           } else if (context.nodeType === 'inline-code') {
             const c = vals as InlineCodeEditValue;
             if (/[\r\n]/.test(c.value)) {
@@ -1859,8 +1778,6 @@ export function createInlineEditExtension(
             tx = createLinkEditTransaction(currentSource, context, vals as LinkEditValue);
           } else if (context.nodeType === 'image') {
             tx = createImageEditTransaction(currentSource, context, vals as ImageEditValue);
-          } else if (context.nodeType === 'inline-math') {
-            tx = createInlineMathEditTransaction(currentSource, context, vals as InlineMathEditValue);
           } else if (context.nodeType === 'inline-code') {
             tx = createInlineCodeEditTransaction(currentSource, context, vals as InlineCodeEditValue);
           } else if (context.nodeType === 'wikilink') {

@@ -248,6 +248,79 @@ describe('Markdown Parser & Render Model', () => {
       }
     });
 
+    it('recognizes block math whose body contains blank lines', () => {
+      // `marked` 把空行当段落边界，会把这种写法拆成多个 paragraph。
+      // 不合并的话 AST 认不出来，而 `findMarkdownMarkers` 认——
+      // 两个事实源对同一段语法给出不同答案，表现为"有底纹但永不渲染"。
+      const shapes = [
+        '$$\n\nE = mc^2\n$$',
+        '$$\nE = mc^2\n\n$$',
+        '$$\n\nE = mc^2\n\n$$'
+      ];
+
+      for (const src of shapes) {
+        const result = parseMarkdown(src);
+        expect(result.root.children, src).toHaveLength(1);
+        const bm = result.root.children[0];
+        expect(bm?.type, src).toBe('block-math');
+        if (bm?.type === 'block-math') {
+          expect(bm.formula, src).toBe('E = mc^2');
+          // raw 必须是源码原文，不能规范化掉空行
+          expect(bm.raw, src).toBe(src);
+        }
+      }
+    });
+
+    it('does not swallow surrounding content when merging blank-separated math fences', () => {
+      const src = 'before\n\n$$\n\nE = mc^2\n\n$$\n\nafter';
+      const result = parseMarkdown(src);
+      expect(result.root.children.map((c) => c.type)).toEqual([
+        'paragraph',
+        'block-math',
+        'paragraph'
+      ]);
+
+      // 不碰不是独立围栏行的写法
+      expect(parseMarkdown('$$ a\n\n$$ b').root.children.map((c) => c.type)).toEqual([
+        'paragraph',
+        'paragraph'
+      ]);
+      // 未闭合不合并
+      expect(parseMarkdown('$$\n\nE = mc^2').root.children.map((c) => c.type)).toEqual([
+        'paragraph',
+        'paragraph'
+      ]);
+      // 已自带闭合的照旧（交给既有判定）
+      expect(parseMarkdown('$$\nE = mc^2\n$$').root.children.map((c) => c.type)).toEqual([
+        'block-math'
+      ]);
+    });
+
+    it('keeps consecutive blank-separated math blocks separate', () => {
+      const src = '$$\n\na\n\n$$\n\n$$\n\nb\n\n$$';
+      const result = parseMarkdown(src);
+      const math = result.root.children.filter((c) => c.type === 'block-math');
+      expect(math).toHaveLength(2);
+      expect(math[0]?.type === 'block-math' ? math[0].formula : null).toBe('a');
+      expect(math[1]?.type === 'block-math' ? math[1].formula : null).toBe('b');
+    });
+
+    it('splits adjacent math blocks that share one paragraph', () => {
+      // 两段围栏之间**没有空行**时，整体是一个 paragraph。不按围栏切开的话，
+      // 闭合判定会把它当成"首尾都是 `$$` 的一个公式"，公式体里混进 `$$` 和下一段公式，
+      // 而 marker 扫描器认得是两段 —— 两边又不一致。
+      const src = '$$\nE = mc^2\n$$\n$$\nF = ma\n$$';
+      const result = parseMarkdown(src);
+      const math = result.root.children.filter((c) => c.type === 'block-math');
+      expect(math).toHaveLength(2);
+      expect(math[0]?.type === 'block-math' ? math[0].formula : null).toBe('E = mc^2');
+      expect(math[1]?.type === 'block-math' ? math[1].formula : null).toBe('F = ma');
+      // 公式体里不能混进定界符
+      for (const node of math) {
+        if (node.type === 'block-math') expect(node.formula).not.toContain('$$');
+      }
+    });
+
     it('preserves wikilinks [[Page]] and [[Page|Alias]]', () => {
       const src = 'Refer to [[Project Roadmap]] and [[Architecture|Arch Doc]].';
       const result = parseMarkdown(src);

@@ -93,12 +93,37 @@ export const nexusBaseTheme = EditorView.theme({
   },
   ".cm-marker-block-math": {
     color: "var(--nexus-accent-text)",
-    backgroundColor: "var(--nexus-bg-surface-active)",
-    borderLeft: "3px solid var(--nexus-accent-primary)",
     display: "inline-block",
     width: "100%",
-    padding: "2px 6px",
+    // 底纹与竖条都不在这里画（见下）：跨行 mark 的空行拿不到 span，画在这里会断。
+    // padding-left 里含原先 border-left 的 3px，文字位置与改前一致。
+    padding: "2px 6px 2px 9px"
+  },
+  // 按行铺满的底纹与竖条。`Decoration.mark` 跨行时只会给**有字符的行**生成 span，
+  // 空行拿不到 → 底纹会断成几截，所以要靠行装饰兜住。
+  //
+  // 底纹起点为什么用渐变而不是直接 background：CodeMirror baseTheme 给 `.cm-line` 设了
+  // `padding-left: 6px`，行盒左边缘比 mark span 靠左 6px。直接铺 background 会让底纹
+  // 左边缘在"有内容的行"（span 起点 6px 处）与"空行"（行盒起点 0）之间来回错 6px，
+  // 看起来就是竖条与灰块没对齐。渐变把起点对齐到 span 的左边缘。
+  ".cm-marker-block-math-band": {
+    backgroundImage:
+      "linear-gradient(to right, transparent 0 6px, var(--nexus-bg-surface-active) 6px)",
     borderRadius: "0 3px 3px 0"
+  },
+  // 竖条：位置与底纹起点一致。
+  //
+  // 用绝对定位而不是 border —— 行装饰上的 border 会把整行文字右推 3px。
+  // 绝对定位元素画在行内文字之上，但这里 [6px, 9px] 正好落在 mark span 的
+  // padding-left 里（span 自己从 6px 起算、文字从 15px 起），不会压住正文。
+  ".cm-marker-block-math-band::before": {
+    content: '""',
+    position: "absolute",
+    left: "6px",
+    top: "0",
+    bottom: "0",
+    width: "3px",
+    backgroundColor: "var(--nexus-accent-primary)"
   },
   ".cm-marker-wikilink": {
     color: "var(--nexus-accent-text)",
@@ -136,6 +161,27 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-visual-link-blocked": {
     color: "var(--nexus-text-muted, #888888)",
     textDecoration: "underline dashed"
+  },
+  // 块级公式：KaTeX 的 display 模式会给 `.katex-display` 加上 `margin: 1em 0`。
+  //
+  // **块级 widget 的高度测量只算 `offsetHeight`，不含 margin**，而子元素的外边距会
+  // 塌陷到容器之外——于是 CM 认为这个公式块比实际矮 2em，下方**所有内容**的点击命中区
+  // 整体下移（实测 ~28px，症状是"必须点目标行的上方"）。表格漂移当年也是这么修的：
+  // 把 margin 换成 padding，让间距落进被测量的盒子里。
+  //
+  // 所以：子元素 margin 归零，间距改由容器自己的 padding 承担（视觉间距不变）。
+  ".cm-visual-block-math .katex-display": {
+    margin: "0"
+  },
+  ".cm-visual-block-math": {
+    padding: "14px 0"
+  },
+  // 块级公式进入编辑态时，源码行下方追加的实时预览。用 border + padding 做分隔，
+  // **同样不能用 margin**（理由同上）。
+  ".cm-visual-block-math-preview": {
+    borderTop: "1px dashed var(--nexus-border-subtle, #e0e0e0)",
+    paddingTop: "6px",
+    opacity: "0.85"
   },
   ".cm-visual-quote-marker": {
     color: "var(--nexus-text-muted)",

@@ -30,6 +30,7 @@ import {
   InlineMathWidget,
   InlineCodeWidget,
   WikiLinkWidget,
+  activateMathSource,
   getInlineNodePlainText
 } from './inline-edit.js';
 import { isEditorComposing, setComposingEffect } from './ime-composition.js';
@@ -49,10 +50,6 @@ import {
 import {
   dispatchCodeBlockLanguageChange
 } from './code-block-edit.js';
-import {
-  parseBlockMathContext,
-  createBlockMathEditTransaction
-} from './special-block-edit.js';
 import { walkBlockNodes } from './ast-walker.js';
 import {
   DEFAULT_CODE_LANGUAGES,
@@ -144,7 +141,6 @@ class SubEditorLifecyclePlugin {
           tr.isUserEvent('table.cell-edit') ||
           tr.isUserEvent('code-block.value-edit') ||
           tr.isUserEvent('code-block.language-edit') ||
-          tr.isUserEvent('block-math.edit') ||
           tr.isUserEvent(RAW_BLOCK_EDIT_USER_EVENT)
       );
       if (!isInternalSubEditorCommit) {
@@ -2415,6 +2411,85 @@ export class CodeBlockWidget extends WidgetType {
   }
 }
 
+/**
+ * 块级公式进入编辑态时追加在块尾的**实时预览**。
+ *
+ * 单独一个 WidgetType 子类而不是给 BlockMathWidget 加 `preview` 开关：
+ * 两个变体的 className、可交互性和 `eq()` 语义都不同，用类区分更清楚，
+ * 也避免"构造参数没送达"这类隐蔽问题。
+ */
+export class BlockMathPreviewWidget extends WidgetType {
+  public constructor(
+    public readonly from: number,
+    public readonly to: number,
+    public readonly raw: string,
+    public readonly formula: string
+  ) {
+    super();
+  }
+
+  private control?: EditorExtensionControl;
+
+  /** 追加的块级 widget：给一个下界，免得高度表在测量前把它算成 0 导致滚动跳动。 */
+  public get estimatedHeight(): number {
+    return 48;
+  }
+
+  public eq(other: WidgetType): boolean {
+    return (
+      other instanceof BlockMathPreviewWidget &&
+      other.from === this.from &&
+      other.to === this.to &&
+      other.raw === this.raw &&
+      other.formula === this.formula
+    );
+  }
+
+  public updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    const control = (dom as any).__nexusExtensionControl as EditorExtensionControl | undefined;
+    if (control) {
+      control.update(this.formula);
+      this.control = control;
+      view.requestMeasure();
+      return true;
+    }
+    return false;
+  }
+
+  public toDOM(view: EditorView): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'cm-visual-block-math cm-visual-block-math-preview';
+    const host = view.state.facet(extensionHostFacet);
+    this.control = mountExtension(
+      host,
+      { type: 'block-math', from: this.from, to: this.to, text: this.formula },
+      container,
+      this.formula,
+      () => {
+        container.innerHTML = '';
+        container.textContent = `$$ ${this.formula} $$`;
+        view.requestMeasure();
+      },
+      () => {
+        view.requestMeasure();
+      }
+    );
+    (container as any).__nexusExtensionControl = this.control;
+    return container;
+  }
+
+  public ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+/**
+ * 块级公式 `$$...$$` 的投影。两个变体：
+ *
+ * - **渲染态**（`preview: false`）：整块替换成 KaTeX 结果；点击/回车把光标送进源码。
+ * - **预览态**（`preview: true`）：只在光标进入块内时**追加在块尾**，与源码并存，
+ *   边改边看。markra 的 `markra-math-render-active-preview` 就是这个思路。
+ */
 export class BlockMathWidget extends WidgetType {
   public constructor(
     public readonly from: number,
@@ -2424,6 +2499,8 @@ export class BlockMathWidget extends WidgetType {
   ) {
     super();
   }
+
+  private control?: EditorExtensionControl;
 
   public get estimatedHeight(): number {
     return 60;
@@ -2440,7 +2517,6 @@ export class BlockMathWidget extends WidgetType {
   }
 
   public updateDOM(dom: HTMLElement, view: EditorView): boolean {
-    if (dom.querySelector('.cm-block-math-editor')) return false;
     const control = (dom as any).__nexusExtensionControl as EditorExtensionControl | undefined;
     if (control) {
       control.update(this.formula);
@@ -2451,127 +2527,48 @@ export class BlockMathWidget extends WidgetType {
     return false;
   }
 
-  private control?: EditorExtensionControl;
-
   public toDOM(view: EditorView): HTMLElement {
     const container = document.createElement('div');
     container.className = 'cm-visual-block-math';
     const host = view.state.facet(extensionHostFacet);
 
-    const renderPreview = () => {
-      container.innerHTML = '';
-      this.control = mountExtension(
-        host,
-        { type: 'block-math', from: this.from, to: this.to, text: this.formula },
-        container,
-        this.formula,
-        () => {
-          container.innerHTML = '';
-          container.textContent = `$$ ${this.formula} $$`;
-          view.requestMeasure();
-        },
-        () => {
-          view.requestMeasure();
-        }
-      );
-      (container as any).__nexusExtensionControl = this.control;
-    };
-
-    renderPreview();
-
-    container.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (view.state.readOnly) return;
-      if (container.querySelector('.cm-block-math-editor')) return;
-
-      if (this.control) {
-        this.control.destroy();
-        this.control = undefined;
-        (container as any).__nexusExtensionControl = undefined;
+    this.control = mountExtension(
+      host,
+      { type: 'block-math', from: this.from, to: this.to, text: this.formula },
+      container,
+      this.formula,
+      () => {
+        // 扩展不可用（懒加载失败 / 宿主没注册）：退化成源码文本，不能什么都不显示。
+        container.innerHTML = '';
+        container.textContent = `$$ ${this.formula} $$`;
+        view.requestMeasure();
+      },
+      () => {
+        view.requestMeasure();
       }
+    );
+    (container as any).__nexusExtensionControl = this.control;
 
-      const textarea = document.createElement('textarea');
-      textarea.className = 'cm-block-math-editor';
-      textarea.value = this.formula;
-
-      container.innerHTML = '';
-      container.appendChild(textarea);
-      textarea.focus();
-
-      const controller = createSubEditorController(view, () => {
-        if (container.contains(textarea)) textarea.remove();
-        renderPreview();
-      });
-      const { signal } = controller;
-
-      let isComposing = false;
-      textarea.addEventListener(
-        'compositionstart',
-        () => {
-          isComposing = true;
-        },
-        { signal }
+    {
+      // 渲染态是整块替换，点击会被它吞掉（CM 只能把光标贴到边界），
+      // 而揭示判据要求光标严格落在块内，所以激活手势必须自己接管。
+      container.setAttribute('role', 'button');
+      container.setAttribute('tabindex', '0');
+      container.setAttribute(
+        'aria-label',
+        translate(view.state.facet(editorLocaleFacet), 'editor.editBlockMath')
       );
-      textarea.addEventListener(
-        'compositionend',
-        () => {
-          isComposing = false;
-        },
-        { signal }
-      );
-
-      const commit = () => {
-        if (!controller.isActive() || view.state.readOnly) {
-          controller.close();
-          return;
-        }
-        const src = view.state.doc.toString();
-        const parsed = parseMarkdown(src);
-        let target: Extract<MarkdownBlockNode, { type: 'block-math' }> | null = null;
-        walkBlockNodes(parsed.root.children, (child) => {
-          if (child.type === 'block-math' && child.range.from === this.from) {
-            target = child;
-            return true;
-          }
-          return false;
-        });
-        if (target) {
-          const ctx = parseBlockMathContext(src, target);
-          const tx = createBlockMathEditTransaction(src, ctx, textarea.value);
-          if (tx) {
-            controller.close();
-            view.dispatch({ changes: tx.changes, userEvent: tx.userEvent });
-            return;
-          }
-        }
-        controller.close();
+      const activate = (event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        activateMathSource(view, this.from, this.to, this.raw);
       };
-
-      textarea.addEventListener(
-        'keydown',
-        (ke) => {
-          if (!controller.isActive() || isComposing || ke.isComposing) return;
-          if (ke.key === 'Enter' && (ke.ctrlKey || ke.metaKey)) {
-            ke.preventDefault();
-            ke.stopPropagation();
-            commit();
-          } else if (ke.key === 'Escape') {
-            ke.preventDefault();
-            ke.stopPropagation();
-            controller.close();
-          }
-        },
-        { signal }
-      );
-
-      textarea.addEventListener(
-        'blur',
-        () => {
-          if (controller.isActive() && !isComposing) commit();
-        },
-        { signal }
-      );
-    });
+      // 用 mousedown 而不是 click：CM 的落光标逻辑也走 mousedown，晚一步就先把光标贴到边界了。
+      container.addEventListener('mousedown', activate);
+      container.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') activate(event);
+      });
+    }
 
     return container;
   }
@@ -2716,6 +2713,25 @@ export function buildVisualProjection(
       return selFrom > range.from && selTo < range.to;
     }
     return selFrom < range.to && selTo > range.from;
+  }
+
+  /**
+   * 块级公式专用的揭示判据：在**两侧边界**上都比 `isNodeRevealed()` 放宽一格。
+   *
+   * `isNodeRevealed()` 要求光标**严格**落在范围内部，而 `range.from` 与 `range.to`
+   * 恰好是首行行首和闭合 `$$` 那一行的行尾。点击闭合行 `$$` 右侧的空白区（或首行左侧）
+   * 时 CM 会把光标贴到这两个位置上，严格判据不成立 → 块立刻折叠回渲染体。
+   * 用户看到的就是"最后一行点不进去、一点就退出编辑态"。
+   *
+   * 放宽后这两个位置仍只属于块自己：上一行的行尾是 `range.from - 1`，
+   * 下一行的行首是 `range.to + 1`，不会把相邻行卷进来。
+   */
+  function isBlockMathRevealed(range: SourceRange): boolean {
+    if (!isFocused || !selection || selFrom === -1) return false;
+    if (selFrom === selTo) {
+      return selFrom >= range.from && selFrom <= range.to;
+    }
+    return selFrom <= range.to && selTo >= range.from;
   }
 
   /**
@@ -2924,18 +2940,53 @@ export function buildVisualProjection(
         })
       });
     } else if (inlineNode.type === 'inline-math') {
-      ranges.push({
-        from: inlineNode.range.from,
-        to: inlineNode.range.to,
-        decoration: Decoration.replace({
-          widget: new InlineMathWidget(
-            inlineNode.range.from,
-            inlineNode.range.to,
-            inlineNode.raw,
-            inlineNode.formula
-          )
-        })
-      });
+      // 与行内代码同构，但多一层：行内代码的正文**就是**渲染结果，而公式的正文是
+      // LaTeX 源码，必须由 KaTeX 渲染。所以未揭示态只能是整节点替换；一旦光标落进
+      // 范围内部，替换消失、`$...$` 变回真实文档文本，就地可改——不需要 popover。
+      //
+      // 整节点 widget 会把点击吞掉（CM 只能把光标贴到边界），而揭示判据要求光标
+      // **严格落在内部**，所以激活手势由 InlineMathWidget 自己接管（activateMathSource）。
+      const raw = inlineNode.raw;
+      const openMatch = raw.match(/^\$+/);
+      const delimiterLength = openMatch ? openMatch[0].length : 1;
+      const delimiter = '$'.repeat(delimiterLength);
+      const innerFrom = inlineNode.range.from + delimiterLength;
+      const innerTo = inlineNode.range.to - delimiterLength;
+      const isMalformed =
+        raw.length < delimiterLength * 2 || !raw.endsWith(delimiter) || innerTo < innerFrom;
+
+      if (!isMalformed && isNodeRevealed(inlineNode.range)) {
+        ranges.push({
+          from: inlineNode.range.from,
+          to: innerFrom,
+          decoration: Decoration.replace({ widget: new DelimiterWidget(delimiter, true) })
+        });
+        ranges.push({
+          from: innerTo,
+          to: inlineNode.range.to,
+          decoration: Decoration.replace({ widget: new DelimiterWidget(delimiter, true) })
+        });
+        if (innerTo > innerFrom) {
+          ranges.push({
+            from: innerFrom,
+            to: innerTo,
+            decoration: Decoration.mark({ class: 'cm-visual-inline-math-source' })
+          });
+        }
+      } else {
+        ranges.push({
+          from: inlineNode.range.from,
+          to: inlineNode.range.to,
+          decoration: Decoration.replace({
+            widget: new InlineMathWidget(
+              inlineNode.range.from,
+              inlineNode.range.to,
+              raw,
+              inlineNode.formula
+            )
+          })
+        });
+      }
     } else if (inlineNode.type === 'inline-code') {
       // 行内代码与 bold/italic 同构：只把反引号围栏替换为 delimiter widget，
       // 正文保留为真实文档文本。这样光标可以原生落入、输入即编辑，不需要
@@ -3279,19 +3330,47 @@ export function buildVisualProjection(
         });
       }
     } else if (blockNode.type === 'block-math') {
-      ranges.push({
-        from: blockNode.range.from,
-        to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
-        decoration: Decoration.replace({
-          widget: new BlockMathWidget(
-            blockNode.range.from,
-            blockNode.range.to,
-            blockNode.raw,
-            blockNode.formula
-          ),
-          block: true
-        })
-      });
+      if (isBlockMathRevealed(blockNode.range)) {
+        // 揭示态：**不加替换装饰**——`$$ ... $$` 的源码行原样保留为真实文本，
+        // 光标可以正常落入、直接改；同时在块尾追加一个实时预览 widget，
+        // 于是"源码 + 渲染结果"并存，边打边看。
+        //
+        // 这里刻意不用 textarea 子编辑器：那样编辑期间预览会整个消失，
+        // 而且要额外维护一套提交/校验/关闭逻辑。直接改源码就没有这些状态。
+        //
+        // 预览 widget 要落在**行边界**上。`range.to` 是闭合 `$$` 那一行的行尾
+        // （`raw` 不含行尾换行），推到下一行行首，预览才会出现在块的下方。
+        const previewPos = blockNode.range.to + (source[blockNode.range.to] === '\r' ? 1 : 0) +
+          (source[blockNode.range.to + (source[blockNode.range.to] === '\r' ? 1 : 0)] === '\n' ? 1 : 0);
+        ranges.push({
+          from: previewPos,
+          to: previewPos,
+          decoration: Decoration.widget({
+            block: true,
+            side: 1,
+            widget: new BlockMathPreviewWidget(
+              blockNode.range.from,
+              blockNode.range.to,
+              blockNode.raw,
+              blockNode.formula
+            )
+          })
+        });
+      } else {
+        ranges.push({
+          from: blockNode.range.from,
+          to: blockWidgetDecorationEnd(blockNode.range, blockNode.raw),
+          decoration: Decoration.replace({
+            widget: new BlockMathWidget(
+              blockNode.range.from,
+              blockNode.range.to,
+              blockNode.raw,
+              blockNode.formula
+            ),
+            block: true
+          })
+        });
+      }
     } else if (blockNode.type === 'raw') {
       ranges.push({
         from: blockNode.range.from,

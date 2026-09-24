@@ -5,6 +5,7 @@ import {
   createSessionEditorView,
   isEditorComposing,
   setEditorReadOnly,
+  setVisualFocusEffect,
   type SessionEditorViewHandle
 } from '../src/index.js';
 
@@ -229,14 +230,30 @@ describe('P1-04F Markra behavior compatibility', () => {
     expect(visualHandle.view.dom.querySelector('.cm-visual-raw-block')).not.toBeNull();
     expect(visualHandle.view.dom.querySelector('script')).toBeNull();
 
-    (visualHandle.view.dom.querySelector('.cm-visual-block-math') as HTMLElement).click();
-    const mathEditor = visualHandle.view.dom.querySelector('.cm-block-math-editor') as HTMLTextAreaElement;
-    mathEditor.value = 'E = mc^3';
-    mathEditor.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Enter',
-      ctrlKey: true,
-      bubbles: true
-    }));
+    // 块级公式已改为就地编辑：激活后整块替换消失、`$$` 行变回真实文本，
+    // 块尾追加实时预览。
+    //
+    // 这里用「选区 + 聚焦 effect」同事务揭示，而不是调用 activateMathSource（它内部走
+    // `view.focus()`）：**happy-dom 会在 CM 写 DOM 选区时同步派发 selectionchange**，
+    // 让 CM 的 observer 在一次 update 尚未结束时再次 dispatch。含块级 widget（表格、
+    // 块级公式）的文档在 happy-dom 下 `view.focus()` 一律会踩这个坑，属既有环境限制，
+    // 与本次改动无关。`activateMathSource` 的落点算术由 math-inplace-edit.test.ts 覆盖，
+    // 真实点击手势由桌面 E2E 覆盖。
+    const mathFrom = original.indexOf('$$');
+    visualHandle.view.dispatch({
+      selection: { anchor: mathFrom + 2 },
+      effects: setVisualFocusEffect.of(true)
+    });
+    expect(visualHandle.view.dom.querySelector('.cm-visual-block-math-preview')).not.toBeNull();
+    expect(
+      visualHandle.view.dom.querySelector('.cm-visual-block-math:not(.cm-visual-block-math-preview)')
+    ).toBeNull();
+
+    // 直接改源码，等价于用户在这几行里打字
+    const formulaEnd = original.indexOf('E = mc^2') + 'E = mc^2'.length;
+    visualHandle.view.dispatch({
+      changes: { from: formulaEnd - 1, to: formulaEnd, insert: '3' }
+    });
 
     const afterMath = '$$\nE = mc^3\n$$\n\n<div class="raw"><script>alert(1)</script>safe</div>';
     expect(session.getSnapshot().source).toBe(afterMath);

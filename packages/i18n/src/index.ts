@@ -52,6 +52,8 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'table.btnResize': 'Resize',
     'table.btnDelete': 'Delete Table',
     'table.gridFooter': '{rows} rows × {cols} cols',
+    'editor.editInlineMath': 'Edit inline formula source',
+    'editor.editBlockMath': 'Edit block formula source',
   },
   'zh-CN': {
     'app.title': 'Nexus 编辑器',
@@ -104,6 +106,8 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'table.btnResize': '调整',
     'table.btnDelete': '删除表格',
     'table.gridFooter': '{rows} 行 × {cols} 列',
+    'editor.editInlineMath': '编辑行内公式源码',
+    'editor.editBlockMath': '编辑块级公式源码',
   }
 };
 
