@@ -789,33 +789,6 @@ body.nexus-resizing {
   list-style: none;
 }
 
-.nexus-sidebar-item {
-  display: block;
-  width: 100%;
-  padding: 5px 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--nexus-text-secondary);
-  font-family: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.nexus-sidebar-item:hover {
-  background-color: var(--nexus-bg-surface-hover);
-  color: var(--nexus-text-primary);
-}
-
-.nexus-sidebar-item-active {
-  background-color: var(--nexus-bg-surface-active);
-  color: var(--nexus-text-primary);
-}
-
 /* 文件树。缩进由 JS 按 depth 算（inline padding-left），不做嵌套 DOM ——
    嵌套会让长文件名的省略号算错可用宽度。 */
 .nexus-tree-scroll {

@@ -56,7 +56,7 @@ describe('工作区侧栏', () => {
     // 面板默认就是展开的（初始状态自洽），这里不需要先点图标
 
     // 等索引跑完、文件树渲染出来
-    await app.waitForSelector('.nexus-tree-item', 30000);
+    await app.waitForSelector('.nexus-tree-item', 60000);
 
     const items = await app.evaluate<string[]>(
       `Array.from(document.querySelectorAll('.nexus-tree-name')).map((el) => el.textContent)`
@@ -83,5 +83,5 @@ describe('工作区侧栏', () => {
     expect(
       await app.evaluate<number>(`document.querySelectorAll('.nexus-tree-item-active').length`)
     ).toBe(1);
-  });
+  }, 90000);
 });

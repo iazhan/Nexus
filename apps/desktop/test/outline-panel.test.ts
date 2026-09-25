@@ -70,7 +70,10 @@ describe('大纲面板', () => {
 
     // 打开工作区里的文档
     await app.click('.nexus-activity-icon[data-activity="workspace"]');
-    await app.waitForSelector('.nexus-tree-item', 30000);
+    // 60s 而不是 30s：这一步会等侧栏跑完索引并渲染出文件树，
+    // 全量串行跑到后半段负载高时 30s 不够（实测撞过 30s 上限）。
+    // 注意 waitForSelector 用的是它自己的超时参数，不受 vitest testTimeout 影响。
+    await app.waitForSelector('.nexus-tree-item', 60000);
     await app.click('.nexus-tree-file');
     await app.waitForSelector('.cm-content', 20000);
 
@@ -132,5 +135,5 @@ describe('大纲面板', () => {
     expect(await app.evaluate<string>(
       `document.querySelector('.nexus-outline-item')?.textContent ?? ''`
     )).toBe('新标题');
-  }, 45000);
+  }, 90000);
 });
