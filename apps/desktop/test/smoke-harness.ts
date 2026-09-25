@@ -208,11 +208,23 @@ export class ElectronAppInstance {
     throw new Error(`Timeout (${timeoutMs}ms) waiting for selector: ${selector}`);
   }
 
+  /**
+   * 轮询直到条件成立。
+   *
+   * 参数**同时接受两种写法**：
+   *   - 函数：`() => document.querySelector('.x') !== null`
+   *   - 表达式：`window.nexusSession.getSnapshot().source.includes('foo')`
+   *
+   * 早先只支持函数（拼成 `Boolean((expr)())`），传表达式时会变成对布尔值调用 `()`
+   * → 抛错 → 被下面的 catch 吞掉 → 表现成「条件永远不成立」，排查起来非常绕。
+   */
   public async waitForFunction(fnExpression: string, timeoutMs = 10000): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       try {
-        const ok = await this.evaluate<boolean>(`Boolean((${fnExpression})())`);
+        const ok = await this.evaluate<boolean>(
+          `(() => { const v = (${fnExpression}); return typeof v === 'function' ? Boolean(v()) : Boolean(v); })()`
+        );
         if (ok) return;
       } catch {
         // ignore
