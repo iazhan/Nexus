@@ -4,6 +4,8 @@
 
 Nexus 的所有包与桌面应用**共用同一个版本号**，落在各自 `package.json` 的顶层 `version` 字段。
 
+提交信息的格式与长度要求见 `COMMIT_CONVENTION.md`。
+
 为什么不是每包独立：10 个包全部 `private: true`、彼此以 `workspace:*` 互链、不单独发布到 npm。
 独立版本号只会制造 10 个互相漂移的机会，换不来任何收益。
 
@@ -33,7 +35,7 @@ git add -A
 pnpm version:check:staged
 
 # 4. 版本改动与代码改动放进同一个提交
-git commit -m "fix(editor): 修掉表格下方点击命中区下移"
+git commit -m "fix(editor): stop click hit area drifting below tables"
 
 # 5. 打 tag
 git tag v0.1.1

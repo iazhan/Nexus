@@ -1,0 +1,16 @@
+#!/bin/sh
+# Nexus commit-msg hook —— 校验提交信息的格式、长度与语言。
+#
+# 安装（换 checkout 后需要重跑，core.hooksPath 是本机配置，不进版本库）：
+#   pnpm hooks:install
+#
+# 规范见 COMMIT_CONVENTION.md。git 把含提交信息的文件路径作为 $1 传进来。
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "commit-msg: 找不到 node，跳过提交信息校验" >&2
+  exit 0
+fi
+
+exec node scripts/commit-message.mjs "$1"
