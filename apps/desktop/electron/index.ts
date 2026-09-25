@@ -40,11 +40,38 @@ function classifyLaunchPath(targetPath: string): 'directory' | 'file' | 'unknown
   }
 }
 
+/**
+ * 开发便利：`NEXUS_WORKSPACE` 环境变量直接指定工作区，跳过命令行参数。
+ *
+ * 为什么需要它：`electron-vite dev` 启动 Electron 时**没有**把额外参数透传给应用的
+ * 官方途径（它的 CLI 只认自己的选项），而开发时经常要反复进工作区模式。
+ * 生产环境仍然走命令行参数 —— 这里只是给开发期开一条确定的入口，
+ * 而且它比「猜 electron-vite 会不会透传」稳得多。
+ */
+function applyWorkspaceEnvOverride(context: LaunchContext): LaunchContext {
+  const fromEnv = process.env.NEXUS_WORKSPACE?.trim();
+  if (!fromEnv) return context;
+
+  if (classifyLaunchPath(fromEnv) !== 'directory') {
+    console.warn(`[Nexus Shell] NEXUS_WORKSPACE 不是有效目录，已忽略: ${fromEnv}`);
+    return context;
+  }
+
+  return {
+    mode: 'workspace',
+    filePath: null,
+    workspaceRoot: fromEnv,
+    unsupportedPath: null
+  };
+}
+
 // Parse launch arguments upon main process startup
-const launchContext: LaunchContext = parseLaunchArgs(process.argv, {
-  execPath: process.execPath,
-  classifyPath: classifyLaunchPath
-});
+const launchContext: LaunchContext = applyWorkspaceEnvOverride(
+  parseLaunchArgs(process.argv, {
+    execPath: process.execPath,
+    classifyPath: classifyLaunchPath
+  })
+);
 console.log('[Nexus Shell] Initialized launch context:', JSON.stringify(launchContext));
 
 function getPreloadPath(): string {
@@ -86,7 +113,9 @@ function createWindow(): BrowserWindowType {
     minWidth: 640,
     minHeight: 480,
     show: false,
-    title: 'Nexus Lite',
+    // 中性初值：页面加载后会被 renderer 的 document.title 覆盖（它按运行模式设置）。
+    // 这里写死「Nexus Lite」会让全量模式在启动的头几百毫秒里挂错标题。
+    title: 'Nexus',
     // 无边框窗口：最小化/最大化/关闭由渲染进程自绘，tooltip 才能跟随应用内语言。
     titleBarStyle: 'hidden',
     webPreferences: {

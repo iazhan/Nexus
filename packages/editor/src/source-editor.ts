@@ -31,7 +31,12 @@ export const editorLocaleFacet = Facet.define<string, string>({
 export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Extension[] {
   const isReadOnly = Boolean(config.readOnly);
 
-  const extensions: Extension[] = [lineNumbers()];
+  // `lineWrapping` 让超长行软换行，从而不出现横向滚动条。
+  //
+  // 它与 `lineNumbers()` 配合正好是「换行显示 + 续行不显示行号」：
+  // `lineNumbers()` 只给**逻辑行起点**标号，软换行出来的续行本来就不带行号 ——
+  // 所以不需要额外做「隐藏续行行号」的处理，两件事是一件事。
+  const extensions: Extension[] = [lineNumbers(), EditorView.lineWrapping];
 
   if (config.includeHistory !== false) {
     extensions.push(history());

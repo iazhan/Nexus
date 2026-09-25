@@ -418,6 +418,9 @@ body {
 
 /* Main Content Area */
 .nexus-main-content {
+  /* 纵向 flex：顶部是标签栏，下面是编辑区 / 空态 / 加载态 */
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   position: relative;
@@ -426,8 +429,11 @@ body {
 }
 
 /* Editor Wrapper */
+/* 用 flex: 1 而不是 height: 100% —— 父容器里还有标签栏占着高度，
+   height: 100% 会按整个容器算，编辑区底部被推出可视区域。 */
 .nexus-editor-full {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
 }
 
@@ -444,10 +450,446 @@ body {
 }
 
 /* State Containers (Loading / Error) */
+/* 工作区双栏布局：侧栏 + 编辑区。lightweight 模式不渲染侧栏，等同单栏 */
+.nexus-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 活动栏：最左一列图标，点击在右侧展开面板（参照 VSCode） */
+.nexus-activity-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex: 0 0 48px;
+  padding: 6px 0;
+  background-color: var(--nexus-bg-canvas);
+}
+
+.nexus-activity-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--nexus-text-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.nexus-activity-icon:hover {
+  color: var(--nexus-text-primary);
+}
+
+/* 选中态的背景色与面板底色相同 —— 让图标和它打开的面板在视觉上连成一片，
+   所以这里刻意不加圆角，否则接缝处会露出一条底色。 */
+.nexus-activity-icon-active {
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+}
+
+/* 左侧指示条：不依赖颜色也能看出哪个是活动的（浅色主题下对比度可能不够） */
+.nexus-activity-icon::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background-color: var(--nexus-accent-primary);
+  transform: scaleY(0);
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.nexus-activity-icon-active::before {
+  transform: scaleY(1);
+}
+
+/* 设置是应用级入口，与上面四个文档级入口分开，压到底部 */
+.nexus-activity-icon-bottom {
+  margin-top: auto;
+}
+
+.nexus-activity-panel {
+  position: relative;
+  flex: 0 0 0;
+  min-width: 0;
+  overflow: hidden;
+  background-color: var(--nexus-bg-surface);
+  /* 边框常驻但透明：直接在有/无之间切会让收起动画末尾跳一下 */
+  border-right: 1px solid transparent;
+  transition: flex-basis 160ms cubic-bezier(0.2, 0, 0, 1), border-color 160ms ease-out;
+}
+
+/* 宽度来自 --nexus-panel-width（App 的拖拽逻辑写入这个变量），默认 240px */
+.nexus-activity-panel-open {
+  flex-basis: var(--nexus-panel-width, 240px);
+  border-right-color: var(--nexus-border-subtle);
+}
+
+/* 拖拽把手压在面板右边缘内侧。放在面板内部而不是外侧，
+   是为了不让它被面板的 overflow: hidden 裁掉。 */
+.nexus-panel-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 1;
+  cursor: col-resize;
+  background-color: transparent;
+  transition: background-color 120ms ease-out;
+}
+
+.nexus-panel-resizer:hover,
+.nexus-panel-resizer-active {
+  background-color: var(--nexus-accent-primary);
+  opacity: 0.5;
+}
+
+/* 拖拽期间光标锁在 col-resize，且不选中沿途文字 ——
+   鼠标移出那 4px 把手时靠它维持手感 */
+body.nexus-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.nexus-panel-slot {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* 内容宽度跟随面板宽度：否则展开/收起动画过程中文字会跟着回流重排，看起来在抖。
+     用 var 而不是写死 240px —— 用户拖宽之后内容也要跟着变宽。 */
+  min-width: var(--nexus-panel-width, 240px);
+}
+
+.nexus-panel-slot-hidden {
+  display: none;
+}
+
+.nexus-panel-placeholder {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-outline {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 层级用左内边距表示，不做嵌套列表 —— 嵌套会让长标题的换行缩进很难看。
+   5/6 级共用一档缩进：240px 的面板里再深就没地方放文字了。 */
+.nexus-outline-item {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-outline-item:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-outline-level-1 { padding-left: 8px; }
+.nexus-outline-level-2 { padding-left: 20px; }
+.nexus-outline-level-3 { padding-left: 32px; }
+.nexus-outline-level-4 { padding-left: 44px; }
+.nexus-outline-level-5,
+.nexus-outline-level-6 { padding-left: 56px; }
+
+.nexus-search {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nexus-search-input-row {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-search-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-canvas);
+  color: var(--nexus-text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.nexus-search-input:focus {
+  border-color: var(--nexus-accent-primary);
+}
+
+/* 文件名在上、相对路径在下：搜索跨整个工作区，重名文件靠路径区分 */
+.nexus-search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.nexus-search-hit:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-search-hit-name {
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-search-hit-path {
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-plugins {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nexus-plugin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+}
+
+.nexus-plugin-name {
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 状态靠颜色区分：「已加载」是最弱的一档（正常态不必抢注意力），
+   「加载失败」最显眼。 */
+.nexus-plugin-state {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-plugin-state-loading {
+  color: var(--nexus-accent-primary);
+}
+
+.nexus-plugin-state-failed {
+  color: var(--nexus-status-error-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexus-activity-panel,
+  .nexus-activity-icon,
+  .nexus-activity-icon::before {
+    transition: none;
+  }
+}
+
+.nexus-workspace-sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  /* 背景与右边框交给外层 .nexus-activity-panel —— 那才是与活动栏拼接的一层 */
+  background-color: transparent;
+}
+
+.nexus-sidebar-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--nexus-border-subtle);
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-sidebar-root {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.nexus-sidebar-count {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-sidebar-note {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-sidebar-error {
+  color: var(--nexus-status-error-text);
+}
+
+.nexus-sidebar-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.nexus-sidebar-item {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-sidebar-item:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-sidebar-item-active {
+  background-color: var(--nexus-bg-surface-active);
+  color: var(--nexus-text-primary);
+}
+
+/* 文件树。缩进由 JS 按 depth 算（inline padding-left），不做嵌套 DOM ——
+   嵌套会让长文件名的省略号算错可用宽度。 */
+.nexus-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 0;
+  overflow-y: auto;
+}
+
+.nexus-tree-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nexus-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.nexus-tree-item:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-tree-item-active {
+  background-color: var(--nexus-bg-surface-active);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 目录名比文件名更醒目一点，便于在缩进里一眼分辨层级 */
+.nexus-tree-dir .nexus-tree-name {
+  color: var(--nexus-text-primary);
+}
+
+.nexus-tree-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  color: var(--nexus-text-muted);
+  transition: transform 120ms ease-out;
+}
+
+.nexus-tree-chevron-open {
+  transform: rotate(90deg);
+}
+
 /* 多标签页栏（P2-04）：只渲染「打开了几个文档」，不持有任何文档状态 */
 .nexus-tab-bar {
   display: flex;
   align-items: stretch;
+  /* 固定高度，不参与伸缩 —— 它上面没有别的东西跟它抢空间 */
+  flex: 0 0 auto;
   gap: 1px;
   height: 34px;
   padding: 0 6px;
@@ -532,7 +974,8 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   padding: 24px;
   gap: 12px;
 }
@@ -568,7 +1011,8 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   padding: 24px;
 }
 

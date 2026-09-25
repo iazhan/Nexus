@@ -46,9 +46,13 @@ export default defineConfig({
               singleFork: true
             }
           },
-          // 单条用例渲染整个 App 在空载下约 1s；真正卡死的用例仍会失败，只是晚 25s。
-          testTimeout: 30000,
-          hookTimeout: 30000
+          // 单条用例渲染整个 App 在空载下约 1s；真正卡死的用例仍会失败，只是晚一些。
+          //
+          // 60s 而不是 30s：这些用例要「启动 Electron + 跑完整交互链」，空载就 20–25s，
+          // 全量串行跑到后半段机器负载上来，就会贴到 30s 上限而**假失败**
+          // （outline-panel 30.06s、workspace-index 29.97s 都踩过）。
+          testTimeout: 60000,
+          hookTimeout: 60000
         }
       }
     ]

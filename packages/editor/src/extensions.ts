@@ -8,6 +8,18 @@ export interface EditorExtensionControl {
   destroy(): void;
 }
 
+/**
+ * 扩展的运行时状态，供插件面板显示。
+ *
+ * `idle` 与 `loading` 的区别是「按内容懒加载」的可见证据 ——
+ * 文档里没出现过触发语法时，扩展包一个字节都没下载。
+ */
+export interface ExtensionStatus {
+  id: string;
+  /** idle = 已注册但从未被触发；loading = 正在加载；loaded = 可用；failed = 加载失败 */
+  state: 'idle' | 'loading' | 'loaded' | 'failed';
+}
+
 export interface EditorExtension {
   id: string;
   canHandle(marker: MarkdownMarker): boolean;
@@ -44,6 +56,13 @@ class LazyExtension implements EditorExtension {
   private pending: Promise<void> | null = null;
   /** 单独记，不能从 pending/inner 反推：失败后两者都会回到初始值。 */
   private wasRequested = false;
+  /**
+   * 上一次 `load()` 是否失败。
+   *
+   * 同样不能反推：失败后 `pending` 被清空（为了允许重试）、`inner` 仍是 null，
+   * 与「还没触发过」长得一模一样。插件面板要区分这两种状态，就必须单独记这一位。
+   */
+  private failed = false;
 
   public constructor(private readonly loader: ExtensionLoader) {
     this.id = loader.id;
@@ -61,11 +80,14 @@ class LazyExtension implements EditorExtension {
         .then(async (extension) => {
           await extension.load();
           this.inner = extension;
+          // 重试成功要把失败标记清掉，否则面板会一直显示「加载失败」
+          this.failed = false;
         })
         // 失败要允许重试：清掉 pending，下一次 load() 会重新 import。
         // 不这么做的话，首次失败会被永久缓存，错误 UI 上的「重试」按钮点了没用。
         .catch((err) => {
           this.pending = null;
+          this.failed = true;
           throw err;
         });
     }
@@ -91,6 +113,11 @@ class LazyExtension implements EditorExtension {
   /** `load()` 是否被调用过 —— 即扩展包是否**开始**被 import。 */
   public get requested(): boolean {
     return this.wasRequested;
+  }
+
+  /** 上一次加载是否失败。失败后 `pending` 会被清空以允许重试，所以状态要单独记。 */
+  public get hasFailed(): boolean {
+    return this.failed;
   }
 }
 
@@ -126,6 +153,26 @@ export class ExtensionHost {
   /** 已经 import 回来并 `load()` 完成的懒加载扩展 id。 */
   loadedIds(): string[] {
     return this.lazy.filter(ext => ext.resolved).map(ext => ext.id);
+  }
+
+  /**
+   * 列出所有已注册扩展及其状态，供插件面板显示。
+   *
+   * 与 `requestedIds()` / `loadedIds()` 的区别：那两个只覆盖**懒加载**扩展、且只给 id。
+   * 这里要连「注册了但文档里从没出现过触发语法」的也列出来 ——
+   * 插件面板的意义正是让用户看见「装了哪些、哪些其实还没启用」。
+   */
+  listExtensions(): ExtensionStatus[] {
+    return this.extensions.map((extension) => {
+      // 静态注册的扩展在 host 里就是就绪的
+      if (!(extension instanceof LazyExtension)) {
+        return { id: extension.id, state: 'loaded' as const };
+      }
+      if (extension.resolved) return { id: extension.id, state: 'loaded' as const };
+      if (extension.hasFailed) return { id: extension.id, state: 'failed' as const };
+      if (extension.requested) return { id: extension.id, state: 'loading' as const };
+      return { id: extension.id, state: 'idle' as const };
+    });
   }
 }
 

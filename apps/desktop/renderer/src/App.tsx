@@ -34,6 +34,22 @@ import { useTheme, useLocale } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
 import { WorkspaceStore } from './workspace/store.js';
 import { TabBar } from './workspace/TabBar.js';
+import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
+import { OutlinePanel } from './workspace/OutlinePanel.js';
+import { SearchPanel } from './workspace/SearchPanel.js';
+import { PluginsPanel } from './workspace/PluginsPanel.js';
+import {
+  PANEL_DEFAULT_WIDTH,
+  clampPanelWidth,
+  loadPanelWidth,
+  savePanelWidth
+} from './workspace/panel-width.js';
+import { ActivityBar } from './shell/ActivityBar.js';
+import {
+  INITIAL_ACTIVITY_STATE,
+  toggleActivity,
+  type ActivityId
+} from './shell/activity-bar-state.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
 
@@ -137,6 +153,73 @@ export const App: React.FC = () => {
    * 文件树与索引在后续切片接入。
    */
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+
+  /**
+   * 活动栏（最左图标列）的布局状态。纯会话内状态，不持久化 ——
+   * 它是「这次看什么」，不是「文档是什么」，与 WorkspaceStore 各管一摊。
+   */
+  const [activity, setActivity] = useState(INITIAL_ACTIVITY_STATE);
+
+  /**
+   * 文档内容版本号。唯一用途是让插件面板在编辑后重新读一次扩展状态 ——
+   * `ExtensionHost` 没有变更通知，借这个信号刷新。
+   */
+  const [documentRevision, setDocumentRevision] = useState(0);
+
+  const handleActivitySelect = useCallback((id: ActivityId) => {
+    setActivity((previous) => toggleActivity(previous, id));
+  }, []);
+
+  /**
+   * 侧栏宽度。默认 240px，可拖拽调整（范围见 `panel-width.ts`）。
+   *
+   * 写入 localStorage 的时机是**松开鼠标**，不是拖拽过程中 —— 否则每移动一像素
+   * 就落一次盘，拖一下能写几百次。
+   */
+  const [panelWidth, setPanelWidth] = useState(loadPanelWidth);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleResizeStart = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      setIsResizing(true);
+
+      const startX = event.clientX;
+      const startWidth = panelWidth;
+
+      const handleMove = (moveEvent: MouseEvent) => {
+        setPanelWidth(clampPanelWidth(startWidth + (moveEvent.clientX - startX)));
+      };
+
+      const handleUp = () => {
+        setIsResizing(false);
+        window.removeEventListener('mousemove', handleMove);
+        window.removeEventListener('mouseup', handleUp);
+      };
+
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+    },
+    [panelWidth]
+  );
+
+  /** 双击把手恢复默认宽度 —— 拖窄了之后不用靠手感找回来。 */
+  const handleResizeReset = useCallback(() => {
+    setPanelWidth(PANEL_DEFAULT_WIDTH);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) {
+      savePanelWidth(panelWidth);
+      return;
+    }
+
+    // 拖拽中给 body 加类：光标移出把手后仍是 col-resize，且不会选中沿途的文字
+    document.body.classList.add('nexus-resizing');
+    return () => {
+      document.body.classList.remove('nexus-resizing');
+    };
+  }, [isResizing, panelWidth]);
   /**
    * Ctrl+左键跳转失败的可见反馈。
    *
@@ -193,6 +276,28 @@ export const App: React.FC = () => {
 
   const saveStateRef = useRef(saveState);
   saveStateRef.current = saveState;
+
+  /**
+   * 大纲点击跳转：把光标移到标题所在的源码偏移，并**滚动过去**。
+   *
+   * 这里必须直接派发到 `EditorView`，不能只改 session：
+   * `registerSurface()` 的 session → view 同步只发 selection、不带 `scrollIntoView`
+   * （见 `document-surface.ts` 里那段注释），所以只调 `session.dispatch` 的话
+   * 光标在 session 里确实移了、视口却纹丝不动 —— 表现就是「点了大纲没反应」。
+   *
+   * `changes` 为空：跳转不该产生一条可撤销的编辑历史，
+   * 否则点几次大纲之后 Ctrl+Z 要按好几次才能撤销真正的编辑。
+   */
+  const handleOutlineJump = useCallback((offset: number) => {
+    const view = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
+    if (!view) return;
+
+    view.dispatch({
+      changes: [],
+      selection: { anchor: offset, head: offset },
+      scrollIntoView: true
+    });
+  }, []);
 
   // 下面三个 setter 保持与原 useState 完全相同的签名，所以全文件几十处调用点
   // 一行都不用改 —— 只换存储位置，不动调用方式。
@@ -366,6 +471,33 @@ export const App: React.FC = () => {
       window.nexus?.setDirty?.(false);
     },
     [store]
+  );
+
+  /**
+   * 从工作区侧栏打开一个文件。
+   *
+   * 与 Ctrl+O 走同一个 `applyOpenedDocument`：同一路径已打开时它会激活既有标签页，
+   * 不会开出第二份 session（两份都能存盘 = 后写的静默覆盖先写的）。
+   */
+  const handleOpenWorkspaceFile = useCallback(
+    async (targetPath: string) => {
+      try {
+        if (!window.nexus?.openFile) return;
+        const fileDoc = await window.nexus.openFile(targetPath);
+        if (!fileDoc) return;
+        applyOpenedDocument(fileDoc);
+        setLinkError(null);
+      } catch (err: unknown) {
+        console.error('Failed to open workspace file:', err);
+        setLinkError(
+          t('link.error.openFailed', {
+            target: targetPath,
+            reason: err instanceof Error ? err.message : String(err)
+          })
+        );
+      }
+    },
+    [applyOpenedDocument, t]
   );
 
   // Open file via the system dialog
@@ -551,6 +683,9 @@ export const App: React.FC = () => {
 
   // Handle content change & auto-save debounce
   const handleContentChange = useCallback((newContent: string) => {
+    // 让插件面板刷新扩展状态（编辑可能触发某个扩展开始按需加载）
+    setDocumentRevision((previous) => previous + 1);
+
     if (newContent !== initialContentRef.current) {
       updateSaveState('dirty');
 
@@ -1082,12 +1217,26 @@ export const App: React.FC = () => {
         }
       : { tone: SAVE_STATE_TONE[saveState], text: t(SAVE_STATE_KEY[saveState]) };
 
+  /**
+   * 窗口标题：`<文件名> — <模式名>`。
+   *
+   * Electron 的窗口标题跟随 `document.title`，而 `index.html` 里的 `<title>` 只是个中性初值 ——
+   * 之前那里写死了「Nexus Lite」，于是全量模式的窗口标题也一直挂着 Lite
+   * （`BrowserWindow` 的 title 会被页面的 `<title>` 覆盖，改主进程没用）。
+   */
+  useEffect(() => {
+    const appName = workspaceRoot ? t('app.name.workspace') : t('app.name.lite');
+    document.title = `${fileName || t('tab.untitled')} — ${appName}`;
+  }, [fileName, workspaceRoot, t]);
+
   return (
     <div className="nexus-app-root">
       {/* Header Bar */}
       <header className="nexus-header-bar" onDoubleClick={handleHeaderDoubleClick}>
         <div className="nexus-header-left">
-          <span className="nexus-app-title">Nexus Lite</span>
+          <span className="nexus-app-title">
+            {workspaceRoot ? t('app.name.workspace') : t('app.name.lite')}
+          </span>
           <MenuBar menus={menus} />
         </div>
 
@@ -1128,13 +1277,6 @@ export const App: React.FC = () => {
           />
         </div>
       </header>
-
-      <TabBar
-        documents={workspaceSnapshot.documents}
-        activeId={workspaceSnapshot.activeId}
-        onActivate={store.activate}
-        onClose={handleCloseTab}
-      />
 
       {/* Link Navigation Failure Banner */}
       {linkError && (
@@ -1221,7 +1363,94 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Content Area */}
-      <main className="nexus-main-content">
+      <div className="nexus-body">
+        {/* 活动栏与面板只在工作区模式下出现；lightweight 保持原来的单栏布局 */}
+        {status === 'ready' && workspaceRoot && (
+          <ActivityBar
+            activeId={activity.activeId}
+            panelOpen={activity.panelOpen}
+            onSelect={handleActivitySelect}
+            onOpenSettings={() => setCommandPaletteOpen(true)}
+          />
+        )}
+
+        {status === 'ready' && workspaceRoot && (
+          <div
+            className={`nexus-activity-panel${
+              activity.panelOpen ? ' nexus-activity-panel-open' : ''
+            }`}
+            style={{ '--nexus-panel-width': `${panelWidth}px` } as React.CSSProperties}
+          >
+            {/* 拖拽把手：只在展开时挂载，收起状态下没有可拖的东西 */}
+            {activity.panelOpen && (
+              <div
+                className={`nexus-panel-resizer${
+                  isResizing ? ' nexus-panel-resizer-active' : ''
+                }`}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t('panel.resize')}
+                title={t('panel.resizeHint')}
+                onMouseDown={handleResizeStart}
+                onDoubleClick={handleResizeReset}
+              />
+            )}
+            {/* 面板内容保留挂载、只切换可见性：WorkspaceSidebar 挂载时会跑一次索引，
+                卸载重建就意味着每次切回来都重新索引一遍。用 hidden 属性不行 ——
+                它会被 CSS 里的 display 覆盖。 */}
+            <div
+              className={`nexus-panel-slot${
+                activity.activeId === 'workspace' ? '' : ' nexus-panel-slot-hidden'
+              }`}
+            >
+              <WorkspaceSidebar
+                rootPath={workspaceRoot}
+                activeFilePath={filePath}
+                onOpenFile={handleOpenWorkspaceFile}
+              />
+            </div>
+            <div
+              className={`nexus-panel-slot${
+                activity.activeId === 'outline' ? '' : ' nexus-panel-slot-hidden'
+              }`}
+            >
+              {/* 大纲是「当前文档」的视图：没有活动文档时它没有意义 */}
+              {activeDocument ? (
+                <OutlinePanel session={session} onJump={handleOutlineJump} />
+              ) : (
+                <p className="nexus-panel-placeholder">{t('workspace.pickFile')}</p>
+              )}
+            </div>
+            <div
+              className={`nexus-panel-slot${
+                activity.activeId === 'search' ? '' : ' nexus-panel-slot-hidden'
+              }`}
+            >
+              {/* 搜索覆盖整个工作区，不依赖当前文档 */}
+              <SearchPanel onOpenFile={handleOpenWorkspaceFile} />
+            </div>
+            <div
+              className={`nexus-panel-slot${
+                activity.activeId === 'extensions' ? '' : ' nexus-panel-slot-hidden'
+              }`}
+            >
+              <PluginsPanel
+                host={extensionHostRef.current ?? undefined}
+                revision={documentRevision}
+              />
+            </div>
+          </div>
+        )}
+
+        <main className="nexus-main-content">
+        {/* 标签栏挂在编辑区容器**内部**：它只该横跨编辑区，不该延伸到活动栏和侧栏上方。
+            放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。 */}
+        <TabBar
+          documents={workspaceSnapshot.documents}
+          activeId={workspaceSnapshot.activeId}
+          onActivate={store.activate}
+          onClose={handleCloseTab}
+        />
         {status === 'loading' && (
           <div className="nexus-state-container">
             <div className="nexus-loading-spinner" />
@@ -1244,16 +1473,20 @@ export const App: React.FC = () => {
             </div>
           </div>
         )}
-        {status === 'ready' && workspaceRoot && (
-          // workspace 模式下还没有文件树可编辑，如实显示当前状态，
-          // 而不是给一个「空白编辑器」让人以为文件丢了。
+        {/* 没有活动文档时的空态。workspace 模式下这是正常起点（从左侧挑一个文件），
+            lightweight 模式下只会在启动的一瞬间出现。 */}
+        {status === 'ready' && !activeDocument && (
           <div className="nexus-workspace-empty">
             <span className="nexus-workspace-empty-title">{t('workspace.title')}</span>
-            <code className="nexus-workspace-empty-path">{workspaceRoot}</code>
-            <p className="nexus-workspace-empty-note">{t('workspace.pending')}</p>
+            {workspaceRoot && (
+              <code className="nexus-workspace-empty-path">{workspaceRoot}</code>
+            )}
+            <p className="nexus-workspace-empty-note">
+              {workspaceRoot ? t('workspace.pickFile') : t('workspace.pending')}
+            </p>
           </div>
         )}
-        {status === 'ready' && !workspaceRoot && (
+        {status === 'ready' && activeDocument && (
           // 只包编辑区：投影抛错时保留顶栏、菜单栏和状态栏，
           // 让 Mod-M 切换 surface 成为一条真实可用的恢复路径。
           // resetKey 绑 surfaceKind，切回 Source 会自动清除错误状态。
@@ -1276,7 +1509,8 @@ export const App: React.FC = () => {
             />
           </ErrorBoundary>
         )}
-      </main>
+        </main>
+      </div>
 
       {/* Status Bar Footer */}
       <footer className="nexus-status-bar">

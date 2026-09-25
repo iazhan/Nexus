@@ -7,7 +7,10 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
     />
-    <title>Nexus Lite</title>
+    <!-- 中性初值：真正的标题由 App 按运行模式设置（workspace / lightweight）。
+         这里写死「Nexus Lite」会让全量模式的窗口标题一直挂着 Lite ——
+         页面加载后 <title> 会覆盖 BrowserWindow 的 title，所以问题出在这一行。 -->
+    <title>Nexus</title>
   </head>
   <body>
     <div id="root"></div>

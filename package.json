@@ -1,10 +1,11 @@
 {
   "name": "nexus-monorepo",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @nexus/desktop dev",
+    "dev:workspace": "node scripts/dev-workspace.mjs",
     "build": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/markdown build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/math build && pnpm --filter @nexus/mermaid build && pnpm --filter @nexus/desktop build",
     "typecheck": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/markdown build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/math build && pnpm --filter @nexus/mermaid build && pnpm -r typecheck",
     "lint": "eslint .",

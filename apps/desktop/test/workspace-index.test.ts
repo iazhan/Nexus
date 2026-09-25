@@ -46,6 +46,8 @@ describe('工作区索引（Electron 主进程）', () => {
     }
   });
 
+  // 超时放宽：workspace 模式下侧栏挂载时会先跑一次索引，这个用例又要再跑两次，
+  // 加上 Electron 冷启动，30s 的默认上限太贴边（实测 29.97s）。
   it('能在主进程建库、索引工作区，并用中文 2 字词检索到结果', async () => {
     activeApp = await launchElectronApp({ filePath: workspace });
     const app = activeApp;
@@ -54,6 +56,7 @@ describe('工作区索引（Electron 主进程）', () => {
     const result = await app.evaluate<{
       scanned: number;
       indexed: number;
+      skipped: number;
       truncated: boolean;
       errors: string[];
     }>(`window.nexus.rebuildIndex(${JSON.stringify(workspace)})`);
@@ -61,7 +64,10 @@ describe('工作区索引（Electron 主进程）', () => {
     expect(result.errors).toEqual([]);
     expect(result.truncated).toBe(false);
     expect(result.scanned).toBe(2);
-    expect(result.indexed).toBe(2);
+    // **不要断言 `indexed === 2`**：workspace 模式下侧栏挂载时已经自动跑过一次
+    // `rebuildIndex()`，所以这次多半是幂等的第二次，两个文件都会按内容哈希跳过。
+    // 这里断言「两个文件都被处理到了」，把「第一次还是第二次」留给下面的幂等用例。
+    expect(result.indexed + result.skipped).toBe(2);
 
     // 再跑一次：内容没变，应该全部跳过（幂等）
     const second = await app.evaluate<{ indexed: number; skipped: number }>(
@@ -80,5 +86,5 @@ describe('工作区索引（Electron 主进程）', () => {
       `window.nexus.listIndexedDocuments()`
     );
     expect(docs.map((doc) => doc.relativePath)).toEqual(['notes/dma.md', 'root.md']);
-  });
+  }, 45000);
 });
