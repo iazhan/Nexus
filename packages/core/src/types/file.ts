@@ -38,6 +38,48 @@ export interface WorkspaceScanResult {
 }
 
 /**
+ * 被索引的一篇 Markdown 文档。
+ *
+ * 索引是派生数据 —— 这里除了路径、标题和内容哈希，**不该有别的字段**。
+ * 任何「只有索引才知道的事实」都会让「删库重建」不再等价。
+ */
+export interface IndexedDocument {
+  id: number;
+  path: string;
+  relativePath: string;
+  name: string;
+  title: string;
+  sizeBytes: number;
+  modifiedAtMs: number;
+  contentHash: string;
+}
+
+/** 全文检索命中的一条结果。 */
+export interface SearchHit {
+  documentId: number;
+  path: string;
+  relativePath: string;
+  name: string;
+  title: string;
+}
+
+/** 一次工作区索引的结果统计。 */
+export interface IndexWorkspaceResult {
+  /** 扫到的 Markdown 文件数 */
+  scanned: number;
+  /** 新增或更新的文档数 */
+  indexed: number;
+  /** 内容哈希未变、跳过的文档数 */
+  skipped: number;
+  /** 磁盘上已消失、从索引里清掉的文档数 */
+  removed: number;
+  /** 扫描是否因达到上限而提前结束 */
+  truncated: boolean;
+  /** 单个文件失败的原因（不阻断整次索引） */
+  errors: string[];
+}
+
+/**
  * 文件监听事件，错误也通过事件显式传递给调用方。
  */
 export type FileWatchEvent =

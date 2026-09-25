@@ -5,7 +5,10 @@ import type {
   FileWatchListener,
   FileWatchEvent,
   Unsubscribe,
-  WorkspaceScanResult
+  WorkspaceScanResult,
+  IndexedDocument,
+  SearchHit,
+  IndexWorkspaceResult
 } from '@nexus/core';
 import {
   IPC_CHANNELS,
@@ -81,6 +84,18 @@ const bridge: NexusBridge = {
 
   getWorkspaceRoots: (): Promise<string[]> => {
     return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceRoots);
+  },
+
+  rebuildIndex: (rootPath: string): Promise<IndexWorkspaceResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.rebuildIndex, rootPath);
+  },
+
+  searchIndex: (query: string, limit?: number): Promise<SearchHit[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.searchIndex, query, limit);
+  },
+
+  listIndexedDocuments: (): Promise<IndexedDocument[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.listIndexedDocuments);
   },
 
   watchFile: (filePath: string, listener: FileWatchListener): Unsubscribe => {

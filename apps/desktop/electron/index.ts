@@ -9,8 +9,11 @@ import {
   type FileWatchEvent,
   type Unsubscribe
 } from '@nexus/core';
+import { createHash } from 'node:crypto';
 import { FileService } from './file-service.js';
 import { createElectronFileDialog } from './file-dialog.js';
+import { IndexStore } from './index-store.js';
+import { indexWorkspace } from './indexer.js';
 import {
   IPC_CHANNELS,
   type FileWatchIpcPayload,
@@ -182,6 +185,49 @@ interface WebContentsSession {
 
 const sessions = new Map<number, WebContentsSession>();
 
+/**
+ * 每个渲染进程持有自己的工作区索引库。
+ *
+ * 库文件放在 userData 下而不是工作区里：工作区是用户的目录，不该被我们塞进
+ * `.nexus/index.db` 之类的东西；而放在 userData 里，用户想重建时删掉它就行，
+ * 索引本来就是可以随时重建的派生数据。
+ *
+ * 文件名用工作区路径的哈希 —— 同一个工作区重复打开会复用同一个库，
+ * 不同工作区不会互相覆盖。
+ */
+const indexStores = new Map<number, { rootPath: string; store: IndexStore }>();
+
+function indexPathForWorkspace(rootPath: string): string {
+  const digest = createHash('sha256').update(rootPath).digest('hex').slice(0, 16);
+  return path.join(app.getPath('userData'), 'workspace-index', `${digest}.db`);
+}
+
+function openIndexStore(webContentsId: number, rootPath: string): IndexStore {
+  const existing = indexStores.get(webContentsId);
+  if (existing && existing.rootPath === rootPath) {
+    return existing.store;
+  }
+
+  if (existing) {
+    try {
+      existing.store.close();
+    } catch {
+      // 换工作区时旧库关不掉不该阻断新库打开
+    }
+  }
+
+  const dbPath = indexPathForWorkspace(rootPath);
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+  const store = IndexStore.open(dbPath);
+  indexStores.set(webContentsId, { rootPath, store });
+  return store;
+}
+
+function getIndexStore(webContentsId: number): IndexStore | null {
+  return indexStores.get(webContentsId)?.store ?? null;
+}
+
 function getOrCreateSession(webContents: Electron.WebContents): WebContentsSession {
   let session = sessions.get(webContents.id);
   if (!session) {
@@ -219,6 +265,16 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
         }
         current.subscriptions.clear();
         sessions.delete(webContents.id);
+      }
+
+      const indexEntry = indexStores.get(webContents.id);
+      if (indexEntry) {
+        try {
+          indexEntry.store.close();
+        } catch {
+          // 关库失败不影响渲染进程的其余清理
+        }
+        indexStores.delete(webContents.id);
       }
     };
 
@@ -329,6 +385,43 @@ ipcMain.handle(IPC_CHANNELS.scanWorkspace, async (event, rootPath: unknown) => {
 
 ipcMain.handle(IPC_CHANNELS.getWorkspaceRoots, (event) => {
   return getOrCreateSession(event.sender).service.getWorkspaceRoots();
+});
+
+// 工作区索引。三条都要求先有已授权的工作区 —— 索引的边界必须和文件访问的边界一致，
+// 否则渲染进程可以借索引读到工作区外的文件内容。
+ipcMain.handle(IPC_CHANNELS.rebuildIndex, async (event, rootPath: unknown) => {
+  if (typeof rootPath !== 'string' || rootPath.length === 0) {
+    throw new Error('rebuildIndex: 需要非空的工作区路径');
+  }
+
+  const service = getOrCreateSession(event.sender).service;
+  const authorizedRoots = service.getWorkspaceRoots();
+  if (authorizedRoots.length === 0) {
+    throw new Error('rebuildIndex: 该工作区尚未授权');
+  }
+
+  const store = openIndexStore(event.sender.id, rootPath);
+  return indexWorkspace({ service, store, rootPath });
+});
+
+ipcMain.handle(IPC_CHANNELS.searchIndex, (event, query: unknown, limit: unknown) => {
+  if (typeof query !== 'string') {
+    throw new Error('searchIndex: 查询必须是字符串');
+  }
+
+  const store = getIndexStore(event.sender.id);
+  if (!store) return [];
+
+  const effectiveLimit =
+    typeof limit === 'number' && Number.isFinite(limit) && limit > 0
+      ? Math.min(Math.floor(limit), 200)
+      : 50;
+
+  return store.search(query, effectiveLimit);
+});
+
+ipcMain.handle(IPC_CHANNELS.listIndexedDocuments, (event) => {
+  return getIndexStore(event.sender.id)?.listDocuments() ?? [];
 });
 
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {

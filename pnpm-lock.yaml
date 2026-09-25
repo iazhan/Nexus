@@ -50,6 +50,9 @@ importers:
       '@nexus/theme':
         specifier: workspace:*
         version: link:../../packages/theme
+      node-sqlite3-wasm:
+        specifier: ^0.8.60
+        version: 0.8.60
       react:
         specifier: ^19.0.0
         version: 19.3.0
@@ -1810,6 +1813,9 @@ packages:
   node-releases@2.0.55:
     resolution: {integrity: sha512-mIrE/Cw9y+9Au6dS5vDKDhQza9YvG6w+ZrS6X+ZzA7yFW/soAeaups4Qzn1bL6g5FVy8WtP79+0j82oPIbqRjQ==}
     engines: {node: '>=18'}
+
+  node-sqlite3-wasm@0.8.60:
+    resolution: {integrity: sha512-woDEJy/Df0EBFKJ2N7HSL4SiH5UL1GDwxvBeBjaKvqmUApgTKapcoQiAgZKrLSUmrWU6VYyHz41Sz58Hi6YPmg==}
 
   normalize-url@6.1.0:
     resolution: {integrity: sha512-DlL+XwOy3NxAQ8xuC0okPgK46iuVNAK01YN7RueYBqqFeGsBjV9XmCAzAdgt+667bCl5kPh9EqKKDwnaPG1I7A==}
@@ -4054,6 +4060,8 @@ snapshots:
   natural-compare@1.4.0: {}
 
   node-releases@2.0.55: {}
+
+  node-sqlite3-wasm@0.8.60: {}
 
   normalize-url@6.1.0: {}
 

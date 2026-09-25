@@ -3,7 +3,10 @@ import type {
   FileDocument,
   FileWatchListener,
   Unsubscribe,
-  WorkspaceScanResult
+  WorkspaceScanResult,
+  IndexedDocument,
+  SearchHit,
+  IndexWorkspaceResult
 } from '@nexus/core';
 import type { WindowState } from '../ipc/channels.js';
 
@@ -29,6 +32,16 @@ export interface NexusBridge {
   scanWorkspace: (rootPath: string) => Promise<WorkspaceScanResult>;
   /** 当前已授权的工作区根目录。 */
   getWorkspaceRoots: () => Promise<string[]>;
+  /**
+   * 全量重建工作区索引（扫盘 → 解析 → 写库）。
+   *
+   * 幂等：内容未变的文档按内容哈希跳过。索引是派生数据，随时可以重建。
+   */
+  rebuildIndex: (rootPath: string) => Promise<IndexWorkspaceResult>;
+  /** 全文检索。中文按字切分，2 字词可搜（见 ADR-0002）。 */
+  searchIndex: (query: string, limit?: number) => Promise<SearchHit[]>;
+  /** 已索引的文档列表，按相对路径排序。 */
+  listIndexedDocuments: () => Promise<IndexedDocument[]>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;
