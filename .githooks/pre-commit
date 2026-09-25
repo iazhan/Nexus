@@ -1,0 +1,17 @@
+#!/bin/sh
+# Nexus pre-commit hook —— 拦截「改了代码但没动版本号」的提交。
+#
+# 安装（换 checkout 后需要重跑，core.hooksPath 是本机配置，不进版本库）：
+#   pnpm hooks:install
+#
+# 规则见 VERSIONING.md：暂存区有 apps/ 或 packages/ 下的 .ts/.tsx/.css（排除测试），
+# 却没有 package.json 的 version 变更 → 拒绝提交。纯文档/测试/工具提交直接放行。
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: 找不到 node，跳过版本号校验" >&2
+  exit 0
+fi
+
+exec node scripts/version.mjs check --staged

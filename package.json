@@ -9,7 +9,12 @@
     "typecheck": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/markdown build && pnpm --filter @nexus/editor build && pnpm --filter @nexus/math build && pnpm --filter @nexus/mermaid build && pnpm -r typecheck",
     "lint": "eslint .",
     "test": "vitest run",
-    "desktop:smoke": "pnpm --filter @nexus/desktop build && vitest run apps/desktop/test/desktop-smoke.test.ts"
+    "desktop:smoke": "pnpm --filter @nexus/desktop build && vitest run apps/desktop/test/desktop-smoke.test.ts",
+    "version:show": "node scripts/version.mjs show",
+    "version:check": "node scripts/version.mjs check",
+    "version:check:staged": "node scripts/version.mjs check --staged",
+    "version:bump": "node scripts/version.mjs bump",
+    "hooks:install": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

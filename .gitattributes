@@ -1,0 +1,4 @@
+# Git hook 脚本必须是 LF。core.autocrlf=true 会把文本文件检出成 CRLF，
+# 那样 shebang 会变成 "#!/bin/sh\r" —— sh 找不到这个解释器，hook 静默失效。
+# 只锁这一个目录，不碰仓库里其他 CRLF 文件（App.css / App.tsx / desktop-smoke.test.ts）。
+.githooks/** -text

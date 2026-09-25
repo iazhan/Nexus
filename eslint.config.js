@@ -18,6 +18,18 @@ export default tseslint.config(
     ]
   },
   {
+    // scripts/ 下是 Node ESM 工具脚本，不匹配下面的 TS files 规则，
+    // 会直接吃 js.configs.recommended 的 no-undef —— 而仓库没有装 globals 包，
+    // 不显式声明的话 console / process 会被报成 34 条错误。
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly'
+      }
+    }
+  },
+  {
     files: ['**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unused-vars': [
