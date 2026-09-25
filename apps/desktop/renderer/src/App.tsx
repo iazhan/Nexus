@@ -123,6 +123,13 @@ export const App: React.FC = () => {
 
   // File and Editor State
   const [filePath, setFilePath] = useState<string | null>(null);
+  /**
+   * workspace 模式下打开的工作区根目录。
+   *
+   * 与 filePath 互斥：lightweight 只填 filePath，workspace 只填 workspaceRoot。
+   * 文件树、索引和多 Tab 在后续切片接入，这里先只做到「已识别」。
+   */
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<EditorSaveState>('saved');
   const [saveError, setSaveError] = useState<string | null>(null);
   /**
@@ -429,6 +436,19 @@ export const App: React.FC = () => {
         );
         return;
       }
+
+      // workspace 模式：目录已在 main 进程确认存在。文件树与索引尚未接入，
+      // 所以这里不伪造一个空编辑器，而是如实显示「工作区已打开」。
+      if (ctx.mode === 'workspace' && ctx.workspaceRoot) {
+        setWorkspaceRoot(ctx.workspaceRoot);
+        setFilePath(null);
+        initialContentRef.current = '';
+        updateSaveState('clean');
+        setStatus('ready');
+        return;
+      }
+
+      setWorkspaceRoot(null);
 
       // If a file path was passed in context, load its content
       if (ctx.filePath) {
@@ -923,7 +943,9 @@ export const App: React.FC = () => {
     ]
   );
 
-  const fileName = filePath ? filePath.replace(/^.*[\\/]/, '') : 'Untitled.md';
+  /** 当前上下文里「正在看的东西」：lightweight 是文件，workspace 是目录。 */
+  const activePath = filePath ?? workspaceRoot;
+  const fileName = activePath ? activePath.replace(/^.*[\\/]/, '') : 'Untitled.md';
 
   /**
    * 状态栏唯一展示的东西：加载态优先（它是瞬时的），之后是保存态。
@@ -949,9 +971,9 @@ export const App: React.FC = () => {
           <MenuBar menus={menus} />
         </div>
 
-        <div className="nexus-header-center" title={filePath ?? 'Untitled'}>
+        <div className="nexus-header-center" title={activePath ?? 'Untitled'}>
           <span className="nexus-filename">{fileName}</span>
-          {filePath && <span className="nexus-filepath-subtitle">{filePath}</span>}
+          {activePath && <span className="nexus-filepath-subtitle">{activePath}</span>}
         </div>
 
         <div className="nexus-header-right">
@@ -1095,7 +1117,16 @@ export const App: React.FC = () => {
             </div>
           </div>
         )}
-        {status === 'ready' && (
+        {status === 'ready' && workspaceRoot && (
+          // workspace 模式下还没有文件树可编辑，如实显示当前状态，
+          // 而不是给一个「空白编辑器」让人以为文件丢了。
+          <div className="nexus-workspace-empty">
+            <span className="nexus-workspace-empty-title">{t('workspace.title')}</span>
+            <code className="nexus-workspace-empty-path">{workspaceRoot}</code>
+            <p className="nexus-workspace-empty-note">{t('workspace.pending')}</p>
+          </div>
+        )}
+        {status === 'ready' && !workspaceRoot && (
           // 只包编辑区：投影抛错时保留顶栏、菜单栏和状态栏，
           // 让 Mod-M 切换 surface 成为一条真实可用的恢复路径。
           // resetKey 绑 surfaceKind，切回 Source 会自动清除错误状态。
@@ -1149,7 +1180,9 @@ export const App: React.FC = () => {
             </span>
           )}
           {/* 专有名词，不翻译 */}
-          <span className="status-metric status-format">Markdown</span>
+          <span className="status-metric status-format">
+            {workspaceRoot ? 'Workspace' : 'Markdown'}
+          </span>
         </div>
       </footer>
       <CommandPalette 

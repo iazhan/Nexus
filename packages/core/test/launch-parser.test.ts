@@ -11,6 +11,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(empty1).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -18,6 +19,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(empty2).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -30,6 +32,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(empty3).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: null
     });
   });
@@ -39,6 +42,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(mdResult).toEqual({
       mode: 'lightweight',
       filePath: 'docs/readme.md',
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -52,6 +56,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(markdownResult).toEqual({
       mode: 'lightweight',
       filePath: winPath,
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -59,6 +64,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(upperResult).toEqual({
       mode: 'lightweight',
       filePath: 'CHANGELOG.MD',
+      workspaceRoot: null,
       unsupportedPath: null
     });
   });
@@ -68,6 +74,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(pdfResult).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: 'document.pdf'
     });
 
@@ -75,6 +82,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(docxResult).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: 'report.docx'
     });
 
@@ -82,6 +90,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(txtResult).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: 'notes.txt'
     });
 
@@ -89,6 +98,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(noExtResult).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: 'some_directory_or_binary'
     });
   });
@@ -97,6 +107,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(DEFAULT_LAUNCH_CONTEXT).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -110,6 +121,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(parsed).toEqual(DEFAULT_LAUNCH_CONTEXT);
     expect(parsed.mode).toBe('lightweight');
     expect(parsed.filePath).toBeNull();
+    expect(parsed.workspaceRoot).toBeNull();
     expect(parsed.unsupportedPath).toBeNull();
   });
 
@@ -121,6 +133,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(prodEmpty).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -132,6 +145,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(prodMd).toEqual({
       mode: 'lightweight',
       filePath: 'D:\\Notes\\README.md',
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -143,6 +157,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(prodPdf).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: 'D:\\Notes\\report.pdf'
     });
 
@@ -154,6 +169,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(prodWithOpts).toEqual({
       mode: 'lightweight',
       filePath: 'notes.md',
+      workspaceRoot: null,
       unsupportedPath: null
     });
   });
@@ -165,6 +181,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -174,6 +191,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -183,6 +201,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'README.md',
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -196,6 +215,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -210,6 +230,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'D:\\Notes\\README.md',
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -219,6 +240,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'README.md',
+      workspaceRoot: null,
       unsupportedPath: null
     });
 
@@ -233,6 +255,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: 'report.pdf'
     });
 
@@ -245,6 +268,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'notes.md',
+      workspaceRoot: null,
       unsupportedPath: null
     });
   });
@@ -253,13 +277,99 @@ describe('Launch Arguments Parser and Context', () => {
     expect(parseLaunchArgs(['LICENSE'])).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: 'LICENSE'
     });
 
     expect(parseLaunchArgs(['Makefile'])).toEqual({
       mode: 'lightweight',
       filePath: null,
+      workspaceRoot: null,
       unsupportedPath: 'Makefile'
+    });
+  });
+
+  it('8. should enter workspace mode when the target is a directory', () => {
+    const classifyPath = (targetPath: string): 'directory' | 'file' | 'unknown' =>
+      targetPath === 'D:\\Notes' || targetPath === '/home/me/notes' ? 'directory' : 'file';
+
+    const winDir = parseLaunchArgs(
+      ['C:\\Program Files\\Nexus\\Nexus.exe', 'D:\\Notes'],
+      { classifyPath }
+    );
+    expect(winDir).toEqual({
+      mode: 'workspace',
+      filePath: null,
+      workspaceRoot: 'D:\\Notes',
+      unsupportedPath: null
+    });
+
+    const posixDir = parseLaunchArgs(['/opt/Nexus/nexus', '/home/me/notes'], {
+      execPath: '/opt/Nexus/nexus',
+      classifyPath
+    });
+    expect(posixDir).toEqual({
+      mode: 'workspace',
+      filePath: null,
+      workspaceRoot: '/home/me/notes',
+      unsupportedPath: null
+    });
+
+    // 目录也可以带空格
+    const spacedDir = parseLaunchArgs(['Nexus.exe', 'D:\\My Notes'], {
+      classifyPath: (p) => (p === 'D:\\My Notes' ? 'directory' : 'file')
+    });
+    expect(spacedDir.mode).toBe('workspace');
+    expect(spacedDir.workspaceRoot).toBe('D:\\My Notes');
+  });
+
+  it('9. should keep non-directory targets unsupported even when classifyPath is provided', () => {
+    expect(
+      parseLaunchArgs(['report.pdf'], { classifyPath: () => 'file' })
+    ).toEqual({
+      mode: 'lightweight',
+      filePath: null,
+      workspaceRoot: null,
+      unsupportedPath: 'report.pdf'
+    });
+
+    // unknown（路径不存在）同样不能进 workspace ——
+    // 否则打错一个字就从"文件不存在"变成"打开一个空工作区"，错误被吞掉。
+    expect(
+      parseLaunchArgs(['D:\\Typo'], { classifyPath: () => 'unknown' })
+    ).toEqual({
+      mode: 'lightweight',
+      filePath: null,
+      workspaceRoot: null,
+      unsupportedPath: 'D:\\Typo'
+    });
+  });
+
+  it('10. should prefer the markdown extension over classifyPath', () => {
+    // 扩展名先判：一个叫 notes.md 的目录不该被当成工作区，
+    // 否则 workspaceRoot 会指向一个不是工作区的路径。
+    expect(
+      parseLaunchArgs(['notes.md'], { classifyPath: () => 'directory' })
+    ).toEqual({
+      mode: 'lightweight',
+      filePath: 'notes.md',
+      workspaceRoot: null,
+      unsupportedPath: null
+    });
+  });
+
+  it('11. should not treat flag values as workspace roots', () => {
+    // --user-data-dir 的值是目录，但它属于 flag 的值，不是用户要打开的工作区
+    expect(
+      parseLaunchArgs(
+        ['Nexus.exe', '--user-data-dir', 'C:\\Temp\\Nexus'],
+        { classifyPath: () => 'directory' }
+      )
+    ).toEqual({
+      mode: 'lightweight',
+      filePath: null,
+      workspaceRoot: null,
+      unsupportedPath: null
     });
   });
 });

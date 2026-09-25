@@ -20,9 +20,27 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * 判断启动参数里的路径是目录还是文件，决定是否进入 workspace 模式。
+ *
+ * 刻意用同步 fs 调用：launchContext 在模块顶层求值，而窗口创建依赖它，没法 await。
+ * 这里的「同步」是文件系统调用，不受本机「同步进程创建恒 EBUSY」的限制 ——
+ * 那条只针对 spawn / exec 系，fs.statSync 正常。
+ */
+function classifyLaunchPath(targetPath: string): 'directory' | 'file' | 'unknown' {
+  try {
+    return fs.statSync(targetPath).isDirectory() ? 'directory' : 'file';
+  } catch {
+    // 路径不存在或没有权限：按 unknown 处理，由调用方降级为「不支持的文件」，
+    // 不能因为一次 stat 失败就把用户送进一个空工作区。
+    return 'unknown';
+  }
+}
+
 // Parse launch arguments upon main process startup
 const launchContext: LaunchContext = parseLaunchArgs(process.argv, {
-  execPath: process.execPath
+  execPath: process.execPath,
+  classifyPath: classifyLaunchPath
 });
 console.log('[Nexus Shell] Initialized launch context:', JSON.stringify(launchContext));
 

@@ -50,6 +50,13 @@ export interface ParseLaunchArgsOptions {
    * Additional CLI flags that consume the subsequent argument as their value.
    */
   additionalValueFlags?: string[];
+  /**
+   * 判断一个非 Markdown 路径是目录还是文件，决定是否进入 workspace 模式。
+   *
+   * 由调用方注入（main 进程用 fs.statSync），本函数因此不碰文件系统、在单测里保持纯函数。
+   * 不注入时非 Markdown 路径一律按「不支持的文件」处理 —— 这是与旧行为兼容的默认值。
+   */
+  classifyPath?: (targetPath: string) => 'directory' | 'file' | 'unknown';
 }
 
 /**
@@ -176,8 +183,10 @@ function getExtension(filePath: string): string {
  * 3. CLI flags starting with '-' are skipped.
  * 4. Flags expecting a separate value (e.g. '--user-data-dir <dir>', '--inspect <port>') consume and skip their value argument.
  * 5. The first candidate non-flag argument is evaluated:
- *    - If it has a markdown extension (.md, .markdown), sets mode 'lightweight' with filePath set.
- *    - Otherwise (e.g. non-markdown or extensionless file like 'LICENSE'), sets mode 'lightweight' with unsupportedPath set.
+ *    - Markdown extension (.md, .markdown) → mode 'lightweight' with filePath set.
+ *    - Otherwise the optional `classifyPath` callback decides:
+ *        'directory' → mode 'workspace' with workspaceRoot set;
+ *        'file' / 'unknown' / callback absent → mode 'lightweight' with unsupportedPath set.
  * 6. If no candidate argument is found, returns default empty lightweight context.
  *
  * @param argv - The argument vector (e.g. process.argv or slice thereof)
@@ -251,6 +260,18 @@ export function parseLaunchArgs(
     return {
       mode: 'lightweight',
       filePath: targetPath,
+      workspaceRoot: null,
+      unsupportedPath: null
+    };
+  }
+
+  // 非 Markdown 路径：可能是工作区目录，也可能是不支持的文件。
+  // 判定由调用方注入 —— 本函数不碰文件系统，才能在单测里保持纯函数。
+  if (options?.classifyPath?.(targetPath) === 'directory') {
+    return {
+      mode: 'workspace',
+      filePath: null,
+      workspaceRoot: targetPath,
       unsupportedPath: null
     };
   }
@@ -258,6 +279,7 @@ export function parseLaunchArgs(
   return {
     mode: 'lightweight',
     filePath: null,
+    workspaceRoot: null,
     unsupportedPath: targetPath
   };
 }

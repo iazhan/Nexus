@@ -6,6 +6,9 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'file.unsupported': 'Unsupported format: {format}',
     'file.unsupportedDetail':
       'File "{path}" cannot be opened. Nexus Lite only supports Markdown (.md, .markdown) documents.',
+    'workspace.title': 'Workspace',
+    'workspace.pending':
+      'The file tree and index are not connected yet — only the workspace root was recognised.',
     'menu.file': 'File',
     'menu.edit': 'Edit',
     'menu.appearance': 'Appearance',
@@ -140,6 +143,8 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'app.title': 'Nexus 编辑器',
     'file.unsupported': '不支持的格式: {format}',
     'file.unsupportedDetail': '无法打开文件 "{path}"：Nexus Lite 只支持 Markdown（.md、.markdown）文档。',
+    'workspace.title': '工作区',
+    'workspace.pending': '文件树与索引尚未接入，当前仅识别到工作区根目录。',
     'menu.file': '文件',
     'menu.edit': '编辑',
     'menu.appearance': '外观',

@@ -444,6 +444,43 @@ body {
 }
 
 /* State Containers (Loading / Error) */
+/* workspace 模式空态：文件树与索引接入前，如实显示已识别的工作区根目录 */
+.nexus-workspace-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  gap: 12px;
+}
+
+.nexus-workspace-empty-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-workspace-empty-path {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background-color: var(--nexus-bg-surface);
+  border: 1px solid var(--nexus-border-subtle);
+  color: var(--nexus-text-secondary);
+  max-width: min(100%, 720px);
+  overflow-wrap: anywhere;
+}
+
+.nexus-workspace-empty-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--nexus-text-muted);
+  text-align: center;
+}
+
 .nexus-state-container {
   display: flex;
   flex-direction: column;
