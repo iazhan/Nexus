@@ -6,6 +6,8 @@ import {
   StateEffect,
   Facet
 } from '@codemirror/state';
+import { translate } from '@nexus/i18n';
+import { editorLocaleFacet } from './source-editor.js';
 import {
   Decoration,
   type DecorationSet,
@@ -39,12 +41,15 @@ export class DragHandleWidget extends WidgetType {
   public constructor(
     public readonly blockFrom: number,
     public readonly blockTo: number,
-    public readonly isReadOnly: boolean
+    public readonly isReadOnly: boolean,
+    /** 文案依赖语言：进 eq() 才能让运行时切语言时重建 DOM，而不是留着旧文案。 */
+    public readonly locale: string
   ) {
     super();
   }
 
   public toDOM(): HTMLElement {
+    const label = translate(this.locale, 'editor.dragHandle');
     const handle = document.createElement('span');
     handle.className = 'cm-visual-drag-handle';
     if (this.isReadOnly) {
@@ -52,8 +57,8 @@ export class DragHandleWidget extends WidgetType {
       handle.setAttribute('aria-disabled', 'true');
     }
     handle.setAttribute('role', 'button');
-    handle.setAttribute('aria-label', 'Drag to reorder block');
-    handle.setAttribute('title', 'Drag to reorder block');
+    handle.setAttribute('aria-label', label);
+    handle.setAttribute('title', label);
     handle.setAttribute('tabindex', '-1');
     handle.dataset.blockFrom = String(this.blockFrom);
     handle.dataset.blockTo = String(this.blockTo);
@@ -91,7 +96,8 @@ export class DragHandleWidget extends WidgetType {
       other instanceof DragHandleWidget &&
       other.blockFrom === this.blockFrom &&
       other.blockTo === this.blockTo &&
-      other.isReadOnly === this.isReadOnly
+      other.isReadOnly === this.isReadOnly &&
+      other.locale === this.locale
     );
   }
 
@@ -188,7 +194,8 @@ export function collectDraggableBlocks(root: MarkdownRoot, source: string): Drag
  */
 export function buildDragHandleDecorations(
   source: string,
-  isReadOnly: boolean
+  isReadOnly: boolean,
+  locale: string
 ): DecorationSet {
   const { root } = parseMarkdown(source);
   const blocks = collectDraggableBlocks(root, source);
@@ -200,7 +207,7 @@ export function buildDragHandleDecorations(
       b.from,
       b.from,
       Decoration.widget({
-        widget: new DragHandleWidget(b.from, b.to, isReadOnly),
+        widget: new DragHandleWidget(b.from, b.to, isReadOnly, locale),
         side: -1
       })
     );
@@ -214,15 +221,26 @@ export function buildDragHandleDecorations(
  */
 export const visualDragHandleField = StateField.define<DecorationSet>({
   create(state) {
-    return buildDragHandleDecorations(state.doc.toString(), state.readOnly);
+    return buildDragHandleDecorations(
+      state.doc.toString(),
+      state.readOnly,
+      state.facet(editorLocaleFacet)
+    );
   },
   update(decorations, transaction) {
     const prevReadOnly = transaction.startState.readOnly;
     const nextReadOnly = transaction.state.readOnly;
-    if (!transaction.docChanged && prevReadOnly === nextReadOnly) {
+    // 语言变了也要重建：手柄的 aria-label / title 走 i18n
+    const locale = transaction.state.facet(editorLocaleFacet);
+    const localeChanged = locale !== transaction.startState.facet(editorLocaleFacet);
+    if (!transaction.docChanged && prevReadOnly === nextReadOnly && !localeChanged) {
       return decorations;
     }
-    return buildDragHandleDecorations(transaction.state.doc.toString(), nextReadOnly);
+    return buildDragHandleDecorations(
+      transaction.state.doc.toString(),
+      nextReadOnly,
+      locale
+    );
   },
   provide: (field) => EditorView.decorations.from(field)
 });

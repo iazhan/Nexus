@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  readFileTolerant,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 自动保存不得扰动编辑状态。
@@ -54,10 +58,10 @@ describe('Auto-save caret stability', () => {
     // 等自动保存落盘（debounce 800ms）；并行跑整套时机器负载高，放宽到 20s
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
-      if (fs.readFileSync(docPath, 'utf-8').includes('X')) break;
+      if ((readFileTolerant(docPath) ?? '').includes('X')) break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    expect(fs.readFileSync(docPath, 'utf-8')).toContain('X');
+    expect(readFileTolerant(docPath)).toContain('X');
 
     // 再等 fs.watch 事件与可能的整篇重载往返
     await new Promise((resolve) => setTimeout(resolve, 2500));

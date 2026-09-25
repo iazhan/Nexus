@@ -13,7 +13,7 @@ interface AppSnapshot {
   anchor: number;
   filename: string;
   hasSubtitle: boolean;
-  saveBadge: string;
+  saveStatus: string;
 }
 
 /**
@@ -51,7 +51,7 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
         anchor: snap ? snap.selection.anchor : -1,
         filename: document.querySelector('.nexus-filename')?.textContent ?? '',
         hasSubtitle: Boolean(document.querySelector('.nexus-filepath-subtitle')),
-        saveBadge: document.querySelector('.nexus-save-badge')?.textContent ?? ''
+        saveStatus: document.querySelector('.status-text')?.textContent ?? ''
       };
     })()`);
   }
@@ -84,7 +84,8 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
     expect(after.filename).toContain('Untitled.md');
     // 文件路径副标题消失 = filePath 已置空，不会再把空文档写回原文件
     expect(after.hasSubtitle).toBe(false);
-    expect(after.saveBadge).not.toBe('Modified');
+    // 保存状态现在只由状态栏展示：新建的空文档不该被报成"有未保存改动"
+    expect(after.saveStatus).not.toBe('Unsaved');
   }, 90000);
 
   it('jumps to the target heading on Ctrl+click of an anchor link', async () => {

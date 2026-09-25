@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  readFileTolerant,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 行内代码必须可以就地编辑。
@@ -101,9 +105,9 @@ describe('Inline code in-place editing', () => {
     // 等自动保存落盘（debounce 800ms）；并行跑整套时机器负载高，放宽到 20s
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
-      if (fs.readFileSync(docPath, 'utf-8') === expected) break;
+      if (readFileTolerant(docPath) === expected) break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    expect(fs.readFileSync(docPath, 'utf-8')).toBe(expected);
+    expect(readFileTolerant(docPath)).toBe(expected);
   }, 60000);
 });

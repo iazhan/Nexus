@@ -2449,7 +2449,8 @@ export class CodeBlockWidget extends WidgetType {
       },
       () => {
         view.requestMeasure();
-      }
+      },
+      view.state.facet(editorLocaleFacet)
     );
     container.appendChild(previewEl);
 
@@ -2542,7 +2543,8 @@ export class BlockMathPreviewWidget extends WidgetType {
       },
       () => {
         view.requestMeasure();
-      }
+      },
+      view.state.facet(editorLocaleFacet)
     );
     (container as any).__nexusExtensionControl = this.control;
     return container;
@@ -2615,7 +2617,8 @@ export class BlockMathWidget extends WidgetType {
       },
       () => {
         view.requestMeasure();
-      }
+      },
+      view.state.facet(editorLocaleFacet)
     );
     (container as any).__nexusExtensionControl = this.control;
 

@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import type { FileDocument, LaunchContext, Unsubscribe } from '@nexus/core';
+import type { FileDocument, Unsubscribe } from '@nexus/core';
 import {
   MarkdownDocumentSession,
-  hasMathMarkers,
   openSearchPanel,
   resolveRelativePath,
   revealHeadingAnchor,
@@ -63,32 +62,34 @@ const MoonIcon = (
   </svg>
 );
 
-/** 保存状态到标题栏文案的唯一映射，避免状态与展示在 JSX 中分叉。 */
-const SAVE_STATE_LABEL: Record<EditorSaveState, string> = {
-  clean: 'Saved',
-  saved: 'Saved',
-  dirty: 'Unsaved',
-  saving: 'Saving...',
-  error: 'Save Error',
-  readonly: 'Read Only',
-  'external-changed': 'Conflict',
-  deleted: 'Deleted'
+/**
+ * 保存状态到文案键的唯一映射。
+ *
+ * `clean` 与 `saved` 的区别只是"有没有脏过"的历史（加载后未偏离 / 偏离过又写回去了），
+ * 对用户的意义相同，所以共用一条文案。
+ */
+const SAVE_STATE_KEY: Record<EditorSaveState, string> = {
+  clean: 'save.clean',
+  saved: 'save.saved',
+  dirty: 'save.dirty',
+  saving: 'save.saving',
+  error: 'save.error',
+  readonly: 'save.readonly',
+  'external-changed': 'save.external-changed',
+  deleted: 'save.deleted'
 };
 
-/**
- * 检测数学扩展状态；解析器异常时仍保留普通 Markdown 编辑能力，并明确显示降级状态。
- */
-function detectMathStatus(source: string): { hasMath: boolean; failed: boolean } {
-  try {
-    return { hasMath: hasMathMarkers(source), failed: false };
-  } catch (error) {
-    console.error('Math extension detection failed:', error);
-    return {
-      hasMath: source.includes('$$') || /\\$(?:[^$\\]|\\.)+\\$/.test(source),
-      failed: true
-    };
-  }
-}
+/** 指示点的色调类名。与文案同源，避免两处判据再次分叉。 */
+const SAVE_STATE_TONE: Record<EditorSaveState, string> = {
+  clean: 'saved',
+  saved: 'saved',
+  dirty: 'dirty',
+  saving: 'saving',
+  error: 'error',
+  readonly: 'readonly',
+  'external-changed': 'conflict',
+  deleted: 'deleted'
+};
 
 function getDocumentDirectory(filePath: string | null): string | null {
   if (!filePath) return null;
@@ -102,11 +103,17 @@ export const App: React.FC = () => {
   const { locale, setLocale, t } = useLocale();
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
+  // Mermaid「点击图表显示源码」偏好。菜单的勾选状态必须与实际一致，
+  // 所以订阅偏好变化 —— 别的入口改了也能同步过来。
+  const [mermaidClickToReveal, setMermaidClickToReveal] = useState(
+    mermaidPreviewPreference.get()
+  );
+  useEffect(() => mermaidPreviewPreference.subscribe(setMermaidClickToReveal), []);
+
   useEffect(() => {
     document.body.className = `theme-${theme.type}`;
   }, [theme]);
 
-  const [context, setContext] = useState<LaunchContext | null>(null);
   const [status, setStatus] = useState<ShellStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -396,8 +403,6 @@ export const App: React.FC = () => {
       if (!ctx || typeof ctx.mode !== 'string') {
         throw new Error('Invalid launch context received from shell bridge.');
       }
-
-      setContext(ctx);
 
       // Handle unsupported file paths
       if (ctx.unsupportedPath) {
@@ -774,10 +779,6 @@ export const App: React.FC = () => {
     }
   }, [focusActiveEditor, session]);
 
-  const displayMode = context
-    ? context.mode.charAt(0).toUpperCase() + context.mode.slice(1)
-    : 'Lightweight';
-
   const menus = useMemo<MenuBarMenu[]>(
     () => [
       {
@@ -873,6 +874,14 @@ export const App: React.FC = () => {
             label: t('lang.enUS'),
             active: locale === 'en-US',
             onSelect: () => setLocale('en-US')
+          },
+          { label: '', separator: true },
+          {
+            // 默认关：进源码的默认路径是代码块 header 上的按钮（显式动作、效果可预期）。
+            // 打开后点图表 = 瞥一眼源码，光标一离开就回到预览。
+            label: t('mermaid.clickToReveal'),
+            active: mermaidClickToReveal,
+            onSelect: () => mermaidPreviewPreference.set(!mermaidClickToReveal)
           }
         ]
       }
@@ -892,15 +901,27 @@ export const App: React.FC = () => {
       theme.type,
       setTheme,
       locale,
-      setLocale
+      setLocale,
+      mermaidClickToReveal
     ]
   );
 
   const fileName = filePath ? filePath.replace(/^.*[\\/]/, '') : 'Untitled.md';
-  const isDirty = saveState !== 'saved';
-  const mathStatus = detectMathStatus(session.getSnapshot().source);
-  const hasMath = mathStatus.hasMath;
-  const mathExtensionFailed = mathStatus.failed;
+
+  /**
+   * 状态栏唯一展示的东西：加载态优先（它是瞬时的），之后是保存态。
+   *
+   * 文案与指示点色调都从这一个值派生。此前两者各自用不同判据
+   * （标题栏用状态映射、状态栏用 `saveState !== 'saved'`），
+   * 于是刚打开的文件标题栏说 Saved、状态栏说 Modified。
+   */
+  const statusDisplay: { tone: string; text: string } =
+    status !== 'ready'
+      ? {
+          tone: status,
+          text: t(status === 'loading' ? 'status.loading' : 'status.loadError')
+        }
+      : { tone: SAVE_STATE_TONE[saveState], text: t(SAVE_STATE_KEY[saveState]) };
 
   return (
     <div className="nexus-app-root">
@@ -909,27 +930,14 @@ export const App: React.FC = () => {
         <div className="nexus-header-left">
           <span className="nexus-app-title">Nexus Lite</span>
           <MenuBar menus={menus} />
-          <span className="nexus-badge">{displayMode}</span>
         </div>
 
         <div className="nexus-header-center" title={filePath ?? 'Untitled'}>
-          <span className="nexus-filename">
-            {fileName}
-            {isDirty && <span className="nexus-dirty-indicator">*</span>}
-          </span>
+          <span className="nexus-filename">{fileName}</span>
           {filePath && <span className="nexus-filepath-subtitle">{filePath}</span>}
         </div>
 
         <div className="nexus-header-right">
-          <span
-            className={`nexus-save-badge ${saveState}`}
-            role="status"
-            aria-live="polite"
-            title={saveError ?? SAVE_STATE_LABEL[saveState]}
-          >
-            {SAVE_STATE_LABEL[saveState]}
-          </span>
-
           <button
             type="button"
             className="nexus-header-button nexus-theme-toggle"
@@ -1098,28 +1106,32 @@ export const App: React.FC = () => {
       {/* Status Bar Footer */}
       <footer className="nexus-status-bar">
         <div className="status-bar-left">
-          <span className={`status-dot ${status === 'ready' ? (isDirty ? 'dirty' : 'ready') : status}`} />
-          <span className="status-text">
-            {status === 'loading' && 'Loading...'}
-            {status === 'error' && 'Error'}
-            {status === 'ready' && (isDirty ? 'Modified' : 'Ready')}
+          <span className={`status-dot ${statusDisplay.tone}`} aria-hidden="true" />
+          {/* 保存状态现在是这里唯一的展示位（标题栏的徽标已移除），
+              所以 aria-live 也搬过来，屏幕阅读器才会播报状态变化。 */}
+          <span
+            className="status-text"
+            role="status"
+            aria-live="polite"
+            title={saveError ?? statusDisplay.text}
+          >
+            {statusDisplay.text}
           </span>
-          {hasMath && (
-            <span className={`status-extension-badge ${mathExtensionFailed ? 'error' : 'active'}`}>
-              {mathExtensionFailed ? 'Math: Unavailable' : 'Math: Ready'}
-            </span>
-          )}
         </div>
 
         <div className="status-bar-right">
           <span className="status-metric">
-            Ln {selection.line}, Col {selection.column}
+            {t('status.lineColumn', {
+              line: String(selection.line),
+              column: String(selection.column)
+            })}
           </span>
           {selection.selectedTextLength > 0 && (
             <span className="status-metric">
-              ({selection.selectedTextLength} selected)
+              ({t('status.selected', { count: String(selection.selectedTextLength) })})
             </span>
           )}
+          {/* 专有名词，不翻译 */}
           <span className="status-metric status-format">Markdown</span>
         </div>
       </footer>

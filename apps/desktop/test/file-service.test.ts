@@ -12,6 +12,23 @@ import {
 } from '../electron/file-service.js';
 import type { FileDialog } from '../electron/file-dialog.js';
 
+/**
+ * 轮询等待条件成立。
+ *
+ * 这些用例走 mock watcher + debounce（10ms），但断言前原来只固定 sleep 30ms ——
+ * 机器负载高时 debounce 回调还没跑完就断言，出现
+ * "expected [] to have a length of 1" 这类偶发失败（本会话复现两次）。
+ * 正向断言改成轮询；负向断言保留固定等待（只会假通过、不会假失败），但留足余量。
+ */
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`waitFor: 条件在 ${timeoutMs}ms 内未成立`);
+}
+
 class MockFSWatcher implements FSWatcherLike {
   private listeners: Map<string, Array<(...args: unknown[]) => void>> = new Map();
   public isClosed = false;
@@ -412,12 +429,13 @@ describe('FileService & atomicWriteFile', () => {
 
       // 1. 触发不相关文件的变更事件，应被过滤
       capturedListener!('change', 'other-doc.md');
-      await new Promise((r) => setTimeout(r, 30));
+      // 负向断言：debounce 窗口 + 余量，等足够久确认"确实没有事件"
+      await new Promise((r) => setTimeout(r, 120));
       expect(receivedEvents).toHaveLength(0);
 
       // 2. 触发目标文件的 change 事件
       capturedListener!('change', path.basename(filePath));
-      await new Promise((r) => setTimeout(r, 30));
+      await waitFor(() => receivedEvents.length === 1);
       expect(receivedEvents).toHaveLength(1);
       expect(receivedEvents[0]).toEqual({
         type: 'changed',
@@ -465,7 +483,7 @@ describe('FileService & atomicWriteFile', () => {
       // 模拟文件被删除
       fileExistsOnDisk = false;
       capturedListener!('rename', path.basename(filePath));
-      await new Promise((r) => setTimeout(r, 30));
+      await waitFor(() => receivedEvents.length === 1);
 
       expect(receivedEvents).toHaveLength(1);
       expect(receivedEvents[0]).toEqual({
@@ -513,7 +531,8 @@ describe('FileService & atomicWriteFile', () => {
       // 注销后触发 change 事件与 error 事件，listener 均不应收到任何通知
       capturedListener!('change', path.basename(filePath));
       mockWatcher.emit('error', new Error('Late error'));
-      await new Promise((r) => setTimeout(r, 30));
+      // 负向断言：debounce 窗口 + 余量，等足够久确认"确实没有事件"
+      await new Promise((r) => setTimeout(r, 120));
 
       expect(receivedEvents).toHaveLength(0);
     });

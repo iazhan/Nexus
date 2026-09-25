@@ -212,9 +212,7 @@ body {
 .nexus-header-right,
 .nexus-app-title,
 .nexus-filename,
-.nexus-filepath-subtitle,
-.nexus-badge,
-.nexus-save-badge {
+.nexus-filepath-subtitle {
   -webkit-app-region: drag;
 }
 
@@ -269,17 +267,6 @@ body {
   outline-color: #ffffff;
 }
 
-.nexus-badge {
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  background-color: var(--nexus-selection-bg);
-  color: var(--nexus-accent-text);
-  border: 1px solid var(--nexus-accent-text);
-}
 
 /* 文件名区占用剩余空间，保证标题居中且长路径可省略 */
 .nexus-header-center {
@@ -303,11 +290,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.nexus-dirty-indicator {
-  color: #fbbf24;
-  margin-left: 4px;
-  font-weight: bold;
-}
 
 .nexus-filepath-subtitle {
   font-size: 0.68rem;
@@ -328,11 +310,6 @@ body {
 }
 
 /* 保存状态是全局唯一入口，窄窗口下不参与压缩 */
-.nexus-save-badge {
-  white-space: nowrap;
-  line-height: 1.4;
-  flex-shrink: 0;
-}
 
 /* Surface 切换：单按钮图标（代码 = Source，眼睛 = Visual），点击在两个 surface 间切换 */
 .nexus-surface-toggle {
@@ -344,57 +321,13 @@ body {
   display: block;
 }
 
-.nexus-save-badge {
-  font-size: 0.72rem;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
 
-.nexus-save-badge.saved,
-.nexus-save-badge.clean {
-  background-color: var(--nexus-status-success-bg, #064e3b33);
-  color: var(--nexus-status-success-text, #34d399);
-  border: 1px solid var(--nexus-status-success-border, #05966966);
-}
 
-.nexus-save-badge.dirty {
-  background-color: var(--nexus-status-warning-bg, #78350f33);
-  color: var(--nexus-status-warning-text, #fbbf24);
-  border: 1px solid var(--nexus-status-warning-border, #d9770666);
-}
 
-.nexus-save-badge.saving {
-  background-color: var(--nexus-status-info-bg, #1e3a8a33);
-  color: var(--nexus-status-info-text, #60a5fa);
-  border: 1px solid var(--nexus-status-info-border, #2563eb66);
-}
 
-.nexus-save-badge.error {
-  background-color: var(--nexus-status-error-bg, #7f1d1d33);
-  color: var(--nexus-status-error-text, #f87171);
-  border: 1px solid var(--nexus-status-error-border, #dc262666);
-}
 
-.nexus-save-badge.readonly {
-  background-color: #37415133;
-  color: #9ca3af;
-  border: 1px solid #6b728066;
-}
 
-.nexus-save-badge.external-changed {
-  background-color: #78350f33;
-  color: #fde68a;
-  border: 1px solid #d9770666;
-}
 
-.nexus-save-badge.deleted {
-  background-color: #78350f33;
-  color: #fef08a;
-  border: 1px solid #ca8a0466;
-}
 
 /* Banners (Conflict / Warning / Save Error) */
 .nexus-conflict-banner,
@@ -480,25 +413,8 @@ body {
   background-color: #4b5563;
 }
 
-.status-extension-badge {
-  font-size: 0.68rem;
-  padding: 1px 6px;
-  border-radius: 9999px;
-  font-weight: 600;
-  margin-left: 8px;
-}
 
-.status-extension-badge.active {
-  background-color: var(--nexus-status-success-bg, #064e3b33);
-  color: var(--nexus-status-success-text, #34d399);
-  border: 1px solid var(--nexus-status-success-border, #05966966);
-}
 
-.status-extension-badge.error {
-  background-color: var(--nexus-status-error-bg, #7f1d1d33);
-  color: var(--nexus-status-error-text, #f87171);
-  border: 1px solid var(--nexus-status-error-border, #dc262666);
-}
 
 /* Main Content Area */
 .nexus-main-content {
@@ -628,10 +544,6 @@ body {
   display: inline-block;
 }
 
-.status-dot.ready {
-  background-color: #10b981;
-  box-shadow: 0 0 6px #10b98188;
-}
 
 .status-dot.dirty {
   background-color: #f59e0b;
@@ -645,6 +557,27 @@ body {
 .status-dot.error {
   background-color: #ef4444;
   box-shadow: 0 0 6px #ef444488;
+}
+
+/* 保存状态的色调：与状态栏文案同源（SAVE_STATE_TONE），语义一致 */
+.status-dot.saved {
+  background-color: #10b981;
+  box-shadow: 0 0 6px #10b98188;
+}
+
+.status-dot.saving {
+  background-color: #3b82f6;
+  box-shadow: 0 0 6px #3b82f688;
+}
+
+.status-dot.readonly {
+  background-color: #9ca3af;
+}
+
+.status-dot.conflict,
+.status-dot.deleted {
+  background-color: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b88;
 }
 
 .status-text {

@@ -50,7 +50,9 @@ describe('Block Drag Handle UI & PointerEvent Drag/Drop Integration', () => {
       parent,
       session,
       surfaceId: 'test-visual-handles',
-      surfaceKind: 'visual'
+      surfaceKind: 'visual',
+      // 文案走 i18n，断言英文就显式声明语言，别依赖 facet 默认值（zh-CN）
+      locale: 'en-US'
     });
 
     const handles = handle.view.dom.querySelectorAll('.cm-visual-drag-handle');

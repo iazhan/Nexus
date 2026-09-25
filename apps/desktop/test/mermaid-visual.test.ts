@@ -236,6 +236,47 @@ describe('视觉模式 Mermaid 块', () => {
     ).toBe('预览');
   }, 90000);
 
+  it('Appearance 菜单里的开关能打开「点击图表显示源码」', async () => {
+    const app = await openVisual('menu.md', false);
+
+    expect(await app.evaluate<boolean>(`window.nexusMermaidPreview.get()`)).toBe(false);
+
+    // 打开 Appearance 菜单
+    const menuButton = await app.evaluate<{ x: number; y: number } | null>(`(() => {
+      const btn = Array.from(document.querySelectorAll('.nexus-menu-bar-button'))
+        .find((el) => (el.textContent || '').trim() === 'Appearance');
+      if (!btn) return null;
+      const r = btn.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+    expect(menuButton).not.toBeNull();
+    await app.mouseClickCoords(menuButton!.x, menuButton!.y);
+    await app.waitForSelector('.nexus-menu-dropdown');
+
+    // 开关项默认未勾选
+    const item = await app.evaluate<{ x: number; y: number; active: boolean } | null>(`(() => {
+      const el = Array.from(document.querySelectorAll('.nexus-menu-item'))
+        .find((n) => (n.textContent || '').includes('Click diagram to show source'));
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return {
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2),
+        active: el.classList.contains('active')
+      };
+    })()`);
+    expect(item).not.toBeNull();
+    expect(item!.active).toBe(false);
+    await app.mouseClickCoords(item!.x, item!.y);
+
+    // 偏好翻转，行为立即生效
+    await app.waitForFunction(`() => window.nexusMermaidPreview.get() === true`);
+    await app.mouseClick('.cm-mermaid-preview');
+    await app.waitForFunction(
+      `() => document.querySelectorAll('.cm-visual-code-block').length === 0`
+    );
+  }, 90000);
+
   it('预览态下，块下方内容的点击命中不漂移', async () => {
     const app = await openVisual('drift.md');
 

@@ -26,7 +26,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     }
   });
 
-  it('1. launches a Markdown file into Lightweight Mode within 2s, displaying badge and filename', async () => {
+  it('1. launches a Markdown file into Lightweight Mode within 2s, displaying filename', async () => {
     const testFile = path.join(tempDir, 'sample-launch.md');
     fs.writeFileSync(testFile, '# Hello Nexus Smoke\n\nWelcome to Lightweight Mode.', 'utf-8');
 
@@ -34,8 +34,21 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     // Wait for App and editor content to be ready
     await activeApp.waitForSelector('.cm-content', 15000);
-    const badgeText = await activeApp.getText('.nexus-badge');
-    expect(badgeText.toUpperCase()).toBe('LIGHTWEIGHT');
+
+    // 回归：`.nexus-filename` 是共享选择器列表
+    // （`.nexus-header-left, …, .nexus-app-title, .nexus-filename, .nexus-filepath-subtitle { … }`）
+    // 的一员。曾用正则批量删 CSS 规则时只认到列表最后一项，把整块声明连带删掉，
+    // 留下悬空列表把下一条规则（`.nexus-window-controls`）的声明吞并给了整个 header ——
+    // 这些元素继承了 display:flex / align-self:stretch，肉眼可见变形。
+    // 这种损坏在语法上是合法 CSS，静态检查抓不到，只能断言渲染结果。
+    const filenameStyle = await activeApp.evaluate<{
+      alignSelf: string;
+      textOverflow: string;
+    }>(
+      `(() => { const cs = getComputedStyle(document.querySelector('.nexus-filename')); return { alignSelf: cs.alignSelf, textOverflow: cs.textOverflow }; })()`
+    );
+    expect(filenameStyle.alignSelf).not.toBe('stretch');
+    expect(filenameStyle.textOverflow).toBe('ellipsis');
 
     const filename = await activeApp.getText('.nexus-filename');
     expect(filename).toContain('sample-launch.md');
@@ -163,7 +176,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     expect(sourceText).toContain('Visual body edit.');
 
     await activeApp.waitForFunction(
-      `() => document.querySelector('.nexus-save-badge')?.textContent?.includes('Saved')`,
+      `() => document.querySelector('.status-text')?.textContent?.includes('Saved')`,
       10000
     );
     expect(fs.readFileSync(editFile, 'utf-8')).toContain('Visual body edit.');
@@ -178,8 +191,18 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForSelector('.cm-content', 15000);
 
     // Verify initial save state is saved
-    const initialBadge = await activeApp.getText('.nexus-save-badge');
+    //
+    // 回归：保存状态的展示已收敛到状态栏一处。此前状态栏用 `saveState !== 'saved'`
+    // 判断"是否已落盘"，把 `clean`（刚加载完的初始状态）也算成脏的，
+    // 于是刚打开的文件会显示 Modified。
+    const initialBadge = await activeApp.getText('.status-text');
     expect(initialBadge.toLowerCase()).toContain('saved');
+    // 标题栏不再有状态徽标与脏标记
+    expect(
+      await activeApp.evaluate(
+        `document.querySelectorAll('.nexus-save-badge, .nexus-dirty-indicator').length`
+      )
+    ).toBe(0);
 
     // Trigger edit in editor via session
     await activeApp.evaluate(`(() => {
@@ -190,7 +213,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     // Verify save state transitions and auto-save occurs
     await activeApp.waitForFunction(`() => {
-      const badge = document.querySelector('.nexus-save-badge');
+      const badge = document.querySelector('.status-text');
       return badge && badge.textContent && badge.textContent.includes('Saved');
     }`, 15000);
 
@@ -261,8 +284,8 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       await activeApp.pressKey('s', { ctrl: true });
 
       // Check if error state and recovery path are displayed
-      await activeApp.waitForSelector('.nexus-save-badge.error, .nexus-save-error-banner', 15000);
-      const errorText = await activeApp.getText('.nexus-save-error-banner, .nexus-save-badge');
+      await activeApp.waitForSelector('.status-dot.error, .nexus-save-error-banner', 15000);
+      const errorText = await activeApp.getText('.nexus-save-error-banner, .status-text');
       expect(errorText.toLowerCase()).toMatch(/error|失败|eacces|eperm|denied/);
 
       // Verify recovery options (Save As / Retry)
@@ -323,7 +346,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     })()`);
     await activeApp.pressKey('s', { ctrl: true });
     await activeApp.waitForFunction(`() => {
-      const badge = document.querySelector('.nexus-save-badge');
+      const badge = document.querySelector('.status-text');
       return badge && badge.textContent && badge.textContent.includes('Saved');
     }`, 15000);
 
@@ -358,9 +381,9 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     })()`);
 
     // Verify dirty indicator is shown
-    await activeApp.waitForSelector('.nexus-save-badge.dirty', 15000);
+    await activeApp.waitForSelector('.status-dot.dirty', 15000);
     const isDirty = await activeApp.evaluate(`(() => {
-      return document.querySelector('.nexus-save-badge')?.textContent?.includes('Unsaved');
+      return document.querySelector('.status-text')?.textContent?.includes('Unsaved');
     })()`);
     expect(isDirty).toBe(true);
 
@@ -372,7 +395,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     expect(activeApp.proc.exitCode).toBeNull();
   }, 25000);
 
-  it('11. allows ordinary Markdown editing even if math extension is unavailable', async () => {
+  it('11. allows ordinary Markdown editing in a document that contains math', async () => {
     const mathDoc = path.join(tempDir, 'math-degrade.md');
     const content = '# Math Degradation Test\n\nFormula: $E = mc^2$\n\nStandard paragraph here.';
     fs.writeFileSync(mathDoc, content, 'utf-8');
@@ -380,10 +403,10 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = await launchElectronApp({ filePath: mathDoc });
     await activeApp.waitForSelector('.cm-content', 15000);
 
-    // Verify math indicator in status bar
-    await activeApp.waitForSelector('.status-extension-badge', 15000);
-    const extText = await activeApp.getText('.status-extension-badge');
-    expect(extText).toContain('Math:');
+    // 状态栏不再有 Math 徽标：它的 "Ready" 只是"本文档含公式且检测器没抛异常"的
+    // 只读回显，用户从公式渲染结果就能看出来；"Unavailable" 的判据其实是检测器
+    // 抛异常，与渲染是否可用无关。渲染失败的降级路径由 extension-host 单测覆盖。
+    expect(await activeApp.evaluate(`document.querySelectorAll('.status-extension-badge').length`)).toBe(0);
 
     // Edit standard paragraph text
     await activeApp.evaluate(`(() => {
@@ -440,8 +463,17 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await new Promise(r => setTimeout(r, 200));
 
     await activeApp.typeText('theme');
-    await new Promise(r => setTimeout(r, 200));
-    
+    // 过滤是 React 异步渲染：原来只固定 sleep 200ms，负载高时列表还没更新，
+    // Enter 会触发别的命令（主题没变 → 下面的 waitForFunction 超时，本会话复现过）。
+    // 改成轮询第一项确实是 theme 命令。
+    await activeApp.waitForFunction(
+      `() => {
+        const first = document.querySelector('.nexus-command-palette-item .nexus-command-title');
+        return !!first && /theme/i.test(first.textContent || '');
+      }`,
+      15000
+    );
+
     // Hit enter to trigger the first matching command
     await activeApp.pressKey('Enter');
 

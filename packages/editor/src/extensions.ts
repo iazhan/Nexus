@@ -1,4 +1,5 @@
 import type { MarkdownMarker } from './types.js';
+import { translate } from '@nexus/i18n';
 
 export interface EditorExtensionControl {
   /** Update the extension with new source text */
@@ -37,7 +38,10 @@ export function mountExtension(
   container: HTMLElement,
   source: string,
   fallbackRender: () => void,
-  onLoaded?: () => void
+  onLoaded: (() => void) | undefined,
+  /** 错误 UI 的文案语言。这里收字符串而不是 facet —— 本模块被 source-editor 依赖，
+   *  反向 import 会成环。 */
+  locale: string
 ): EditorExtensionControl | undefined {
   if (!host) {
     fallbackRender();
@@ -74,14 +78,14 @@ export function mountExtension(
     container.innerHTML = '';
     const errSpan = document.createElement('span');
     errSpan.className = 'nexus-ext-error';
-    errSpan.textContent = `Extension unavailable: ${handler!.id} `;
+    errSpan.textContent = `${translate(locale, 'extensions.unavailable', { id: handler!.id })} `;
     
     const retryBtn = document.createElement('button');
     retryBtn.className = 'nexus-ext-retry';
-    retryBtn.textContent = 'Retry';
+    retryBtn.textContent = translate(locale, 'editor.retry');
     retryBtn.onclick = (e) => {
       e.stopPropagation();
-      mountExtension(host, marker, container, source, fallbackRender);
+      mountExtension(host, marker, container, source, fallbackRender, undefined, locale);
     };
     errSpan.appendChild(retryBtn);
     container.appendChild(errSpan);

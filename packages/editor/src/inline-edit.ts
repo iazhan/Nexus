@@ -1134,7 +1134,9 @@ export class InlineMathWidget extends WidgetType {
       () => {
         span.innerHTML = '';
         span.textContent = this.formula ? `$${this.formula}$` : '$$';
-      }
+      },
+      undefined,
+      view.state.facet(editorLocaleFacet)
     );
     (span as any).__nexusExtensionControl = this.control;
 
@@ -1371,6 +1373,10 @@ export function createInlineEditExtension(
       ): void {
         closeActivePopover();
 
+        // 浮层文案全部走 i18n。语言由 `editorLocaleFacet` 注入（编辑器包不读 localStorage）；
+        // 每次打开浮层时现取，所以切语言后新开的浮层立刻是新语言。
+        const t = (key: string) => translate(this.view.state.facet(editorLocaleFacet), key);
+
         const initialRevision = session.getSnapshot().revision;
         const popover = document.createElement('div');
         popover.className = `cm-inline-edit-popover cm-${context.nodeType}-editor`;
@@ -1387,12 +1393,12 @@ export function createInlineEditExtension(
         const saveBtn = document.createElement('button');
         saveBtn.type = 'button';
         saveBtn.className = 'cm-inline-edit-save';
-        saveBtn.textContent = 'Save';
+        saveBtn.textContent = t('popover.save');
 
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
         cancelBtn.className = 'cm-inline-edit-cancel';
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = t('popover.cancel');
 
         actionsEl.appendChild(saveBtn);
         actionsEl.appendChild(cancelBtn);
@@ -1410,11 +1416,11 @@ export function createInlineEditExtension(
           labelField.className = 'cm-inline-edit-field';
           const labelTitle = document.createElement('span');
           labelTitle.className = 'cm-inline-edit-label';
-          labelTitle.textContent = 'Link Text';
+          labelTitle.textContent = t('popover.linkText');
           const labelInput = document.createElement('input');
           labelInput.type = 'text';
           labelInput.className = 'cm-link-label-input';
-          labelInput.setAttribute('aria-label', 'Link text');
+          labelInput.setAttribute('aria-label', t('popover.linkTextAria'));
           const plainLabel = getInlineNodePlainText(node);
           labelInput.value = plainLabel;
           labelField.appendChild(labelTitle);
@@ -1424,17 +1430,17 @@ export function createInlineEditExtension(
           destField.className = 'cm-inline-edit-field';
           const destTitle = document.createElement('span');
           destTitle.className = 'cm-inline-edit-label';
-          destTitle.textContent = 'Link Destination (URL)';
+          destTitle.textContent = t('popover.linkDestination');
           const destInput = document.createElement('input');
           destInput.type = 'text';
           destInput.className = 'cm-link-dest-input';
-          destInput.setAttribute('aria-label', 'Link URL');
+          destInput.setAttribute('aria-label', t('popover.linkUrlAria'));
           destInput.value = node.href;
           if (isReference) {
             destInput.disabled = true;
             destInput.readOnly = true;
-            destInput.title = 'Reference link destination is defined elsewhere in the document.';
-            destInput.setAttribute('aria-label', 'Link URL (Reference destination defined elsewhere)');
+            destInput.title = t('popover.linkRefDestinationHint');
+            destInput.setAttribute('aria-label', t('popover.linkRefDestinationAria'));
           }
           destField.appendChild(destTitle);
           destField.appendChild(destInput);
@@ -1443,23 +1449,23 @@ export function createInlineEditExtension(
           titleField.className = 'cm-inline-edit-field';
           const titleLabel = document.createElement('span');
           titleLabel.className = 'cm-inline-edit-label';
-          titleLabel.textContent = 'Title (optional)';
+          titleLabel.textContent = t('popover.titleOptional');
           const titleInput = document.createElement('input');
           titleInput.type = 'text';
           titleInput.className = 'cm-link-title-input';
-          titleInput.setAttribute('aria-label', 'Link title');
+          titleInput.setAttribute('aria-label', t('popover.linkTitleAria'));
           titleInput.value = node.title || '';
           if (isReference) {
             titleInput.disabled = true;
             titleInput.readOnly = true;
-            titleInput.title = 'Reference link title is defined elsewhere in the document.';
-            titleInput.setAttribute('aria-label', 'Link title (Reference title defined elsewhere)');
+            titleInput.title = t('popover.linkRefTitleHint');
+            titleInput.setAttribute('aria-label', t('popover.linkRefTitleAria'));
           }
           if (isIdentifierBound) {
             labelInput.disabled = true;
             labelInput.readOnly = true;
-            labelInput.title = 'Shortcut or collapsed reference label cannot be edited locally without mutating reference identifier.';
-            labelInput.setAttribute('aria-label', 'Link text (Reference identifier defined elsewhere)');
+            labelInput.title = t('popover.linkRefLabelHint');
+            labelInput.setAttribute('aria-label', t('popover.linkRefLabelAria'));
             saveBtn.disabled = true;
           }
           titleField.appendChild(titleLabel);
@@ -1496,11 +1502,11 @@ export function createInlineEditExtension(
           altField.className = 'cm-inline-edit-field';
           const altTitle = document.createElement('span');
           altTitle.className = 'cm-inline-edit-label';
-          altTitle.textContent = 'Alt Text';
+          altTitle.textContent = t('popover.imageAlt');
           const altInput = document.createElement('input');
           altInput.type = 'text';
           altInput.className = 'cm-image-alt-input';
-          altInput.setAttribute('aria-label', 'Image alt text');
+          altInput.setAttribute('aria-label', t('popover.imageAltAria'));
           altInput.value = node.alt;
           altField.appendChild(altTitle);
           altField.appendChild(altInput);
@@ -1509,17 +1515,17 @@ export function createInlineEditExtension(
           srcField.className = 'cm-inline-edit-field';
           const srcTitle = document.createElement('span');
           srcTitle.className = 'cm-inline-edit-label';
-          srcTitle.textContent = 'Image Source (URL / path)';
+          srcTitle.textContent = t('popover.imageSource');
           const srcInput = document.createElement('input');
           srcInput.type = 'text';
           srcInput.className = 'cm-image-src-input';
-          srcInput.setAttribute('aria-label', 'Image source');
+          srcInput.setAttribute('aria-label', t('popover.imageSourceAria'));
           srcInput.value = node.src;
           if (isReference) {
             srcInput.disabled = true;
             srcInput.readOnly = true;
-            srcInput.title = 'Reference image source is defined elsewhere in the document.';
-            srcInput.setAttribute('aria-label', 'Image source (Reference source defined elsewhere)');
+            srcInput.title = t('popover.imageRefSourceHint');
+            srcInput.setAttribute('aria-label', t('popover.imageRefSourceAria'));
           }
           srcField.appendChild(srcTitle);
           srcField.appendChild(srcInput);
@@ -1533,23 +1539,23 @@ export function createInlineEditExtension(
           titleField.className = 'cm-inline-edit-field';
           const titleLabel = document.createElement('span');
           titleLabel.className = 'cm-inline-edit-label';
-          titleLabel.textContent = 'Title (optional)';
+          titleLabel.textContent = t('popover.titleOptional');
           const titleInput = document.createElement('input');
           titleInput.type = 'text';
           titleInput.className = 'cm-image-title-input';
-          titleInput.setAttribute('aria-label', 'Image title');
+          titleInput.setAttribute('aria-label', t('popover.imageTitleAria'));
           titleInput.value = node.title || '';
           if (isReference) {
             titleInput.disabled = true;
             titleInput.readOnly = true;
-            titleInput.title = 'Reference image title is defined elsewhere in the document.';
-            titleInput.setAttribute('aria-label', 'Image title (Reference title defined elsewhere)');
+            titleInput.title = t('popover.imageRefTitleHint');
+            titleInput.setAttribute('aria-label', t('popover.imageRefTitleAria'));
           }
           if (isIdentifierBound) {
             altInput.disabled = true;
             altInput.readOnly = true;
-            altInput.title = 'Shortcut or collapsed reference alt cannot be edited locally without mutating reference identifier.';
-            altInput.setAttribute('aria-label', 'Image alt text (Reference identifier defined elsewhere)');
+            altInput.title = t('popover.imageRefAltHint');
+            altInput.setAttribute('aria-label', t('popover.imageRefAltAria'));
             saveBtn.disabled = true;
           }
           titleField.appendChild(titleLabel);
@@ -1565,7 +1571,7 @@ export function createInlineEditExtension(
             const uploadBtn = document.createElement('button');
             uploadBtn.type = 'button';
             uploadBtn.className = 'cm-image-upload-btn';
-            uploadBtn.textContent = 'Upload / Replace...';
+            uploadBtn.textContent = t('popover.imageUpload');
             uploadBtn.addEventListener('click', async (e) => {
               e.preventDefault();
               const requestToken = ++globalResolverToken;
@@ -1637,11 +1643,11 @@ export function createInlineEditExtension(
           codeField.className = 'cm-inline-edit-field';
           const codeTitle = document.createElement('span');
           codeTitle.className = 'cm-inline-edit-label';
-          codeTitle.textContent = 'Code Value';
+          codeTitle.textContent = t('popover.codeValue');
           const codeInput = document.createElement('input');
           codeInput.type = 'text';
           codeInput.className = 'cm-code-input';
-          codeInput.setAttribute('aria-label', 'Inline code');
+          codeInput.setAttribute('aria-label', t('popover.codeValueAria'));
           codeInput.value = node.value;
           codeField.appendChild(codeTitle);
           codeField.appendChild(codeInput);
@@ -1663,11 +1669,11 @@ export function createInlineEditExtension(
           targetField.className = 'cm-inline-edit-field';
           const targetTitle = document.createElement('span');
           targetTitle.className = 'cm-inline-edit-label';
-          targetTitle.textContent = 'Target Page';
+          targetTitle.textContent = t('popover.wikiTarget');
           const targetInput = document.createElement('input');
           targetInput.type = 'text';
           targetInput.className = 'cm-wikilink-target-input';
-          targetInput.setAttribute('aria-label', 'WikiLink target');
+          targetInput.setAttribute('aria-label', t('popover.wikiTargetAria'));
           targetInput.value = node.target;
           targetField.appendChild(targetTitle);
           targetField.appendChild(targetInput);
@@ -1676,11 +1682,11 @@ export function createInlineEditExtension(
           aliasField.className = 'cm-inline-edit-field';
           const aliasTitle = document.createElement('span');
           aliasTitle.className = 'cm-inline-edit-label';
-          aliasTitle.textContent = 'Alias (optional)';
+          aliasTitle.textContent = t('popover.wikiAlias');
           const aliasInput = document.createElement('input');
           aliasInput.type = 'text';
           aliasInput.className = 'cm-wikilink-alias-input';
-          aliasInput.setAttribute('aria-label', 'WikiLink alias');
+          aliasInput.setAttribute('aria-label', t('popover.wikiAliasAria'));
           aliasInput.value = node.alias || '';
           aliasField.appendChild(aliasTitle);
           aliasField.appendChild(aliasInput);
@@ -1789,7 +1795,7 @@ export function createInlineEditExtension(
             session.dispatch(tx);
             closeActivePopover();
           } else {
-            errorEl.textContent = 'Invalid syntax: cannot construct candidate node.';
+            errorEl.textContent = t('popover.invalidSyntax');
           }
         };
 

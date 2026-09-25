@@ -53,8 +53,24 @@ function charToCode(key: string): string {
   return PUNCTUATION_CODES[key] ?? `Key${key.toUpperCase()}`;
 }
 
-export async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
+/**
+ * 读文件内容，容忍「目标暂时不存在」。
+ *
+ * Windows 下 `atomicWriteFile` 是「目标 → 备份 → 临时 → 目标」三步替换（避开 Node rename
+ * 在目标被占用时的 EPERM），中间存在目标文件**不存在**的窗口。轮询等落盘时裸
+ * `readFileSync` 会偶发 ENOENT —— 那不是"没写成功"，只是读到了中间态。
+ * 返回 `null` 表示此刻读不到，调用方继续轮询即可。
+ */
+export function readFileTolerant(filePath: string): string | null {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+export async function getFreePort(): Promise<number> {  return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
