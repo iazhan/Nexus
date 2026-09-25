@@ -201,6 +201,14 @@ describe('视觉模式 Mermaid 块', () => {
   it('按钮文案跟随语言，切语言后即时刷新', async () => {
     const app = await openVisual('i18n.md');
 
+    // locale 落在 localStorage 里、跟着 Electron userData 跨文件与跨用例残留。
+    // 不先钉死，「默认 en-US」断言读到的就是上一个用例的遗留值。
+    const originalLocale = await app.evaluate<string>(`window.nexusLocale.locale`);
+    await app.evaluate(`(() => { window.nexusLocale.setLocale('en-US'); return true; })()`);
+    await app.waitForFunction(
+      `() => document.querySelector('.cm-mermaid-toggle')?.textContent === 'Source'`
+    );
+
     const labels = () =>
       app.evaluate<{ toggle: string | null; copy: string | null; copyAria: string | null }>(
         `(() => {
@@ -234,6 +242,16 @@ describe('视觉模式 Mermaid 块', () => {
     expect(
       await app.evaluate<string | null>(`document.querySelector('.cm-mermaid-toggle')?.textContent ?? null`)
     ).toBe('预览');
+
+    // 必须还原：留在 zh-CN 会污染本文件后续用例（Appearance 菜单按标签查找）
+    // 以及后面所有断言英文文案的文件。
+    await app.evaluate(
+      `(() => { window.nexusLocale.setLocale(${JSON.stringify(originalLocale)}); return true; })()`
+    );
+    await app.waitForFunction(
+      `() => window.nexusLocale.locale === ${JSON.stringify(originalLocale)}`,
+      20000
+    );
   }, 90000);
 
   it('Appearance 菜单里的开关能打开「点击图表显示源码」', async () => {

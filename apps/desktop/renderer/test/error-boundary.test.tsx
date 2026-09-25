@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorBoundary } from '../src/ErrorBoundary.js';
+import { localeManager } from '../src/platform.js';
 
 // React 18+ 要求显式声明当前处于 act 环境，否则会刷警告。
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -123,5 +124,41 @@ describe('ErrorBoundary', () => {
     // 子树仍然会再抛一次，边界要重新接住而不是把异常漏出去
     expect(container.querySelector('.nexus-error-card')).not.toBeNull();
     expect(container.children.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * 这个组件在 `main.tsx` 里包着 `<App />`，拿不到 `useLocale()`，
+   * 所以「文案跟随语言」只能靠自己订阅 `localeManager`。
+   * 之前它的标题、恢复提示和 Retry 全是硬编码英文，切到中文也不变。
+   */
+  it('follows locale changes in the fallback copy', () => {
+    act(() => {
+      root.render(
+        <ErrorBoundary>
+          <Boom />
+        </ErrorBoundary>
+      );
+    });
+
+    const title = () => container.querySelector('.error-title')?.textContent ?? '';
+    const retry = () => container.querySelector('.nexus-retry-btn')?.textContent ?? '';
+
+    // 单例默认 en-US（app 的 LocaleManager 与编辑器 facet 的 zh-CN 兜底不是一回事）
+    act(() => {
+      localeManager.setLocale('en-US');
+    });
+    expect(title()).toBe('Editor crashed');
+    expect(retry()).toBe('Retry');
+
+    act(() => {
+      localeManager.setLocale('zh-CN');
+    });
+    expect(title()).toBe('编辑器已崩溃');
+    expect(retry()).toBe('重试');
+
+    // 还原单例，避免污染同进程里的其它用例
+    act(() => {
+      localeManager.setLocale('en-US');
+    });
   });
 });

@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   MarkdownDocumentSession,
   createSessionEditorView,
-  ensureLanguageLoaded
+  ensureLanguageLoaded,
+  setEditorLocale
 } from '../src/index.js';
 
 describe('Phase 1 - Code Block Line Decorations (Slice 1)', () => {
@@ -635,6 +636,34 @@ describe('Phase 1 - Code Block Line Decorations (Slice 1)', () => {
     expect(bqLines.length).toBeGreaterThanOrEqual(6);
     expect(handle.view.dom.textContent).not.toContain('> 下面是在引用块');
     expect(handle.view.dom.textContent).not.toContain('> 引用块末尾附言');
+
+    handle.destroy();
+    parent.remove();
+  });
+
+  it('行数徽标跟随语言，不写死中文', async () => {
+    const source = ['```typescript', 'const a = 1;', 'console.log(a);', '```'].join('\n');
+    const session = new MarkdownDocumentSession(source);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+
+    const handle = createSessionEditorView({
+      session,
+      surfaceId: 'code-block-line-count-i18n',
+      surfaceKind: 'visual',
+      parent
+    });
+
+    const badge = () => handle.view.dom.querySelector('.cm-code-line-count')?.textContent ?? null;
+
+    // 兜底 locale 是 zh-CN（见 editorLocaleFacet）
+    expect(badge()).toBe('2 行');
+
+    // 原先这里是模板串 `${lineCount} 行` 硬编码，切到 en-US 仍显示中文。
+    // `locale` 已在 CodeBlockHeaderWidget.eq() 里，所以切语言会重建 DOM —— 必须重新查询。
+    setEditorLocale(handle.view, 'en-US');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(badge()).toBe('2 lines');
 
     handle.destroy();
     parent.remove();

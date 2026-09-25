@@ -312,11 +312,11 @@ export const App: React.FC = () => {
       } catch (err: unknown) {
         console.error('Failed to open linked document:', err);
         // 跳转失败必须可见，否则用户分不清"链接坏了"和"功能没做"。
-        setLinkError(`无法打开链接目标：${targetPath}（${err instanceof Error ? err.message : String(err)}）`);
+        setLinkError(t('link.error.openFailed', { target: targetPath, reason: err instanceof Error ? err.message : String(err) }));
         return false;
       }
     },
-    [applyOpenedDocument]
+    [applyOpenedDocument, t]
   );
 
   // Watch file for external modifications
@@ -408,7 +408,7 @@ export const App: React.FC = () => {
       if (ctx.unsupportedPath) {
         setStatus('error');
         setErrorMessage(
-          `File "${ctx.unsupportedPath}" cannot be opened. Nexus Lite only supports Markdown (.md, .markdown) documents.`
+          t('file.unsupportedDetail', { path: ctx.unsupportedPath })
         );
         return;
       }
@@ -535,7 +535,7 @@ export const App: React.FC = () => {
           setLinkError(null);
           return true;
         }
-        setLinkError(`文档内找不到锚点：${target}`);
+        setLinkError(t('link.error.unresolvedAnchor', { target }));
         return true;
       }
 
@@ -546,11 +546,11 @@ export const App: React.FC = () => {
         if (!openExternal) return false;
         void openExternal(target)
           .then((opened) => {
-            setLinkError(opened ? null : `系统未接受这个链接：${target}`);
+            setLinkError(opened ? null : t('link.error.rejectedExternal', { target }));
           })
           .catch((err: unknown) => {
             console.error('Failed to open external link:', err);
-            setLinkError(`无法打开外部链接：${target}`);
+            setLinkError(t('link.error.openExternalFailed', { target }));
           });
         return true;
       }
@@ -558,19 +558,19 @@ export const App: React.FC = () => {
       // 3. 相对路径：必须相对当前文档目录解析，否则会被当成进程 cwd。
       const directory = getDocumentDirectory(filePath);
       if (!directory) {
-        setLinkError(`当前文档尚未保存，无法解析相对链接：${target}`);
+        setLinkError(t('link.error.unsavedDocument', { target }));
         return true;
       }
       const resolved = resolveRelativePath(directory, target);
       if (!resolved) {
-        setLinkError(`无法解析这个相对链接：${target}`);
+        setLinkError(t('link.error.unresolvableRelative', { target }));
         return true;
       }
 
       void openDocumentAt(resolved);
       return true;
     },
-    [filePath, openDocumentAt]
+    [filePath, openDocumentAt, t]
   );
 
   // Global keyboard shortcuts and commands
@@ -979,7 +979,7 @@ export const App: React.FC = () => {
             className="nexus-banner-dismiss-btn"
             onClick={() => setLinkError(null)}
           >
-            知道了
+            {t('banner.dismiss')}
           </button>
         </div>
       )}
@@ -987,9 +987,9 @@ export const App: React.FC = () => {
       {/* ReadOnly Banner */}
       {saveState === 'readonly' && (
         <div className="nexus-warning-banner" role="alert">
-          <span>文件处于只读模式。无法直接保存更改，请另存为。</span>
+          <span>{t('banner.readonly')}</span>
           <button type="button" className="nexus-banner-saveas-btn" onClick={saveAs}>
-            另存为...
+            {t('cmd.saveAs')}
           </button>
         </div>
       )}
@@ -998,7 +998,7 @@ export const App: React.FC = () => {
       {saveState === 'external-changed' && (
         <div className="nexus-conflict-banner" role="alert">
           <span className="nexus-conflict-text">
-            文件已在外部被修改。请选择：重新加载（放弃本地未保存修改）或保留当前内容（将在保存时覆盖外部内容）。
+            {t('banner.conflict')}
           </span>
           <div className="nexus-conflict-actions">
             <button
@@ -1006,14 +1006,14 @@ export const App: React.FC = () => {
               className="nexus-conflict-reload-btn"
               onClick={handleReloadExternal}
             >
-              重新加载 (Reload)
+              {t('banner.reload')}
             </button>
             <button
               type="button"
               className="nexus-conflict-keep-btn"
               onClick={handleKeepLocal}
             >
-              保留当前 (Keep Local)
+              {t('banner.keepLocal')}
             </button>
           </div>
         </div>
@@ -1022,9 +1022,9 @@ export const App: React.FC = () => {
       {/* External Deleted/Renamed Banner */}
       {saveState === 'deleted' && (
         <div className="nexus-warning-banner" role="alert">
-          <span>文件已被外部删除或移动。请尽快另存为以防数据丢失。</span>
+          <span>{t('banner.deleted')}</span>
           <button type="button" className="nexus-banner-saveas-btn" onClick={saveAs}>
-            另存为...
+            {t('cmd.saveAs')}
           </button>
         </div>
       )}
@@ -1033,7 +1033,7 @@ export const App: React.FC = () => {
       {saveState === 'error' && (
         <div className="nexus-save-error-banner" role="alert">
           <span className="nexus-save-error-text">
-            保存失败：{saveError ?? '无法写入目标文件'}。
+            {t('banner.saveError', { reason: saveError ?? t('banner.saveErrorUnknown') })}
           </span>
           <div className="nexus-save-error-actions">
             <button
@@ -1041,14 +1041,14 @@ export const App: React.FC = () => {
               className="nexus-save-error-retry"
               onClick={() => saveFile({ immediate: true })}
             >
-              重试 (Retry)
+              {t('editor.retry')}
             </button>
             <button
               type="button"
               className="nexus-save-error-saveas"
               onClick={saveAs}
             >
-              另存为 (Save As...)
+              {t('cmd.saveAs')}
             </button>
           </div>
         </div>
@@ -1059,21 +1059,21 @@ export const App: React.FC = () => {
         {status === 'loading' && (
           <div className="nexus-state-container">
             <div className="nexus-loading-spinner" />
-            <p className="nexus-state-text">Loading document...</p>
+            <p className="nexus-state-text">{t('status.loadingDocument')}</p>
           </div>
         )}
 
         {status === 'error' && (
           <div className="nexus-state-container">
             <div className="nexus-error-card" role="alert">
-              <span className="error-title">Unable to open document</span>
+              <span className="error-title">{t('error.unableToOpen')}</span>
               <p className="error-description">{errorMessage}</p>
               <button
                 type="button"
                 className="nexus-retry-btn"
                 onClick={loadDocument}
               >
-                Retry
+                {t('editor.retry')}
               </button>
             </div>
           </div>
@@ -1082,7 +1082,7 @@ export const App: React.FC = () => {
           // 只包编辑区：投影抛错时保留顶栏、菜单栏和状态栏，
           // 让 Mod-M 切换 surface 成为一条真实可用的恢复路径。
           // resetKey 绑 surfaceKind，切回 Source 会自动清除错误状态。
-          <ErrorBoundary resetKey={surfaceKind} title="Unable to render this surface">
+          <ErrorBoundary resetKey={surfaceKind} titleKey="error.surfaceTitle">
             <EditorSurface
               session={session}
               surfaceId="main-editor"

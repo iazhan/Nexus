@@ -1,4 +1,5 @@
 import React from 'react';
+import { localeManager } from './platform.js';
 
 export interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -8,7 +9,11 @@ export interface ErrorBoundaryProps {
    * 否则错误是确定性的，Retry 只会再崩一次。
    */
   resetKey?: unknown;
-  title?: string;
+  /**
+   * 错误标题的词典键。收键而不是收文案：这个组件在 `main.tsx` 里包着 `<App />`，
+   * 拿不到 `useLocale()`，只能自己订阅 `localeManager` 才跟得上语言切换。
+   */
+  titleKey?: string;
 }
 
 interface ErrorBoundaryState {
@@ -46,6 +51,24 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     }
   }
 
+  /**
+   * 语言切换时重渲染兜底卡片。
+   *
+   * 这个组件在 `main.tsx` 里包着 `<App />`，没有 `useLocale()` 可用；
+   * 不订阅的话，切语言后错误卡片会留着上一种语言的文案——
+   * 和编辑器 widget 里「文案走 i18n 必须把 locale 纳入重渲染判据」是同一个坑。
+   */
+  public componentDidMount(): void {
+    this.unsubscribeLocale = localeManager.subscribe(() => this.forceUpdate());
+  }
+
+  public componentWillUnmount(): void {
+    this.unsubscribeLocale?.();
+    this.unsubscribeLocale = undefined;
+  }
+
+  private unsubscribeLocale: (() => void) | undefined;
+
   private readonly handleRetry = (): void => {
     this.setState({ error: null });
   };
@@ -56,16 +79,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       return this.props.children;
     }
 
+    const t = (key: string) => localeManager.t(key);
+
     return (
       <div className="nexus-state-container">
         <div className="nexus-error-card" role="alert">
-          <span className="error-title">{this.props.title ?? 'Editor crashed'}</span>
+          <span className="error-title">{t(this.props.titleKey ?? 'error.editorCrashed')}</span>
           <p className="error-description">{error.message}</p>
-          <p className="error-description">
-            Switch the editor surface (Mod-M) or reopen the file to recover.
-          </p>
+          <p className="error-description">{t('error.recoveryHint')}</p>
           <button type="button" className="nexus-retry-btn" onClick={this.handleRetry}>
-            Retry
+            {t('editor.retry')}
           </button>
         </div>
       </div>

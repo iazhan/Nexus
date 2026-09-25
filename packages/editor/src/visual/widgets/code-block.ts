@@ -77,7 +77,8 @@ export class CodeBlockHeaderWidget extends WidgetType {
   }
 
   public toDOM(view: EditorView): HTMLElement {
-    const t = (key: string) => translate(view.state.facet(editorLocaleFacet), key);
+    const t = (key: string, variables?: Record<string, string>) =>
+      translate(view.state.facet(editorLocaleFacet), key, variables);
 
     const container = document.createElement('div');
     container.className = 'cm-code-header-widget';
@@ -128,7 +129,7 @@ export class CodeBlockHeaderWidget extends WidgetType {
     if (lineCount > 0) {
       const countBadge = document.createElement('span');
       countBadge.className = 'cm-code-line-count';
-      countBadge.textContent = `${lineCount} 行`;
+      countBadge.textContent = t('codeBlock.lineCount', { count: String(lineCount) });
       leftGroup.appendChild(countBadge);
     }
 
@@ -242,7 +243,8 @@ function createMermaidModeToggle(
   isSourceMode: boolean
 ): HTMLButtonElement {
   const locale = view.state.facet(editorLocaleFacet);
-  const t = (key: string) => translate(locale, key);
+  const t = (key: string, variables?: Record<string, string>) =>
+    translate(locale, key, variables);
 
   const button = document.createElement('button');
   button.type = 'button';
@@ -307,7 +309,8 @@ export class CodeBlockWidget extends WidgetType {
   }
 
   public toDOM(view: EditorView): HTMLElement {
-    const t = (key: string) => translate(view.state.facet(editorLocaleFacet), key);
+    const t = (key: string, variables?: Record<string, string>) =>
+      translate(view.state.facet(editorLocaleFacet), key, variables);
 
     const container = document.createElement('div');
     container.className = 'cm-visual-code-block';

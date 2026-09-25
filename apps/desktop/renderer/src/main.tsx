@@ -12,7 +12,7 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     {/* 最外层兜底：任何渲染期异常都降级成可见的错误卡片，而不是整窗白屏。 */}
-    <ErrorBoundary title="Nexus failed to render">
+    <ErrorBoundary titleKey="error.appTitle">
       <App />
     </ErrorBoundary>
   </React.StrictMode>

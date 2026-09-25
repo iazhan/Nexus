@@ -3,12 +3,27 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const execFileAsync = promisify(execFile);
+
+/**
+ * 给目录加 / 删「拒绝写入」ACE，用来模拟「目标不可写」的保存失败场景。
+ *
+ * **必须走异步 `execFile`，不能用 `execFileSync` / `execSync`。**
+ * 本机（Windows + 受限执行环境）上 Node 的**同步**进程创建整体不可用：任何 `spawnSync`
+ * 都立刻返回 `EBUSY`，与子进程是谁、有没有并发都无关 —— 裸跑
+ * `node -e "require('child_process').execFileSync('icacls', ['.'])"` 同样 EBUSY，
+ * 而异步 `spawn` / `execFile` 正常（harness 启动 Electron 走的就是异步 `spawn`）。
+ * 曾按「瞬时抖动」处理加过退避重试：30s 预算内 98 次尝试全部 EBUSY，证明重试无意义。
+ *
+ * 直连 `icacls.exe` 而非 `cmd.exe`，顺带省掉一层 shell 与 `*S-1-1-0:(W)` 的引号转义。
+ */
+async function runIcacls(args: string[]): Promise<void> {
+  await execFileAsync('icacls', args, { windowsHide: true });
+}
 
 describe('Desktop Smoke Test (P1-04F)', () => {
   let tempDir: string;
@@ -242,8 +257,31 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     // Wait for conflict banner / notification
     await activeApp.waitForSelector('.nexus-conflict-banner', 15000);
-    const bannerText = await activeApp.getText('.nexus-conflict-banner');
-    expect(bannerText).toContain('外部');
+
+    // 横幅文案必须跟着 locale 走。
+    // 原先这里写死断言中文，而 app 默认 en-US —— 那其实是在断言「文案是硬编码的」，
+    // 只要 userData 里没存过 zh-CN 就会假失败，也会把 i18n 收口挡在门外。两个方向各验一次。
+    const originalLocale = await activeApp.evaluate<string>('window.nexusLocale.locale');
+    await activeApp.evaluate(`(() => { window.nexusLocale.setLocale('en-US'); })()`);
+    await activeApp.waitForFunction(`() => {
+      const el = document.querySelector('.nexus-conflict-banner');
+      return el && el.textContent && el.textContent.includes('outside Nexus');
+    }`, 15000);
+
+    await activeApp.evaluate(`(() => { window.nexusLocale.setLocale('zh-CN'); })()`);
+    await activeApp.waitForFunction(`() => {
+      const el = document.querySelector('.nexus-conflict-banner');
+      return el && el.textContent && el.textContent.includes('外部');
+    }`, 15000);
+
+    // locale 会经 localStorage 持久化到 Electron userData，跨用例残留；用完还原。
+    await activeApp.evaluate(
+      `(() => { window.nexusLocale.setLocale(${JSON.stringify(originalLocale)}); })()`
+    );
+    await activeApp.waitForFunction(
+      `() => window.nexusLocale.locale === ${JSON.stringify(originalLocale)}`,
+      15000
+    );
 
     // Click "Reload" / 重新加载
     await activeApp.click('.nexus-conflict-reload-btn');
@@ -262,18 +300,21 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = await launchElectronApp({ filePath: readOnlyFile });
     await activeApp.waitForSelector('.cm-content', 15000);
 
-    // Make directory read-only to prevent temporary file creation and atomic rename
     const isWin = process.platform === 'win32';
-    if (isWin) {
-      execSync(`icacls "${readOnlyDir}" /deny *S-1-1-0:(W)`);
-    } else {
-      fs.chmodSync(readOnlyDir, 0o555);
-    }
 
-    // Wait for fs.watch event from chmod/icacls to settle so it doesn't overwrite error with external-changed
-    await new Promise(r => setTimeout(r, 1000));
-
+    // 只读化必须放在 try 里面：它自己也会抛（见 runIcacls），放在 try 外面
+    // 会让 finally 的还原整段跳过，把只读目录留在 tempDir 里。
     try {
+      // Make directory read-only to prevent temporary file creation and atomic rename
+      if (isWin) {
+        await runIcacls([readOnlyDir, '/deny', '*S-1-1-0:(W)']);
+      } else {
+        fs.chmodSync(readOnlyDir, 0o555);
+      }
+
+      // Wait for fs.watch event from chmod/icacls to settle so it doesn't overwrite error with external-changed
+      await new Promise(r => setTimeout(r, 1000));
+
       // Trigger save via session edit and Ctrl+S
       await activeApp.evaluate(`(() => {
         window.nexusSession.dispatch({
@@ -299,7 +340,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     } finally {
       if (isWin) {
         try {
-          execSync(`icacls "${readOnlyDir}" /remove:d *S-1-1-0`);
+          await runIcacls([readOnlyDir, '/remove:d', '*S-1-1-0']);
         } catch {
           // ignore
         }
@@ -307,7 +348,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
         fs.chmodSync(readOnlyDir, 0o777);
       }
     }
-  }, 25000);
+  }, 30000);
 
   it('8. supports keyboard shortcuts: Mod-M toggle surface, Mod-F find', async () => {
     const kbFile = path.join(tempDir, 'keyboard-test.md');

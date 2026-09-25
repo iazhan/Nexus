@@ -449,9 +449,12 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
     await app.mouseClick('.cm-visual-link', CTRL);
     await app.waitForSelector('.nexus-banner-dismiss-btn', 10000);
 
+    // 文案本身由 banner-i18n.test.ts 负责（它按语言逐字比对）。
+    // 这里只锁这条用例自己的不变量：提示可见、点名了那个锚点、没退化成未解析的词典键。
+    // 原先断言的是硬编码中文「找不到锚点」，等于把「文案写死在组件里」当成契约。
     const banner = await app.getText('.nexus-warning-banner');
-    expect(banner).toContain('找不到锚点');
     expect(banner).toContain('#nope');
+    expect(banner).not.toContain('link.error.unresolvedAnchor');
 
     const after = await snapshot(app);
     expect(after.source).toBe(source);
