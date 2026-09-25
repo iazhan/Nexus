@@ -453,6 +453,22 @@ ipcMain.handle(IPC_CHANNELS.listIndexedDocuments, (event) => {
   return getIndexStore(event.sender.id)?.listDocuments() ?? [];
 });
 
+// 反向链接：查的是索引里记录的出链，所以只对**已索引**的文档有意义。
+// 文档还没进索引时返回空数组，而不是报错 —— 用户看到「暂无反向链接」比看到报错合理。
+ipcMain.handle(IPC_CHANNELS.findBacklinks, (event, documentPath: unknown) => {
+  if (typeof documentPath !== 'string' || documentPath.length === 0) {
+    throw new Error('findBacklinks: 需要文档路径');
+  }
+
+  const store = getIndexStore(event.sender.id);
+  if (!store) return [];
+
+  const document = store.getDocumentByPath(documentPath);
+  if (!document) return [];
+
+  return store.findBacklinks(document);
+});
+
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {

@@ -1463,7 +1463,12 @@ export const App: React.FC = () => {
             >
               {/* 大纲是「当前文档」的视图：没有活动文档时它没有意义 */}
               {activeDocument ? (
-                <OutlinePanel session={session} onJump={handleOutlineJump} />
+                <OutlinePanel
+                  session={session}
+                  onJump={handleOutlineJump}
+                  filePath={filePath}
+                  onOpenFile={handleOpenWorkspaceFile}
+                />
               ) : (
                 <p className="nexus-panel-placeholder">{t('workspace.pickFile')}</p>
               )}

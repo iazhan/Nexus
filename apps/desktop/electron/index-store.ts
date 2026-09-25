@@ -22,7 +22,7 @@ import type { IndexedDocument, SearchHit } from '@nexus/core';
  */
 
 /** schema 版本。改表结构就 +1 —— 旧库会被整个重建。 */
-const SCHEMA_VERSION = '1';
+const SCHEMA_VERSION = '2';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -47,11 +47,23 @@ const SCHEMA_STATEMENTS = [
      title,
      body,
      tokenize='unicode61'
-   )`
+   )`,
+  // 反向链接：某篇文档里出现了哪些 wikilink 目标。
+  //
+  // 存的是**归一化后的目标名**（去掉 `.md`、转小写），不是解析出来的 document id ——
+  // 链接指向的文档可能在链接写完之后才被创建，存 id 就意味着每次新增文件都要重建索引。
+  // 代价是查询时要拿当前文档的路径/文件名去比对，见 findBacklinks()。
+  `CREATE TABLE IF NOT EXISTS links (
+     source_id INTEGER NOT NULL,
+     target TEXT NOT NULL,
+     PRIMARY KEY (source_id, target)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_links_target ON links(target)`
 ];
 
 /** 重建时要按依赖顺序丢掉的表。 */
 const DROP_STATEMENTS = [
+  `DROP TABLE IF EXISTS links`,
   `DROP TABLE IF EXISTS search_fts`,
   `DROP TABLE IF EXISTS documents`,
   `DROP TABLE IF EXISTS meta`
@@ -68,6 +80,13 @@ export interface UpsertDocumentInput {
   contentHash: string;
   /** 原始正文（未切分）；切分在本层内部完成 */
   body: string;
+  /**
+   * 本文档里的 wikilink 目标，**已归一化**（去掉 `.md`、转小写）。
+   *
+   * 归一化放在索引器里做，存进来的必须已经是这个形式 —— 查询端
+   * （`findBacklinks`）只做等值比较，两边各归一化一次迟早不一致。
+   */
+  links: string[];
 }
 
 export interface IndexStats {
@@ -234,6 +253,16 @@ export class IndexStore {
         segmentForIndex(input.body)
       ]);
 
+      // 出链同样先删后插：文档改过之后，旧的出链可能已经不存在了。
+      // 只删不插会让反向链接永远停在第一次索引的结果上。
+      this.db.run(`DELETE FROM links WHERE source_id = ?`, [documentId]);
+      for (const target of input.links) {
+        this.db.run(`INSERT OR IGNORE INTO links(source_id, target) VALUES(?, ?)`, [
+          documentId,
+          target
+        ]);
+      }
+
       this.db.exec('COMMIT');
       return documentId;
     } catch (err) {
@@ -292,6 +321,31 @@ export class IndexStore {
     }));
   }
 
+  /**
+   * 找出所有链接到这篇文档的文档（反向链接）。
+   *
+   * 匹配口径必须与 `resolveWikiLink` 一致：那边是「先按相对路径、再按文件名」，
+   * 都大小写不敏感。两处口径不一致的话，能跳转的链接反而查不到反向链接 ——
+   * 那种不一致极难被发现，因为两边单独看都对。
+   */
+  findBacklinks(document: IndexedDocument): IndexedDocument[] {
+    const targets = backlinkTargetsOf(document);
+    const placeholders = targets.map(() => '?').join(', ');
+
+    const rows = this.db.all(
+      `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title,
+              d.size_bytes, d.modified_at_ms, d.content_hash
+         FROM links l
+         JOIN documents d ON d.id = l.source_id
+        WHERE l.target IN (${placeholders})
+          AND d.id != ?
+        ORDER BY d.relative_path`,
+      [...targets, document.id]
+    );
+
+    return rows.map(mapDocument);
+  }
+
   getStats(): IndexStats {
     const row = this.db.get(`SELECT COUNT(*) AS count FROM documents`);
     return { documents: Number(row?.count ?? 0) };
@@ -309,4 +363,15 @@ function mapDocument(row: Record<string, unknown>): IndexedDocument {
     modifiedAtMs: Number(row.modified_at_ms ?? 0),
     contentHash: String(row.content_hash)
   };
+}
+
+/**
+ * 一篇文档可能被链接到的写法：相对路径（去 `.md`）与文件名（去 `.md`），都已小写。
+ *
+ * 与 `resolveWikiLink` 的匹配口径一致。两处若不一致，会出现「能跳转但查不到反向链接」
+ * 这种极难察觉的偏差 —— 两边单独看都是对的。
+ */
+function backlinkTargetsOf(document: IndexedDocument): string[] {
+  const strip = (value: string) => value.toLowerCase().replace(/\.md$/, '');
+  return [...new Set([strip(document.relativePath), strip(document.name)])];
 }

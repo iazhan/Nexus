@@ -42,6 +42,12 @@ export interface NexusBridge {
   searchIndex: (query: string, limit?: number) => Promise<SearchHit[]>;
   /** 已索引的文档列表，按相对路径排序。 */
   listIndexedDocuments: () => Promise<IndexedDocument[]>;
+  /**
+   * 反向链接：所有链接到该文档的文档。
+   *
+   * 文档还没进索引时返回空数组（而不是报错）—— 「暂无反向链接」比一个错误更合理。
+   */
+  findBacklinks: (documentPath: string) => Promise<IndexedDocument[]>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;

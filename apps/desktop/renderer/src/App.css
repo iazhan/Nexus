@@ -621,6 +621,40 @@ body.nexus-resizing {
 .nexus-outline-level-5,
 .nexus-outline-level-6 { padding-left: 56px; }
 
+/* 反向链接区与大纲共用面板，用上边框分隔。
+   限高 40%：它是次要信息，不该把大纲挤没。 */
+.nexus-backlinks {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  max-height: 40%;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-backlink-item {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-backlink-item:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
 .nexus-search {
   display: flex;
   flex-direction: column;

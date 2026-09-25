@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
   rebuildIndex: 'nexus:rebuild-index',
   searchIndex: 'nexus:search-index',
   listIndexedDocuments: 'nexus:list-indexed-documents',
+  findBacklinks: 'nexus:find-backlinks',
   setDirty: 'nexus:set-dirty',
   requestSaveAndClose: 'nexus:request-save-and-close',
   readyToClose: 'nexus:ready-to-close',

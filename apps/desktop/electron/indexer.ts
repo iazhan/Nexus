@@ -7,8 +7,9 @@ import type { IndexStore } from './index-store.js';
 /**
  * 工作区索引器：扫盘 → 读内容 → 写进索引库。
  *
- * 只做**文档级**索引与全文检索。headings / links / tags 属于知识层（P2-06），
- * 那部分要等 Resolver 与 Outline 的需求明确之后再落，免得先建一堆用不上的表。
+ * 做**文档级**索引、全文检索，以及出链（wikilink 目标）的收集。
+ * headings 仍不进索引 —— 大纲面板直接从**当前源码**解析，那样才能跟随编辑实时更新；
+ * tags 等需求明确之后再落。
  *
  * 全量而非增量：索引是派生数据，重建的代价只是几秒扫盘，而增量状态本身
  * 就是一类需要维护、会出错、还无法自证正确的数据。这里只用内容哈希跳过
@@ -60,7 +61,8 @@ export async function indexWorkspace(
           sizeBytes: file.sizeBytes,
           modifiedAtMs: file.modifiedAtMs,
           contentHash,
-          body: content
+          body: content,
+          links: extractWikiLinkTargets(content)
         },
         nowMs
       );
@@ -98,4 +100,29 @@ export async function indexWorkspace(
 function deriveTitle(fileName: string): string {
   const extension = path.extname(fileName);
   return extension ? fileName.slice(0, -extension.length) : fileName;
+}
+
+/** `[[目标]]` 或 `[[目标|别名]]`。 */
+const WIKILINK_PATTERN = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g;
+
+/**
+ * 提取正文里的 wikilink 目标，**归一化**成 `links` 表要的形式（去 `.md`、转小写）。
+ *
+ * 归一化在这里做、查询端只做等值比较 —— 两边各归一化一次迟早不一致，
+ * 而那种不一致的表现是「能跳转但查不到反向链接」，很难察觉。
+ *
+ * 用正则而不是完整 parser：索引器只要目标名，为几个链接跑一遍 AST 不划算。
+ * 代价是**代码块里的 `[[...]]` 也会被收进来**。这是刻意选的方向：
+ * 反向链接多一条不致命，而漏掉真链接会让人以为功能坏了。
+ */
+export function extractWikiLinkTargets(source: string): string[] {
+  const targets = new Set<string>();
+
+  for (const match of source.matchAll(WIKILINK_PATTERN)) {
+    const raw = match[1]?.trim();
+    if (!raw) continue;
+    targets.add(raw.toLowerCase().replace(/\.md$/, ''));
+  }
+
+  return [...targets];
 }
