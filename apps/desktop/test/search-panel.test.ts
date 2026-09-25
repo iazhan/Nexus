@@ -61,7 +61,7 @@ describe('搜索面板', () => {
 
     // 先展开工作区面板 —— 它会跑一次索引，搜索依赖它
     await app.click('.nexus-activity-icon[data-activity="workspace"]');
-    await app.waitForSelector('.nexus-tree-item', 60000);
+    await app.waitForSelector('.nexus-tree-item', 120000);
 
     // 切到搜索
     await app.click('.nexus-activity-icon[data-activity="search"]');
@@ -96,5 +96,5 @@ describe('搜索面板', () => {
       `document.querySelectorAll('.nexus-search-hit').length === 0`,
       10000
     );
-  }, 90000);
+  }, 180000);
 });

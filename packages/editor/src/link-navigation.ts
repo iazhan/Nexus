@@ -17,10 +17,15 @@ export interface LinkNavigationRequest {
   /**
    * 装饰上携带的、已净化的 href。相对路径与 `#anchor` 保持**未解析**状态——
    * 只有宿主知道当前文档目录，编辑器不该替它猜。
+   *
+   * `kind === 'wikilink'` 时这里是 `[[...]]` 里的**目标名**（同样未解析）：
+   * 宿主应该拿它去工作区索引里找，而不是当文件路径处理。
    */
   href: string;
   /** 被点击链接文字在文档中的位置；仅用于日志与降级提示，不可作为导航目标。 */
   pos: number;
+  /** 省略即视为普通链接（保持向后兼容）。 */
+  kind?: 'link' | 'wikilink';
 }
 
 /**
@@ -33,8 +38,12 @@ export const linkNavigatorFacet = Facet.define<LinkNavigator, LinkNavigator | un
   combine: (values) => values[0]
 });
 
-/** 同时覆盖 mark 装饰与 raw 结构畸形时降级出的 LinkWidget——两者都带 `cm-visual-link`。 */
-const LINK_SELECTOR = '.cm-visual-link';
+/**
+ * 同时覆盖 mark 装饰与 raw 结构畸形时降级出的 LinkWidget——两者都带 `cm-visual-link`。
+ * wikilink 的 widget 也走同一条路径（它带 `cm-visual-wikilink`）：
+ * 编辑器只负责把**目标名**递出去，解析成哪篇文档是宿主的策略。
+ */
+const LINK_SELECTOR = '.cm-visual-link, .cm-visual-wikilink';
 
 export function createLinkNavigationExtension(navigator: LinkNavigator): Extension {
   return ViewPlugin.fromClass(
@@ -61,11 +70,24 @@ export function createLinkNavigationExtension(navigator: LinkNavigator): Extensi
         // 既不做任何事，也不吞事件——保持"点击即落光标"的默认行为。
         if (linkEl.classList.contains('cm-visual-link-blocked')) return;
 
-        // mark 装饰走 data-safe-href；降级的 LinkWidget 才有真正的 href 属性。
-        const href = (linkEl.dataset.safeHref ?? linkEl.getAttribute('href') ?? '').trim();
+        const isWikiLink = linkEl.classList.contains('cm-visual-wikilink');
+
+        // 普通链接：mark 装饰走 data-safe-href，降级的 LinkWidget 才有真正的 href 属性。
+        // wikilink：widget 上没有 href，目标名在 data-wikilink-target 上。
+        const href = (
+          isWikiLink
+            ? (linkEl.dataset.wikilinkTarget ?? '')
+            : (linkEl.dataset.safeHref ?? linkEl.getAttribute('href') ?? '')
+        ).trim();
         if (!href) return;
 
-        if (navigator({ href, pos: resolvePos(this.view, linkEl) }) === false) return;
+        const request: LinkNavigationRequest = {
+          href,
+          pos: resolvePos(this.view, linkEl),
+          ...(isWikiLink ? { kind: 'wikilink' as const } : {})
+        };
+
+        if (navigator(request) === false) return;
 
         event.preventDefault();
         event.stopPropagation();

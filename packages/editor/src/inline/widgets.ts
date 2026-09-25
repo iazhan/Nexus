@@ -274,6 +274,9 @@ export class WikiLinkWidget extends WidgetType {
     span.className = 'cm-visual-wikilink cm-visual-wikilink-widget';
     span.dataset.from = String(this.from);
     span.dataset.to = String(this.to);
+    // 目标名要落到 dataset 上：宿主（App）拿它去**索引**里解析，
+    // 编辑器自己不认识索引，也不该认识 —— 与 link-navigation 的分层一致。
+    span.dataset.wikilinkTarget = this.target;
     span.setAttribute('role', 'link');
     span.setAttribute('tabindex', '-1');
     if (this.alias) {

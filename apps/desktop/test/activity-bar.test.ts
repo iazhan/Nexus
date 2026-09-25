@@ -107,7 +107,7 @@ describe('活动栏与侧栏面板', () => {
     // 标签栏的容器范围：只横跨编辑区，不延伸到活动栏和侧栏上方。
     // 单文档时标签栏不渲染，所以先从侧栏打开第二个文件（比按 Ctrl+N 稳 ——
     // 快捷键依赖窗口焦点，而点击不依赖）。
-    await app.waitForSelector('.nexus-tree-file', 60000);
+    await app.waitForSelector('.nexus-tree-file', 120000);
     await app.click('.nexus-tree-file');
     await app.waitForSelector('.cm-content', 20000);
     await app.evaluate(`document.querySelectorAll('.nexus-tree-file')[1].click(), true`);
@@ -137,5 +137,5 @@ describe('活动栏与侧栏面板', () => {
     expect(geometry.barLeft).toBeGreaterThanOrEqual(geometry.panelRight);
     // 宽度与编辑区一致（不是整个窗口宽度）
     expect(geometry.barWidth).toBe(geometry.mainWidth);
-  }, 90000);
+  }, 180000);
 });

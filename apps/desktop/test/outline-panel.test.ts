@@ -70,10 +70,10 @@ describe('大纲面板', () => {
 
     // 打开工作区里的文档
     await app.click('.nexus-activity-icon[data-activity="workspace"]');
-    // 60s 而不是 30s：这一步会等侧栏跑完索引并渲染出文件树，
-    // 全量串行跑到后半段负载高时 30s 不够（实测撞过 30s 上限）。
-    // 注意 waitForSelector 用的是它自己的超时参数，不受 vitest testTimeout 影响。
-    await app.waitForSelector('.nexus-tree-item', 60000);
+    // 120s：这一步要等侧栏跑完**整个工作区的索引**再渲染出文件树。
+    // 空载约 20s，但全量串行跑到后半段时机器已被前面的 Electron 实例拖慢，
+    // 实测 60s 也会超。waitForSelector 用的是自己的超时，不受 vitest testTimeout 影响。
+    await app.waitForSelector('.nexus-tree-item', 120000);
     await app.click('.nexus-tree-file');
     await app.waitForSelector('.cm-content', 20000);
 
@@ -135,5 +135,5 @@ describe('大纲面板', () => {
     expect(await app.evaluate<string>(
       `document.querySelector('.nexus-outline-item')?.textContent ?? ''`
     )).toBe('新标题');
-  }, 90000);
+  }, 180000);
 });

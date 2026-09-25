@@ -38,6 +38,8 @@ import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
 import { OutlinePanel } from './workspace/OutlinePanel.js';
 import { SearchPanel } from './workspace/SearchPanel.js';
 import { PluginsPanel } from './workspace/PluginsPanel.js';
+import { QuickOpen } from './workspace/QuickOpen.js';
+import { resolveWikiLink } from './workspace/wikilink.js';
 import {
   PANEL_DEFAULT_WIDTH,
   clampPanelWidth,
@@ -165,6 +167,9 @@ export const App: React.FC = () => {
    * `ExtensionHost` 没有变更通知，借这个信号刷新。
    */
   const [documentRevision, setDocumentRevision] = useState(0);
+
+  /** 快速打开（Ctrl+P）是否可见。 */
+  const [quickOpenOpen, setQuickOpenOpen] = useState(false);
 
   const handleActivitySelect = useCallback((id: ActivityId) => {
     setActivity((previous) => toggleActivity(previous, id));
@@ -815,9 +820,43 @@ export const App: React.FC = () => {
    * 返回 false 表示不处理，事件交回浏览器，保持默认的落光标行为。
    */
   const handleLinkNavigation = useCallback<LinkNavigator>(
-    ({ href }) => {
+    ({ href, kind }) => {
       const target = href.trim();
       if (!target) return false;
+
+      // 0. wikilink：拿目标名去**索引**里解析。编辑器只把名字递过来，
+      //    「它对应工作区里哪个文件」是宿主的策略（与编辑器包的分层一致）。
+      if (kind === 'wikilink') {
+        void (async () => {
+          try {
+            const documents = (await window.nexus?.listIndexedDocuments?.()) ?? [];
+            const resolution = resolveWikiLink(target, documents);
+
+            if (resolution.status === 'resolved' && resolution.document?.path) {
+              await handleOpenWorkspaceFile(resolution.document.path);
+              setLinkError(null);
+              return;
+            }
+
+            setLinkError(
+              resolution.status === 'ambiguous'
+                ? t('link.error.ambiguousWikiLink', {
+                    target,
+                    count: String(resolution.candidates.length)
+                  })
+                : t('link.error.unresolvedWikiLink', { target })
+            );
+          } catch (err) {
+            setLinkError(
+              t('link.error.openFailed', {
+                target,
+                reason: err instanceof Error ? err.message : String(err)
+              })
+            );
+          }
+        })();
+        return true;
+      }
 
       // 1. 文档内锚点：光标落到标题上并滚动过去
       if (target.startsWith('#')) {
@@ -941,6 +980,14 @@ export const App: React.FC = () => {
       if (matchesShortcut(e, 'Mod-K')) {
         e.preventDefault();
         setCommandPaletteOpen(true);
+        return;
+      }
+
+      // Ctrl+P 快速打开。与 Mod-K 分开：一个是「找文件」，一个是「找命令」，
+      // 混成一个入口会让两个都很慢。
+      if (matchesShortcut(e, 'Mod-P')) {
+        e.preventDefault();
+        setQuickOpenOpen(true);
         return;
       }
 
@@ -1550,6 +1597,16 @@ export const App: React.FC = () => {
         isOpen={isCommandPaletteOpen} 
         onClose={() => setCommandPaletteOpen(false)} 
       />
+      {/* 只在工作区模式提供：快速打开找的是索引里的文件，lightweight 下没有索引 */}
+      {quickOpenOpen && workspaceRoot && (
+        <QuickOpen
+          onOpenFile={(targetPath) => {
+            setQuickOpenOpen(false);
+            void handleOpenWorkspaceFile(targetPath);
+          }}
+          onClose={() => setQuickOpenOpen(false)}
+        />
+      )}
     </div>
   );
 };

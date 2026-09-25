@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -432,6 +433,15 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
     '--no-sandbox',
     '--test-mode'
   ];
+
+  // **每个实例用独立的 userData 目录**，跑完随临时目录一起删。
+  //
+  // 不这么做的话所有实例共用 `%APPDATA%/@nexus/desktop`，索引库（每个测试一个）
+  // 和 Electron 的临时文件会无限累积 —— 实测累积到 271M / 128 个索引库。
+  // 而累积本身会让后续实例启动变慢，表现为「全量跑到后半段，等文件树超时」
+  // 这种看起来随机、单跑却总是通过的失败。
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-userdata-'));
+  args.push(`--user-data-dir=${userDataDir}`);
 
   if (options.filePath) {
     args.push(options.filePath);

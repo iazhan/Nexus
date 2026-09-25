@@ -726,6 +726,92 @@ body.nexus-resizing {
   color: var(--nexus-status-error-text);
 }
 
+/* 快速打开（Ctrl+P）。backdrop 用 absolute 而不是 fixed ——
+   它该盖住应用区域，而不是整个窗口（窗口外没有可点的东西）。 */
+.nexus-quickopen-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  padding-top: 80px;
+  background-color: rgba(0, 0, 0, 0.18);
+}
+
+.nexus-quickopen {
+  display: flex;
+  flex-direction: column;
+  width: 520px;
+  max-width: calc(100% - 48px);
+  max-height: 60%;
+  overflow: hidden;
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 10px;
+  background-color: var(--nexus-bg-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.nexus-quickopen-input {
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--nexus-border-subtle);
+  background: transparent;
+  color: var(--nexus-text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.nexus-quickopen-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.nexus-quickopen-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.nexus-quickopen-item-active {
+  background-color: var(--nexus-bg-surface-active);
+}
+
+/* 文件名在前、路径在后：搜索时先认出文件名，路径用来消歧 */
+.nexus-quickopen-name {
+  flex: 0 0 auto;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-quickopen-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-quickopen-empty {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .nexus-activity-panel,
   .nexus-activity-icon,
