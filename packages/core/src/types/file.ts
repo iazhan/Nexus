@@ -11,6 +11,33 @@ export interface FileDocument {
 }
 
 /**
+ * 工作区扫描命中的一个 Markdown 文件。
+ */
+export interface WorkspaceMarkdownFile {
+  /** 绝对路径 */
+  path: string;
+  /** 相对工作区根，始终用正斜杠，便于跨平台比较与展示 */
+  relativePath: string;
+  /** 文件名（含扩展名） */
+  name: string;
+  /** 最后修改时间（毫秒）；stat 失败时为 0 */
+  modifiedAtMs: number;
+  /** 字节数；stat 失败时为 0 */
+  sizeBytes: number;
+}
+
+/**
+ * 工作区扫描结果。
+ */
+export interface WorkspaceScanResult {
+  files: WorkspaceMarkdownFile[];
+  /** 是否因达到 maxFiles 而提前停止 */
+  truncated: boolean;
+  /** 被跳过的目录数（node_modules、.git 等） */
+  skippedDirectories: number;
+}
+
+/**
  * 文件监听事件，错误也通过事件显式传递给调用方。
  */
 export type FileWatchEvent =

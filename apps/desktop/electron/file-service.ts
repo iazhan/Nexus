@@ -5,7 +5,9 @@ import {
   FileServiceError,
   type FileDocument,
   type FileWatchListener,
-  type Unsubscribe
+  type Unsubscribe,
+  type WorkspaceMarkdownFile,
+  type WorkspaceScanResult
 } from '@nexus/core';
 import type { FileDialog } from './file-dialog.js';
 
@@ -29,6 +31,16 @@ export interface FSWatcherLike {
 }
 
 /**
+ * readdir 返回的目录项最小接口。
+ */
+export interface DirectoryEntryLike {
+  name: string;
+  isFile(): boolean;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+}
+
+/**
  * 文件系统适配层，消除对 Electron GUI 和具体运行时实现的硬依赖。
  */
 export interface FileSystemAdapter {
@@ -36,7 +48,11 @@ export interface FileSystemAdapter {
   open(filePath: string, flags: string | number, mode?: number): Promise<FileHandleLike>;
   rename(oldPath: string, newPath: string): Promise<void>;
   unlink(filePath: string): Promise<void>;
-  stat(filePath: string): Promise<{ isFile(): boolean; isDirectory(): boolean }>;
+  stat(
+    filePath: string
+  ): Promise<{ isFile(): boolean; isDirectory(): boolean; size?: number; mtimeMs?: number }>;
+  readdir?(dirPath: string): Promise<DirectoryEntryLike[]>;
+  realpath?(filePath: string): Promise<string>;
   watch(
     filePath: string,
     options: { persistent?: boolean },
@@ -71,8 +87,18 @@ export class DefaultFileSystemAdapter implements FileSystemAdapter {
     return fsPromises.unlink(filePath);
   }
 
-  async stat(filePath: string): Promise<{ isFile(): boolean; isDirectory(): boolean }> {
+  async stat(
+    filePath: string
+  ): Promise<{ isFile(): boolean; isDirectory(): boolean; size?: number; mtimeMs?: number }> {
     return fsPromises.stat(filePath);
+  }
+
+  async readdir(dirPath: string): Promise<DirectoryEntryLike[]> {
+    return fsPromises.readdir(dirPath, { withFileTypes: true });
+  }
+
+  async realpath(filePath: string): Promise<string> {
+    return fsPromises.realpath(filePath);
   }
 
   async exists(filePath: string): Promise<boolean> {
@@ -237,12 +263,55 @@ function wrapIoError(action: string, filePath: string, err: unknown): FileServic
   return new FileServiceError('IO_ERROR', `${action}: ${message}`, filePath);
 }
 
+/** 支持的 Markdown 扩展名（小写，含点）。 */
+const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
+
+/** 扫描工作区时跳过的目录名（按名称精确匹配）。 */
+const SKIPPED_DIRECTORY_NAMES = new Set([
+  'node_modules',
+  '.git',
+  '.svn',
+  '.hg',
+  '.obsidian',
+  '.trash',
+  'dist',
+  'out',
+  'build',
+  '.cache'
+]);
+
+/**
+ * 判断 target 是否位于 root 之下（含 root 自身）。
+ *
+ * 用 `path.relative` 而不是字符串 `startsWith` —— 后者会被前缀相同的兄弟目录骗过：
+ * `C:\Notes2` 以 `C:\Notes` 开头，但它不是 `C:\Notes` 的子目录。
+ * `path.win32.relative` 在 Windows 上大小写不敏感，与本仓库的 `toPathKey` 口径一致。
+ */
+export function isPathInside(root: string, target: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  if (relative === '') return true; // 就是 root 自己
+  if (path.isAbsolute(relative)) return false; // 不同盘符 / 不同根
+  return !relative.startsWith('..') && !relative.startsWith(`..${path.sep}`);
+}
+
+/**
+ * 扫描参数。只在 main 侧使用，不进共享契约。
+ */
+export interface ScanWorkspaceOptions {
+  /** 收集上限，默认 20000。达到上限即停止并置 truncated */
+  maxFiles?: number;
+  /** 递归深度上限，默认 24 */
+  maxDepth?: number;
+}
+
 /** FileService 初始化配置。 */
 export interface FileServiceOptions {
   dialog?: FileDialog;
   fsAdapter?: FileSystemAdapter;
   debounceMs?: number;
   allowedPaths?: string[];
+  /** 启动时即授权的工作区根目录 */
+  workspaceRoots?: string[];
   forceBackupSwap?: boolean;
 }
 
@@ -256,6 +325,10 @@ export class FileService {
   private readonly debounceMs: number;
   private readonly forceBackupSwap: boolean;
   private readonly allowedPaths = new Set<string>();
+  /** 已授权的工作区根（含用户传入路径与其 realpath） */
+  private readonly allowedRoots = new Set<string>();
+  /** 只存 realpath 化的根，用于识别符号链接逃逸 */
+  private readonly realRoots = new Set<string>();
 
   constructor(options: FileServiceOptions = {}) {
     this.dialog = options.dialog;
@@ -266,6 +339,14 @@ export class FileService {
     if (options.allowedPaths) {
       for (const p of options.allowedPaths) {
         this.allowedPaths.add(this.toPathKey(p));
+      }
+    }
+
+    // 构造函数不能 await，所以这里只做字符串层面的根登记；
+    // realpath 层面的登记要显式调用 authorizeWorkspace()。
+    if (options.workspaceRoots) {
+      for (const root of options.workspaceRoots) {
+        this.allowedRoots.add(this.toPathKey(root));
       }
     }
   }
@@ -326,6 +407,7 @@ export class FileService {
     const normalizedPath = this.normalizePath(filePath);
     this.checkBoundary(normalizedPath);
     this.validateExtension(normalizedPath);
+    await this.assertNoSymlinkEscape(normalizedPath);
 
     try {
       return await this.fsAdapter.readFile(normalizedPath, 'utf-8');
@@ -344,6 +426,7 @@ export class FileService {
     const normalizedPath = this.normalizePath(filePath);
     this.checkBoundary(normalizedPath);
     this.validateExtension(normalizedPath);
+    await this.assertNoSymlinkEscape(normalizedPath);
 
     await atomicWriteFile(normalizedPath, content, {
       fsAdapter: this.fsAdapter,
@@ -510,7 +593,7 @@ export class FileService {
   /** 校验是否为 .md 或 .markdown 扩展名。 */
   private validateExtension(filePath: string): void {
     const ext = path.extname(filePath).toLowerCase();
-    if (ext !== '.md' && ext !== '.markdown') {
+    if (!MARKDOWN_EXTENSIONS.has(ext)) {
       throw new FileServiceError(
         'UNSUPPORTED_TYPE',
         `不支持的文件扩展名 "${ext}"，仅支持 .md 和 .markdown 文件`,
@@ -525,15 +608,187 @@ export class FileService {
     return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
   }
 
-  /** 校验路径是否在 allowed boundary 内。 */
+  /**
+   * 校验路径是否在 allowed boundary 内。
+   *
+   * 两种授权形态，任一命中即放行：
+   *   - 精确文件：lightweight 单文件打开、saveAs 之后
+   *   - 目录根：workspace 模式，根之下的任意路径
+   */
   private checkBoundary(normalizedPath: string): void {
-    const key = this.toPathKey(normalizedPath);
-    if (!this.allowedPaths.has(key)) {
-      throw new FileServiceError(
-        'OUT_OF_BOUNDS',
-        `访问路径超出允许边界: ${normalizedPath}`,
-        normalizedPath
-      );
+    if (this.isAuthorized(normalizedPath)) return;
+    throw new FileServiceError(
+      'OUT_OF_BOUNDS',
+      `访问路径超出允许边界: ${normalizedPath}`,
+      normalizedPath
+    );
+  }
+
+  private isAuthorized(normalizedPath: string): boolean {
+    if (this.allowedPaths.has(this.toPathKey(normalizedPath))) return true;
+    return this.isInsideAnyRoot(this.allowedRoots, normalizedPath);
+  }
+
+  private isInsideAnyRoot(roots: Set<string>, targetPath: string): boolean {
+    for (const root of roots) {
+      if (isPathInside(root, targetPath)) return true;
     }
+    return false;
+  }
+
+  /**
+   * 在字符串边界之上再做一次 realpath 校验，识别「工作区内的符号链接指向工作区外」。
+   *
+   * 字符串判断看不穿 symlink/junction，而这正是边界模型最容易漏的一条。
+   * 只在授权过目录根时执行（单文件模式没有 root 可比），且 realpath 失败一律放行：
+   * 目标不存在是正常情况（新建文件），后续读写会给出更准确的错误。
+   */
+  private async assertNoSymlinkEscape(normalizedPath: string): Promise<void> {
+    if (this.realRoots.size === 0 || !this.fsAdapter.realpath) return;
+
+    let real: string;
+    try {
+      real = await this.fsAdapter.realpath(normalizedPath);
+    } catch {
+      return;
+    }
+
+    if (this.isInsideAnyRoot(this.realRoots, real)) return;
+
+    throw new FileServiceError(
+      'OUT_OF_BOUNDS',
+      `路径经符号链接指向工作区外: ${normalizedPath} → ${real}`,
+      normalizedPath
+    );
+  }
+
+  /**
+   * 授权一个工作区根目录：该目录下的任意文件都可读写。
+   *
+   * 除字符串路径外同时登记 realpath，让 `assertNoSymlinkEscape` 能识破
+   * 「工作区里的链接指向外部」这种逃逸。
+   */
+  async authorizeWorkspace(rootPath: string): Promise<string> {
+    const normalized = this.normalizePath(rootPath);
+
+    let isDirectory = false;
+    try {
+      isDirectory = (await this.fsAdapter.stat(normalized)).isDirectory();
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        throw new FileServiceError('NOT_FOUND', `工作区目录不存在: ${normalized}`, normalized);
+      }
+      throw wrapIoError('读取工作区目录失败', normalized, err);
+    }
+
+    if (!isDirectory) {
+      throw new FileServiceError('IO_ERROR', `不是目录: ${normalized}`, normalized);
+    }
+
+    this.allowedRoots.add(this.toPathKey(normalized));
+
+    if (this.fsAdapter.realpath) {
+      try {
+        const real = await this.fsAdapter.realpath(normalized);
+        this.allowedRoots.add(this.toPathKey(real));
+        this.realRoots.add(this.toPathKey(real));
+      } catch {
+        // realpath 失败不阻塞授权：字符串边界已经生效
+      }
+    }
+
+    return normalized;
+  }
+
+  /**
+   * 递归扫描工作区下的 Markdown 文件。
+   *
+   * 索引是派生数据、扫盘是唯一的重建途径，所以这里不做增量，每次全量跑。
+   * 不跟随符号链接（避免目录环路与越界），跳过 node_modules/.git 等目录。
+   * 结果顺序不保证稳定，调用方自行排序。
+   */
+  async scanWorkspaceMarkdownFiles(
+    rootPath: string,
+    options: ScanWorkspaceOptions = {}
+  ): Promise<WorkspaceScanResult> {
+    const normalizedRoot = this.normalizePath(rootPath);
+    this.checkBoundary(normalizedRoot);
+
+    const readdir = this.fsAdapter.readdir;
+    if (!readdir) {
+      throw new FileServiceError('IO_ERROR', '文件系统适配层未实现 readdir，无法扫描工作区');
+    }
+
+    const maxFiles = options.maxFiles ?? 20000;
+    const maxDepth = options.maxDepth ?? 24;
+
+    const files: WorkspaceMarkdownFile[] = [];
+    let truncated = false;
+    let skippedDirectories = 0;
+
+    const walk = async (dirPath: string, depth: number): Promise<void> => {
+      if (truncated || depth > maxDepth) return;
+
+      let entries: DirectoryEntryLike[];
+      try {
+        entries = await readdir(dirPath);
+      } catch (err) {
+        // 单个目录读不动（权限不足、扫描途中被删）不该让整次扫描失败
+        if (isNotFoundError(err)) return;
+        throw wrapIoError('读取目录失败', dirPath, err);
+      }
+
+      for (const entry of entries) {
+        if (truncated) return;
+
+        const childPath = path.join(dirPath, entry.name);
+
+        if (entry.isSymbolicLink()) continue;
+
+        if (entry.isDirectory()) {
+          if (SKIPPED_DIRECTORY_NAMES.has(entry.name)) {
+            skippedDirectories += 1;
+            continue;
+          }
+          await walk(childPath, depth + 1);
+          continue;
+        }
+
+        if (!entry.isFile()) continue;
+        if (!MARKDOWN_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+
+        if (files.length >= maxFiles) {
+          truncated = true;
+          return;
+        }
+
+        let sizeBytes = 0;
+        let modifiedAtMs = 0;
+        try {
+          const stats = await this.fsAdapter.stat(childPath);
+          sizeBytes = stats.size ?? 0;
+          modifiedAtMs = stats.mtimeMs ?? 0;
+        } catch {
+          // stat 失败（扫描途中被删）仍然收录，元数据留 0
+        }
+
+        files.push({
+          path: childPath,
+          relativePath: path.relative(normalizedRoot, childPath).split(path.sep).join('/'),
+          name: entry.name,
+          sizeBytes,
+          modifiedAtMs
+        });
+      }
+    };
+
+    await walk(normalizedRoot, 0);
+
+    return { files, truncated, skippedDirectories };
+  }
+
+  /** 获取当前已授权的工作区根目录。 */
+  getWorkspaceRoots(): string[] {
+    return Array.from(this.allowedRoots);
   }
 }

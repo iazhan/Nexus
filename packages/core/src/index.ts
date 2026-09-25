@@ -11,6 +11,8 @@ export {
 
 export {
   type FileDocument,
+  type WorkspaceMarkdownFile,
+  type WorkspaceScanResult,
   type FileWatchEvent,
   type FileWatchListener,
   type Unsubscribe,

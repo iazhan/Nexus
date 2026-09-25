@@ -189,8 +189,17 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
     const dialog = createElectronFileDialog(browserWindow);
     const service = new FileService({
       dialog,
-      allowedPaths: launchContext.filePath ? [launchContext.filePath] : []
+      allowedPaths: launchContext.filePath ? [launchContext.filePath] : [],
+      workspaceRoots: launchContext.workspaceRoot ? [launchContext.workspaceRoot] : []
     });
+
+    // 构造函数不能 await，只登记了字符串层面的根；realpath 层面必须在这里补一次，
+    // 否则「工作区内的符号链接指向外部」那条防护不会生效。
+    if (launchContext.workspaceRoot) {
+      void service.authorizeWorkspace(launchContext.workspaceRoot).catch((err) => {
+        console.error('[Nexus Shell] 授权工作区失败:', err);
+      });
+    }
 
     session = {
       service,
@@ -300,6 +309,26 @@ ipcMain.handle(IPC_CHANNELS.unwatchFile, (event, subscriptionId: string) => {
 
 ipcMain.on(IPC_CHANNELS.unwatchFile, (event, subscriptionId: string) => {
   handleUnwatch(event.sender.id, subscriptionId);
+});
+
+// workspace 模式：授权根目录与扫描 Markdown 文件。
+// 两条都走 FileService 的边界校验，渲染进程不能凭一个字符串就读到工作区外的文件。
+ipcMain.handle(IPC_CHANNELS.authorizeWorkspace, async (event, rootPath: unknown) => {
+  if (typeof rootPath !== 'string' || rootPath.length === 0) {
+    throw new Error('authorizeWorkspace: 需要非空的目录路径');
+  }
+  return getOrCreateSession(event.sender).service.authorizeWorkspace(rootPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.scanWorkspace, async (event, rootPath: unknown) => {
+  if (typeof rootPath !== 'string' || rootPath.length === 0) {
+    throw new Error('scanWorkspace: 需要非空的目录路径');
+  }
+  return getOrCreateSession(event.sender).service.scanWorkspaceMarkdownFiles(rootPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.getWorkspaceRoots, (event) => {
+  return getOrCreateSession(event.sender).service.getWorkspaceRoots();
 });
 
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {

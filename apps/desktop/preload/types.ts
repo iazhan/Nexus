@@ -2,7 +2,8 @@ import type {
   LaunchContext,
   FileDocument,
   FileWatchListener,
-  Unsubscribe
+  Unsubscribe,
+  WorkspaceScanResult
 } from '@nexus/core';
 import type { WindowState } from '../ipc/channels.js';
 
@@ -18,6 +19,16 @@ export interface NexusBridge {
   writeFile: (filePath: string, content: string) => Promise<void>;
   saveAs: (content: string) => Promise<string>;
   watchFile: (filePath: string, listener: FileWatchListener) => Unsubscribe;
+  /**
+   * 授权一个工作区根目录，该目录下的文件随即可读写。返回规范化后的绝对路径。
+   */
+  authorizeWorkspace: (rootPath: string) => Promise<string>;
+  /**
+   * 递归扫描工作区下的 Markdown 文件。跳过 node_modules/.git 等目录，不跟随符号链接。
+   */
+  scanWorkspace: (rootPath: string) => Promise<WorkspaceScanResult>;
+  /** 当前已授权的工作区根目录。 */
+  getWorkspaceRoots: () => Promise<string[]>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;
