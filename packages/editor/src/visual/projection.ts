@@ -8,6 +8,7 @@ import {
   type SourceRange
 } from '@nexus/markdown';
 import { findMarkdownMarkers } from '../markdown-markers.js';
+import { isMermaidLanguage } from '../extension-triggers.js';
 import {
   LinkWidget,
   ImageWidget,
@@ -617,7 +618,11 @@ export function buildVisualProjection(
       // 判据用严格的 `isNodeRevealed`（不像块级公式那样放宽边界）：闭合围栏行末尾
       // 属于"已经离开代码块"，那里折叠回预览是符合预期的；而块级公式的闭合 `$$`
       // 是公式体的一部分，必须能点进去。
-      const isMermaid = blockNode.language === 'mermaid' && !isQuoteNested;
+      // 判定走共享谓词：与「要不要加载 mermaid 扩展包」(`isMermaidMarker`) 和
+      // 揭示态 header 上的切换按钮 (`code-block.ts`) 必须是同一份判断。
+      // 三处各写一遍 `language === 'mermaid'` 时，` ```Mermaid ` 这种合法写法会让
+      // 宿主白白下载 1.2MB 的包，却因为这里判不成立而什么都不渲染。
+      const isMermaid = isMermaidLanguage(blockNode.language) && !isQuoteNested;
       if (isMermaid && !isMermaidSourceMode(blockNode.range.from, blockNode.range)) {
         ranges.push({
           from: blockNode.range.from,

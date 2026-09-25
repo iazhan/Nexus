@@ -20,6 +20,7 @@ export * from './ime-composition.js';
 export * from './clipboard.js';
 export * from './ast-walker.js';
 export * from './extensions.js';
+export * from './extension-triggers.js';
 export * from './code-highlight.js';
 
 export { getEditorTheme } from './theme.js';

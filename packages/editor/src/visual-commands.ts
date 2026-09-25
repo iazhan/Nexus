@@ -13,6 +13,7 @@ import {
   isFenceClosed
 } from './edit-transactions.js';
 import { parseMarkdown } from '@nexus/markdown';
+import { isMermaidLanguage } from './extension-triggers.js';
 import type { MarkdownSelection } from './types.js';
 
 function selectionFromState(state: EditorState): MarkdownSelection {
@@ -42,7 +43,9 @@ function handleCodeBlockEnter(view: EditorView, selection: MarkdownSelection): b
   const { root } = parseMarkdown(source);
   const block = findContainingBlock(root, pos, source.length);
   if (!block || block.type !== 'code-block') return false;
-  if (!isFenceClosed(block.raw) || block.language === 'mermaid') return false;
+  // mermaid 块走的是"预览卡片 + 揭示"那套交互，不套用代码块的智能跳出。
+  // 判定与投影 / 扩展加载共用一份谓词，别在这里再写一遍字面量比较。
+  if (!isFenceClosed(block.raw) || isMermaidLanguage(block.language)) return false;
 
   const doc = view.state.doc;
   const currentLine = doc.lineAt(pos);

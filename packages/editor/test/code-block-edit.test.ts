@@ -514,6 +514,31 @@ describe('P1-04E Code Block Edit Transactions & Preservation', () => {
       parent.remove();
     });
 
+    it('renders a capitalized ```Mermaid fence the same way as the lowercase one', () => {
+      // CommonMark 的 info string 大小写不敏感，语言归一化（`normalizeLanguage`）也是先 lowercase。
+      // 三处判定（是否加载扩展包 / 是否整块替换成预览 / 揭示态是否给切换按钮）必须一致：
+      // 各写一遍 `language === 'mermaid'` 时，这种写法会让宿主白下载 1.2MB 的 mermaid 包。
+      const mermaidSource = ['```Mermaid', 'graph TD;', '  A-->B;', '```'].join('\n');
+
+      const session = new MarkdownDocumentSession(mermaidSource);
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'code-vis-mermaid-upper',
+        surfaceKind: 'visual',
+        parent
+      });
+
+      expect(handle.view.dom.querySelector('.cm-visual-code-block')).not.toBeNull();
+      expect(handle.view.dom.querySelector('.cm-mermaid-preview')).not.toBeNull();
+      expect(handle.view.dom.querySelector('.cm-mermaid-toggle')).not.toBeNull();
+
+      handle.destroy();
+      parent.remove();
+    });
+
     it('does not open code editor on click when surface is readOnly', () => {
       const session = new MarkdownDocumentSession(sampleCodeSource);
       const parent = document.createElement('div');

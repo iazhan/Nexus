@@ -1,17 +1,26 @@
 import katex from 'katex';
-import type { EditorExtension, EditorExtensionControl, MarkdownMarker } from '@nexus/editor';
+import {
+  MATH_EXTENSION_ID,
+  isMathMarker,
+  type EditorExtension,
+  type EditorExtensionControl,
+  type MarkdownMarker
+} from '@nexus/editor';
 import 'katex/dist/katex.min.css';
 
 export class MathExtension implements EditorExtension {
-  id = 'nexus-math';
+  id = MATH_EXTENSION_ID;
 
   canHandle(marker: MarkdownMarker): boolean {
-    return marker.type === 'inline-math' || marker.type === 'block-math';
+    // 谓词住在 @nexus/editor：宿主必须能在本包被 import 之前就判断「这个 marker 归谁」，
+    // 否则为了拿判定就得先把 katex 拖进来，懒加载失效。
+    return isMathMarker(marker);
   }
 
   async load(): Promise<void> {
-    // KaTeX is small enough that we can bundle it, but if we wanted to dynamically 
-    // load fonts or css we could do it here.
+    // 本包整体是动态 import 进来的（见 App.tsx 的 registerLazy），所以 katex 的 JS
+    // 与 `katex.min.css`（含一整套字体）只在文档真的出现公式时才会下载。
+    // 这里没有额外的初始化步骤 —— katex 是纯函数式渲染，不需要 `initialize()` 之类的握手。
     return Promise.resolve();
   }
 

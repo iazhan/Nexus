@@ -1,15 +1,19 @@
 import mermaid from 'mermaid';
-import type { EditorExtension, EditorExtensionControl, MarkdownMarker } from '@nexus/editor';
+import {
+  MERMAID_EXTENSION_ID,
+  isMermaidMarker,
+  type EditorExtension,
+  type EditorExtensionControl,
+  type MarkdownMarker
+} from '@nexus/editor';
 
 export class MermaidExtension implements EditorExtension {
-  id = 'nexus-mermaid';
+  id = MERMAID_EXTENSION_ID;
   private static initialized = false;
 
   canHandle(marker: MarkdownMarker): boolean {
-    if (marker.type === 'code-fence') {
-      return marker.language?.toLowerCase() === 'mermaid';
-    }
-    return false;
+    // 谓词住在 @nexus/editor，理由同 @nexus/math：宿主得在本包被 import 之前就能判定。
+    return isMermaidMarker(marker);
   }
 
   async load(): Promise<void> {
@@ -22,7 +26,7 @@ export class MermaidExtension implements EditorExtension {
 
   activate(_marker: MarkdownMarker, container: HTMLElement, source: string): EditorExtensionControl {
     let currentSource = source;
-    let renderId = `mermaid-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const renderId = `mermaid-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
     const render = async () => {
       try {

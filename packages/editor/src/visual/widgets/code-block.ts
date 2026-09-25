@@ -2,6 +2,7 @@ import { EditorSelection } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
 import { translate } from '@nexus/i18n';
 import { extensionHostFacet, mountExtension } from '../../extensions.js';
+import { isMermaidLanguage } from '../../extension-triggers.js';
 import { dispatchCodeBlockLanguageChange } from '../../code-block-edit.js';
 import { DEFAULT_CODE_LANGUAGES, normalizeLanguage } from '../../code-highlight.js';
 import { editorLocaleFacet } from '../../source-editor.js';
@@ -142,7 +143,7 @@ export class CodeBlockHeaderWidget extends WidgetType {
 
     const actions = document.createElement('div');
     actions.className = 'cm-code-header-actions';
-    if (this.language === 'mermaid') {
+    if (isMermaidLanguage(this.language)) {
       // 揭示态走的是普通代码块的逐行装饰，按钮得在这里再放一份，
       // 否则进了源码态就切不回预览（预览 widget 已经不在了）。
       actions.appendChild(createMermaidModeToggle(view, this.from, this.blockTo, true));

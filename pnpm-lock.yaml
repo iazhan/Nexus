@@ -170,13 +170,13 @@ importers:
 
   packages/math:
     dependencies:
+      '@nexus/editor':
+        specifier: workspace:*
+        version: link:../editor
       katex:
         specifier: ^0.16.11
         version: 0.16.47
     devDependencies:
-      '@nexus/editor':
-        specifier: workspace:*
-        version: link:../editor
       '@nexus/markdown':
         specifier: workspace:*
         version: link:../markdown
@@ -189,13 +189,13 @@ importers:
 
   packages/mermaid:
     dependencies:
+      '@nexus/editor':
+        specifier: workspace:*
+        version: link:../editor
       mermaid:
         specifier: ^11.4.0
         version: 11.17.2
     devDependencies:
-      '@nexus/editor':
-        specifier: workspace:*
-        version: link:../editor
       '@nexus/markdown':
         specifier: workspace:*
         version: link:../markdown

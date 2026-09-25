@@ -4,10 +4,14 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
 
 const execFileAsync = promisify(execFile);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * 给目录加 / 删「拒绝写入」ACE，用来模拟「目标不可写」的保存失败场景。
@@ -471,20 +475,100 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     expect(updatedSource).toContain('Edited Standard paragraph here.');
   }, 25000);
 
-  it('9. lazy loads math and mermaid extensions in visual mode', async () => {
-    const extDoc = path.join(tempDir, 'ext-test.md');
-    fs.writeFileSync(extDoc, '$$ x = y $$\n\n```mermaid\ngraph TD\nA-->B\n```\n', 'utf8');
+  /**
+   * katex 样式表的文件名带构建 hash，不能写死。按内容从构建产物里找出来：
+   * `.katex{` 是 katex 自己的类名，minify 之后仍在。
+   */
+  function findKatexCssBasename(): string {
+    const assetsDir = path.resolve(__dirname, '../out/renderer/assets');
+    const hit = fs.readdirSync(assetsDir).find((name) => {
+      if (!name.endsWith('.css')) return false;
+      return fs.readFileSync(path.join(assetsDir, name), 'utf-8').includes('.katex{');
+    });
+    if (!hit) throw new Error(`katex stylesheet not found under ${assetsDir}`);
+    return hit;
+  }
 
-    activeApp = await launchElectronApp({ filePath: extDoc });
+  /**
+   * P1-06 验收：「不含 Math/Mermaid 的文档不加载对应扩展；首次出现触发语法时才加载」。
+   *
+   * 主判据是 `window.nexusExtensions.requestedIds()`：动态 `import()` 只有
+   * `LazyExtension.load()` 一条路径，所以这个列表为空 ⟺ 扩展包的 chunk 一个字节都没下载。
+   *
+   * 9b 再加一条**不依赖应用自己记账**的旁证：katex 的样式表是 Vite 在 chunk 加载时动态
+   * 注入的 <link>，它在不在 document.head 里由打包器决定，应用写不出来。
+   * （mermaid 没有独立样式表，拿不到同类旁证；9c 只能靠 requestedIds。）
+   */
+  const extensionState = (app: ElectronAppInstance) => {
+    const katexCss = findKatexCssBasename();
+    return app.evaluate<{ requested: string[]; loaded: string[]; katexStylesheet: boolean }>(
+      `(() => ({
+        requested: window.nexusExtensions.requestedIds(),
+        loaded: window.nexusExtensions.loadedIds(),
+        katexStylesheet: Array.from(document.querySelectorAll('link[rel=stylesheet]'))
+          .some((l) => (l.getAttribute('href') || '').includes(${JSON.stringify(katexCss)}))
+      }))()`
+    );
+  };
+
+  it('9a. 不含公式与图表的文档不加载任何扩展包', async () => {
+    const plainDoc = path.join(tempDir, 'ext-plain.md');
+    fs.writeFileSync(plainDoc, '# 标题\n\n普通段落，没有公式也没有图表。\n', 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: plainDoc });
     await activeApp.waitForSelector('.cm-content', 15000);
-    
+
+    // Source surface 不挂 widget，此时不该有任何加载
+    expect((await extensionState(activeApp)).requested).toEqual([]);
+
     await activeApp.click('.nexus-surface-toggle');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
-    
-    // Check if it creates math and mermaid preview elements
+    // 等投影真的跑完再断言，否则「还没投影」会被误判成「没有触发语法」
+    await activeApp.waitForFunction(
+      `() => (document.querySelector('.cm-content')?.textContent || '').includes('普通段落')`,
+      15000
+    );
+
+    const state = await extensionState(activeApp);
+    expect(state.requested).toEqual([]);
+    expect(state.loaded).toEqual([]);
+    expect(state.katexStylesheet).toBe(false);
+  }, 30000);
+
+  it('9b. 只出现公式时只加载 math 扩展', async () => {
+    const mathDoc = path.join(tempDir, 'ext-math.md');
+    fs.writeFileSync(mathDoc, '# 公式\n\n行内 $E = mc^2$。\n\n$$ x^2 + y^2 = z^2 $$\n', 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: mathDoc });
+    await activeApp.waitForSelector('.cm-content', 15000);
+    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
+    // 真的渲染出公式（而不是退化成源码文本），才说明扩展加载成功
     await activeApp.waitForSelector('.cm-visual-block-math', 15000);
-    await activeApp.waitForSelector('.cm-mermaid-preview', 15000);
-  }, 25000);
+    await activeApp.waitForSelector('.katex', 15000);
+
+    const state = await extensionState(activeApp);
+    expect(state.requested).toEqual(['nexus-math']);
+    expect(state.loaded).toEqual(['nexus-math']);
+    // 打包器级旁证：katex 的样式表确实被拉下来了
+    expect(state.katexStylesheet).toBe(true);
+  }, 30000);
+
+  it('9c. 只出现 mermaid 围栏时只加载 mermaid 扩展', async () => {
+    const mermaidDoc = path.join(tempDir, 'ext-mermaid.md');
+    fs.writeFileSync(mermaidDoc, '# 图\n\n```mermaid\ngraph TD\nA-->B\n```\n', 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: mermaidDoc });
+    await activeApp.waitForSelector('.cm-content', 15000);
+    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
+    await activeApp.waitForSelector('.cm-mermaid-preview svg', 15000);
+
+    const state = await extensionState(activeApp);
+    expect(state.requested).toEqual(['nexus-mermaid']);
+    expect(state.loaded).toEqual(['nexus-mermaid']);
+    expect(state.katexStylesheet).toBe(false);
+  }, 30000);
 
 
   it('12. opens Command Palette and triggers toggle theme', async () => {

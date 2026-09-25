@@ -6,6 +6,10 @@ import {
   resolveRelativePath,
   revealHeadingAnchor,
   ExtensionHost,
+  MATH_EXTENSION_ID,
+  MERMAID_EXTENSION_ID,
+  isMathMarker,
+  isMermaidMarker,
   type EditorView,
   type EditorSurfaceKind,
   type EditorSaveState,
@@ -154,12 +158,23 @@ export const App: React.FC = () => {
   if (extensionHostRef.current === null) {
     const host = new ExtensionHost();
     extensionHostRef.current = host;
-    import('@nexus/math').then(({ MathExtension }) => {
-      host.register(new MathExtension());
-    }).catch(e => console.error('Failed to load @nexus/math:', e));
-    import('@nexus/mermaid').then(({ MermaidExtension }) => {
-      host.register(new MermaidExtension());
-    }).catch(e => console.error('Failed to load @nexus/mermaid:', e));
+    // 按内容懒加载：这里只登记「谁负责哪种 marker」+ 一个动态 import 工厂，
+    // 扩展包本体要等文档里第一次出现触发语法才下载。
+    //
+    // 原先是在挂载时无条件 import 两个包 —— 无论文档有没有公式/图表，
+    // katex（481KB + 一整套字体与 CSS）和 mermaid（1.2MB）都会被拉下来，
+    // 那不叫懒加载。判定谓词来自 @nexus/editor（extension-triggers.ts），
+    // 不在 App 里另写一份，否则就是两套判定。
+    host.registerLazy({
+      id: MATH_EXTENSION_ID,
+      matches: isMathMarker,
+      load: () => import('@nexus/math').then(({ MathExtension }) => new MathExtension())
+    });
+    host.registerLazy({
+      id: MERMAID_EXTENSION_ID,
+      matches: isMermaidMarker,
+      load: () => import('@nexus/mermaid').then(({ MermaidExtension }) => new MermaidExtension())
+    });
   }
 
   // Expose session on window for smoke testing and developer debugging
@@ -167,6 +182,8 @@ export const App: React.FC = () => {
     (window as any).nexusSession = session;
     // Mermaid 显示偏好还没有设置界面，先从这里暴露给 E2E 翻转
     (window as any).nexusMermaidPreview = mermaidPreviewPreference;
+    // 扩展懒加载状态：E2E 用它证明「不含触发语法的文档不下载扩展包」
+    (window as any).nexusExtensions = extensionHostRef.current;
   }
 
   // Synchronize dirty state with Electron main process
