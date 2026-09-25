@@ -655,6 +655,60 @@ body.nexus-resizing {
   color: var(--nexus-text-primary);
 }
 
+.nexus-tags {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 标签行：左边标签名、右边文档数 */
+.nexus-tag-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.nexus-tag-item:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-tag-item-active {
+  background-color: var(--nexus-bg-surface-active);
+}
+
+.nexus-tag-name {
+  color: var(--nexus-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-tag-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+/* 展开出来的文档列表缩进一档，与标签本身区分开 */
+.nexus-tag-documents {
+  margin: 0 0 2px;
+  padding: 0 0 0 12px;
+  list-style: none;
+}
+
 .nexus-search {
   display: flex;
   flex-direction: column;

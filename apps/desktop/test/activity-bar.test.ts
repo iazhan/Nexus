@@ -54,11 +54,18 @@ describe('活动栏与侧栏面板', () => {
     const app = activeApp;
     await app.waitForSelector('.nexus-activity-bar', 20000);
 
-    // 四个文档级入口 + 底部的设置
+    // 五个文档级入口 + 底部的设置
     const icons = await app.evaluate<string[]>(
       `Array.from(document.querySelectorAll('.nexus-activity-icon')).map((el) => el.getAttribute('data-activity'))`
     );
-    expect(icons).toEqual(['workspace', 'outline', 'search', 'extensions', 'settings']);
+    expect(icons).toEqual([
+      'workspace',
+      'outline',
+      'search',
+      'tags',
+      'extensions',
+      'settings'
+    ]);
 
     // 初始状态自洽：图标选中的同时面板就是打开的
     // （早先是「图标亮着、面板关着」，视觉上自相矛盾）

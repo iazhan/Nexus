@@ -20,6 +20,8 @@ export const IPC_CHANNELS = {
   searchIndex: 'nexus:search-index',
   listIndexedDocuments: 'nexus:list-indexed-documents',
   findBacklinks: 'nexus:find-backlinks',
+  listTags: 'nexus:list-tags',
+  findDocumentsByTag: 'nexus:find-documents-by-tag',
   setDirty: 'nexus:set-dirty',
   requestSaveAndClose: 'nexus:request-save-and-close',
   readyToClose: 'nexus:ready-to-close',

@@ -38,6 +38,7 @@ import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
 import { OutlinePanel } from './workspace/OutlinePanel.js';
 import { SearchPanel } from './workspace/SearchPanel.js';
 import { PluginsPanel } from './workspace/PluginsPanel.js';
+import { TagsPanel } from './workspace/TagsPanel.js';
 import { QuickOpen } from './workspace/QuickOpen.js';
 import { resolveWikiLink } from './workspace/wikilink.js';
 import {
@@ -170,6 +171,16 @@ export const App: React.FC = () => {
 
   /** 快速打开（Ctrl+P）是否可见。 */
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
+
+  /**
+   * 索引跑完后 bump 版本号。
+   *
+   * 标签这类**由索引驱动**的面板会在启动时随其他面板一起挂载，那时索引还没建好，
+   * 查一次只能拿到空结果。所以由真正跑索引的侧栏在完成后明确通知一次。
+   */
+  const handleIndexed = useCallback(() => {
+    setDocumentRevision((previous) => previous + 1);
+  }, []);
 
   const handleActivitySelect = useCallback((id: ActivityId) => {
     setActivity((previous) => toggleActivity(previous, id));
@@ -1454,6 +1465,7 @@ export const App: React.FC = () => {
                 rootPath={workspaceRoot}
                 activeFilePath={filePath}
                 onOpenFile={handleOpenWorkspaceFile}
+                onIndexed={handleIndexed}
               />
             </div>
             <div
@@ -1480,6 +1492,17 @@ export const App: React.FC = () => {
             >
               {/* 搜索覆盖整个工作区，不依赖当前文档 */}
               <SearchPanel onOpenFile={handleOpenWorkspaceFile} />
+            </div>
+            <div
+              className={`nexus-panel-slot${
+                activity.activeId === 'tags' ? '' : ' nexus-panel-slot-hidden'
+              }`}
+            >
+              {/* 标签来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
+              <TagsPanel
+                onOpenFile={handleOpenWorkspaceFile}
+                revision={documentRevision}
+              />
             </div>
             <div
               className={`nexus-panel-slot${

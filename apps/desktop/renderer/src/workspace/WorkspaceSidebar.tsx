@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { IndexedDocument } from '@nexus/core';
 import { useLocale } from '../hooks.js';
 import { buildFileTree, defaultExpandedDirectories, type FileTreeNode } from './tree.js';
@@ -7,6 +7,14 @@ export interface WorkspaceSidebarProps {
   rootPath: string;
   activeFilePath: string | null;
   onOpenFile: (filePath: string) => void;
+  /**
+   * 索引跑完后回调。
+   *
+   * 需要它的原因：所有面板槽在启动时就一起挂载了，标签面板会在索引建好**之前**
+   * 查一次（拿到空结果）。索引完成不体现在 `documentRevision` 里，
+   * 所以必须由真正跑索引的这一方明确通知出去。
+   */
+  onIndexed?: () => void;
 }
 
 type IndexPhase = 'indexing' | 'ready' | 'error';
@@ -24,12 +32,16 @@ type IndexPhase = 'indexing' | 'ready' | 'error';
 export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   rootPath,
   activeFilePath,
-  onOpenFile
+  onOpenFile,
+  onIndexed
 }) => {
   const { t } = useLocale();
   const [documents, setDocuments] = useState<IndexedDocument[]>([]);
   const [phase, setPhase] = useState<IndexPhase>('indexing');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const onIndexedRef = useRef(onIndexed);
+  onIndexedRef.current = onIndexed;
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +68,10 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
 
         setDocuments(list);
         setPhase('ready');
+
+        // 通过 ref 调用：直接依赖 onIndexed 会让它进入 effect 的依赖数组，
+        // 父组件每次渲染传新函数就会重新触发整次索引。
+        onIndexedRef.current?.();
       } catch (err) {
         if (cancelled) return;
         setErrorMessage(err instanceof Error ? err.message : String(err));

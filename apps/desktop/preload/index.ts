@@ -102,6 +102,14 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.findBacklinks, documentPath);
   },
 
+  listTags: (): Promise<Array<{ tag: string; count: number }>> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.listTags);
+  },
+
+  findDocumentsByTag: (tag: string): Promise<IndexedDocument[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.findDocumentsByTag, tag);
+  },
+
   watchFile: (filePath: string, listener: FileWatchListener): Unsubscribe => {
     subscriptionCounter += 1;
     const subscriptionId = `sub_${Date.now()}_${subscriptionCounter}_${Math.random().toString(36).slice(2, 9)}`;

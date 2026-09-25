@@ -62,7 +62,8 @@ export async function indexWorkspace(
           modifiedAtMs: file.modifiedAtMs,
           contentHash,
           body: content,
-          links: extractWikiLinkTargets(content)
+          links: extractWikiLinkTargets(content),
+          tags: extractTags(content)
         },
         nowMs
       );
@@ -125,4 +126,36 @@ export function extractWikiLinkTargets(source: string): string[] {
   }
 
   return [...targets];
+}
+
+/**
+ * `#标签`：`#` 前必须是行首或空白，`#` 后紧跟非空白、非 `#` 的字符。
+ *
+ * 这条「前面要是空白」的约束同时排除了两类最常见的误判：
+ *   - `# 标题` —— `#` 后是空格，ATX 标题不是标签
+ *   - `https://x.com/#anchor` —— `#` 前是 `/`，URL 片段不是标签
+ */
+const TAG_PATTERN = /(?:^|\s)#([^\s#]+)/g;
+
+/** 标签的终止标点：遇到就认为标签结束。 */
+const TAG_TERMINATOR = /[.,;:!?，。；：！？、()（）[\]【】"'`]/;
+
+/**
+ * 提取正文里的标签并归一化（去前导 `#`、转小写）。
+ *
+ * 与出链一样用正则、**不跳过代码块**：多收一个标签不致命，
+ * 漏掉真的会让人以为功能坏了。
+ */
+export function extractTags(source: string): string[] {
+  const tags = new Set<string>();
+
+  for (const match of source.matchAll(TAG_PATTERN)) {
+    // 正则只能按空白切，所以 `#dma，还有` 会整段被吃进来。
+    // 这里再按标点截断一次，只取第一个标点之前的部分。
+    const candidate = match[1]?.split(TAG_TERMINATOR)[0]?.trim();
+    if (!candidate) continue;
+    tags.add(candidate.toLowerCase());
+  }
+
+  return [...tags];
 }

@@ -48,6 +48,10 @@ export interface NexusBridge {
    * 文档还没进索引时返回空数组（而不是报错）—— 「暂无反向链接」比一个错误更合理。
    */
   findBacklinks: (documentPath: string) => Promise<IndexedDocument[]>;
+  /** 所有标签及其文档数，按标签名排序。 */
+  listTags: () => Promise<Array<{ tag: string; count: number }>>;
+  /** 带某个标签的文档。标签可以带 `#`、大小写随意，归一化在索引层做。 */
+  findDocumentsByTag: (tag: string) => Promise<IndexedDocument[]>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;

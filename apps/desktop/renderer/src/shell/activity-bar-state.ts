@@ -11,7 +11,7 @@
  * 一个可空字段表达不了这两点，硬凑就会在实现里到处补丁。
  */
 
-export type ActivityId = 'workspace' | 'outline' | 'search' | 'extensions';
+export type ActivityId = 'workspace' | 'outline' | 'search' | 'tags' | 'extensions';
 
 export interface ActivityState {
   /** 当前选中的图标。**收起面板后不重置** —— 否则「上次看的是哪个」就丢了。 */

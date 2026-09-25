@@ -22,7 +22,7 @@ import type { IndexedDocument, SearchHit } from '@nexus/core';
  */
 
 /** schema 版本。改表结构就 +1 —— 旧库会被整个重建。 */
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -58,11 +58,22 @@ const SCHEMA_STATEMENTS = [
      target TEXT NOT NULL,
      PRIMARY KEY (source_id, target)
    )`,
-  `CREATE INDEX IF NOT EXISTS idx_links_target ON links(target)`
+  `CREATE INDEX IF NOT EXISTS idx_links_target ON links(target)`,
+  // 标签。与 links 同构：只存「哪篇文档有哪个标签」，标签本身不是实体。
+  //
+  // 标签在索引器里已经归一化（去掉前导 `#`、转小写）—— 与 links 同样的理由：
+  // 归一化只做一次，查询端只做等值比较。
+  `CREATE TABLE IF NOT EXISTS tags (
+     source_id INTEGER NOT NULL,
+     tag TEXT NOT NULL,
+     PRIMARY KEY (source_id, tag)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)`
 ];
 
 /** 重建时要按依赖顺序丢掉的表。 */
 const DROP_STATEMENTS = [
+  `DROP TABLE IF EXISTS tags`,
   `DROP TABLE IF EXISTS links`,
   `DROP TABLE IF EXISTS search_fts`,
   `DROP TABLE IF EXISTS documents`,
@@ -87,6 +98,12 @@ export interface UpsertDocumentInput {
    * （`findBacklinks`）只做等值比较，两边各归一化一次迟早不一致。
    */
   links: string[];
+  /**
+   * 本文档里的标签，**已归一化**（去掉前导 `#`、转小写）。
+   *
+   * 与 `links` 同理：归一化只做一次。
+   */
+  tags: string[];
 }
 
 export interface IndexStats {
@@ -263,6 +280,12 @@ export class IndexStore {
         ]);
       }
 
+      // 标签与出链同理：改过之后旧标签可能已经被删掉了
+      this.db.run(`DELETE FROM tags WHERE source_id = ?`, [documentId]);
+      for (const tag of input.tags) {
+        this.db.run(`INSERT OR IGNORE INTO tags(source_id, tag) VALUES(?, ?)`, [documentId, tag]);
+      }
+
       this.db.exec('COMMIT');
       return documentId;
     } catch (err) {
@@ -341,6 +364,42 @@ export class IndexStore {
           AND d.id != ?
         ORDER BY d.relative_path`,
       [...targets, document.id]
+    );
+
+    return rows.map(mapDocument);
+  }
+
+  /**
+   * 列出所有标签及其文档数，按标签名排序。
+   *
+   * 计数在 SQL 里做：拉到内存再统计的话，标签一多就要白读一遍 documents。
+   */
+  listTags(): Array<{ tag: string; count: number }> {
+    const rows = this.db.all(
+      `SELECT tag, COUNT(*) AS count FROM tags GROUP BY tag ORDER BY tag`
+    );
+
+    return rows.map((row) => ({ tag: String(row.tag), count: Number(row.count ?? 0) }));
+  }
+
+  /**
+   * 带某个标签的文档，按相对路径排序。
+   *
+   * 这里的归一化是**入参归一化**（用户可能传 `#Tag`），不是存储归一化 ——
+   * 库里存的已经统一过了，见 `UpsertDocumentInput.tags` 的说明。
+   */
+  findDocumentsByTag(tag: string): IndexedDocument[] {
+    const normalized = tag.trim().toLowerCase().replace(/^#/, '');
+    if (!normalized) return [];
+
+    const rows = this.db.all(
+      `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title,
+              d.size_bytes, d.modified_at_ms, d.content_hash
+         FROM tags t
+         JOIN documents d ON d.id = t.source_id
+        WHERE t.tag = ?
+        ORDER BY d.relative_path`,
+      [normalized]
     );
 
     return rows.map(mapDocument);

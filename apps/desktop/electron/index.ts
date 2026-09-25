@@ -469,6 +469,17 @@ ipcMain.handle(IPC_CHANNELS.findBacklinks, (event, documentPath: unknown) => {
   return store.findBacklinks(document);
 });
 
+ipcMain.handle(IPC_CHANNELS.listTags, (event) => {
+  return getIndexStore(event.sender.id)?.listTags() ?? [];
+});
+
+ipcMain.handle(IPC_CHANNELS.findDocumentsByTag, (event, tag: unknown) => {
+  if (typeof tag !== 'string') {
+    throw new Error('findDocumentsByTag: 标签必须是字符串');
+  }
+  return getIndexStore(event.sender.id)?.findDocumentsByTag(tag) ?? [];
+});
+
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {

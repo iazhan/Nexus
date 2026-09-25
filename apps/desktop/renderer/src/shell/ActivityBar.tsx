@@ -46,6 +46,13 @@ const SearchIcon = (
   </svg>
 );
 
+const TagsIcon = (
+  <svg {...ICON_PROPS}>
+    <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 3 12V5a2 2 0 0 1 2-2h7a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.6z" />
+    <circle cx="8" cy="8" r="1.4" />
+  </svg>
+);
+
 const ExtensionsIcon = (
   <svg {...ICON_PROPS}>
     <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -66,6 +73,7 @@ const ACTIVITY_ITEMS: ReadonlyArray<{ id: ActivityId; labelKey: string; icon: Re
   { id: 'workspace', labelKey: 'activity.workspace', icon: WorkspaceIcon },
   { id: 'outline', labelKey: 'activity.outline', icon: OutlineIcon },
   { id: 'search', labelKey: 'activity.search', icon: SearchIcon },
+  { id: 'tags', labelKey: 'activity.tags', icon: TagsIcon },
   { id: 'extensions', labelKey: 'activity.extensions', icon: ExtensionsIcon }
 ];
 

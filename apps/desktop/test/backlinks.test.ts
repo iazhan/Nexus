@@ -62,7 +62,8 @@ describe('反向链接', () => {
         // 用路径当哈希，保证每篇互不相同
         contentHash: relativePath,
         body: 'body',
-        links
+        links,
+        tags: []
       },
       1
     );
