@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  INDEXED_TEST_TIMEOUT_MS,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 工作区搜索面板。
@@ -61,7 +65,7 @@ describe('搜索面板', () => {
 
     // 先展开工作区面板 —— 它会跑一次索引，搜索依赖它
     await app.click('.nexus-activity-icon[data-activity="workspace"]');
-    await app.waitForSelector('.nexus-tree-item', 120000);
+    await app.waitForIndexReady();
 
     // 切到搜索
     await app.click('.nexus-activity-icon[data-activity="search"]');
@@ -96,5 +100,5 @@ describe('搜索面板', () => {
       `document.querySelectorAll('.nexus-search-hit').length === 0`,
       10000
     );
-  }, 180000);
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

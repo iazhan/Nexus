@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  INDEXED_TEST_TIMEOUT_MS,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /** Ctrl+左键点击某个元素 —— 与编辑器包里的导航手势一致。 */
 const ctrlClick = (app: ElectronAppInstance, selector: string) =>
@@ -72,7 +76,7 @@ describe('WikiLink 跳转', () => {
     const app = activeApp;
 
     // 等索引建好 —— 解析依赖它
-    await app.waitForSelector('.nexus-tree-item', 60000);
+    await app.waitForIndexReady();
 
     // 打开入口文档
     await app.evaluate(`(() => {
@@ -103,5 +107,5 @@ describe('WikiLink 跳转', () => {
     expect(
       await app.evaluate<string>(`document.querySelector('.nexus-filename')?.textContent ?? ''`)
     ).toBe('dma.md');
-  }, 90000);
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  INDEXED_TEST_TIMEOUT_MS,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 const openFileByName = (app: ElectronAppInstance, name: string) =>
   app.evaluate(`(() => {
@@ -59,7 +63,7 @@ describe('反向链接', () => {
     const app = activeApp;
 
     // 等索引建好 —— 反向链接依赖它
-    await app.waitForSelector('.nexus-tree-file', 120000);
+    await app.waitForIndexReady();
 
     // 打开**被链接**的那篇（dma）
     expect(await openFileByName(app, 'dma')).toBe(true);
@@ -84,5 +88,5 @@ describe('反向链接', () => {
     expect(
       await app.evaluate<string>(`document.querySelector('.nexus-filename')?.textContent ?? ''`)
     ).toBe('index.md');
-  }, 180000);
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

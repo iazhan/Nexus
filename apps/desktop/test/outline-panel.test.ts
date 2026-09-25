@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  INDEXED_TEST_TIMEOUT_MS,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /** 填充行：把「## 子标题」推到视口外，这样才验得出「跳转时视口有没有跟着动」。 */
 const FILLER = Array.from({ length: 120 }, (_, index) => `填充行 ${index + 1}`).join('\n\n');
@@ -73,7 +77,7 @@ describe('大纲面板', () => {
     // 120s：这一步要等侧栏跑完**整个工作区的索引**再渲染出文件树。
     // 空载约 20s，但全量串行跑到后半段时机器已被前面的 Electron 实例拖慢，
     // 实测 60s 也会超。waitForSelector 用的是自己的超时，不受 vitest testTimeout 影响。
-    await app.waitForSelector('.nexus-tree-item', 120000);
+    await app.waitForIndexReady();
     await app.click('.nexus-tree-file');
     await app.waitForSelector('.cm-content', 20000);
 
@@ -135,5 +139,5 @@ describe('大纲面板', () => {
     expect(await app.evaluate<string>(
       `document.querySelector('.nexus-outline-item')?.textContent ?? ''`
     )).toBe('新标题');
-  }, 180000);
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

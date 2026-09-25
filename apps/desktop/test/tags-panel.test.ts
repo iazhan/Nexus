@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  INDEXED_TEST_TIMEOUT_MS,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 标签面板。
@@ -41,7 +45,7 @@ describe('标签面板', () => {
     const app = activeApp;
 
     // 等索引建好 —— 标签依赖它
-    await app.waitForSelector('.nexus-tree-file', 120000);
+    await app.waitForIndexReady();
 
     await app.click('.nexus-activity-icon[data-activity="tags"]');
 
@@ -93,5 +97,5 @@ describe('标签面板', () => {
     expect(
       await app.evaluate<string>(`document.querySelector('.nexus-filename')?.textContent ?? ''`)
     ).toBe('a.md');
-  }, 180000);
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

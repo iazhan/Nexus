@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  INDEXED_TEST_TIMEOUT_MS,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 直接向 window 派发 keydown，而不是用 harness 的 pressKey ——
@@ -74,7 +78,7 @@ describe('快速打开', () => {
     const app = activeApp;
 
     // 先等索引建好（快速打开的候选来自索引）
-    await app.waitForSelector('.nexus-tree-item', 60000);
+    await app.waitForIndexReady();
 
     await pressCtrlP(app);
     await app.waitForSelector('.nexus-quickopen-input', 10000);
@@ -111,5 +115,5 @@ describe('快速打开', () => {
       `document.querySelectorAll('.nexus-quickopen-item').length === 0`,
       5000
     );
-  }, 90000);
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

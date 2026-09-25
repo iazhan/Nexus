@@ -170,7 +170,11 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   );
 
   return (
-    <aside className="nexus-workspace-sidebar" aria-label={t('workspace.title')}>
+    <aside
+      className="nexus-workspace-sidebar"
+      data-phase={phase}
+      aria-label={t('workspace.title')}
+    >
       <div className="nexus-sidebar-header" title={rootPath}>
         <span className="nexus-sidebar-root">{rootPath.replace(/^.*[\\/]/, '') || rootPath}</span>
         {phase === 'ready' && (

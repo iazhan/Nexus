@@ -3,7 +3,11 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  INDEXED_TEST_TIMEOUT_MS,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 工作区侧栏（P2-06 第一步）。
@@ -51,25 +55,11 @@ describe('工作区侧栏', () => {
     activeApp = await launchElectronApp({ filePath: workspace });
     const app = activeApp;
 
-    await app.waitForSelector('.nexus-workspace-sidebar', 20000);
-
     // 面板默认就是展开的（初始状态自洽），这里不需要先点图标
 
-    // 等索引跑完、文件树渲染出来
-    // 先等侧栏容器（它立即出现），再等文件树。
-    // 分开等 + 超时 dump 内容，是为了区分「侧栏没挂载」和「索引没跑完/失败了」——
-    // 只等 .nexus-tree-item 的话这两种情况看起来一模一样。
-    await app.waitForSelector('.nexus-workspace-sidebar', 30000);
-    try {
-      await app.waitForSelector('.nexus-tree-item', 120000);
-    } catch (err) {
-      const dump = await app.evaluate<string>(
-        `document.querySelector('.nexus-workspace-sidebar')?.textContent ?? '(侧栏不存在)'`
-      );
-      throw new Error(
-        `等待文件树超时。侧栏当前内容: ${dump} / 原始错误: ${err instanceof Error ? err.message : err}`
-      );
-    }
+    // 等索引跑完、文件树渲染出来。
+    // 「先等容器再等树」和失败时的诊断都在 waitForIndexReady 里，这里不用重复。
+    await app.waitForIndexReady();
 
     const items = await app.evaluate<string[]>(
       `Array.from(document.querySelectorAll('.nexus-tree-name')).map((el) => el.textContent)`
@@ -96,5 +86,5 @@ describe('工作区侧栏', () => {
     expect(
       await app.evaluate<number>(`document.querySelectorAll('.nexus-tree-item-active').length`)
     ).toBe(1);
-  }, 180000);
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

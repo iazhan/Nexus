@@ -124,19 +124,48 @@ export interface CDPTarget {
   webSocketDebuggerUrl: string;
 }
 
+/**
+ * 等「索引跑完并渲染出文件树」的上限。
+ *
+ * 这是一次**很重的**等待：Electron 启动 → 侧栏挂载 → `rebuildIndex()`（扫盘 + 写 SQLite）
+ * → `listIndexedDocuments()` → 渲染。空载约 2–3 秒，机器忙时会明显更久。
+ *
+ * 需要它的用例一律用这个常量，不再各写字面量 —— 之前散落着 30s / 60s / 120s 三种值，
+ * 而 `it` 的超时还必须大于它，手工同步迟早写错。
+ */
+export const INDEX_WAIT_MS = 60_000;
+
+/**
+ * 需要等索引的用例的超时。
+ *
+ * **必须大于 `INDEX_WAIT_MS`** —— 否则外层先炸、内层永远等不到，
+ * 而报错会指向外层超时，看不出真正卡在哪一步。
+ * 写成加法而不是字面量，就是为了让这个关系不可能被写反。
+ */
+export const INDEXED_TEST_TIMEOUT_MS = INDEX_WAIT_MS + 60_000;
+
 export class ElectronAppInstance {
   public readonly proc: ChildProcess;
   public readonly port: number;
   public readonly target: CDPTarget;
+  /** 本实例专属的 userData 目录；`close()` 时删掉，避免临时目录无限累积。 */
+  public readonly userDataDir: string;
   private ws: WebSocket;
   private msgId = 0;
   private readonly pendingRequests = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
 
-  constructor(proc: ChildProcess, port: number, target: CDPTarget, ws: WebSocket) {
+  constructor(
+    proc: ChildProcess,
+    port: number,
+    target: CDPTarget,
+    ws: WebSocket,
+    userDataDir: string
+  ) {
     this.proc = proc;
     this.port = port;
     this.target = target;
     this.ws = ws;
+    this.userDataDir = userDataDir;
 
     this.ws.onmessage = (event) => {
       try {
@@ -363,39 +392,85 @@ export class ElectronAppInstance {
     }
   }
 
-  public async close(): Promise<void> {
-    try {
-      this.ws.close();
-    } catch {
-      // ignore
-    }
+  /**
+   * 等索引就绪（工作区文件树渲染出来）。
+   *
+   * 这是整套 desktop 测试里**最重的一次等待**：Electron 启动 → 侧栏挂载 →
+   * `rebuildIndex()`（扫盘 + 写 SQLite）→ `listIndexedDocuments()` → 渲染。
+   *
+   * ## 为什么分两步等
+   *
+   * 先等侧栏容器（它立即出现），再等文件树。只等 `.nexus-tree-item` 的话，
+   * 「侧栏没挂载」和「索引没跑完 / 索引失败」看起来完全一样，超时报错里什么都读不出来。
+   * 分开等 + 失败时把 phase 和侧栏文案一起抛出来，一次就能定位。
+   *
+   * 调用方的 `it` 超时必须大于这里传的 `timeoutMs`，用 `INDEXED_TEST_TIMEOUT_MS`
+   * 就不会写反 —— 它是 `INDEX_WAIT_MS + 60_000`，不是字面量。
+   */
+  public async waitForIndexReady(timeoutMs: number = INDEX_WAIT_MS): Promise<void> {
+    await this.waitForSelector('.nexus-workspace-sidebar', 30_000);
 
-    if (this.proc.exitCode !== null || this.proc.signalCode !== null) {
-      return;
-    }
-
     try {
-      this.proc.kill('SIGTERM');
+      await this.waitForSelector('.nexus-tree-item', timeoutMs);
     } catch (err) {
-      if (this.proc.exitCode === null) {
-        throw err;
-      }
-      return;
-    }
+      const phase = await this.evaluate<string>(
+        `document.querySelector('.nexus-workspace-sidebar')?.dataset.phase ?? '(没有 phase 属性)'`
+      );
+      const text = await this.evaluate<string>(
+        `document.querySelector('.nexus-workspace-sidebar')?.textContent ?? '(侧栏不存在)'`
+      );
 
-    await this.waitForExit(1000);
-    if (this.proc.exitCode !== null || this.proc.signalCode !== null) {
-      return;
+      throw new Error(
+        `等索引就绪超时。phase=${phase} / 侧栏内容=${text} / 原始错误=${
+          err instanceof Error ? err.message : err
+        }`
+      );
     }
+  }
 
-    try {
-      this.proc.kill('SIGKILL');
-    } catch (err) {
-      if (this.proc.exitCode === null) {
-        throw err;
+  public async close(): Promise<void> {    try {
+      try {
+        this.ws.close();
+      } catch {
+        // ignore
+      }
+
+      if (this.proc.exitCode !== null || this.proc.signalCode !== null) {
+        return;
+      }
+
+      try {
+        this.proc.kill('SIGTERM');
+      } catch (err) {
+        if (this.proc.exitCode === null) {
+          throw err;
+        }
+        return;
+      }
+
+      await this.waitForExit(1000);
+      if (this.proc.exitCode !== null || this.proc.signalCode !== null) {
+        return;
+      }
+
+      try {
+        this.proc.kill('SIGKILL');
+      } catch (err) {
+        if (this.proc.exitCode === null) {
+          throw err;
+        }
+      }
+      await this.waitForExit(1000);
+    } finally {
+      // 清理放在 finally：上面有三个提前 return 的分支，写在末尾会漏掉。
+      // 必须等进程真的退出 —— Windows 上目录被占用时删不掉。
+      // 删失败也不影响测试结果，它只是落在系统临时目录里。
+      try {
+        fs.rmSync(this.userDataDir, { recursive: true, force: true });
+      } catch {
+        // ignore
       }
     }
-    await this.waitForExit(1000);
   }
 
   private waitForExit(timeoutMs: number): Promise<void> {
@@ -514,7 +589,7 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
     };
   });
 
-  const instance = new ElectronAppInstance(proc, port, target, ws);
+  const instance = new ElectronAppInstance(proc, port, target, ws, userDataDir);
   await instance.sendCommand('Runtime.enable');
   await instance.sendCommand('Page.enable');
   // 无边框窗口不保证拿到系统焦点，未激活时 CDP 输入事件会被丢弃；开启焦点模拟保证按键可达。
