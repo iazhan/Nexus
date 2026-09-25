@@ -304,6 +304,12 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = await launchElectronApp({ filePath: readOnlyFile });
     await activeApp.waitForSelector('.cm-content', 15000);
 
+    // locale 会经 localStorage 跨测试文件残留（`platform.ts` 在 setLocale 时写它）。
+    // 下面断言的是中文文案，所以必须显式钉住，不能依赖前序文件留下的状态 ——
+    // 否则前一个文件把它留成 en-US 时，这里会以「英文文案不匹配」的形式假失败。
+    const originalLocale = await activeApp.evaluate<string>(`window.nexusLocale.locale`);
+    await activeApp.evaluate(`(() => { window.nexusLocale.setLocale('zh-CN'); return true; })()`);
+
     const isWin = process.platform === 'win32';
 
     // 只读化必须放在 try 里面：它自己也会抛（见 runIcacls），放在 try 外面
@@ -342,6 +348,15 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(activeApp.proc.exitCode).toBeNull();
     } finally {
+      // 还原 locale，别把中文留给后面的用例（它们可能断言英文文案）
+      try {
+        await activeApp.evaluate(
+          `(() => { window.nexusLocale.setLocale(${JSON.stringify(originalLocale)}); return true; })()`
+        );
+      } catch {
+        // 应用可能已经关掉了，还原失败不影响本用例结论
+      }
+
       if (isWin) {
         try {
           await runIcacls([readOnlyDir, '/remove:d', '*S-1-1-0']);

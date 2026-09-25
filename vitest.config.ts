@@ -18,7 +18,9 @@ export default defineConfig({
           name: 'renderer',
           globals: true,
           environment: 'happy-dom',
-          include: ['apps/desktop/renderer/test/**/*.test.tsx']
+          // 同时匹配 .ts：renderer 层的纯逻辑（状态层、纯函数）没有 JSX，
+          // 不该因为后缀被挡在测试之外。
+          include: ['apps/desktop/renderer/test/**/*.test.{ts,tsx}']
         }
       },
       {

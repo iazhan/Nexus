@@ -444,6 +444,88 @@ body {
 }
 
 /* State Containers (Loading / Error) */
+/* 多标签页栏（P2-04）：只渲染「打开了几个文档」，不持有任何文档状态 */
+.nexus-tab-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  height: 34px;
+  padding: 0 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background-color: var(--nexus-bg-canvas);
+  border-bottom: 1px solid var(--nexus-border-subtle);
+  scrollbar-width: none;
+}
+
+.nexus-tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.nexus-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 0 8px 0 12px;
+  border-radius: 8px 8px 0 0;
+  color: var(--nexus-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.nexus-tab:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-tab-active {
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 未保存指示点：只标「还没落盘」，不标 readonly（那是干净但不可写） */
+.nexus-tab-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--nexus-accent-primary);
+}
+
+.nexus-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+/* 关闭按钮默认隐形，悬浮或激活时才出现，避免一排叉号喧宾夺主 */
+.nexus-tab:hover .nexus-tab-close,
+.nexus-tab-active .nexus-tab-close {
+  opacity: 0.6;
+}
+
+.nexus-tab-close:hover {
+  opacity: 1;
+  background-color: var(--nexus-bg-surface-active);
+}
+
 /* workspace 模式空态：文件树与索引接入前，如实显示已识别的工作区根目录 */
 .nexus-workspace-empty {
   display: flex;

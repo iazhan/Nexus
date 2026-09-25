@@ -1,4 +1,11 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useSyncExternalStore
+} from 'react';
 import type { FileDocument, Unsubscribe } from '@nexus/core';
 import {
   MarkdownDocumentSession,
@@ -25,6 +32,8 @@ import { mermaidPreviewPreference } from './platform.js';
 import { commandRegistry } from './platform.js';
 import { useTheme, useLocale } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
+import { WorkspaceStore } from './workspace/store.js';
+import { TabBar } from './workspace/TabBar.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
 
@@ -121,17 +130,13 @@ export const App: React.FC = () => {
   const [status, setStatus] = useState<ShellStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // File and Editor State
-  const [filePath, setFilePath] = useState<string | null>(null);
   /**
    * workspace 模式下打开的工作区根目录。
    *
    * 与 filePath 互斥：lightweight 只填 filePath，workspace 只填 workspaceRoot。
-   * 文件树、索引和多 Tab 在后续切片接入，这里先只做到「已识别」。
+   * 文件树与索引在后续切片接入。
    */
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<EditorSaveState>('saved');
-  const [saveError, setSaveError] = useState<string | null>(null);
   /**
    * Ctrl+左键跳转失败的可见反馈。
    *
@@ -149,17 +154,63 @@ export const App: React.FC = () => {
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const initialContentRef = useRef('');
-  const sessionRef = useRef<MarkdownDocumentSession | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const unwatchRef = useRef<Unsubscribe | null>(null);
+
+  /**
+   * 工作区状态层：打开了哪些文档、哪一个是活动的。
+   *
+   * 它取代了此前散在这里的 `filePath` / `saveState` / `saveError` / `session` 四个
+   * useState。那些是「当前文档」的投影 —— 多标签页之后必须由文档集合派生，
+   * 各自再存一份必然会漂移，而漂移的症状是「标题栏显示 A 的路径、保存写的是 B 的内容」。
+   */
+  const storeRef = useRef<WorkspaceStore | null>(null);
+  if (storeRef.current === null) {
+    storeRef.current = new WorkspaceStore();
+  }
+  const store = storeRef.current;
+
+  // 订阅 store。返回值用来驱动重渲染，文档列表从它取。
+  const workspaceSnapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const activeDocument = store.getActive();
+
+  /**
+   * 兜底 session：只在 `status === 'ready'` 之前被引用。
+   *
+   * 刻意不把 store 初始化成「自带一份空白文档」，是为了让它保持「可以为空」这个
+   * 干净的语义 —— workspace 模式下它确实就是空的。
+   */
+  const fallbackSessionRef = useRef<MarkdownDocumentSession | null>(null);
+  if (fallbackSessionRef.current === null) {
+    fallbackSessionRef.current = new MarkdownDocumentSession();
+  }
+
+  const session = activeDocument?.session ?? fallbackSessionRef.current;
+  const filePath = activeDocument?.filePath ?? null;
+  const saveState = activeDocument?.saveState ?? 'clean';
+  const saveError = activeDocument?.saveError ?? null;
+
   const saveStateRef = useRef(saveState);
   saveStateRef.current = saveState;
 
-  if (sessionRef.current === null) {
-    sessionRef.current = new MarkdownDocumentSession();
-  }
-  const session = sessionRef.current;
+  // 下面三个 setter 保持与原 useState 完全相同的签名，所以全文件几十处调用点
+  // 一行都不用改 —— 只换存储位置，不动调用方式。
+  const setFilePath = useCallback(
+    (next: string | null) => {
+      store.setActiveFilePath(next);
+    },
+    [store]
+  );
+
+  const setSaveError = useCallback(
+    (next: string | null) => {
+      store.updateActive((document) => {
+        document.saveError = next;
+      });
+    },
+    [store]
+  );
 
   const extensionHostRef = useRef<ExtensionHost | null>(null);
   if (extensionHostRef.current === null) {
@@ -194,16 +245,19 @@ export const App: React.FC = () => {
   }
 
   // Synchronize dirty state with Electron main process
-  const updateSaveState = useCallback((nextState: EditorSaveState) => {
-    setSaveState(nextState);
-    // 保存中、保存失败、冲突状态仍然代表存在未持久化内容，关闭保护不能失效。
-    window.nexus?.setDirty?.(
-      nextState === 'dirty' ||
-      nextState === 'saving' ||
-      nextState === 'error' ||
-      nextState === 'external-changed'
-    );
-  }, []);
+  const updateSaveState = useCallback(
+    (nextState: EditorSaveState) => {
+      store.setActiveSaveState(nextState);
+      // 保存中、保存失败、冲突状态仍然代表存在未持久化内容，关闭保护不能失效。
+      window.nexus?.setDirty?.(
+        nextState === 'dirty' ||
+        nextState === 'saving' ||
+        nextState === 'error' ||
+        nextState === 'external-changed'
+      );
+    },
+    [store]
+  );
 
   /**
    * 串行化所有保存请求，避免较早的原子写入在较新的写入之后完成而回退磁盘内容。
@@ -295,20 +349,23 @@ export const App: React.FC = () => {
   }, [enqueueSave, performSaveAs, session]);
 
   /**
-   * 把已打开的文件灌进 session。系统对话框与链接跳转共用这一段，
+   * 把已打开的文件灌进工作区。系统对话框与链接跳转共用这一段，
    * 避免两条路径在 dirty / readOnly / 错误清理上出现分歧。
    */
   const applyOpenedDocument = useCallback(
     (fileDoc: FileDocument) => {
-      setFilePath(fileDoc.path);
-      initialContentRef.current = fileDoc.content;
-      session.replaceSource(fileDoc.content, {
-        selection: { anchor: 0, head: 0 }
+      // 开成新的标签页。同一路径已经在标签页里时，store 会激活既有那个而不是
+      // 新建 —— 否则同一个文件会有两份互不知情的 session，两边都能存盘，
+      // 后写的静默覆盖先写的。
+      store.openDocument({
+        filePath: fileDoc.path,
+        content: fileDoc.content,
+        readOnly: fileDoc.readOnly
       });
-      updateSaveState(fileDoc.readOnly ? 'readonly' : 'clean');
-      setSaveError(null);
+      initialContentRef.current = fileDoc.content;
+      window.nexus?.setDirty?.(false);
     },
-    [session, updateSaveState]
+    [store]
   );
 
   // Open file via the system dialog
@@ -441,9 +498,8 @@ export const App: React.FC = () => {
       // 所以这里不伪造一个空编辑器，而是如实显示「工作区已打开」。
       if (ctx.mode === 'workspace' && ctx.workspaceRoot) {
         setWorkspaceRoot(ctx.workspaceRoot);
-        setFilePath(null);
+        // workspace 模式下没有可编辑的文档，标签页保持为空
         initialContentRef.current = '';
-        updateSaveState('clean');
         setStatus('ready');
         return;
       }
@@ -455,21 +511,19 @@ export const App: React.FC = () => {
         const fileDoc = await window.nexus.openFile(ctx.filePath);
         if (!isCurrentRequest()) return;
 
-        setFilePath(fileDoc.path);
-        initialContentRef.current = fileDoc.content;
-        session.replaceSource(fileDoc.content, {
-          selection: { anchor: 0, head: 0 }
+        store.openDocument({
+          filePath: fileDoc.path,
+          content: fileDoc.content,
+          readOnly: fileDoc.readOnly
         });
-        updateSaveState(fileDoc.readOnly ? 'readonly' : 'clean');
+        initialContentRef.current = fileDoc.content;
+        window.nexus?.setDirty?.(false);
         setStatus('ready');
       } else {
         // No file provided: open an empty markdown editor
-        setFilePath(null);
+        store.openDocument({ filePath: null, content: '' });
         initialContentRef.current = '';
-        session.replaceSource('', {
-          selection: { anchor: 0, head: 0 }
-        });
-        updateSaveState('clean');
+        window.nexus?.setDirty?.(false);
         setStatus('ready');
       }
     } catch (err) {
@@ -480,7 +534,7 @@ export const App: React.FC = () => {
       setErrorMessage(message);
       setStatus('error');
     }
-  }, [session, updateSaveState]);
+  }, [store]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -539,15 +593,81 @@ export const App: React.FC = () => {
     return unbind;
   }, [saveFile]);
 
-  // 新建空文档：置空 filePath 会触发监听清理，文档回到未命名的干净状态。
+  // 新建空文档：开成一个新的未命名标签页。
   // 定义在快捷键 effect 之前，否则 effect 的依赖数组会在渲染期读到未初始化的绑定（TDZ）。
   const handleNewFile = useCallback(() => {
-    setFilePath(null);
+    store.openDocument({ filePath: null, content: '' });
     initialContentRef.current = '';
-    session.replaceSource('', { selection: { anchor: 0, head: 0 } });
-    setSaveError(null);
-    updateSaveState('clean');
-  }, [session, updateSaveState]);
+    window.nexus?.setDirty?.(false);
+  }, [store]);
+
+  /**
+   * 关掉标签页之后补一个空白文档。
+   *
+   * 编辑器「没有任何文档可显示」对用户没有意义，而且会让全文件那些 `session.xxx`
+   * 落进兜底 session —— 那种状态下编辑的内容哪也去不了。
+   */
+  const closeDocumentAndEnsureEditor = useCallback(
+    (id: string) => {
+      store.closeDocument(id);
+      if (store.isEmpty) {
+        store.openDocument({ filePath: null, content: '' });
+        initialContentRef.current = '';
+      }
+    },
+    [store]
+  );
+
+  /**
+   * 关闭一个标签页。
+   *
+   * 有未保存内容时先落盘再关：自动保存有 debounce 窗口，用户点关闭时不一定
+   * 意识到那个标签页还是脏的，而关掉就等于丢内容。
+   */
+  const handleCloseTab = useCallback(
+    (id: string) => {
+      const document = store.getDocuments().find((candidate) => candidate.id === id);
+      if (!document) return;
+
+      const isUnsaved =
+        document.saveState === 'dirty' ||
+        document.saveState === 'saving' ||
+        document.saveState === 'error' ||
+        document.saveState === 'external-changed';
+
+      if (!isUnsaved) {
+        closeDocumentAndEnsureEditor(id);
+        return;
+      }
+
+      if (!document.filePath) {
+        // 未命名且未保存：没有可落盘的地方，必须让用户明确表态
+        const name = t('tab.untitled');
+        if (!window.confirm(t('tab.discardConfirm', { name }))) return;
+        closeDocumentAndEnsureEditor(id);
+        return;
+      }
+
+      const targetPath = document.filePath;
+      const content = document.session.getSnapshot().source;
+      // 先取出 bridge：await 之后 TS 不再保留 window.nexus 的类型收窄
+      const bridge = window.nexus;
+      if (!bridge?.writeFile) return;
+
+      void enqueueSave(async () => {
+        try {
+          await bridge.writeFile(targetPath, content);
+          closeDocumentAndEnsureEditor(id);
+          return true;
+        } catch (err) {
+          // 保存失败就不关：关掉等于把这次编辑丢掉
+          store.setSaveState(id, 'error', err instanceof Error ? err.message : String(err));
+          return false;
+        }
+      });
+    },
+    [store, enqueueSave, closeDocumentAndEnsureEditor, t]
+  );
 
   /**
    * Ctrl/Cmd+左键的链接跳转策略。
@@ -1008,6 +1128,13 @@ export const App: React.FC = () => {
           />
         </div>
       </header>
+
+      <TabBar
+        documents={workspaceSnapshot.documents}
+        activeId={workspaceSnapshot.activeId}
+        onActivate={store.activate}
+        onClose={handleCloseTab}
+      />
 
       {/* Link Navigation Failure Banner */}
       {linkError && (
