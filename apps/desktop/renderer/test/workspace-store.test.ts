@@ -176,6 +176,19 @@ describe('WorkspaceStore', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('activate 被当作回调传出去时不丢 this', () => {
+    const store = new WorkspaceStore();
+    const first = store.openDocument({ filePath: '/vault/a.md', content: '# a\n' });
+    store.openDocument({ filePath: '/vault/b.md', content: '# b\n' });
+
+    // 模拟 React 的用法：`onActivate={store.activate}` —— 方法被摘下来单独传递。
+    // 如果 activate 写成普通方法，这里 `this` 就是 undefined，调用直接抛错；
+    // 而异常发生在事件处理里，表现是「点了标签页没反应」，不报错也不留痕。
+    const onActivate = store.activate;
+    expect(() => onActivate(first.id)).not.toThrow();
+    expect(store.getActiveId()).toBe(first.id);
+  });
+
   it('snapshot 引用只在变更时变化', () => {
     const store = new WorkspaceStore();
     const before = store.getSnapshot();

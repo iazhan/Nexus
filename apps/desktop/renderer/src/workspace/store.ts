@@ -120,12 +120,20 @@ export class WorkspaceStore {
     return document;
   }
 
-  activate(id: string): void {
+  /**
+   * 切换活动文档。
+   *
+   * 写成箭头函数属性是**必须的**：它会作为 `onActivate={store.activate}` 直接传给
+   * React 组件，普通方法在那一刻就丢了 `this`，调用时抛 `Cannot read properties of
+   * undefined`，而异常发生在事件处理里 —— 表现是「点了没反应」，不报错、不留痕。
+   * 同一个类里 `subscribe` / `getSnapshot` 也是出于同样的理由写成箭头函数的。
+   */
+  activate = (id: string): void => {
     if (this.activeId === id) return;
     if (!this.documents.some((document) => document.id === id)) return;
     this.activeId = id;
     this.emit();
-  }
+  };
 
   /**
    * 关闭一个标签页，返回关闭后活动的文档 id。
