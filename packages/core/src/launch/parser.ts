@@ -1,6 +1,5 @@
 import { DEFAULT_LAUNCH_CONTEXT, type LaunchContext } from '../types/mode.js';
-
-const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
+import { documentTypeForPath } from '../document/extensions.js';
 
 /**
  * Known Chromium, Electron, and Node.js CLI flags that expect a separate value argument
@@ -162,17 +161,9 @@ function consumesNextArgAsValue(
   return false;
 }
 
-/**
- * Extracts the file extension (with leading dot) from a path, in lowercase.
- */
-function getExtension(filePath: string): string {
-  const filename = filePath.split(/[/\\]/).pop() ?? '';
-  const lastDot = filename.lastIndexOf('.');
-  if (lastDot <= 0) {
-    return '';
-  }
-  return filename.slice(lastDot).toLowerCase();
-}
+// 扩展名判定已移到 `../document/extensions.js`（`getPathExtension` / `documentTypeForPath`）。
+// 白名单必须只有一处 —— 否则 main 侧（FileService）与启动解析会各判一份，
+// 而「同一个问题在两处各答一遍」是本仓库已经踩过的坑（mermaid 判定曾散在四处）。
 
 /**
  * Parses command-line arguments into a LaunchContext.
@@ -182,8 +173,10 @@ function getExtension(filePath: string): string {
  * 2. Dev entry points ('.', 'apps/desktop', etc.) are skipped.
  * 3. CLI flags starting with '-' are skipped.
  * 4. Flags expecting a separate value (e.g. '--user-data-dir <dir>', '--inspect <port>') consume and skip their value argument.
- * 5. The first candidate non-flag argument is evaluated:
- *    - Markdown extension (.md, .markdown) → mode 'lightweight' with filePath set.
+ * 5. The first candidate non-flag argument is evaluated against the document whitelist
+ *    (`../document/extensions.js`):
+ *    - Markdown (.md, .markdown) → mode 'lightweight' with filePath set.
+ *    - PDF / DOCX / image → mode 'viewer' with filePath + documentType set (Phase 3).
  *    - Otherwise the optional `classifyPath` callback decides:
  *        'directory' → mode 'workspace' with workspaceRoot set;
  *        'file' / 'unknown' / callback absent → mode 'lightweight' with unsupportedPath set.
@@ -254,23 +247,38 @@ export function parseLaunchArgs(
   }
 
   const targetPath = candidateArgs[0]!;
-  const ext = getExtension(targetPath);
+  const documentType = documentTypeForPath(targetPath);
 
-  if (MARKDOWN_EXTENSIONS.has(ext)) {
+  if (documentType === 'markdown') {
     return {
       mode: 'lightweight',
       filePath: targetPath,
+      documentType,
       workspaceRoot: null,
       unsupportedPath: null
     };
   }
 
-  // 非 Markdown 路径：可能是工作区目录，也可能是不支持的文件。
+  // 白名单里的非 Markdown 文档 → Viewer 模式（Phase 3 Document Center）。
+  // 判定顺序是先白名单、后 classifyPath：反过来会把 `notes.pdf` 这种真实存在的文件
+  // 交给 classifyPath，而它只回答「目录还是文件」，答不出文档类型。
+  if (documentType) {
+    return {
+      mode: 'viewer',
+      filePath: targetPath,
+      documentType,
+      workspaceRoot: null,
+      unsupportedPath: null
+    };
+  }
+
+  // 不在白名单：可能是工作区目录，也可能是不支持的文件。
   // 判定由调用方注入 —— 本函数不碰文件系统，才能在单测里保持纯函数。
   if (options?.classifyPath?.(targetPath) === 'directory') {
     return {
       mode: 'workspace',
       filePath: null,
+      documentType: null,
       workspaceRoot: targetPath,
       unsupportedPath: null
     };
@@ -279,6 +287,7 @@ export function parseLaunchArgs(
   return {
     mode: 'lightweight',
     filePath: null,
+    documentType: null,
     workspaceRoot: null,
     unsupportedPath: targetPath
   };

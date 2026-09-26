@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import {
   FileServiceError,
+  documentTypeForPath,
+  getPathExtension,
+  isMarkdownPath,
+  supportedDocumentExtensions,
   type FileDocument,
   type FileWatchListener,
   type Unsubscribe,
@@ -45,6 +49,14 @@ export interface DirectoryEntryLike {
  */
 export interface FileSystemAdapter {
   readFile(filePath: string, encoding: BufferEncoding): Promise<string>;
+  /**
+   * 按字节读取，**不做任何解码**。附件（PDF / DOCX / 图片）走这条。
+   *
+   * 单独一个方法而不是把 `readFile` 的 `encoding` 放宽成 `BufferEncoding | null`：
+   * 后者会让返回类型变成 `string | Buffer`，每个调用点都要多一次收窄，
+   * 而实际只有一个调用点需要字节。
+   */
+  readFileBuffer(filePath: string): Promise<Uint8Array>;
   open(filePath: string, flags: string | number, mode?: number): Promise<FileHandleLike>;
   rename(oldPath: string, newPath: string): Promise<void>;
   unlink(filePath: string): Promise<void>;
@@ -68,6 +80,11 @@ export interface FileSystemAdapter {
 export class DefaultFileSystemAdapter implements FileSystemAdapter {
   async readFile(filePath: string, encoding: BufferEncoding = 'utf-8'): Promise<string> {
     return fsPromises.readFile(filePath, { encoding });
+  }
+
+  async readFileBuffer(filePath: string): Promise<Uint8Array> {
+    // Buffer 是 Uint8Array 的子类，按声明类型返回即可（不复制，零成本）。
+    return fsPromises.readFile(filePath);
   }
 
   async open(filePath: string, flags: string | number, mode?: number): Promise<FileHandleLike> {
@@ -263,8 +280,14 @@ function wrapIoError(action: string, filePath: string, err: unknown): FileServic
   return new FileServiceError('IO_ERROR', `${action}: ${message}`, filePath);
 }
 
-/** 支持的 Markdown 扩展名（小写，含点）。 */
-const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
+/**
+ * 扩展名判定的**唯一事实源**在 `@nexus/core` 的 `document/extensions.ts`
+ * （`documentTypeForPath` / `isMarkdownPath`）。
+ *
+ * 这里刻意不再保留一份 `MARKDOWN_EXTENSIONS`：曾经 main 侧有一份硬编码、
+ * core 侧又有一份白名单，两处并存时「改了一处忘了另一处」不会报错，
+ * 只会让扫描/打开/写入对同一个文件给出不同结论。
+ */
 
 /**
  * 扫描工作区时跳过的**非点开头**目录名。
@@ -375,7 +398,7 @@ export class FileService {
       targetPath = chosen;
     }
 
-    this.validateExtension(targetPath);
+    this.assertTextDocument(targetPath);
     const normalizedPath = this.normalizePath(targetPath);
 
     let content: string;
@@ -412,7 +435,7 @@ export class FileService {
   async readFile(filePath: string): Promise<string> {
     const normalizedPath = this.normalizePath(filePath);
     this.checkBoundary(normalizedPath);
-    this.validateExtension(normalizedPath);
+    this.assertTextDocument(normalizedPath);
     await this.assertNoSymlinkEscape(normalizedPath);
 
     try {
@@ -426,12 +449,45 @@ export class FileService {
   }
 
   /**
+   * 读取白名单内任意文档的**字节**（附件走这条，不做 UTF-8 解码）。
+   *
+   * 与 `readFile` 的差别只有两条，但两条都不能省：
+   *   1. 不解码 —— PDF / PNG 按字节读，解成字符串即损坏；
+   *   2. 放行非 Markdown 的白名单类型 —— 但仍**逐条走同一边界校验**。
+   *
+   * 返回 `Uint8Array` 而不是 `Buffer`：现在它只在主进程内被调用（将来的
+   * `nexus-asset://` 处理器），但签名留在跨运行时安全的形状里，
+   * 万一要经 IPC 递给渲染进程不必改。
+   *
+   * **不含 Range 参数是有意的**：P3-02 spike 已证明 `net.fetch` 不透传 Range、
+   * 必须手动构造 206，而 PDF.js 的分页依赖 206。Range 读需要给适配层补一个
+   * 带偏移的读原语（spike 用的是 `openSync` + `readSync`），那是 `nexus-asset://`
+   * 自身的形状问题，归 P3-07 —— 现在猜 `{start,length}` 还是 `{start,end}`
+   * 只会返工一次。
+   */
+  async readDocumentBytes(filePath: string): Promise<Uint8Array> {
+    const normalizedPath = this.normalizePath(filePath);
+    this.checkBoundary(normalizedPath);
+    this.assertReadableDocument(normalizedPath);
+    await this.assertNoSymlinkEscape(normalizedPath);
+
+    try {
+      return await this.fsAdapter.readFileBuffer(normalizedPath);
+    } catch (err: unknown) {
+      if (isNotFoundError(err)) {
+        throw new FileServiceError('NOT_FOUND', `文件未找到: ${normalizedPath}`, normalizedPath);
+      }
+      throw wrapIoError('读取文件失败', normalizedPath, err);
+    }
+  }
+
+  /**
    * 将内容以原子方式保存到指定文件。
    */
   async writeFile(filePath: string, content: string): Promise<void> {
     const normalizedPath = this.normalizePath(filePath);
     this.checkBoundary(normalizedPath);
-    this.validateExtension(normalizedPath);
+    this.assertTextDocument(normalizedPath);
     await this.assertNoSymlinkEscape(normalizedPath);
 
     await atomicWriteFile(normalizedPath, content, {
@@ -453,7 +509,7 @@ export class FileService {
       throw new FileServiceError('CANCELLED', '用户取消了另存为');
     }
 
-    this.validateExtension(chosen);
+    this.assertTextDocument(chosen);
     const normalizedPath = this.normalizePath(chosen);
 
     await atomicWriteFile(normalizedPath, content, {
@@ -473,7 +529,7 @@ export class FileService {
   watchFile(filePath: string, listener: FileWatchListener): Unsubscribe {
     const normalizedPath = this.normalizePath(filePath);
     this.checkBoundary(normalizedPath);
-    this.validateExtension(normalizedPath);
+    this.assertTextDocument(normalizedPath);
 
     const targetBasename = path.basename(normalizedPath);
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -596,16 +652,40 @@ export class FileService {
     return path.resolve(inputPath);
   }
 
-  /** 校验是否为 .md 或 .markdown 扩展名。 */
-  private validateExtension(filePath: string): void {
-    const ext = path.extname(filePath).toLowerCase();
-    if (!MARKDOWN_EXTENSIONS.has(ext)) {
-      throw new FileServiceError(
-        'UNSUPPORTED_TYPE',
-        `不支持的文件扩展名 "${ext}"，仅支持 .md 和 .markdown 文件`,
-        filePath
-      );
-    }
+  /**
+   * **文本文档**判据 = 仅 Markdown。
+   *
+   * `openFile` / `readFile` / `writeFile` / `saveAs` / `watchFile` 走这条 ——
+   * 它们全都要么返回、要么接收 **UTF-8 字符串**。附件是二进制，让它走到这里
+   * 只会把字节当文本解码/写坏（且写坏是静默的），所以宁可在门口拒掉。
+   */
+  private assertTextDocument(filePath: string): void {
+    if (isMarkdownPath(filePath)) return;
+    const ext = getPathExtension(filePath);
+    throw new FileServiceError(
+      'UNSUPPORTED_TYPE',
+      `只能读写 Markdown 文本文档（.md / .markdown），收到 "${ext || '(无扩展名)'}"`,
+      filePath
+    );
+  }
+
+  /**
+   * **可读文档**判据 = 白名单全体（Markdown / PDF / DOCX / 图片）。
+   *
+   * 只有 `readDocumentBytes` 走这条。它比 `assertTextDocument` 宽，是因为
+   * 它不做解码；宽出来的部分**不代表可以写**。
+   *
+   * 注意这条**不替代**边界校验：调用方仍须先过 `checkBoundary` 与
+   * `assertNoSymlinkEscape`。「只是读一张图片」不是绕过边界的理由。
+   */
+  private assertReadableDocument(filePath: string): void {
+    if (documentTypeForPath(filePath) !== null) return;
+    const ext = getPathExtension(filePath);
+    throw new FileServiceError(
+      'UNSUPPORTED_TYPE',
+      `不支持的文件类型 "${ext || '(无扩展名)'}"，可读类型：${supportedDocumentExtensions().join(' ')}`,
+      filePath
+    );
   }
 
   /** 生成比较键（Windows 平台忽略大小写）。 */
@@ -761,7 +841,10 @@ export class FileService {
         }
 
         if (!entry.isFile()) continue;
-        if (!MARKDOWN_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+        // 判据来自 core 的同一张白名单。这里**只收 Markdown** —— 附件（PDF / 图片…）
+        // 不进索引，它们的枚举归 P3-09 的附件扫描，届时复用 shouldSkipDirectory，
+        // 不要再写第二套跳过规则。
+        if (!isMarkdownPath(entry.name)) continue;
 
         if (files.length >= maxFiles) {
           truncated = true;

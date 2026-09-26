@@ -77,6 +77,8 @@ function createMockFsAdapter(
 ): FileSystemAdapter {
   return {
     readFile: (p, enc) => (overrides.readFile ? overrides.readFile(p, enc) : baseFs.readFile(p, enc)),
+    readFileBuffer: (p) =>
+      overrides.readFileBuffer ? overrides.readFileBuffer(p) : baseFs.readFileBuffer(p),
     open: (p, flags, mode) => (overrides.open ? overrides.open(p, flags, mode) : baseFs.open(p, flags, mode)),
     rename: (oldPath, newPath) =>
       overrides.rename ? overrides.rename(oldPath, newPath) : baseFs.rename(oldPath, newPath),
@@ -365,6 +367,7 @@ describe('FileService & atomicWriteFile', () => {
       // 模拟文件系统适配器：在将 tmpPath 替换 targetPath 时故意抛出错误
       const failingFsAdapter: FileSystemAdapter = {
         readFile: (p, enc) => defaultFs.readFile(p, enc),
+        readFileBuffer: (p) => defaultFs.readFileBuffer(p),
         open: (p, flags, mode) => defaultFs.open(p, flags, mode),
         unlink: (p) => defaultFs.unlink(p),
         stat: (p) => defaultFs.stat(p),
@@ -535,6 +538,77 @@ describe('FileService & atomicWriteFile', () => {
       await new Promise((r) => setTimeout(r, 120));
 
       expect(receivedEvents).toHaveLength(0);
+    });
+  });
+
+  /**
+   * P3-03：文档类型白名单，以及「可读 ≠ 可写」这条分界。
+   *
+   * 重点是**负向**：白名单放宽之后，附件不能顺着「能读」滑到「能写」，
+   * 也不能顺着「能读字节」滑到「能当文本读」。
+   */
+  describe('文档类型白名单：可读 ≠ 可写（P3-03）', () => {
+    /** PNG 头。前两个字节 0x89 0x50 都不是合法 UTF-8 起始字节，解码必损坏。 */
+    const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    it('附件（.pdf / .png）能按字节读，但不能走文本文档的读写通道', async () => {
+      const pngPath = path.join(tempDir, 'pixel.png');
+      await fsPromises.writeFile(pngPath, PNG_HEADER);
+
+      const service = new FileService({ allowedPaths: [pngPath] });
+
+      // 可读：字节完全一致。用 hex 比对 —— 一旦被 UTF-8 解码再编码，
+      // 0x89 会变成 U+FFFD（EF BF BD），长度和内容都会变。
+      const bytes = await service.readDocumentBytes(pngPath);
+      expect(Buffer.from(bytes).toString('hex')).toBe(PNG_HEADER.toString('hex'));
+
+      // 不可当文本读
+      await expectFileServiceError(service.readFile(pngPath), 'UNSUPPORTED_TYPE');
+      // 不可写（二进制不会被静默写坏 —— 它在门口就被拒了）
+      await expectFileServiceError(service.writeFile(pngPath, 'x'), 'UNSUPPORTED_TYPE');
+    });
+
+    it('非白名单类型（.txt）连字节读也不放行', async () => {
+      const txtPath = path.join(tempDir, 'notes.txt');
+      await fsPromises.writeFile(txtPath, 'hello', 'utf-8');
+
+      const service = new FileService({ allowedPaths: [txtPath] });
+      await expectFileServiceError(service.readDocumentBytes(txtPath), 'UNSUPPORTED_TYPE');
+    });
+
+    it('无扩展名与 dotfile 都不在白名单里', async () => {
+      const noExt = path.join(tempDir, 'LICENSE');
+      const dotfile = path.join(tempDir, '.gitignore');
+      await fsPromises.writeFile(noExt, 'x', 'utf-8');
+      await fsPromises.writeFile(dotfile, 'x', 'utf-8');
+
+      const service = new FileService({ allowedPaths: [noExt, dotfile] });
+      await expectFileServiceError(service.readDocumentBytes(noExt), 'UNSUPPORTED_TYPE');
+      await expectFileServiceError(service.readDocumentBytes(dotfile), 'UNSUPPORTED_TYPE');
+    });
+
+    it('字节读同样受边界约束，未授权路径抛 OUT_OF_BOUNDS 而不是先报类型', async () => {
+      const pngPath = path.join(tempDir, 'unauthorized.png');
+      await fsPromises.writeFile(pngPath, PNG_HEADER);
+
+      const service = new FileService();
+      const err = await expectFileServiceError(service.readDocumentBytes(pngPath), 'OUT_OF_BOUNDS');
+      expect(err.path).toBe(path.resolve(pngPath));
+    });
+
+    it('文件不存在时抛 NOT_FOUND，而不是 UNSUPPORTED_TYPE 或空数组', async () => {
+      const missing = path.join(tempDir, 'missing.png');
+      const service = new FileService({ allowedPaths: [missing] });
+      await expectFileServiceError(service.readDocumentBytes(missing), 'NOT_FOUND');
+    });
+
+    it('Markdown 仍可按字节读（白名单是「全体」，不是「除 Markdown 外」）', async () => {
+      const mdPath = path.join(tempDir, 'doc.md');
+      await fsPromises.writeFile(mdPath, '# 标题\n', 'utf-8');
+
+      const service = new FileService({ allowedPaths: [mdPath] });
+      const bytes = await service.readDocumentBytes(mdPath);
+      expect(Buffer.from(bytes).toString('utf-8')).toBe('# 标题\n');
     });
   });
 });

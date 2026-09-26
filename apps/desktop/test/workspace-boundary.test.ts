@@ -119,6 +119,79 @@ describe('工作区边界与目录扫描', () => {
     });
   });
 
+  /**
+   * P3-03：附件字节读取。
+   *
+   * 白名单把可读范围从 Markdown 扩到了 PDF / 图片，但**边界不能跟着放宽**。
+   * 这一组断言的就是「扩了类型，没扩边界」。
+   */
+  describe('附件字节读取同样受边界约束（P3-03）', () => {
+    const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    it('工作区内的附件可读，工作区之外的附件被拒', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      await fsPromises.mkdir(workspace, { recursive: true });
+      const inside = path.join(workspace, 'diagram.png');
+      await fsPromises.writeFile(inside, PNG_HEADER);
+
+      const outside = path.join(tempDir, 'outside.png');
+      await fsPromises.writeFile(outside, PNG_HEADER);
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+
+      const bytes = await service.readDocumentBytes(inside);
+      expect(Buffer.from(bytes).toString('hex')).toBe(PNG_HEADER.toString('hex'));
+
+      await expect(service.readDocumentBytes(outside)).rejects.toMatchObject({
+        code: 'OUT_OF_BOUNDS'
+      });
+    });
+
+    it('前缀相同的兄弟目录里的附件不能被读到', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      const sibling = path.join(tempDir, 'vault-backup');
+      await fsPromises.mkdir(workspace, { recursive: true });
+      await fsPromises.mkdir(sibling, { recursive: true });
+      const sneaky = path.join(sibling, 'diagram.png');
+      await fsPromises.writeFile(sneaky, PNG_HEADER);
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+
+      // 字符串 startsWith 会把 `vault-backup` 当成 `vault` 的子目录
+      await expect(service.readDocumentBytes(sneaky)).rejects.toMatchObject({
+        code: 'OUT_OF_BOUNDS'
+      });
+    });
+
+    it('工作区内的符号链接指向外部时，附件读取也被拒绝', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      const outside = path.join(tempDir, 'outside');
+      await fsPromises.mkdir(workspace, { recursive: true });
+      await fsPromises.mkdir(outside, { recursive: true });
+
+      const secret = path.join(outside, 'secret.png');
+      await fsPromises.writeFile(secret, PNG_HEADER);
+
+      const linkPath = path.join(workspace, 'link.png');
+      try {
+        await fsPromises.symlink(secret, linkPath, 'file');
+      } catch (err) {
+        console.warn(`跳过符号链接用例：${(err as Error).message}`);
+        return;
+      }
+      expect((await fsPromises.lstat(linkPath)).isSymbolicLink()).toBe(true);
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+
+      await expect(service.readDocumentBytes(linkPath)).rejects.toMatchObject({
+        code: 'OUT_OF_BOUNDS'
+      });
+    });
+  });
+
   describe('scanWorkspaceMarkdownFiles', () => {
     it('递归收集 markdown、跳过 node_modules 与 .git、relativePath 用正斜杠', async () => {
       const workspace = path.join(tempDir, 'vault');
@@ -158,6 +231,24 @@ describe('工作区边界与目录扫描', () => {
       expect(rootEntry?.path).toBe(path.join(workspace, 'root.md'));
       expect(rootEntry?.sizeBytes).toBeGreaterThan(0);
       expect(rootEntry?.modifiedAtMs).toBeGreaterThan(0);
+    });
+
+    it('白名单扩展了可读类型，但扫描仍只收 Markdown（附件不进索引）', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      await fsPromises.mkdir(path.join(workspace, 'assets'), { recursive: true });
+
+      await fsPromises.writeFile(path.join(workspace, 'root.md'), '# root\n', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'assets', 'a.png'), 'x', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'assets', 'b.pdf'), 'x', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'assets', 'c.docx'), 'x', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+      const result = await service.scanWorkspaceMarkdownFiles(workspace);
+
+      // 附件是「可读」而不是「是文档」—— 索引里只有 Markdown，
+      // 附件枚举归 P3-09，别在这一步偷偷把索引撑大。
+      expect(result.files.map((f) => f.relativePath)).toEqual(['root.md']);
     });
 
     it('跳过点开头的工具元数据目录，不把快照与回收站当文档', async () => {

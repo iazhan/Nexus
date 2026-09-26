@@ -11,6 +11,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(empty1).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -19,6 +20,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(empty2).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -32,6 +34,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(empty3).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -42,6 +45,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(mdResult).toEqual({
       mode: 'lightweight',
       filePath: 'docs/readme.md',
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -56,6 +60,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(markdownResult).toEqual({
       mode: 'lightweight',
       filePath: winPath,
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -64,32 +69,46 @@ describe('Launch Arguments Parser and Context', () => {
     expect(upperResult).toEqual({
       mode: 'lightweight',
       filePath: 'CHANGELOG.MD',
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
   });
 
-  it('3. should handle unsupported file types by not opening them as markdown and recording unsupportedPath', () => {
+  it('3. should route whitelisted non-Markdown documents to viewer mode', () => {
+    // Phase 3 起 PDF / DOCX / 图片进入白名单，不再是「不支持的文件」。
+    // 它们的共同点是**严格只读** —— 有查看器，没有编辑与保存路径。
     const pdfResult = parseLaunchArgs(['document.pdf']);
     expect(pdfResult).toEqual({
-      mode: 'lightweight',
-      filePath: null,
+      mode: 'viewer',
+      filePath: 'document.pdf',
+      documentType: 'pdf',
       workspaceRoot: null,
-      unsupportedPath: 'document.pdf'
+      unsupportedPath: null
     });
 
     const docxResult = parseLaunchArgs(['electron.exe', '.', 'report.docx']);
     expect(docxResult).toEqual({
-      mode: 'lightweight',
-      filePath: null,
+      mode: 'viewer',
+      filePath: 'report.docx',
+      documentType: 'docx',
       workspaceRoot: null,
-      unsupportedPath: 'report.docx'
+      unsupportedPath: null
     });
 
+    // 图片扩展名各有各的写法，但都归到同一个 documentType
+    const pngResult = parseLaunchArgs(['diagram.png']);
+    expect(pngResult.documentType).toBe('image');
+    expect(parseLaunchArgs(['photo.JPEG']).documentType).toBe('image');
+    expect(parseLaunchArgs(['icon.svg']).documentType).toBe('image');
+  });
+
+  it('3b. should record unsupportedPath for extensions outside the whitelist', () => {
     const txtResult = parseLaunchArgs(['notes.txt']);
     expect(txtResult).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: 'notes.txt'
     });
@@ -98,6 +117,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(noExtResult).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: 'some_directory_or_binary'
     });
@@ -107,6 +127,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(DEFAULT_LAUNCH_CONTEXT).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -123,6 +144,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(parsed.filePath).toBeNull();
     expect(parsed.workspaceRoot).toBeNull();
     expect(parsed.unsupportedPath).toBeNull();
+    expect(parsed.documentType).toBeNull();
   });
 
   it('5. should correctly handle production packaged executables without mistaking them for files', () => {
@@ -133,6 +155,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(prodEmpty).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -145,20 +168,22 @@ describe('Launch Arguments Parser and Context', () => {
     expect(prodMd).toEqual({
       mode: 'lightweight',
       filePath: 'D:\\Notes\\README.md',
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
 
-    // 5.3 Packaged app opening unsupported document
+    // 5.3 Packaged app opening a whitelisted non-Markdown document
     const prodPdf = parseLaunchArgs([
       'C:\\Program Files\\Nexus\\Nexus.exe',
       'D:\\Notes\\report.pdf'
     ]);
     expect(prodPdf).toEqual({
-      mode: 'lightweight',
-      filePath: null,
+      mode: 'viewer',
+      filePath: 'D:\\Notes\\report.pdf',
+      documentType: 'pdf',
       workspaceRoot: null,
-      unsupportedPath: 'D:\\Notes\\report.pdf'
+      unsupportedPath: null
     });
 
     // 5.4 Packaged app with CLI flags and options.execPath
@@ -169,6 +194,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(prodWithOpts).toEqual({
       mode: 'lightweight',
       filePath: 'notes.md',
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -181,6 +207,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -191,6 +218,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -201,6 +229,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'README.md',
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -215,6 +244,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -230,6 +260,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'D:\\Notes\\README.md',
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -240,11 +271,13 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'README.md',
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
 
-    // 6.7 unsupported path after executable and flag
+    // 6.7 whitelisted document after executable and flag：
+    // filePath 是 report.pdf 而不是 debug.log，说明 flag 的值确实被跳过了
     expect(
       parseLaunchArgs([
         'Nexus.exe',
@@ -253,10 +286,11 @@ describe('Launch Arguments Parser and Context', () => {
         'report.pdf'
       ])
     ).toEqual({
-      mode: 'lightweight',
-      filePath: null,
+      mode: 'viewer',
+      filePath: 'report.pdf',
+      documentType: 'pdf',
       workspaceRoot: null,
-      unsupportedPath: 'report.pdf'
+      unsupportedPath: null
     });
 
     // 6.8 custom additionalValueFlags
@@ -268,6 +302,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'notes.md',
+      documentType: 'markdown',
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -277,6 +312,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(parseLaunchArgs(['LICENSE'])).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: 'LICENSE'
     });
@@ -284,6 +320,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(parseLaunchArgs(['Makefile'])).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: 'Makefile'
     });
@@ -300,6 +337,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(winDir).toEqual({
       mode: 'workspace',
       filePath: null,
+      documentType: null,
       workspaceRoot: 'D:\\Notes',
       unsupportedPath: null
     });
@@ -311,6 +349,7 @@ describe('Launch Arguments Parser and Context', () => {
     expect(posixDir).toEqual({
       mode: 'workspace',
       filePath: null,
+      documentType: null,
       workspaceRoot: '/home/me/notes',
       unsupportedPath: null
     });
@@ -323,14 +362,15 @@ describe('Launch Arguments Parser and Context', () => {
     expect(spacedDir.workspaceRoot).toBe('D:\\My Notes');
   });
 
-  it('9. should keep non-directory targets unsupported even when classifyPath is provided', () => {
+  it('9. should keep non-whitelisted, non-directory targets unsupported even when classifyPath is provided', () => {
     expect(
-      parseLaunchArgs(['report.pdf'], { classifyPath: () => 'file' })
+      parseLaunchArgs(['notes.txt'], { classifyPath: () => 'file' })
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
-      unsupportedPath: 'report.pdf'
+      unsupportedPath: 'notes.txt'
     });
 
     // unknown（路径不存在）同样不能进 workspace ——
@@ -340,12 +380,13 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: 'D:\\Typo'
     });
   });
 
-  it('10. should prefer the markdown extension over classifyPath', () => {
+  it('10. should prefer the document whitelist over classifyPath', () => {
     // 扩展名先判：一个叫 notes.md 的目录不该被当成工作区，
     // 否则 workspaceRoot 会指向一个不是工作区的路径。
     expect(
@@ -353,6 +394,19 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: 'notes.md',
+      documentType: 'markdown',
+      workspaceRoot: null,
+      unsupportedPath: null
+    });
+
+    // 非 Markdown 的白名单文档同理。这一步不能交给 classifyPath ——
+    // 它只回答「目录还是文件」，答不出文档类型，report.pdf 会被判成 workspace。
+    expect(
+      parseLaunchArgs(['report.pdf'], { classifyPath: () => 'directory' })
+    ).toEqual({
+      mode: 'viewer',
+      filePath: 'report.pdf',
+      documentType: 'pdf',
       workspaceRoot: null,
       unsupportedPath: null
     });
@@ -368,6 +422,7 @@ describe('Launch Arguments Parser and Context', () => {
     ).toEqual({
       mode: 'lightweight',
       filePath: null,
+      documentType: null,
       workspaceRoot: null,
       unsupportedPath: null
     });

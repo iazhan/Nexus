@@ -62,6 +62,7 @@ function applyWorkspaceEnvOverride(context: LaunchContext): LaunchContext {
   return {
     mode: 'workspace',
     filePath: null,
+    documentType: null,
     workspaceRoot: fromEnv,
     unsupportedPath: null
   };

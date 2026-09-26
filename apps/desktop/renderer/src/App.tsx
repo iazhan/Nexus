@@ -6,7 +6,7 @@ import React, {
   useRef,
   useSyncExternalStore
 } from 'react';
-import type { FileDocument, Unsubscribe } from '@nexus/core';
+import type { DocumentType, FileDocument, Unsubscribe } from '@nexus/core';
 import {
   MarkdownDocumentSession,
   openSearchPanel,
@@ -158,6 +158,16 @@ export const App: React.FC = () => {
    * 文件树与索引在后续切片接入。
    */
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+
+  /**
+   * viewer 模式下打开的只读文档（pdf / docx / image）。
+   *
+   * 非 null 即代表当前处于只读查看态：不建立可编辑会话，也不占用标签页 ——
+   * Markdown source 仍是唯一可写事实源，查看器只是它的只读邻居。
+   */
+  const [viewerDocument, setViewerDocument] = useState<
+    { type: DocumentType; path: string } | null
+  >(null);
 
   /**
    * 活动栏（最左图标列）的布局状态。纯会话内状态，不持久化 ——
@@ -658,7 +668,19 @@ export const App: React.FC = () => {
         return;
       }
 
+      // viewer 模式：PDF / DOCX / 图片等非 Markdown 文档。
+      // 只读查看，不进可编辑会话 —— 这几类文档没有「source 与投影」的二分。
+      // 真正的渲染器在后续切片接入，这里先把模式与文档类型落到状态上。
+      if (ctx.mode === 'viewer' && ctx.filePath && ctx.documentType) {
+        setWorkspaceRoot(null);
+        setViewerDocument({ type: ctx.documentType, path: ctx.filePath });
+        initialContentRef.current = '';
+        setStatus('ready');
+        return;
+      }
+
       setWorkspaceRoot(null);
+      setViewerDocument(null);
 
       // If a file path was passed in context, load its content
       if (ctx.filePath) {
@@ -1579,9 +1601,26 @@ export const App: React.FC = () => {
             </div>
           </div>
         )}
+        {/* viewer 模式占位。P3-01 只落地「模式 + 文档类型」契约，真正的渲染器
+            （PDF.js / DOCX / 图片）在后续切片接入，这里如实说明当前状态。 */}
+        {status === 'ready' && viewerDocument && (
+          <div className="nexus-workspace-empty">
+            <span className="nexus-workspace-empty-title">
+              {t(`document.type.${viewerDocument.type}`)}
+            </span>
+            <code className="nexus-workspace-empty-path">
+              {viewerDocument.path}
+            </code>
+            <p className="nexus-workspace-empty-note">
+              {t('viewer.pending', {
+                type: t(`document.type.${viewerDocument.type}`)
+              })}
+            </p>
+          </div>
+        )}
         {/* 没有活动文档时的空态。workspace 模式下这是正常起点（从左侧挑一个文件），
             lightweight 模式下只会在启动的一瞬间出现。 */}
-        {status === 'ready' && !activeDocument && (
+        {status === 'ready' && !activeDocument && !viewerDocument && (
           <div className="nexus-workspace-empty">
             <span className="nexus-workspace-empty-title">{t('workspace.title')}</span>
             {workspaceRoot && (

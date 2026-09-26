@@ -5,6 +5,18 @@ export {
 } from './types/mode.js';
 
 export {
+  type DocumentType,
+  type ViewerDocumentType
+} from './document/types.js';
+
+export {
+  getPathExtension,
+  documentTypeForPath,
+  isMarkdownPath,
+  supportedDocumentExtensions
+} from './document/extensions.js';
+
+export {
   parseLaunchArgs,
   type ParseLaunchArgsOptions
 } from './launch/parser.js';
