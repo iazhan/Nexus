@@ -151,4 +151,40 @@ describe('保存时留版本历史', () => {
     );
     expect(afterRestore).toHaveLength(2);
   }, INDEXED_TEST_TIMEOUT_MS);
+
+  it('历史面板显示本机时间，而不是 UTC', async () => {
+    const documentPath = path.join(workspace, 'clock.md');
+    fs.writeFileSync(documentPath, '# 旧\n', 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: workspace });
+    const app = activeApp;
+    await app.waitForIndexReady();
+
+    await app.evaluate(`(() => {
+      const files = Array.from(document.querySelectorAll('.nexus-tree-file'));
+      files.find((el) => el.textContent?.includes('clock'))?.click();
+      return true;
+    })()`);
+    await app.waitForSelector('.cm-content', 20000);
+
+    // 保存新内容 → 旧内容进历史，面板里就有一条可显示的时间
+    await app.setSource('# 新\n');
+    const saved = await waitUntil(
+      () => fs.readFileSync(documentPath, 'utf8') === '# 新\n',
+      15000
+    );
+    expect(saved, '自动保存应当写进磁盘').toBe(true);
+
+    await app.click('.nexus-activity-icon[data-activity="history"]');
+    await app.waitForSelector('.nexus-history-time', 10000);
+
+    const text = await app.evaluate<string>(
+      `document.querySelector('.nexus-history-time')?.textContent ?? ''`
+    );
+
+    // 存储是 UTC，但显示必须是本机时间 `YYYY-MM-DD HH:mm`，不带时区后缀。
+    // 这条断言直接盯住「面板显示美国时间」这个 bug：旧实现会渲染成 `… 10:30 UTC`。
+    expect(text).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(text).not.toContain('UTC');
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

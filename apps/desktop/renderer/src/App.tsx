@@ -452,6 +452,10 @@ export const App: React.FC = () => {
           initialContentRef.current = currentSource;
           updateSaveState('saved');
           setSaveError(null);
+          // 保存会在覆盖前留一份历史（main 进程的 writeFile），历史面板的数据源因此变了。
+          // 这里 bump 一次让它重读 —— 面板始终挂载、切 activity 不触发重读，
+          // 否则保存那一刻产生的历史要等到用户下一次编辑才会出现。
+          setDocumentRevision((previous) => previous + 1);
           return true;
         }
 

@@ -3,6 +3,7 @@ import type { DiffLine, HistoryEntry } from '@nexus/core';
 import type { MarkdownDocumentSession } from '@nexus/editor';
 import { useLocale } from '../hooks.js';
 import { diffLines } from './line-diff.js';
+import { formatSavedAt } from './history-time.js';
 
 export interface HistoryPanelProps {
   /** 当前活动文档的绝对路径；null 表示没有活动文档 */
@@ -174,18 +175,3 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
     </div>
   );
 };
-
-/**
- * `20260926T103000` → `2026-09-26 10:30`（**UTC**）。
- *
- * 时间戳是 UTC 存的（见 `history-store.ts`：目录按字典序排序，本地时间在跨时区时
- * 字典序不等于时间序）。这里不做时区换算 —— 显示 UTC 是诚实的，
- * 换算成本地时间会让「文件名里的时间」和「界面上显示的时间」对不上，
- * 用户去 `.nexus/history/` 里找那一版时会困惑。
- */
-function formatSavedAt(savedAt: string): string {
-  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/.exec(savedAt);
-  if (!match) return savedAt;
-
-  return `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]} UTC`;
-}
