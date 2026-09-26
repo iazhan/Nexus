@@ -2,8 +2,11 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 工作区索引在**真实 Electron 主进程**里跑通（P2-05）。
@@ -19,7 +22,7 @@ describe('工作区索引（Electron 主进程）', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-index-e2e-'));
+    tempDir = createTempDir('nexus-index-e2e-');
     workspace = path.join(tempDir, 'vault');
     fs.mkdirSync(path.join(workspace, 'notes'), { recursive: true });
 

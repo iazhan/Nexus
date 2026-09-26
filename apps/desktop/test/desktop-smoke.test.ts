@@ -2,11 +2,14 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,7 +38,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
   beforeAll(() => {
     // Ensure temp dir for test files
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-smoke-'));
+    tempDir = createTempDir('nexus-smoke-');
   });
 
   afterEach(async () => {

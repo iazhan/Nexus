@@ -8,7 +8,8 @@ import type {
   WorkspaceScanResult,
   IndexedDocument,
   SearchHit,
-  IndexWorkspaceResult
+  IndexWorkspaceResult,
+  WorkspaceGraph
 } from '@nexus/core';
 import {
   IPC_CHANNELS,
@@ -108,6 +109,10 @@ const bridge: NexusBridge = {
 
   findDocumentsByTag: (tag: string): Promise<IndexedDocument[]> => {
     return ipcRenderer.invoke(IPC_CHANNELS.findDocumentsByTag, tag);
+  },
+
+  getGraph: (): Promise<WorkspaceGraph> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGraph);
   },
 
   watchFile: (filePath: string, listener: FileWatchListener): Unsubscribe => {

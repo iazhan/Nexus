@@ -79,6 +79,28 @@ export interface IndexWorkspaceResult {
   errors: string[];
 }
 
+/** 图谱里的一个节点 = 一篇文档。 */
+export interface GraphNode {
+  id: number;
+  /** 绝对路径。点击节点要拿它去打开文档，相对路径不够。 */
+  path: string;
+  relativePath: string;
+  name: string;
+  /** 关联的边数（出入合并计）。用来决定节点画多大。 */
+  degree: number;
+}
+
+/** 图谱里的一条边。**无向**：`A → B` 与 `B → A` 已合并。 */
+export interface GraphEdge {
+  source: number;
+  target: number;
+}
+
+export interface WorkspaceGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 /**
  * 文件监听事件，错误也通过事件显式传递给调用方。
  */

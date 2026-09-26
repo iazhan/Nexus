@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { extractWikiLinkTargets } from '../electron/indexer.js';
 import { IndexStore } from '../electron/index-store.js';
+import { createTempDir } from './smoke-harness.js';
 
 describe('出链提取', () => {
   it('提取 [[目标]]', () => {
@@ -41,7 +41,7 @@ describe('反向链接', () => {
   let store: IndexStore;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-backlink-'));
+    dir = createTempDir('nexus-backlink-');
     store = IndexStore.open(path.join(dir, 'index.db'));
   });
 

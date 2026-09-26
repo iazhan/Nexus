@@ -2,8 +2,11 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /** CDP Input.dispatchMouseEvent 的修饰键位掩码。 */
 const CTRL = 2;
@@ -32,7 +35,7 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-linknav-'));
+    tempDir = createTempDir('nexus-linknav-');
   });
 
   afterEach(async () => {

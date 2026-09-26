@@ -2,9 +2,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 import {
   launchElectronApp,
+  createTempDir,
   INDEXED_TEST_TIMEOUT_MS,
   type ElectronAppInstance
 } from './smoke-harness.js';
@@ -21,7 +21,7 @@ describe('标签面板', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-tags-e2e-'));
+    tempDir = createTempDir('nexus-tags-e2e-');
     workspace = path.join(tempDir, 'vault');
     fs.mkdirSync(workspace, { recursive: true });
 

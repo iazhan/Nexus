@@ -2,8 +2,11 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 插件面板。
@@ -18,7 +21,7 @@ describe('插件面板', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-plugins-'));
+    tempDir = createTempDir('nexus-plugins-');
     workspace = path.join(tempDir, 'vault');
     fs.mkdirSync(workspace, { recursive: true });
     // 刻意不放公式与 mermaid：两个扩展都该停留在「未加载」

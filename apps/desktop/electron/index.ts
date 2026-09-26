@@ -480,6 +480,10 @@ ipcMain.handle(IPC_CHANNELS.findDocumentsByTag, (event, tag: unknown) => {
   return getIndexStore(event.sender.id)?.findDocumentsByTag(tag) ?? [];
 });
 
+ipcMain.handle(IPC_CHANNELS.getGraph, (event) => {
+  return getIndexStore(event.sender.id)?.getGraph() ?? { nodes: [], edges: [] };
+});
+
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {

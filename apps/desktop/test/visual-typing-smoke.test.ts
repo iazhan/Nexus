@@ -1,8 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * Visual surface 逐字符输入验收：
@@ -10,7 +13,7 @@ import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js'
  * 校验 canonical source 保真，以及投影确实渲染出对应结构。
  */
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-visual-typing-'));
+const tempDir = createTempDir('nexus-visual-typing-');
 
 interface TypingCase {
   id: string;

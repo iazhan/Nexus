@@ -2,8 +2,11 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 const panelWidth = (app: ElectronAppInstance) =>
   app.evaluate<number>(
@@ -58,7 +61,7 @@ describe('侧栏宽度拖拽', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-resize-'));
+    tempDir = createTempDir('nexus-resize-');
     workspace = path.join(tempDir, 'vault');
     fs.mkdirSync(workspace, { recursive: true });
     fs.writeFileSync(path.join(workspace, 'a.md'), '# A\n\n正文。\n', 'utf-8');

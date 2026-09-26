@@ -2,9 +2,9 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 import {
   launchElectronApp,
+  createTempDir,
   readFileTolerant,
   type ElectronAppInstance
 } from './smoke-harness.js';
@@ -24,7 +24,7 @@ describe('Inline code in-place editing', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-inline-code-'));
+    tempDir = createTempDir('nexus-inline-code-');
   });
 
   afterEach(async () => {

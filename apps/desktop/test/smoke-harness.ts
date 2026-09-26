@@ -125,6 +125,39 @@ export interface CDPTarget {
 }
 
 /**
+ * 测试用的临时目录登记表。
+ *
+ * 直接 `fs.mkdtempSync` 的话很容易忘了删 —— 实测有 14 个测试文件从没清理过，
+ * `%TEMP%` 里积了 1400 个 `nexus-whitescreen-*`。而目录一多，
+ * `mkdtempSync` 本身就变慢，全量耗时会跟着涨。
+ *
+ * 所以统一走 `createTempDir()`，退出时一起删。
+ */
+const tempDirs = new Set<string>();
+
+process.on('exit', () => {
+  for (const dir of tempDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // 进程退出阶段删不掉不影响测试结果，别在这里抛
+    }
+  }
+  tempDirs.clear();
+});
+
+/**
+ * 建一个测试用的临时目录，退出时自动清理。
+ *
+ * 用它替代裸的 `fs.mkdtempSync(path.join(os.tmpdir(), prefix))`。
+ */
+export function createTempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.add(dir);
+  return dir;
+}
+
+/**
  * 等「索引跑完并渲染出文件树」的上限。
  *
  * 这是一次**很重的**等待：Electron 启动 → 侧栏挂载 → `rebuildIndex()`（扫盘 + 写 SQLite）
@@ -426,6 +459,43 @@ export class ElectronAppInstance {
         }`
       );
     }
+  }
+
+  /**
+   * 把编辑器内容整篇换成给定源码，光标回到开头并聚焦。
+   *
+   * ## 为什么用 dispatch 而不是模拟按键
+   *
+   * 要验的是**渲染结果**，不是键盘输入。一次事务替换整篇，比逐字敲快几个数量级，
+   * 而且不依赖输入法、窗口焦点、光标初始位置这些与断言无关的东西。
+   * 链路没有打折：仍然走 dispatch → 事务 → 装饰重算 → widget 渲染。
+   *
+   * 逐字输入本身另有专门的用例（visual-typing-smoke、autosave-caret-stability），
+   * 那两条验的就是输入过程，不该用这个方法替代。
+   *
+   * 光标重置到开头是必须的：CM 会把光标夹到新文档长度内，停在末尾的话，
+   * 依赖 `visualFocusField` 的 reveal 行为会和预期不同。
+   */
+  public async setSource(source: string): Promise<void> {
+    await this.evaluate(`(() => {
+      const view = window.nexusActiveView;
+      if (!view) throw new Error('window.nexusActiveView 不存在');
+
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: ${JSON.stringify(source)} },
+        selection: { anchor: 0, head: 0 }
+      });
+      view.focus();
+      return true;
+    })()`);
+
+    // 等 CM 重新测量。
+    //
+    // dispatch 之后 `lineBlockAt()` / `scrollSnapshot()` 要等**下一次测量**才准，
+    // 立刻读会拿到 0 —— 表现为「滚到某一行之后 scrollTop 还是 0」。
+    // 原来每个用例都是「启动前把文件写好」，CM 启动时就测量完了，所以没暴露这个问题；
+    // 改成运行时换源码之后必须有这一步。
+    await new Promise((resolve) => setTimeout(resolve, 600));
   }
 
   public async close(): Promise<void> {    try {

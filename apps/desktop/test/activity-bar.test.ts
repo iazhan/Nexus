@@ -2,9 +2,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 import {
   launchElectronApp,
+  createTempDir,
   INDEXED_TEST_TIMEOUT_MS,
   type ElectronAppInstance
 } from './smoke-harness.js';
@@ -33,7 +33,7 @@ describe('活动栏与侧栏面板', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-activity-'));
+    tempDir = createTempDir('nexus-activity-');
     workspace = path.join(tempDir, 'vault');
     fs.mkdirSync(workspace, { recursive: true });
     fs.writeFileSync(path.join(workspace, 'a.md'), '# A\n\n正文。\n', 'utf-8');
@@ -58,7 +58,7 @@ describe('活动栏与侧栏面板', () => {
     const app = activeApp;
     await app.waitForSelector('.nexus-activity-bar', 20000);
 
-    // 五个文档级入口 + 底部的设置
+    // 六个文档级入口 + 底部的设置
     const icons = await app.evaluate<string[]>(
       `Array.from(document.querySelectorAll('.nexus-activity-icon')).map((el) => el.getAttribute('data-activity'))`
     );
@@ -67,6 +67,7 @@ describe('活动栏与侧栏面板', () => {
       'outline',
       'search',
       'tags',
+      'graph',
       'extensions',
       'settings'
     ]);

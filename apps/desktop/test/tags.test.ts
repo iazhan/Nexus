@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { extractTags } from '../electron/indexer.js';
 import { IndexStore } from '../electron/index-store.js';
+import { createTempDir } from './smoke-harness.js';
 
 describe('标签提取', () => {
   it('提取 #标签', () => {
@@ -54,7 +54,7 @@ describe('标签索引', () => {
   let store: IndexStore;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-tags-'));
+    dir = createTempDir('nexus-tags-');
     store = IndexStore.open(path.join(dir, 'index.db'));
   });
 

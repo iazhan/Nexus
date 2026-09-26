@@ -2,8 +2,11 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /** 足够长，在任何窗口宽度下都必须软换行。 */
 const LONG_LINE = '这是一行很长的文字，用来验证软换行。'.repeat(40);
@@ -32,7 +35,7 @@ describe('长行软换行', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-wrap-'));
+    tempDir = createTempDir('nexus-wrap-');
     docPath = path.join(tempDir, 'long.md');
     fs.writeFileSync(docPath, DOC, 'utf-8');
   });

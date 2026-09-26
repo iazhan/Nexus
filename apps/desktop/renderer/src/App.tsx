@@ -39,6 +39,7 @@ import { OutlinePanel } from './workspace/OutlinePanel.js';
 import { SearchPanel } from './workspace/SearchPanel.js';
 import { PluginsPanel } from './workspace/PluginsPanel.js';
 import { TagsPanel } from './workspace/TagsPanel.js';
+import { GraphPanel } from './workspace/GraphPanel.js';
 import { QuickOpen } from './workspace/QuickOpen.js';
 import { resolveWikiLink } from './workspace/wikilink.js';
 import {
@@ -1500,6 +1501,18 @@ export const App: React.FC = () => {
             >
               {/* 标签来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
               <TagsPanel
+                onOpenFile={handleOpenWorkspaceFile}
+                revision={documentRevision}
+              />
+            </div>
+            <div
+              className={`nexus-panel-slot${
+                activity.activeId === 'graph' ? '' : ' nexus-panel-slot-hidden'
+              }`}
+            >
+              {/* 图谱来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
+              <GraphPanel
+                activeFilePath={filePath}
                 onOpenFile={handleOpenWorkspaceFile}
                 revision={documentRevision}
               />

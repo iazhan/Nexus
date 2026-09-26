@@ -2,8 +2,11 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 视觉模式下的 Mermaid 块。
@@ -20,7 +23,7 @@ describe('视觉模式 Mermaid 块', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-mermaid-visual-'));
+    tempDir = createTempDir('nexus-mermaid-visual-');
   });
 
   afterEach(async () => {

@@ -1,5 +1,5 @@
 import { Database } from 'node-sqlite3-wasm';
-import type { IndexedDocument, SearchHit } from '@nexus/core';
+import type { GraphEdge, IndexedDocument, SearchHit, WorkspaceGraph } from '@nexus/core';
 
 /**
  * 工作区索引的存储层。
@@ -403,6 +403,64 @@ export class IndexStore {
     );
 
     return rows.map(mapDocument);
+  }
+
+  /**
+   * 整个工作区的链接图：节点是文档，边是 wikilink。
+   *
+   * ## 边按**无向**合并
+   *
+   * `A → B` 与 `B → A` 只留一条。图谱是给人看全局形状的，双向箭头会把图读成一团麻；
+   * 「谁引用谁」在单篇文档的反向链接面板里已经有了。
+   *
+   * ## 目标名到文档的映射只取第一个
+   *
+   * 同名文件落在不同目录时（`notes/dma.md` 与 `archive/dma.md`），
+   * `[[dma]]` 该指向哪一篇是有歧义的（`resolveWikiLink` 会返回 ambiguous）。
+   * 图谱不做歧义提示 —— 那属于跳转时的决策，这里是概览。
+   */
+  getGraph(): WorkspaceGraph {
+    const documents = this.listDocuments();
+
+    // 目标名 → 文档 id。口径与 resolveWikiLink / findBacklinks 一致：
+    // 相对路径或文件名，都去掉 `.md` 并转小写。
+    const byTarget = new Map<string, number>();
+    for (const document of documents) {
+      for (const key of backlinkTargetsOf(document)) {
+        if (!byTarget.has(key)) byTarget.set(key, document.id);
+      }
+    }
+
+    const edges: GraphEdge[] = [];
+    const seen = new Set<string>();
+    const degree = new Map<number, number>();
+
+    for (const row of this.db.all(`SELECT source_id, target FROM links`)) {
+      const source = Number(row.source_id);
+      const target = byTarget.get(String(row.target));
+
+      // 指向不存在的文档（还没建）、自链接都不进图
+      if (target === undefined || target === source) continue;
+
+      const key = source < target ? `${source}:${target}` : `${target}:${source}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      edges.push({ source, target });
+      degree.set(source, (degree.get(source) ?? 0) + 1);
+      degree.set(target, (degree.get(target) ?? 0) + 1);
+    }
+
+    return {
+      nodes: documents.map((document) => ({
+        id: document.id,
+        path: document.path,
+        relativePath: document.relativePath,
+        name: document.name,
+        degree: degree.get(document.id) ?? 0
+      })),
+      edges
+    };
   }
 
   getStats(): IndexStats {

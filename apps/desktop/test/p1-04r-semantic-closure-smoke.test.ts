@@ -2,8 +2,11 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 // 1x1 transparent PNG binary
 const ONE_PIXEL_PNG = Buffer.from(
@@ -16,7 +19,7 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-smoke-p1-04r-'));
+    tempDir = createTempDir('nexus-smoke-p1-04r-');
   });
 
   afterEach(async () => {

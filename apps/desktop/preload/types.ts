@@ -6,7 +6,8 @@ import type {
   WorkspaceScanResult,
   IndexedDocument,
   SearchHit,
-  IndexWorkspaceResult
+  IndexWorkspaceResult,
+  WorkspaceGraph
 } from '@nexus/core';
 import type { WindowState } from '../ipc/channels.js';
 
@@ -52,6 +53,8 @@ export interface NexusBridge {
   listTags: () => Promise<Array<{ tag: string; count: number }>>;
   /** 带某个标签的文档。标签可以带 `#`、大小写随意，归一化在索引层做。 */
   findDocumentsByTag: (tag: string) => Promise<IndexedDocument[]>;
+  /** 整个工作区的链接图：文档为节点，wikilink 为无向边。 */
+  getGraph: () => Promise<WorkspaceGraph>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;

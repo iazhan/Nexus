@@ -1,9 +1,12 @@
 // @vitest-environment node
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 视觉模式下的公式就地编辑（真实 Electron）。
@@ -13,24 +16,48 @@ import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js'
  *
  * 这两条必须跑真实 Electron：激活手势挂在 mousedown 上，而 happy-dom 会在 CM 写 DOM
  * 选区时同步派发 selectionchange，让 CM 的 observer 重入 dispatch（真实浏览器是异步排队）。
+ *
+ * 五条用例共用一个窗口：它们验的都是**编辑器对公式的处理**，与文档内容无关，
+ * 换内容用 setSource 即可。重开一次窗口的代价是 Electron 启动 + 索引，比断言本身贵得多。
  */
 describe('视觉模式公式就地编辑', () => {
   let tempDir: string;
   let activeApp: ElectronAppInstance | null = null;
 
-  beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-math-inplace-'));
+  beforeAll(async () => {
+    tempDir = createTempDir('nexus-math-inplace-');
+    const docPath = path.join(tempDir, 'scratch.md');
+    fs.writeFileSync(docPath, '# 占位\n', 'utf-8');
+
+    activeApp = await launchElectronApp({ filePath: docPath });
+    await activeApp.waitForSelector('.cm-content', 20000);
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     if (activeApp) {
       await activeApp.close();
       activeApp = null;
     }
   });
 
+  // 每条用例从同一份初始源码开始，避免上一条的编辑与光标残留
+  beforeEach(async () => {
+    if (activeApp) await activeApp.setSource('# 占位\n');
+  });
+
+  /**
+   * 切到 Visual。
+   *
+   * 用「已经是就不切」而不是无脑 click：上一条用例可能已经停在 Visual，
+   * 再点一次会切回 Source，后面所有断言都会以「找不到 widget」的形式失败 ——
+   * 而报错指向断言，看不出真正原因是多切了一次。
+   */
   async function openVisual(app: ElectronAppInstance): Promise<void> {
-    await app.waitForSelector('.cm-content', 20000);
+    const current = await app.evaluate<string | null>(
+      `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
+    );
+    if (current === 'visual') return;
+
     await app.click('.nexus-surface-toggle');
     await app.waitForSelector('[data-surface-kind="visual"]', 20000);
   }
@@ -49,11 +76,8 @@ describe('视觉模式公式就地编辑', () => {
 
   it('行内公式：点渲染体露出源码，直接改，光标移出后回到渲染态', async () => {
     const source = '# 公式\n\n能量 $E = mc^2$ 守恒。\n';
-    const docPath = path.join(tempDir, 'inline-math.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource(source);
     await openVisual(app);
 
     // 渲染态：整节点 widget，没有源码 mark
@@ -90,11 +114,8 @@ describe('视觉模式公式就地编辑', () => {
 
   it('块级公式：源码与实时预览并存，改源码时预览跟着更新', async () => {
     const source = '# 块级公式\n\n$$\nE = mc^2\n$$\n\n后段正文。\n';
-    const docPath = path.join(tempDir, 'block-math.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource(source);
     await openVisual(app);
 
     // 渲染态：整块替换
@@ -154,11 +175,8 @@ describe('视觉模式公式就地编辑', () => {
       '',
       '公式下方第三行。'
     ].join('\n');
-    const docPath = path.join(tempDir, 'block-math-drift.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource(source);
     await openVisual(app);
 
     interface HitInfo {
@@ -216,11 +234,8 @@ describe('视觉模式公式就地编辑', () => {
     // 于是点击闭合行 `$$` 右侧的空白区会把光标贴到行尾 → 块立刻折叠回渲染体，
     // 用户看到的是"最后一行点不进去、一点就退出编辑"。首行左侧同理。
     const source = ['$$', 'E = mc^2', '$$', '', '后段正文。'].join('\n');
-    const docPath = path.join(tempDir, 'block-math-edges.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource(source);
     await openVisual(app);
 
     const isRevealed = async (): Promise<boolean> =>
@@ -281,11 +296,8 @@ describe('视觉模式公式就地编辑', () => {
     // **只会给有字符的行生成 span**——公式内部的空行一个字符都没有，于是没有底色，
     // 整条底纹被切成几段（视觉割裂）。修法是按行补一层只画底纹的行装饰。
     const source = ['# 公式', '', '$$', '', 'E = mc^2', '', '$$', '', '后段正文。'].join('\n');
-    const docPath = path.join(tempDir, 'block-math-band.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource(source);
     await openVisual(app);
 
     // 含空行的写法现在也是真正的块级公式——先确认它渲染了（而不是只画底纹的源码）

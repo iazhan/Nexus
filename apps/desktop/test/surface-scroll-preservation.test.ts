@@ -1,9 +1,12 @@
 // @vitest-environment node
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
-import { launchElectronApp, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * Surface 往返切换要保持"第一行可见位置"。
@@ -17,16 +20,44 @@ describe('Surface 切换保持滚动位置与光标', () => {
   let tempDir: string;
   let activeApp: ElectronAppInstance | null = null;
 
-  beforeAll(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-surface-scroll-'));
+  // 一个窗口跑完四条用例：它们验的都是「切换 surface 时的位置语义」，与文档内容无关，
+  // 换内容用 setSource 即可。重开一次窗口的代价是 Electron 启动 + 索引，比断言本身贵得多。
+  beforeAll(async () => {
+    tempDir = createTempDir('nexus-surface-scroll-');
+    const docPath = path.join(tempDir, 'surface-scroll.md');
+    fs.writeFileSync(docPath, '# 占位\n', 'utf-8');
+
+    activeApp = await launchElectronApp({ filePath: docPath });
+    await activeApp.waitForSelector('[data-surface-kind="source"]', 20000);
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     if (activeApp) {
       await activeApp.close();
       activeApp = null;
     }
   });
+
+  // 每条用例从同一份初始源码开始，避免上一条的编辑与滚动残留
+  beforeEach(async () => {
+    if (!activeApp) return;
+    await activeApp.setSource('# 占位\n');
+    // **surface 状态会跨用例残留** —— 上一条可能停在 Visual（比如「切换后保持光标」
+    // 那条就是在 Visual 结束的）。不复位的话，下一条等 source 会一直等不到，
+    // 报出来的是「等 selector 超时」，看不出真正原因是状态没归零。
+    await ensureSurface(activeApp, 'source');
+  });
+
+  /** 确保当前 surface 是目标；已经是就不动（多切一次会改变 scrollTop 等状态）。 */
+  async function ensureSurface(app: ElectronAppInstance, target: string): Promise<void> {
+    const current = await app.evaluate<string | null>(
+      `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
+    );
+    if (current === target) return;
+
+    await app.click('.nexus-surface-toggle');
+    await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
+  }
 
   interface ViewportProbe {
     surface: string | null;
@@ -101,11 +132,8 @@ describe('Surface 切换保持滚动位置与光标', () => {
       '',
       after
     ].join('\n');
-    const docPath = path.join(tempDir, 'surface-scroll.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource(source);
     await app.waitForSelector('[data-surface-kind="source"]', 20000);
 
     // 滚到表格/代码块之后的中段
@@ -145,11 +173,8 @@ describe('Surface 切换保持滚动位置与光标', () => {
   it('keeps the caret offset across a surface switch', async () => {
     const body = Array.from({ length: 40 }, (_, i) => `正文第 ${i + 1} 行。`).join('\n\n');
     const source = ['# 光标保持', '', body, '', '末尾一段。'].join('\n');
-    const docPath = path.join(tempDir, 'surface-caret.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource(source);
     await app.waitForSelector('[data-surface-kind="source"]', 20000);
 
     const caret = source.indexOf('正文第 25 行') + 3;
@@ -207,11 +232,8 @@ describe('Surface 切换保持滚动位置与光标', () => {
       '',
       body
     ].join('\n');
-    const docPath = path.join(tempDir, 'surface-drift.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource(source);
     await app.waitForSelector('[data-surface-kind="source"]', 20000);
 
     await scrollToLine(app, '段落第 150 行');
@@ -248,11 +270,8 @@ describe('Surface 切换保持滚动位置与光标', () => {
     // 宿主的全局快捷键挂在 window 上、开头是 `if (e.defaultPrevented) return;`，
     // 而 CM 的 keymap 挂在 contentDOM 上先跑——编辑器聚焦时 Ctrl+M 会被 CM 吞掉，
     // 表现为"这个快捷键只在编辑器没聚焦时有效"。这条守"聚焦状态下 Mod-M 依然生效"。
-    const docPath = path.join(tempDir, 'modm-focused.md');
-    fs.writeFileSync(docPath, '# Mod-M\n\n正文。\n', 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = activeApp!;
+    await app.setSource('# Mod-M\n\n正文。\n');
     await app.waitForSelector('[data-surface-kind="source"]', 20000);
 
     // 明确让编辑器拿到焦点

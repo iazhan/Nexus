@@ -709,6 +709,25 @@ body.nexus-resizing {
   list-style: none;
 }
 
+.nexus-graph {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Canvas 撑满剩余空间。像素尺寸由 ResizeObserver 驱动，
+   这里只负责让它占满 —— 两者都设的话会互相打架。 */
+.nexus-graph-canvas {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  cursor: pointer;
+}
+
 .nexus-search {
   display: flex;
   flex-direction: column;

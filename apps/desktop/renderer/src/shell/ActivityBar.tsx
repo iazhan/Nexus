@@ -53,6 +53,15 @@ const TagsIcon = (
   </svg>
 );
 
+const GraphIcon = (
+  <svg {...ICON_PROPS}>
+    <circle cx="6" cy="6" r="2.4" />
+    <circle cx="18" cy="8" r="2.4" />
+    <circle cx="11" cy="18" r="2.4" />
+    <path d="M8.1 7 15.9 7.7M7.2 8.2l2.7 7.6M16.6 10.2l-4.1 5.6" />
+  </svg>
+);
+
 const ExtensionsIcon = (
   <svg {...ICON_PROPS}>
     <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -74,6 +83,7 @@ const ACTIVITY_ITEMS: ReadonlyArray<{ id: ActivityId; labelKey: string; icon: Re
   { id: 'outline', labelKey: 'activity.outline', icon: OutlineIcon },
   { id: 'search', labelKey: 'activity.search', icon: SearchIcon },
   { id: 'tags', labelKey: 'activity.tags', icon: TagsIcon },
+  { id: 'graph', labelKey: 'activity.graph', icon: GraphIcon },
   { id: 'extensions', labelKey: 'activity.extensions', icon: ExtensionsIcon }
 ];
 
