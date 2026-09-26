@@ -274,6 +274,10 @@ const SKIPPED_DIRECTORY_NAMES = new Set([
   '.hg',
   '.obsidian',
   '.trash',
+  // 本应用自己的元数据目录。版本历史存在 `.nexus/history/` 下，
+  // 里面的 `.md` 是**快照**不是文档 —— 不排除的话它们会被索引成文档、
+  // 还会出现在文件树里。
+  '.nexus',
   'dist',
   'out',
   'build',
