@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import {
@@ -34,16 +34,60 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
   let tempDir: string;
   let activeApp: ElectronAppInstance | null = null;
 
-  beforeAll(() => {
+  /**
+   * 共享窗口：给「换内容换断言」的用例复用。
+   *
+   * 这批用例验的都是**链接导航的行为**（跳标题、跳相对路径、协议拦截、提示），
+   * 与「打开的是哪个文件」无关 —— 换内容用 `setSource` 即可。
+   *
+   * **例外**：「Ctrl+点击相对链接打开另一篇文档」那条需要目标文件真实存在，
+   * 用的是另一份文档（`mainPath`），所以它仍自己起窗口。
+   */
+  let sharedApp: ElectronAppInstance | null = null;
+
+  beforeAll(async () => {
     tempDir = createTempDir('nexus-linknav-');
+
+    const sharedDoc = path.join(tempDir, 'shared.md');
+    fs.writeFileSync(sharedDoc, '# 占位\n', 'utf-8');
+
+    sharedApp = await launchElectronApp({ filePath: sharedDoc });
+    await sharedApp.waitForSelector('.cm-content', 20000);
+  });
+
+  afterAll(async () => {
+    if (sharedApp) {
+      await sharedApp.close();
+      sharedApp = null;
+    }
+  });
+
+  // 每条用例从干净状态开始：源码清空 + surface 回到 Source。
+  // 不复位 surface 的话，上一条停在 Visual，下一条的「切到 Visual」会把它切回去。
+  beforeEach(async () => {
+    if (!sharedApp) return;
+    await sharedApp.setSource('# 占位\n');
+    await ensureSurface(sharedApp, 'source');
   });
 
   afterEach(async () => {
-    if (activeApp) {
+    // 只关「自己起的窗口」，共享窗口留给 afterAll
+    if (activeApp && activeApp !== sharedApp) {
       await activeApp.close();
-      activeApp = null;
     }
+    activeApp = null;
   });
+
+  /** 确保当前 surface 是目标；已经是就不动（多切一次会改变滚动等状态）。 */
+  async function ensureSurface(app: ElectronAppInstance, target: string): Promise<void> {
+    const current = await app.evaluate<string | null>(
+      `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
+    );
+    if (current === target) return;
+
+    await app.click('.nexus-surface-toggle');
+    await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
+  }
 
   async function snapshot(app: ElectronAppInstance): Promise<AppSnapshot> {
     return app.evaluate<AppSnapshot>(`(() => {
@@ -60,12 +104,12 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
   }
 
   async function openInVisualMode(app: ElectronAppInstance): Promise<void> {
-    await app.waitForSelector('.cm-content', 20000);
-    await app.click('.nexus-surface-toggle');
-    await app.waitForSelector('[data-surface-kind="visual"]', 20000);
+    await ensureSurface(app, 'visual');
   }
 
   it('clears the document on Ctrl+N and drops the file binding', async () => {
+    // 这条用独立窗口：它会**解绑文件**（那正是被测行为），而共享窗口的后续用例
+    // 要断言文件名 —— 状态恢复不回来，setSource 只换内容、不会重新绑定文件。
     const docPath = path.join(tempDir, 'ctrl-n.md');
     fs.writeFileSync(docPath, '# Ctrl N 起点\n\n有内容。\n', 'utf-8');
 
@@ -101,11 +145,8 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
       '',
       '正文。'
     ].join('\n');
-    const docPath = path.join(tempDir, 'anchor.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = sharedApp!;
+    await app.setSource(source);
     await openInVisualMode(app);
 
     const expected = source.indexOf('## 目标小节');
@@ -207,11 +248,8 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
       '',
       trailing
     ].join('\n');
-    const docPath = path.join(tempDir, 'long-jump.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = sharedApp!;
+    await app.setSource(source);
     await openInVisualMode(app);
 
     const targetOffset = source.indexOf('## 中段小节');
@@ -264,11 +302,8 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
       '',
       trailing
     ].join('\n');
-    const docPath = path.join(tempDir, 'long-jump-h1.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = sharedApp!;
+    await app.setSource(source);
     await openInVisualMode(app);
 
     const targetOffset = source.indexOf('# 一级标题');
@@ -303,11 +338,8 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
       '',
       '尾巴二。'
     ].join('\n');
-    const docPath = path.join(tempDir, 'clamped-jump.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = sharedApp!;
+    await app.setSource(source);
     await openInVisualMode(app);
 
     const targetOffset = source.indexOf('## 末尾小节');
@@ -367,11 +399,14 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
 
   it('ignores Ctrl+click on a blocked-protocol link', async () => {
     const source = '# 危险链接\n\n[x](javascript:alert(1))\n';
+    // 断言里带着文件名（要确认打开的仍是这一篇），所以用独立窗口 ——
+    // 共享窗口叫 shared.md，文件名对不上。
     const docPath = path.join(tempDir, 'blocked.md');
     fs.writeFileSync(docPath, source, 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: docPath });
     const app = activeApp;
+    await app.waitForSelector('.cm-content', 20000);
     await openInVisualMode(app);
 
     await app.mouseClick('.cm-visual-link-blocked', CTRL);
@@ -383,12 +418,8 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
   }, 90000);
 
   it('rejects non-whitelisted protocols at the main-process boundary', async () => {
-    const docPath = path.join(tempDir, 'ipc-guard.md');
-    fs.writeFileSync(docPath, '# IPC 协议白名单\n', 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
-    await app.waitForSelector('.cm-content', 20000);
+    const app = sharedApp!;
+    await app.setSource('# IPC 协议白名单\n');
 
     // 只验被拒的那一侧。白名单内的 https/mailto 会真的拉起系统程序，
     // 测试里绝不能触发——那是不可接受的副作用。
@@ -415,11 +446,13 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
 
   it('surfaces a visible notice when the linked file does not exist', async () => {
     const source = '# 断链\n\n[缺失的文件](./does-not-exist.md)\n';
+    // 同上：断言文件名，需要自己的窗口
     const docPath = path.join(tempDir, 'missing-link.md');
     fs.writeFileSync(docPath, source, 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: docPath });
     const app = activeApp;
+    await app.waitForSelector('.cm-content', 20000);
     await openInVisualMode(app);
 
     await app.mouseClick('.cm-visual-link', CTRL);
@@ -442,11 +475,8 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
 
   it('surfaces a visible notice when an anchor matches no heading', async () => {
     const source = '# 标题\n\n[跳到不存在的地方](#nope)\n';
-    const docPath = path.join(tempDir, 'bad-anchor.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = sharedApp!;
+    await app.setSource(source);
     await openInVisualMode(app);
 
     await app.mouseClick('.cm-visual-link', CTRL);
@@ -465,11 +495,8 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
 
   it('keeps the link text editable on a plain click in Visual mode', async () => {
     const source = '# 普通点击\n\n[可编辑文字](https://example.com)\n';
-    const docPath = path.join(tempDir, 'plain-click.md');
-    fs.writeFileSync(docPath, source, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: docPath });
-    const app = activeApp;
+    const app = sharedApp!;
+    await app.setSource(source);
     await openInVisualMode(app);
 
     await app.mouseClick('.cm-visual-link');
