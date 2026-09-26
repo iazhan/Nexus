@@ -40,6 +40,7 @@ import { SearchPanel } from './workspace/SearchPanel.js';
 import { PluginsPanel } from './workspace/PluginsPanel.js';
 import { TagsPanel } from './workspace/TagsPanel.js';
 import { GraphPanel } from './workspace/GraphPanel.js';
+import { HistoryPanel } from './workspace/HistoryPanel.js';
 import { QuickOpen } from './workspace/QuickOpen.js';
 import { resolveWikiLink } from './workspace/wikilink.js';
 import {
@@ -1514,6 +1515,19 @@ export const App: React.FC = () => {
               <GraphPanel
                 activeFilePath={filePath}
                 onOpenFile={handleOpenWorkspaceFile}
+                revision={documentRevision}
+              />
+            </div>
+            <div
+              className={`nexus-panel-slot${
+                activity.activeId === 'history' ? '' : ' nexus-panel-slot-hidden'
+              }`}
+            >
+              {/* 历史面板要拿当前内容做对比，所以把 session 也传进去 */}
+              <HistoryPanel
+                filePath={filePath}
+                session={activeDocument ? session : null}
+                onRestored={handleIndexed}
                 revision={documentRevision}
               />
             </div>

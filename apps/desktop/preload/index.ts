@@ -9,7 +9,8 @@ import type {
   IndexedDocument,
   SearchHit,
   IndexWorkspaceResult,
-  WorkspaceGraph
+  WorkspaceGraph,
+  HistoryEntry
 } from '@nexus/core';
 import {
   IPC_CHANNELS,
@@ -113,6 +114,18 @@ const bridge: NexusBridge = {
 
   getGraph: (): Promise<WorkspaceGraph> => {
     return ipcRenderer.invoke(IPC_CHANNELS.getGraph);
+  },
+
+  listHistory: (documentPath: string): Promise<HistoryEntry[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.listHistory, documentPath);
+  },
+
+  readHistory: (documentPath: string, entry: HistoryEntry): Promise<string> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.readHistory, documentPath, entry);
+  },
+
+  restoreHistory: (documentPath: string, entry: HistoryEntry): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.restoreHistory, documentPath, entry);
   },
 
   watchFile: (filePath: string, listener: FileWatchListener): Unsubscribe => {

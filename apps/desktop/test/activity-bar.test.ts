@@ -58,7 +58,7 @@ describe('活动栏与侧栏面板', () => {
     const app = activeApp;
     await app.waitForSelector('.nexus-activity-bar', 20000);
 
-    // 六个文档级入口 + 底部的设置
+    // 七个文档级入口 + 底部的设置
     const icons = await app.evaluate<string[]>(
       `Array.from(document.querySelectorAll('.nexus-activity-icon')).map((el) => el.getAttribute('data-activity'))`
     );
@@ -68,6 +68,7 @@ describe('活动栏与侧栏面板', () => {
       'search',
       'tags',
       'graph',
+      'history',
       'extensions',
       'settings'
     ]);

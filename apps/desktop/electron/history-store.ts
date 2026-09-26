@@ -1,17 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import type { HistoryEntry } from '@nexus/core';
 
 /** 历史目录相对工作区根的位置。 */
 export const HISTORY_DIR = '.nexus/history';
-
-export interface HistoryEntry {
-  /** 保存时刻，来自文件名（`YYYYMMDDTHHMMSS`） */
-  savedAt: string;
-  /** 内容哈希前 8 位，用于识别与去重 */
-  hash: string;
-  sizeBytes: number;
-}
 
 /**
  * 文档版本历史。

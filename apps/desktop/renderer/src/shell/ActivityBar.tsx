@@ -62,6 +62,14 @@ const GraphIcon = (
   </svg>
 );
 
+const HistoryIcon = (
+  <svg {...ICON_PROPS}>
+    <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" />
+    <path d="M3 4.5V9h4.5" />
+    <path d="M12 7.5V12l3 2" />
+  </svg>
+);
+
 const ExtensionsIcon = (
   <svg {...ICON_PROPS}>
     <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -84,6 +92,7 @@ const ACTIVITY_ITEMS: ReadonlyArray<{ id: ActivityId; labelKey: string; icon: Re
   { id: 'search', labelKey: 'activity.search', icon: SearchIcon },
   { id: 'tags', labelKey: 'activity.tags', icon: TagsIcon },
   { id: 'graph', labelKey: 'activity.graph', icon: GraphIcon },
+  { id: 'history', labelKey: 'activity.history', icon: HistoryIcon },
   { id: 'extensions', labelKey: 'activity.extensions', icon: ExtensionsIcon }
 ];
 

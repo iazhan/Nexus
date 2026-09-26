@@ -7,7 +7,8 @@ import type {
   IndexedDocument,
   SearchHit,
   IndexWorkspaceResult,
-  WorkspaceGraph
+  WorkspaceGraph,
+  HistoryEntry
 } from '@nexus/core';
 import type { WindowState } from '../ipc/channels.js';
 
@@ -55,6 +56,17 @@ export interface NexusBridge {
   findDocumentsByTag: (tag: string) => Promise<IndexedDocument[]>;
   /** 整个工作区的链接图：文档为节点，wikilink 为无向边。 */
   getGraph: () => Promise<WorkspaceGraph>;
+  /** 某文档的历史版本，**新的在前**。没有历史时返回空数组。 */
+  listHistory: (documentPath: string) => Promise<HistoryEntry[]>;
+  /** 读某一版的内容。条目不存在时抛错，不返回空字符串。 */
+  readHistory: (documentPath: string, entry: HistoryEntry) => Promise<string>;
+  /**
+   * 把某一版写回文档。
+   *
+   * **恢复本身是可逆的**：覆盖之前会把当前内容也留一份历史，
+   * 所以恢复了不该恢复的版本时还能找回来。
+   */
+  restoreHistory: (documentPath: string, entry: HistoryEntry) => Promise<void>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;

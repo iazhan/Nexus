@@ -104,4 +104,51 @@ describe('保存时留版本历史', () => {
     const historyDirectory = path.join(workspace, '.nexus', 'history', 'stable.md');
     expect(fs.existsSync(historyDirectory)).toBe(false);
   }, INDEXED_TEST_TIMEOUT_MS);
+
+  it('恢复历史版本，且恢复本身可逆', async () => {
+    const documentPath = path.join(workspace, 'restore.md');
+    fs.writeFileSync(documentPath, '# 版本一\n', 'utf8');
+
+    activeApp = await launchElectronApp({ filePath: workspace });
+    const app = activeApp;
+    await app.waitForIndexReady();
+
+    await app.evaluate(`(() => {
+      const files = Array.from(document.querySelectorAll('.nexus-tree-file'));
+      files.find((el) => el.textContent?.includes('restore'))?.click();
+      return true;
+    })()`);
+    await app.waitForSelector('.cm-content', 20000);
+
+    // 改成版本二 → 版本一进历史
+    await app.setSource('# 版本二\n');
+    const saved = await waitUntil(
+      () => fs.readFileSync(documentPath, 'utf8') === '# 版本二\n',
+      15000
+    );
+    expect(saved, '自动保存应当写进磁盘').toBe(true);
+
+    const entries = await app.evaluate<Array<{ savedAt: string; hash: string }>>(
+      `window.nexus.listHistory(${JSON.stringify(documentPath)})`
+    );
+    expect(entries).toHaveLength(1);
+
+    // 恢复到版本一
+    await app.evaluate(
+      `window.nexus.restoreHistory(${JSON.stringify(documentPath)}, ${JSON.stringify(entries[0])})`
+    );
+
+    const restored = await waitUntil(
+      () => fs.readFileSync(documentPath, 'utf8') === '# 版本一\n',
+      10000
+    );
+    expect(restored, '恢复应当把旧版本写回磁盘').toBe(true);
+
+    // **关键**：恢复前的内容也进了历史，所以这一步是可逆的。
+    // 少了这个，用户恢复错版本就永久丢掉了恢复前的内容。
+    const afterRestore = await app.evaluate<Array<{ savedAt: string; hash: string }>>(
+      `window.nexus.listHistory(${JSON.stringify(documentPath)})`
+    );
+    expect(afterRestore).toHaveLength(2);
+  }, INDEXED_TEST_TIMEOUT_MS);
 });

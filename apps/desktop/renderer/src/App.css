@@ -728,6 +728,129 @@ body.nexus-resizing {
   cursor: pointer;
 }
 
+.nexus-history {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.nexus-history-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.nexus-history-item:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-history-item-active {
+  background-color: var(--nexus-bg-surface-active);
+}
+
+.nexus-history-time {
+  color: var(--nexus-text-primary);
+  white-space: nowrap;
+}
+
+.nexus-history-hash {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--nexus-text-muted);
+}
+
+/* 差异区占剩余空间并自己滚，免得把版本列表挤没 */
+.nexus-history-diff {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-history-restore {
+  padding: 2px 8px;
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.nexus-history-restore:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-history-diff-lines {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  list-style: none;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.nexus-history-diff-lines > li {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 这里是 **diff 的通用配色**（红=删除、绿=新增），
+   不是本项目的股票涨跌配色约定 —— 两者语义相反，别混。 */
+.nexus-diff-added {
+  background-color: rgba(46, 160, 67, 0.12);
+}
+
+.nexus-diff-removed {
+  background-color: rgba(248, 81, 73, 0.12);
+}
+
+.nexus-diff-same {
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-diff-marker {
+  flex: 0 0 auto;
+  width: 8px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-diff-added .nexus-diff-marker {
+  color: #2ea043;
+}
+
+.nexus-diff-removed .nexus-diff-marker {
+  color: #f85149;
+}
+
+.nexus-diff-text {
+  flex: 1;
+  min-width: 0;
+}
+
 .nexus-search {
   display: flex;
   flex-direction: column;

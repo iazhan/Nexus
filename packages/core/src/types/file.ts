@@ -102,6 +102,28 @@ export interface WorkspaceGraph {
 }
 
 /**
+ * 版本历史里的一条快照。
+ *
+ * 定义在 core 而不是 main 进程的 `history-store.ts` —— preload 要把它作为
+ * IPC 参数类型传给渲染进程，跨进程类型不能住在一侧的实现文件里。
+ */
+export interface HistoryEntry {
+  /** 保存时刻，来自文件名（`YYYYMMDDTHHMMSS`，UTC） */
+  savedAt: string;
+  /** 内容哈希前 8 位，用于识别与去重 */
+  hash: string;
+  sizeBytes: number;
+}
+
+/** 差异里一行的性质。 */
+export type DiffLineKind = 'same' | 'added' | 'removed';
+
+export interface DiffLine {
+  kind: DiffLineKind;
+  text: string;
+}
+
+/**
  * 文件监听事件，错误也通过事件显式传递给调用方。
  */
 export type FileWatchEvent =

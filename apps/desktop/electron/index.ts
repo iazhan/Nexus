@@ -7,6 +7,7 @@ import {
   parseLaunchArgs,
   type LaunchContext,
   type FileWatchEvent,
+  type HistoryEntry,
   type Unsubscribe
 } from '@nexus/core';
 import { createHash } from 'node:crypto';
@@ -292,6 +293,74 @@ function recordHistory(session: WebContentsSession, filePath: string, content: s
     console.error('[Nexus Shell] 留历史快照失败（不影响保存）:', err);
   }
 }
+
+/**
+ * 从 IPC 事件推出「工作区根 + 文档相对路径」。
+ *
+ * 三个历史相关的 handler 都要这一步，抽出来免得各写一遍 ——
+ * 而且「不在工作区内就返回 null」这条判断只该有一处。
+ */
+function historyTarget(
+  event: Electron.IpcMainInvokeEvent,
+  documentPath: unknown
+): { session: WebContentsSession; root: string; relativePath: string } | null {
+  if (typeof documentPath !== 'string' || documentPath.length === 0) return null;
+
+  const session = getOrCreateSession(event.sender);
+  const root = session.workspaceRoot;
+  if (!root) return null;
+
+  const relativePath = path.relative(root, documentPath).replace(/\\/g, '/');
+  if (!relativePath || relativePath.startsWith('..')) return null;
+
+  return { session, root, relativePath };
+}
+
+/** 参数不是合法条目时抛错 —— 静默返回空数组会让 UI 显示「没有历史」。 */
+function requireEntry(value: unknown): HistoryEntry {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('历史条目格式不正确');
+  }
+
+  const entry = value as Partial<HistoryEntry>;
+  if (typeof entry.savedAt !== 'string' || typeof entry.hash !== 'string') {
+    throw new Error('历史条目缺少 savedAt / hash');
+  }
+
+  return { savedAt: entry.savedAt, hash: entry.hash, sizeBytes: entry.sizeBytes ?? 0 };
+}
+
+ipcMain.handle(IPC_CHANNELS.listHistory, (event, documentPath: unknown) => {
+  const target = historyTarget(event, documentPath);
+  if (!target) return [];
+
+  return new HistoryStore(target.root).list(target.relativePath);
+});
+
+ipcMain.handle(IPC_CHANNELS.readHistory, (event, documentPath: unknown, entry: unknown) => {
+  const target = historyTarget(event, documentPath);
+  if (!target) throw new Error('readHistory: 文档不在工作区内');
+
+  return new HistoryStore(target.root).read(target.relativePath, requireEntry(entry));
+});
+
+ipcMain.handle(
+  IPC_CHANNELS.restoreHistory,
+  async (event, documentPath: unknown, entry: unknown) => {
+    const target = historyTarget(event, documentPath);
+    if (!target) throw new Error('restoreHistory: 文档不在工作区内');
+
+    const { session, root, relativePath } = target;
+    const content = new HistoryStore(root).read(relativePath, requireEntry(entry));
+
+    // **覆盖之前把当前内容也留一份** —— 恢复因此是可逆的：
+    // 万一恢复了不该恢复的版本，用户还能从历史里把恢复前的内容找回来。
+    // 这里复用保存路径的同一个函数，语义完全一致。
+    recordHistory(session, documentPath as string, content);
+
+    await session.service.writeFile(documentPath as string, content);
+  }
+);
 
 function getOrCreateSession(webContents: Electron.WebContents): WebContentsSession {
   let session = sessions.get(webContents.id);
