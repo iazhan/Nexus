@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -36,17 +36,65 @@ describe('Desktop Smoke Test (P1-04F)', () => {
   let tempDir: string;
   let activeApp: ElectronAppInstance | null = null;
 
-  beforeAll(() => {
+  /**
+   * 共享窗口：给「换内容换断言」的用例复用。
+   *
+   * 这些用例验的是**编辑器对内容的处理**（渲染、往返编辑、快捷键、扩展按需加载），
+   * 与「打开哪个文件」无关 —— 换内容用 `setSource` 就行，不必重开窗口。
+   * 重开一次的代价是 Electron 启动 + 索引，约 5 秒。
+   *
+   * **不适用**于这几类：验启动参数本身的（Lightweight 打开某路径）、
+   * 依赖持久化状态的（自动保存 / 冲突 / 只读）、必须重启或关窗的（第 9、10 条）。
+   * 它们各自起窗口，用 `activeApp`。
+   */
+  let sharedApp: ElectronAppInstance | null = null;
+  /** 共享窗口打开的那份文档；断言自动保存时要读它 */
+  let sharedDocPath = '';
+
+  beforeAll(async () => {
     // Ensure temp dir for test files
     tempDir = createTempDir('nexus-smoke-');
+
+    const sharedDoc = path.join(tempDir, 'shared.md');
+    fs.writeFileSync(sharedDoc, '# 占位\n', 'utf-8');
+    sharedDocPath = sharedDoc;
+
+    sharedApp = await launchElectronApp({ filePath: sharedDoc });
+    await sharedApp.waitForSelector('.cm-content', 20000);
   });
 
   afterEach(async () => {
-    if (activeApp) {
+    // 只关「自己起的窗口」。共享窗口留给 afterAll，否则下一条用例就没窗口可用了。
+    if (activeApp && activeApp !== sharedApp) {
       await activeApp.close();
-      activeApp = null;
+    }
+    activeApp = null;
+
+    // 共享窗口要归零：源码清空、surface 回到 Source。
+    // 不复位 surface 的话，上一条停在 Visual，下一条的「切到 Visual」会把它切回 Source。
+    if (sharedApp) {
+      await sharedApp.setSource('# 占位\n');
+      await ensureSurface(sharedApp, 'source');
     }
   });
+
+  afterAll(async () => {
+    if (sharedApp) {
+      await sharedApp.close();
+      sharedApp = null;
+    }
+  });
+
+  /** 确保当前 surface 是目标；已经是就不动（多切一次会改变滚动等状态）。 */
+  async function ensureSurface(app: ElectronAppInstance, target: string): Promise<void> {
+    const current = await app.evaluate<string | null>(
+      `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
+    );
+    if (current === target) return;
+
+    await app.click('.nexus-surface-toggle');
+    await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
+  }
 
   it('1. launches a Markdown file into Lightweight Mode within 2s, displaying filename', async () => {
     const testFile = path.join(tempDir, 'sample-launch.md');
@@ -97,7 +145,6 @@ describe('Desktop Smoke Test (P1-04F)', () => {
   }, 25000);
 
   it('3. renders long content, code blocks, relative images, math, and mermaid in Visual mode', async () => {
-    const richFile = path.join(tempDir, 'rich-document.md');
     const lines: string[] = [
       '# Rich Document',
       '',
@@ -125,14 +172,12 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     for (let i = 1; i <= 100; i++) {
       lines.push(`Paragraph line ${i} with some descriptive text.`);
     }
-    fs.writeFileSync(richFile, lines.join('\n'), 'utf-8');
 
-    activeApp = await launchElectronApp({ filePath: richFile });
-    await activeApp.waitForSelector('.cm-content', 15000);
+    activeApp = sharedApp;
+    await activeApp.setSource(lines.join('\n'));
 
     // Switch to Visual mode
-    await activeApp.click('.nexus-surface-toggle');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
+    await ensureSurface(activeApp, 'visual');
 
     // Verify visual widgets rendered
     await activeApp.waitForSelector('.cm-visual-code-block', 15000);
@@ -149,15 +194,8 @@ describe('Desktop Smoke Test (P1-04F)', () => {
   }, 25000);
 
   it('4. performs Source and Visual edits on the same document and verifies canonical round-trip', async () => {
-    const editFile = path.join(tempDir, 'edit-roundtrip.md');
-    fs.writeFileSync(
-      editFile,
-      '# Original Title\n\n```text\nBody paragraph.\n```\n',
-      'utf-8'
-    );
-
-    activeApp = await launchElectronApp({ filePath: editFile });
-    await activeApp.waitForSelector('.cm-content', 15000);
+    activeApp = sharedApp;
+    await activeApp.setSource('# Original Title\n\n```text\nBody paragraph.\n```\n');
 
     // Source edit: use the real active EditorView transaction, not a synthetic DOM event.
     await activeApp.evaluate(`(() => {
@@ -201,7 +239,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       `() => document.querySelector('.status-text')?.textContent?.includes('Saved')`,
       10000
     );
-    expect(fs.readFileSync(editFile, 'utf-8')).toContain('Visual body edit.');
+    expect(fs.readFileSync(sharedDocPath, 'utf-8')).toContain('Visual body edit.');
   }, 25000);
 
   it('5. auto-saves with debounce and atomic write, preserving CRLF line endings', async () => {
@@ -373,11 +411,8 @@ describe('Desktop Smoke Test (P1-04F)', () => {
   }, 30000);
 
   it('8. supports keyboard shortcuts: Mod-M toggle surface, Mod-F find', async () => {
-    const kbFile = path.join(tempDir, 'keyboard-test.md');
-    fs.writeFileSync(kbFile, '# Keyboard Test\n\nParagraph text.', 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: kbFile });
-    await activeApp.waitForSelector('.cm-content', 15000);
+    activeApp = sharedApp;
+    await activeApp.setSource('# Keyboard Test\n\nParagraph text.');
 
     // Mod-M toggles to Visual
     await activeApp.pressKey('m', { ctrl: true });
@@ -459,12 +494,9 @@ describe('Desktop Smoke Test (P1-04F)', () => {
   }, 25000);
 
   it('11. allows ordinary Markdown editing in a document that contains math', async () => {
-    const mathDoc = path.join(tempDir, 'math-degrade.md');
     const content = '# Math Degradation Test\n\nFormula: $E = mc^2$\n\nStandard paragraph here.';
-    fs.writeFileSync(mathDoc, content, 'utf-8');
-
-    activeApp = await launchElectronApp({ filePath: mathDoc });
-    await activeApp.waitForSelector('.cm-content', 15000);
+    activeApp = sharedApp;
+    await activeApp.setSource(content);
 
     // 状态栏不再有 Math 徽标：它的 "Ready" 只是"本文档含公式且检测器没抛异常"的
     // 只读回显，用户从公式渲染结果就能看出来；"Unavailable" 的判据其实是检测器
@@ -590,11 +622,8 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
 
   it('12. opens Command Palette and triggers toggle theme', async () => {
-    const cpDoc = path.join(tempDir, 'cp-test.md');
-    fs.writeFileSync(cpDoc, '# Command Palette Test\n', 'utf8');
-
-    activeApp = await launchElectronApp({ filePath: cpDoc });
-    await activeApp.waitForSelector('.cm-content', 15000);
+    activeApp = sharedApp;
+    await activeApp.setSource('# Command Palette Test\n');
 
     // Initial theme should be light (or whatever is default)
     const bodyClass = await activeApp.evaluate('document.body.className');
@@ -629,7 +658,6 @@ describe('Desktop Smoke Test (P1-04F)', () => {
   }, 25000);
 
   it('13. renders syntax highlighting for CPP code block in Visual mode', async () => {
-    const cppDoc = path.join(tempDir, 'cpp-test.md');
     const content = [
       '# C++ Document',
       '',
@@ -641,10 +669,8 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       '```',
       ''
     ].join('\n');
-    fs.writeFileSync(cppDoc, content, 'utf8');
-
-    activeApp = await launchElectronApp({ filePath: cppDoc });
-    await activeApp.waitForSelector('.cm-content', 15000);
+    activeApp = sharedApp;
+    await activeApp.setSource(content);
 
     // Switch to Visual mode
     await activeApp.click('.nexus-surface-toggle');
@@ -676,7 +702,6 @@ describe('Desktop Smoke Test (P1-04F)', () => {
   }, 25000);
 
   it('14. clicks content line below table accurately without coordinate drift in Visual mode', async () => {
-    const tableDoc = path.join(tempDir, 'table-click-test.md');
     const content = [
       '# Table Document',
       '',
@@ -687,10 +712,8 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       'Target line directly below table.',
       'Second line below table.'
     ].join('\n');
-    fs.writeFileSync(tableDoc, content, 'utf8');
-
-    activeApp = await launchElectronApp({ filePath: tableDoc });
-    await activeApp.waitForSelector('.cm-content', 15000);
+    activeApp = sharedApp;
+    await activeApp.setSource(content);
 
     // Switch to Visual mode
     await activeApp.click('.nexus-surface-toggle');
