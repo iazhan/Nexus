@@ -160,6 +160,39 @@ describe('工作区边界与目录扫描', () => {
       expect(rootEntry?.modifiedAtMs).toBeGreaterThan(0);
     });
 
+    it('跳过点开头的工具元数据目录，不把快照与回收站当文档', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      await fsPromises.mkdir(path.join(workspace, 'notes'), { recursive: true });
+
+      // 前四条是实际踩过的：`.marking` 是另一个笔记工具的快照、`.nestnote` 是
+      // 它的回收站、`.nexus` 是本应用的版本历史、`.obsidian` 是配置。
+      // 最后一条是**任意新目录** —— 断言的是「点开头一律跳过」这条前缀规则，
+      // 而不是又往黑名单里补了一个名字。
+      const ghostFiles = [
+        '.marking/snapshots/0258fd9162334454.md',
+        '.nestnote/trash/1780421906423-d4f7aded-_.md',
+        '.obsidian/workspace.md',
+        '.nexus/history/notes/a/20260926T103000-8aab2c99.md',
+        '.brand-new-tool/export.md'
+      ];
+      for (const relative of ghostFiles) {
+        const absolute = path.join(workspace, relative);
+        await fsPromises.mkdir(path.dirname(absolute), { recursive: true });
+        await fsPromises.writeFile(absolute, '# ghost\n', 'utf-8');
+      }
+
+      await fsPromises.writeFile(path.join(workspace, 'root.md'), '# root\n', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'notes', 'a.md'), '# a\n', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+      const result = await service.scanWorkspaceMarkdownFiles(workspace);
+
+      expect(result.files.map((f) => f.relativePath).sort()).toEqual(['notes/a.md', 'root.md']);
+      // 只计顶层被跳过的目录：`.marking` 被跳过就不会再往下走 `snapshots`
+      expect(result.skippedDirectories).toBe(ghostFiles.length);
+    });
+
     it('未授权的工作区无法扫描', async () => {
       const service = new FileService();
       await expect(service.scanWorkspaceMarkdownFiles(tempDir)).rejects.toMatchObject({

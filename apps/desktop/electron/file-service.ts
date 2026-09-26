@@ -266,23 +266,25 @@ function wrapIoError(action: string, filePath: string, err: unknown): FileServic
 /** 支持的 Markdown 扩展名（小写，含点）。 */
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 
-/** 扫描工作区时跳过的目录名（按名称精确匹配）。 */
-const SKIPPED_DIRECTORY_NAMES = new Set([
-  'node_modules',
-  '.git',
-  '.svn',
-  '.hg',
-  '.obsidian',
-  '.trash',
-  // 本应用自己的元数据目录。版本历史存在 `.nexus/history/` 下，
-  // 里面的 `.md` 是**快照**不是文档 —— 不排除的话它们会被索引成文档、
-  // 还会出现在文件树里。
-  '.nexus',
-  'dist',
-  'out',
-  'build',
-  '.cache'
-]);
+/**
+ * 扫描工作区时跳过的**非点开头**目录名。
+ *
+ * 点开头的目录不在这里列举，由 `shouldSkipDirectory` 按前缀一律跳过。它们
+ * 几乎全是工具元数据：`.git` / `.svn` / `.hg` / `.obsidian` / `.cache`，
+ * 本应用自己的 `.nexus/history/`（存的是快照不是文档），以及别的笔记工具
+ * 留下的 `.marking/snapshots/`、`.nestnote/trash/`。
+ *
+ * **改成前缀判定是因为逐个列举必然漏。** 实测一个真实工作区的索引里有 97 个
+ * 文档，其中 12 个来自 `.marking` 与 `.nestnote` —— 那是别的工具的**快照和
+ * 回收站**，却进了搜索、标签、图谱和文件树。逐个补名字只能等下一次踩坑。
+ * Obsidian 同样忽略点开头的目录，这是同类工具的通行约定。
+ */
+const SKIPPED_DIRECTORY_NAMES = new Set(['node_modules', 'dist', 'out', 'build']);
+
+/** 该目录名是否应跳过扫描（既不进索引，也不进文件树）。 */
+export function shouldSkipDirectory(name: string): boolean {
+  return name.startsWith('.') || SKIPPED_DIRECTORY_NAMES.has(name);
+}
 
 /**
  * 判断 target 是否位于 root 之下（含 root 自身）。
@@ -708,7 +710,7 @@ export class FileService {
    * 递归扫描工作区下的 Markdown 文件。
    *
    * 索引是派生数据、扫盘是唯一的重建途径，所以这里不做增量，每次全量跑。
-   * 不跟随符号链接（避免目录环路与越界），跳过 node_modules/.git 等目录。
+   * 不跟随符号链接（避免目录环路与越界），跳过点开头目录与 node_modules/dist 等。
    * 结果顺序不保证稳定，调用方自行排序。
    */
   async scanWorkspaceMarkdownFiles(
@@ -750,7 +752,7 @@ export class FileService {
         if (entry.isSymbolicLink()) continue;
 
         if (entry.isDirectory()) {
-          if (SKIPPED_DIRECTORY_NAMES.has(entry.name)) {
+          if (shouldSkipDirectory(entry.name)) {
             skippedDirectories += 1;
             continue;
           }

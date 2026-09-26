@@ -562,13 +562,34 @@ export class ElectronAppInstance {
       await this.waitForExit(1000);
     } finally {
       // 清理放在 finally：上面有三个提前 return 的分支，写在末尾会漏掉。
-      // 必须等进程真的退出 —— Windows 上目录被占用时删不掉。
-      // 删失败也不影响测试结果，它只是落在系统临时目录里。
-      try {
-        fs.rmSync(this.userDataDir, { recursive: true, force: true });
-      } catch {
-        // ignore
-      }
+      //
+      // 用**异步 + 限时**而不是 `rmSync`：Windows 上删 Electron 的 userData 目录
+      // （GPUCache / Local Storage / Network 这些）在机器重负载时会卡很久，而
+      // `rmSync` 会直接阻塞事件循环 —— 实测把 `afterEach` 拖过 60s 的 `hookTimeout`，
+      // 表现为「visual-typing-smoke 偶发 hook 超时」，而单跑同一个文件 19/19 全绿。
+      //
+      // 限时 5s 之后不再等：这个目录已经登记在 `createTempDir` 的退出钩子里，
+      // 测试进程退出时会兜住，所以放弃等待不会造成泄漏。
+      await this.removeUserDataDir();
+    }
+  }
+
+  /** 尽力删除本实例的 userData 目录；删不掉、或者太慢，都不阻塞用例。 */
+  private async removeUserDataDir(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        fs.promises.rm(this.userDataDir, { recursive: true, force: true }),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, 5000);
+        })
+      ]);
+    } catch {
+      // 删不掉不影响测试结果，退出钩子会再兜一次
+    } finally {
+      // 定时器必须显式清掉：`Promise.race` 的败者不会自己消失，
+      // 每个用例留一个 5s 的悬空 timer 会让事件循环多转好几圈。
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -614,7 +635,11 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
   // 和 Electron 的临时文件会无限累积 —— 实测累积到 271M / 128 个索引库。
   // 而累积本身会让后续实例启动变慢，表现为「全量跑到后半段，等文件树超时」
   // 这种看起来随机、单跑却总是通过的失败。
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-userdata-'));
+  //
+  // 走 `createTempDir` 登记而不是裸 `mkdtempSync`：裸调用只在 `close()` 里删，
+  // 而用例超时被杀、Electron 崩溃这类路径走不到 `close()`，目录就留在 `%TEMP%` 了。
+  // 登记之后，进程退出钩子兜住最后一道。
+  const userDataDir = createTempDir('nexus-userdata-');
   args.push(`--user-data-dir=${userDataDir}`);
 
   if (options.filePath) {

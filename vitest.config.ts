@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // 兜底清理：测试若以任何方式在真实 userData 下生成了索引库，跑完就删掉。
+    // 正常路径不会命中（harness 已按实例隔离 user-data-dir），详见该文件注释。
+    globalSetup: ['apps/desktop/test/global-setup.ts'],
     projects: [
       {
         test: {
