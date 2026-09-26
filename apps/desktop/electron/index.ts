@@ -12,6 +12,7 @@ import {
 import { createHash } from 'node:crypto';
 import { FileService } from './file-service.js';
 import { createElectronFileDialog } from './file-dialog.js';
+import { HistoryStore } from './history-store.js';
 import { IndexStore } from './index-store.js';
 import { indexWorkspace } from './indexer.js';
 import {
@@ -210,6 +211,8 @@ const windowDirtyMap = new Map<number, boolean>();
 interface WebContentsSession {
   service: FileService;
   subscriptions: Map<string, Unsubscribe>;
+  /** 工作区根；Lightweight 模式为 null。版本历史需要它来算相对路径。 */
+  workspaceRoot: string | null;
 }
 
 const sessions = new Map<number, WebContentsSession>();
@@ -257,6 +260,39 @@ function getIndexStore(webContentsId: number): IndexStore | null {
   return indexStores.get(webContentsId)?.store ?? null;
 }
 
+/**
+ * 保存前留一份历史快照。
+ *
+ * 三件刻意做的事：
+ *
+ * 1. **在写盘之前读旧内容** —— 覆盖之后读到的就是新内容，历史会失去意义。
+ * 2. **失败不影响保存** —— 历史是附加能力，它出问题不该让用户的保存失败。
+ * 3. **内容没变就直接返回** —— `HistoryStore.record` 内部也按哈希去重，
+ *    这里先挡一道是因为「读整个旧文件」本身有 IO 成本，能省则省。
+ *
+ * Lightweight 模式没有工作区，也就没有「相对于工作区的路径」，直接跳过。
+ */
+function recordHistory(session: WebContentsSession, filePath: string, content: string): void {
+  const root = session.workspaceRoot;
+  if (!root) return;
+
+  try {
+    // 新文件没有「旧内容」可留
+    if (!fs.existsSync(filePath)) return;
+
+    const previous = fs.readFileSync(filePath, 'utf8');
+    if (previous === content) return;
+
+    const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
+    // 在工作区之外（或正好是根）就不留 —— 历史是按工作区组织的
+    if (!relativePath || relativePath.startsWith('..')) return;
+
+    new HistoryStore(root).record(relativePath, previous);
+  } catch (err) {
+    console.error('[Nexus Shell] 留历史快照失败（不影响保存）:', err);
+  }
+}
+
 function getOrCreateSession(webContents: Electron.WebContents): WebContentsSession {
   let session = sessions.get(webContents.id);
   if (!session) {
@@ -278,7 +314,8 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
 
     session = {
       service,
-      subscriptions: new Map()
+      subscriptions: new Map(),
+      workspaceRoot: launchContext.workspaceRoot ?? null
     };
     sessions.set(webContents.id, session);
 
@@ -342,6 +379,10 @@ ipcMain.handle(IPC_CHANNELS.readFile, async (event, filePath: string) => {
 
 ipcMain.handle(IPC_CHANNELS.writeFile, async (event, filePath: string, content: string) => {
   const session = getOrCreateSession(event.sender);
+
+  // 写盘**之前**留历史 —— 覆盖之后再读就拿到新内容了。
+  recordHistory(session, filePath, content);
+
   await session.service.writeFile(filePath, content);
 });
 

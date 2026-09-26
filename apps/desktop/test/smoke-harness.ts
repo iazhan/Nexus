@@ -158,6 +158,26 @@ export function createTempDir(prefix: string): string {
 }
 
 /**
+ * 等 Electron 起来并把 CDP 调试端口就绪的上限。
+ *
+ * 这个等待**不受 vitest 的 testTimeout 约束** —— 它在 `launchElectronApp` 内部，
+ * 超时后直接抛错，用例连第一行都跑不到。
+ *
+ * 45s 而不是 15s：全量跑到后半段时机器已经被前面几十个 Electron 实例拖慢，
+ * 实测出现过 `Failed to connect to Electron CDP within 15s` 的偶发失败。
+ * 启动 + CDP 就绪在空载时约 2–3 秒，但满载时能到 20 秒以上。
+ */
+export const CDP_CONNECT_TIMEOUT_MS = 45_000;
+
+/**
+ * WebSocket 握手超时。
+ *
+ * 与 `CDP_CONNECT_TIMEOUT_MS` 同源：CDP 端口就绪之后还要建 WebSocket，
+ * 机器满载时这一步也会慢。原值 5s 太紧。
+ */
+export const WS_CONNECT_TIMEOUT_MS = 15_000;
+
+/**
  * 等「索引跑完并渲染出文件树」的上限。
  *
  * 这是一次**很重的**等待：Electron 启动 → 侧栏挂载 → `rebuildIndex()`（扫盘 + 写 SQLite）
@@ -489,10 +509,19 @@ export class ElectronAppInstance {
       return true;
     })()`);
 
-    // 等 CM 重新测量。
+    // 等事务真正应用 —— 轮询文档长度，比固定 sleep 快也稳。
+    // 用长度而不是内容比对：这里只需要确认「事务已落地」，内容由断言去管。
+    await this.waitForFunction(
+      `() => window.nexusActiveView?.state.doc.length === ${source.length}`,
+      10000
+    );
+
+    // 再等 CM 重新测量。
     //
-    // dispatch 之后 `lineBlockAt()` / `scrollSnapshot()` 要等**下一次测量**才准，
-    // 立刻读会拿到 0 —— 表现为「滚到某一行之后 scrollTop 还是 0」。
+    // 长度对**不等于**测量完成：`lineBlockAt()` / `scrollSnapshot()` 要等下一次测量才准，
+    // 立刻读会拿到 0（表现为「滚到某一行之后 scrollTop 还是 0」）。
+    // 依赖几何的用例（点击命中、滚动位置）在这一拍之前跑就会偶发失败。
+    //
     // 原来每个用例都是「启动前把文件写好」，CM 启动时就测量完了，所以没暴露这个问题；
     // 改成运行时换源码之后必须有这一步。
     await new Promise((resolve) => setTimeout(resolve, 600));
@@ -621,7 +650,7 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
 
   const start = Date.now();
   let target: CDPTarget | null = null;
-  while (Date.now() - start < 15000) {
+  while (Date.now() - start < CDP_CONNECT_TIMEOUT_MS) {
     if (proc.killed || proc.exitCode !== null) {
       throw new Error(`Electron process exited prematurely with code ${proc.exitCode}`);
     }
@@ -643,12 +672,17 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
 
   if (!target) {
     proc.kill('SIGKILL');
-    throw new Error(`Failed to connect to Electron CDP on port ${port} within 15s`);
+    throw new Error(
+      `Failed to connect to Electron CDP on port ${port} within ${CDP_CONNECT_TIMEOUT_MS / 1000}s`
+    );
   }
 
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
+    const timer = setTimeout(
+      () => reject(new Error(`WebSocket connection timeout (${WS_CONNECT_TIMEOUT_MS / 1000}s)`)),
+      WS_CONNECT_TIMEOUT_MS
+    );
     ws.onopen = () => {
       clearTimeout(timer);
       resolve();
