@@ -12,8 +12,15 @@ import {
  * P3-01 的端到端验收：非 Markdown 文档要进 viewer 模式，而不是「不支持的文件」错误页。
  *
  * 验的是**契约的贯通**，不是渲染：main 的 `parseLaunchArgs` 判出类型 → IPC 送到
- * renderer → `App` 走 viewer 分支。真正的渲染器（PDF.js / DOCX / 图片）在 P3-05 之后
- * 才接入，届时这个占位断言要连同占位 UI 一起换掉。
+ * renderer → `App` 走 viewer 分支。
+ *
+ * 断言标记刻意选**外壳**（`.nexus-viewer-surface` + `data-viewer-type`）而不是某个
+ * 渲染器的产物：外壳对每一种 viewer 文档都存在，而渲染器会随切片换
+ * （P3-06 图片 / P3-07 PDF / P3-08 DOCX 各自接入，还会在没打包渲染器时回落占位页）。
+ * 用 `.nexus-viewer-placeholder` 或 `.nexus-image-content` 当标记，每接一个渲染器
+ * 这个文件就要改一次 —— 而它测的明明是「启动参数走对了分支」这件事。
+ *
+ * 「图片渲染正确（尺寸、懒加载）」那一层在 `p3-06-image-viewer.test.ts`。
  *
  * ## 为什么只有一次 Electron 启动
  *
@@ -55,13 +62,15 @@ describe('P3-01 viewer mode wiring', () => {
     activeApp = await launchElectronApp({ filePath: pngPath });
     const app = activeApp;
 
-    // `.nexus-workspace-empty-path` 是唯一能区分两种空态的信号：**通用**空态只在
-    // `workspaceRoot` 非 null 时才渲染它，而 viewer 空态永远渲染它（内容是文档路径）。
-    // 于是「该元素存在且内容等于被打开的路径」等价于「走的是 viewer 分支」——
+    // 外壳认领了它，并且**类型是从启动参数推出来的**（不是默认值、不是猜的）。
     // 若 viewer 分支没生效，图片会落到「不支持的文件」错误页（改这个功能之前的行为），
-    // 那时 `.nexus-error-card` 会出现，下面的断言就会红。
-    await app.waitForSelector('.nexus-workspace-empty-path', 20000);
-    expect(await app.getText('.nexus-workspace-empty-path')).toBe(pngPath);
+    // 那时 `.nexus-error-card` 会出现、`.nexus-viewer-surface` 不存在，下面两条就会红。
+    await app.waitForSelector('.nexus-viewer-surface', 20000);
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('.nexus-viewer-surface')?.dataset.viewerType ?? ''`
+      )
+    ).toBe('image');
 
     // 不是「不支持的文件」错误页
     expect(

@@ -70,6 +70,7 @@ describe('标签索引', () => {
         relativePath,
         name: relativePath.split('/').pop() ?? relativePath,
         title: 'T',
+        type: 'markdown',
         sizeBytes: 1,
         modifiedAtMs: 1,
         contentHash: relativePath,

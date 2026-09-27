@@ -6,7 +6,8 @@ import React, {
   useRef,
   useSyncExternalStore
 } from 'react';
-import type { DocumentType, FileDocument, Unsubscribe } from '@nexus/core';
+import type { FileDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
+import { isViewerDocumentType } from '@nexus/core';
 import {
   MarkdownDocumentSession,
   openSearchPanel,
@@ -43,6 +44,9 @@ import { GraphPanel } from './workspace/GraphPanel.js';
 import { HistoryPanel } from './workspace/HistoryPanel.js';
 import { QuickOpen } from './workspace/QuickOpen.js';
 import { resolveWikiLink } from './workspace/wikilink.js';
+import { classifyOpenTarget } from './workspace/open-target.js';
+import { ViewerRendererRegistry } from './viewer/registry.js';
+import { ViewerSurface } from './viewer/ViewerSurface.js';
 import {
   PANEL_DEFAULT_WIDTH,
   clampPanelWidth,
@@ -132,6 +136,12 @@ function getDocumentDirectory(filePath: string | null): string | null {
   return filePath.slice(0, lastSlash);
 }
 
+/** 取路径最后一段（文件名）。同时兼容 `/` 与 `\` —— 工作区路径可能来自任一侧。 */
+function getFileName(filePath: string | null): string {
+  if (!filePath) return '';
+  return filePath.replace(/^.*[\\/]/, '');
+}
+
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { locale, setLocale, t } = useLocale();
@@ -158,16 +168,6 @@ export const App: React.FC = () => {
    * 文件树与索引在后续切片接入。
    */
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
-
-  /**
-   * viewer 模式下打开的只读文档（pdf / docx / image）。
-   *
-   * 非 null 即代表当前处于只读查看态：不建立可编辑会话，也不占用标签页 ——
-   * Markdown source 仍是唯一可写事实源，查看器只是它的只读邻居。
-   */
-  const [viewerDocument, setViewerDocument] = useState<
-    { type: DocumentType; path: string } | null
-  >(null);
 
   /**
    * 活动栏（最左图标列）的布局状态。纯会话内状态，不持久化 ——
@@ -275,12 +275,37 @@ export const App: React.FC = () => {
    * 它取代了此前散在这里的 `filePath` / `saveState` / `saveError` / `session` 四个
    * useState。那些是「当前文档」的投影 —— 多标签页之后必须由文档集合派生，
    * 各自再存一份必然会漂移，而漂移的症状是「标题栏显示 A 的路径、保存写的是 B 的内容」。
+   *
+   * P3-05 起它**也装只读文档**（`kind === 'viewer'`）：此前 pdf/docx/图片是这里
+   * 另立的一个 `viewerDocument` useState，且刻意不进标签页。那样做的问题是
+   * 「现在看的是哪个文档」有两个答案，而标签栏只认识其中一个 —— 于是标签栏
+   * 永远不可能显示附件。见 `workspace/store.ts` 的 `DocumentKind`。
    */
   const storeRef = useRef<WorkspaceStore | null>(null);
   if (storeRef.current === null) {
     storeRef.current = new WorkspaceStore();
   }
   const store = storeRef.current;
+
+  /**
+   * Viewer 渲染器登记表。
+   *
+   * 与 `ExtensionHost` 同一套懒加载形状（§7 第 9 条）：这里只登记「哪个类型归谁」，
+   * 渲染器包本体要等真的渲染第一个该类型文档才 import。PDF 归 P3-07、
+   * DOCX 归 P3-08，各自在自己的切片里加一次 `registerLazy` 即可，本文件不用再改。
+   */
+  const viewerRegistryRef = useRef<ViewerRendererRegistry | null>(null);
+  if (viewerRegistryRef.current === null) {
+    const registry = new ViewerRendererRegistry();
+    // 图片：第一个真实渲染器（P3-06）。登记是急切的、加载是懒的 ——
+    // `load` 必须写成 `() => import(...)`，先在别处 import 再包一层会让
+    // 渲染器跟着入口块一起进主包，P1-06 换来的收益当场还回去。
+    registry.registerLazy({
+      type: 'image',
+      load: () => import('./viewer/image/ImageRenderer.js')
+    });
+    viewerRegistryRef.current = registry;
+  }
 
   // 订阅 store。返回值用来驱动重渲染，文档列表从它取。
   const workspaceSnapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -297,7 +322,14 @@ export const App: React.FC = () => {
     fallbackSessionRef.current = new MarkdownDocumentSession();
   }
 
-  const session = activeDocument?.session ?? fallbackSessionRef.current;
+  /**
+   * 活动的可编辑文档。活动的是附件时为 null。
+   *
+   * 全文件那几十处 `session.xxx` 都靠它 —— 让它们各自判 `kind` 会变成几十个
+   * 可能漏改的判断点，而漏掉一处就是「往只读文档里写」。
+   */
+  const activeEditor = activeDocument?.kind === 'editor' ? activeDocument : null;
+  const session = activeEditor?.session ?? fallbackSessionRef.current;
   const filePath = activeDocument?.filePath ?? null;
   const saveState = activeDocument?.saveState ?? 'clean';
   const saveError = activeDocument?.saveError ?? null;
@@ -338,7 +370,9 @@ export const App: React.FC = () => {
 
   const setSaveError = useCallback(
     (next: string | null) => {
-      store.updateActive((document) => {
+      // 走 updateActiveEditor 而不是 updateActive：附件的保存态不该被改
+      // （它是恒定的 `readonly`，改了就成了一条假的状态）。见 store 里那段说明。
+      store.updateActiveEditor((document) => {
         document.saveError = next;
       });
     },
@@ -375,6 +409,12 @@ export const App: React.FC = () => {
     (window as any).nexusMermaidPreview = mermaidPreviewPreference;
     // 扩展懒加载状态：E2E 用它证明「不含触发语法的文档不下载扩展包」
     (window as any).nexusExtensions = extensionHostRef.current;
+    // Viewer 渲染器的懒加载状态：E2E 用它证明「不打开附件就不下载渲染器包」。
+    // 判据与上面那条同名同义（`requestedIds()`），两条懒加载不变量写法一致。
+    (window as any).nexusViewerRenderers = viewerRegistryRef.current;
+    // 文档集合（含只读附件）：E2E 需要证明「附件进的是同一份标签页集合」，
+    // 而 DOM 上的标签栏在只有一个文档时是不渲染的。
+    (window as any).nexusWorkspace = store;
   }
 
   // Synchronize dirty state with Electron main process
@@ -435,6 +475,15 @@ export const App: React.FC = () => {
       debounceTimerRef.current = null;
     }
 
+    // 附件没有可写内容：活动的是 PDF / 图片时 Ctrl+S 什么都不该发生。
+    //
+    // 不能只靠菜单项的 `disabled` —— 快捷键走的是命令注册表，绕过菜单。
+    // 少了这道守卫的后果很具体：`saveState === 'readonly'` 会走 `performSaveAs`，
+    // 于是「在 PDF 上按 Ctrl+S」弹出一个保存对话框，把一份空文档存成 .md。
+    if (!activeEditor) {
+      return Promise.resolve(false);
+    }
+
     if (saveStateRef.current === 'saved') {
       return Promise.resolve(true);
     }
@@ -479,15 +528,20 @@ export const App: React.FC = () => {
         return false;
       }
     });
-  }, [enqueueSave, filePath, performSaveAs, session, updateSaveState]);
+  }, [activeEditor, enqueueSave, filePath, performSaveAs, session, updateSaveState]);
 
   const saveAs = useCallback((): Promise<boolean> => {
+    // 同 `saveFile`：附件没有「另存为」可言。
+    if (!activeEditor) return Promise.resolve(false);
     return enqueueSave(() => performSaveAs(session.getSnapshot().source));
-  }, [enqueueSave, performSaveAs, session]);
+  }, [activeEditor, enqueueSave, performSaveAs, session]);
 
   /**
    * 把已打开的文件灌进工作区。系统对话框与链接跳转共用这一段，
    * 避免两条路径在 dirty / readOnly / 错误清理上出现分歧。
+   *
+   * 只处理**可编辑 Markdown**：调用方已经过 `classifyOpenTarget()`，
+   * 附件走 `openViewerDocumentAt()`。
    */
   const applyOpenedDocument = useCallback(
     (fileDoc: FileDocument) => {
@@ -506,30 +560,68 @@ export const App: React.FC = () => {
   );
 
   /**
-   * 从工作区侧栏打开一个文件。
+   * 打开一份只读附件。
    *
-   * 与 Ctrl+O 走同一个 `applyOpenedDocument`：同一路径已打开时它会激活既有标签页，
-   * 不会开出第二份 session（两份都能存盘 = 后写的静默覆盖先写的）。
+   * 只登记路径与类型，**不读内容** —— 内容怎么来是渲染器的事（P3-06 起走
+   * `nexus-asset://`，见 §5.1）。在这里顺手读一遍会把 200MB 的 PDF 塞进
+   * IPC 与 renderer 内存，而渲染器最终还是要按 Range 重新取一次。
+   */
+  const openViewerDocumentAt = useCallback(
+    (targetPath: string, type: ViewerDocumentType) => {
+      store.openViewerDocument({ filePath: targetPath, type });
+      // 附件不参与编辑，所以窗口不该处于「有未保存内容」的状态 ——
+      // 否则关窗确认框会因为「刚才看了一眼 PDF」而弹出来。
+      window.nexus?.setDirty?.(false);
+    },
+    [store]
+  );
+
+  /**
+   * 按路径打开一个文件 —— **四条入口共用这一个判断点**：
+   * 侧栏文件树、快速打开（Ctrl+P）、编辑器里的链接跳转、wikilink 解析出的附件。
+   *
+   * 分流本身在 `classifyOpenTarget()`（纯函数、有单测）。这里只负责把三种结果
+   * 落到各自的动作上。原先这条逻辑散在两个函数里（`handleOpenWorkspaceFile`
+   * 与 `openDocumentAt`），两者唯一的差别只是日志文案 —— 而「链接点进去能开、
+   * 文件树点进去报不支持」正是从这种分叉里长出来的。
    */
   const handleOpenWorkspaceFile = useCallback(
-    async (targetPath: string) => {
+    async (targetPath: string): Promise<boolean> => {
+      const target = classifyOpenTarget(targetPath);
+
+      if (target.kind === 'unsupported') {
+        // 白名单外：不静默失败。用户分不清「文件坏了」和「这个格式不做」时，
+        // 下一步动作会完全不同（去修文件 vs 换个格式）。
+        setLinkError(t('link.error.unsupportedTarget', { target: targetPath }));
+        return false;
+      }
+
+      if (target.kind === 'viewer') {
+        openViewerDocumentAt(target.path, target.type);
+        setLinkError(null);
+        return true;
+      }
+
+      if (!window.nexus?.openFile) return false;
       try {
-        if (!window.nexus?.openFile) return;
-        const fileDoc = await window.nexus.openFile(targetPath);
-        if (!fileDoc) return;
+        const fileDoc = await window.nexus.openFile(target.path);
+        if (!fileDoc) return false;
         applyOpenedDocument(fileDoc);
         setLinkError(null);
+        return true;
       } catch (err: unknown) {
         console.error('Failed to open workspace file:', err);
+        // 失败必须可见，否则用户分不清"链接坏了"和"这个功能没做"。
         setLinkError(
           t('link.error.openFailed', {
             target: targetPath,
             reason: err instanceof Error ? err.message : String(err)
           })
         );
+        return false;
       }
     },
-    [applyOpenedDocument, t]
+    [applyOpenedDocument, openViewerDocumentAt, t]
   );
 
   // Open file via the system dialog
@@ -544,26 +636,6 @@ export const App: React.FC = () => {
     }
   }, [applyOpenedDocument]);
 
-  /** 按已知路径打开文档，供链接跳转使用（不弹对话框）。 */
-  const openDocumentAt = useCallback(
-    async (targetPath: string): Promise<boolean> => {
-      if (!window.nexus?.openFile) return false;
-      try {
-        const fileDoc = await window.nexus.openFile(targetPath);
-        if (!fileDoc) return false;
-        applyOpenedDocument(fileDoc);
-        setLinkError(null);
-        return true;
-      } catch (err: unknown) {
-        console.error('Failed to open linked document:', err);
-        // 跳转失败必须可见，否则用户分不清"链接坏了"和"功能没做"。
-        setLinkError(t('link.error.openFailed', { target: targetPath, reason: err instanceof Error ? err.message : String(err) }));
-        return false;
-      }
-    },
-    [applyOpenedDocument, t]
-  );
-
   // Watch file for external modifications
   useEffect(() => {
     if (unwatchRef.current) {
@@ -571,7 +643,13 @@ export const App: React.FC = () => {
       unwatchRef.current = null;
     }
 
-    if (!filePath || !window.nexus?.watchFile) {
+    // 只监听**可编辑文档**。
+    //
+    // `filePath` 现在对附件也非 null（附件是标签页，也有路径），但 `watchFile`
+    // 走的是 `assertTextDocument` —— 对 PDF 调它只会拿到一个拒绝，而 `saveStateRef`
+    // 与 `session` 也都是兜底值，那条回调没有任何正确行为可言。
+    // 附件的「外部改动」由渲染器自己处理（P3-07 起：Range 请求本来就会重新读盘）。
+    if (!activeEditor || !filePath || !window.nexus?.watchFile) {
       return;
     }
 
@@ -624,7 +702,7 @@ export const App: React.FC = () => {
         unwatchRef.current = null;
       }
     };
-  }, [filePath, session, updateSaveState]);
+  }, [activeEditor, filePath, session, updateSaveState]);
 
   // Document loader
   const loadDocument = useCallback(async () => {
@@ -670,17 +748,17 @@ export const App: React.FC = () => {
 
       // viewer 模式：PDF / DOCX / 图片等非 Markdown 文档。
       // 只读查看，不进可编辑会话 —— 这几类文档没有「source 与投影」的二分。
-      // 真正的渲染器在后续切片接入，这里先把模式与文档类型落到状态上。
-      if (ctx.mode === 'viewer' && ctx.filePath && ctx.documentType) {
+      // P3-05 起它开成**一个正常的标签页**（`kind: 'viewer'`），只是不读内容：
+      // 真正的渲染器由 `ViewerSurface` 按类型查表决定，P3-06 起逐个接入。
+      if (ctx.mode === 'viewer' && ctx.filePath && isViewerDocumentType(ctx.documentType)) {
         setWorkspaceRoot(null);
-        setViewerDocument({ type: ctx.documentType, path: ctx.filePath });
+        openViewerDocumentAt(ctx.filePath, ctx.documentType);
         initialContentRef.current = '';
         setStatus('ready');
         return;
       }
 
       setWorkspaceRoot(null);
-      setViewerDocument(null);
 
       // If a file path was passed in context, load its content
       if (ctx.filePath) {
@@ -710,7 +788,7 @@ export const App: React.FC = () => {
       setErrorMessage(message);
       setStatus('error');
     }
-  }, [store]);
+  }, [openViewerDocumentAt, store]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -785,11 +863,17 @@ export const App: React.FC = () => {
    *
    * 编辑器「没有任何文档可显示」对用户没有意义，而且会让全文件那些 `session.xxx`
    * 落进兜底 session —— 那种状态下编辑的内容哪也去不了。
+   *
+   * **只在刚关掉的是可编辑文档时补**：补的目的是让编辑器有个落脚点，而关掉一份
+   * PDF 之后凭空冒出一个「未命名.md」是凭空造状态 —— 用户刚做的事是「关掉预览」，
+   * 得到的却是一份新文档。关掉附件后如果标签页空了，如实显示空态即可。
    */
   const closeDocumentAndEnsureEditor = useCallback(
     (id: string) => {
+      const closing = store.getDocuments().find((document) => document.id === id);
       store.closeDocument(id);
-      if (store.isEmpty) {
+
+      if (closing?.kind === 'editor' && store.isEmpty) {
         store.openDocument({ filePath: null, content: '' });
         initialContentRef.current = '';
       }
@@ -815,6 +899,14 @@ export const App: React.FC = () => {
         document.saveState === 'external-changed';
 
       if (!isUnsaved) {
+        closeDocumentAndEnsureEditor(id);
+        return;
+      }
+
+      // 走得到这里的必然是**可编辑文档**：附件的 saveState 恒为 `readonly`，
+      // 上面那个分支已经把它送走了。这里的收窄是给类型看的，同时也是断言 ——
+      // 若哪天附件有了别的保存态，会在这里被挡住而不是静默存一份空内容。
+      if (document.kind !== 'editor') {
         closeDocumentAndEnsureEditor(id);
         return;
       }
@@ -937,10 +1029,10 @@ export const App: React.FC = () => {
         return true;
       }
 
-      void openDocumentAt(resolved);
+      void handleOpenWorkspaceFile(resolved);
       return true;
     },
-    [filePath, openDocumentAt, t]
+    [filePath, handleOpenWorkspaceFile, t]
   );
 
   // Global keyboard shortcuts and commands
@@ -1176,11 +1268,15 @@ export const App: React.FC = () => {
           {
             label: t('cmd.save'),
             shortcut: formatShortcut('Mod-S'),
+            // 附件是只读的，没有「保存」可言。禁用而不是留着点了没反应 ——
+            // 后者会让用户以为保存失败了。快捷键侧由 `saveFile` 自己守。
+            disabled: !activeEditor,
             onSelect: () => void saveFile({ immediate: true })
           },
           {
             label: t('cmd.saveAs'),
             shortcut: formatShortcut('Mod-Shift-S'),
+            disabled: !activeEditor,
             onSelect: () => void saveAs()
           },
           { label: '', separator: true },
@@ -1215,17 +1311,47 @@ export const App: React.FC = () => {
       {
         id: 'edit',
         label: t('menu.edit'),
+        // 这一组全部作用于**编辑器的 session**（选区、撤销栈）。活动的是附件时
+        // 它们操作的是兜底 session —— 不会崩，但也没有任何可见效果。
+        // 禁用是如实表达「这里没有可编辑的东西」；附件自己的复制（PDF 选区）
+        // 由渲染器处理，不走这一组。
         items: [
-          { label: t('cmd.undo'), shortcut: formatShortcut('Mod-Z'), onSelect: handleUndo },
-          { label: t('cmd.redo'), shortcut: formatShortcut('Mod-Shift-Z'), onSelect: handleRedo },
-          { label: t('cmd.copy'), shortcut: formatShortcut('Mod-C'), onSelect: handleCopy },
-          { label: t('cmd.cut'), shortcut: formatShortcut('Mod-X'), onSelect: handleCut },
+          {
+            label: t('cmd.undo'),
+            shortcut: formatShortcut('Mod-Z'),
+            disabled: !activeEditor,
+            onSelect: handleUndo
+          },
+          {
+            label: t('cmd.redo'),
+            shortcut: formatShortcut('Mod-Shift-Z'),
+            disabled: !activeEditor,
+            onSelect: handleRedo
+          },
+          {
+            label: t('cmd.copy'),
+            shortcut: formatShortcut('Mod-C'),
+            disabled: !activeEditor,
+            onSelect: handleCopy
+          },
+          {
+            label: t('cmd.cut'),
+            shortcut: formatShortcut('Mod-X'),
+            disabled: !activeEditor,
+            onSelect: handleCut
+          },
           {
             label: t('cmd.paste'),
             shortcut: formatShortcut('Mod-V'),
+            disabled: !activeEditor,
             onSelect: () => void handlePaste()
           },
-          { label: t('cmd.selectAll'), shortcut: formatShortcut('Mod-A'), onSelect: handleSelectAll }
+          {
+            label: t('cmd.selectAll'),
+            shortcut: formatShortcut('Mod-A'),
+            disabled: !activeEditor,
+            onSelect: handleSelectAll
+          }
         ]
       },
       {
@@ -1266,6 +1392,7 @@ export const App: React.FC = () => {
     ],
     [
       t,
+      activeEditor,
       handleNewFile,
       handleOpenFile,
       saveFile,
@@ -1287,6 +1414,19 @@ export const App: React.FC = () => {
   /** 当前上下文里「正在看的东西」：lightweight 是文件，workspace 是目录。 */
   const activePath = filePath ?? workspaceRoot;
   const fileName = activePath ? activePath.replace(/^.*[\\/]/, '') : 'Untitled.md';
+
+  /**
+   * 状态栏右侧的模式标签。
+   *
+   * 打开附件时必须如实显示它的类型 —— 在 PDF 标签页上写着「Markdown」是直接
+   * 骗人，而且用户会据此判断「这个文件到底被正确识别了没有」。
+   * `Workspace` / `Markdown` 两个专有名词保持不翻译（既有行为）。
+   */
+  const formatLabel = workspaceRoot
+    ? 'Workspace'
+    : activeDocument && activeDocument.type !== 'markdown'
+      ? t(`document.type.${activeDocument.type}`)
+      : 'Markdown';
 
   /**
    * 状态栏唯一展示的东西：加载态优先（它是瞬时的），之后是保存态。
@@ -1379,7 +1519,11 @@ export const App: React.FC = () => {
       )}
 
       {/* ReadOnly Banner */}
-      {saveState === 'readonly' && (
+      {/* 只对**可编辑文档**显示：附件的 saveState 也是 `readonly`，但它不是
+          「只读打开的 Markdown，可以另存为」—— 对一份 PDF 说「Changes cannot be
+          saved in place — use Save As」是彻头彻尾的误导（那个按钮在附件上
+          也已经被 `saveAs` 守成了空操作）。 */}
+      {activeEditor && saveState === 'readonly' && (
         <div className="nexus-warning-banner" role="alert">
           <span>{t('banner.readonly')}</span>
           <button type="button" className="nexus-banner-saveas-btn" onClick={saveAs}>
@@ -1601,26 +1745,22 @@ export const App: React.FC = () => {
             </div>
           </div>
         )}
-        {/* viewer 模式占位。P3-01 只落地「模式 + 文档类型」契约，真正的渲染器
-            （PDF.js / DOCX / 图片）在后续切片接入，这里如实说明当前状态。 */}
-        {status === 'ready' && viewerDocument && (
-          <div className="nexus-workspace-empty">
-            <span className="nexus-workspace-empty-title">
-              {t(`document.type.${viewerDocument.type}`)}
-            </span>
-            <code className="nexus-workspace-empty-path">
-              {viewerDocument.path}
-            </code>
-            <p className="nexus-workspace-empty-note">
-              {t('viewer.pending', {
-                type: t(`document.type.${viewerDocument.type}`)
-              })}
-            </p>
-          </div>
+        {/* 只读文档：交给 Viewer 外壳按类型查表。
+            这里**不认识任何格式** —— 「png 用什么渲染」由登记表回答，
+            所以 P3-06/07/08 各自注册一个渲染器即可，这一段不用再改。 */}
+        {status === 'ready' && activeDocument?.kind === 'viewer' && (
+          <ViewerSurface
+            document={{
+              path: activeDocument.filePath,
+              name: getFileName(activeDocument.filePath),
+              type: activeDocument.type
+            }}
+            registry={viewerRegistryRef.current}
+          />
         )}
         {/* 没有活动文档时的空态。workspace 模式下这是正常起点（从左侧挑一个文件），
             lightweight 模式下只会在启动的一瞬间出现。 */}
-        {status === 'ready' && !activeDocument && !viewerDocument && (
+        {status === 'ready' && !activeDocument && (
           <div className="nexus-workspace-empty">
             <span className="nexus-workspace-empty-title">{t('workspace.title')}</span>
             {workspaceRoot && (
@@ -1631,7 +1771,7 @@ export const App: React.FC = () => {
             </p>
           </div>
         )}
-        {status === 'ready' && activeDocument && (
+        {status === 'ready' && activeDocument?.kind === 'editor' && (
           // 只包编辑区：投影抛错时保留顶栏、菜单栏和状态栏，
           // 让 Mod-M 切换 surface 成为一条真实可用的恢复路径。
           // resetKey 绑 surfaceKind，切回 Source 会自动清除错误状态。
@@ -1685,10 +1825,8 @@ export const App: React.FC = () => {
               ({t('status.selected', { count: String(selection.selectedTextLength) })})
             </span>
           )}
-          {/* 专有名词，不翻译 */}
-          <span className="status-metric status-format">
-            {workspaceRoot ? 'Workspace' : 'Markdown'}
-          </span>
+          {/* 专有名词（Workspace / Markdown）不翻译；附件类型由 formatLabel 给出 */}
+          <span className="status-metric status-format">{formatLabel}</span>
         </div>
       </footer>
       <CommandPalette 

@@ -449,6 +449,80 @@ body {
   font-family: var(--font-mono);
 }
 
+/* Viewer 外壳：与 .nexus-editor-full 同一套尺寸契约 —— 在内容区里占满剩余空间。
+   渲染器（图片 / PDF / DOCX）只需要填满这个盒子，不必各自重复一遍 flex 规则。 */
+.nexus-viewer-surface {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 图片 Viewer（P3-06）──────────────────────────────────────────────── */
+
+/* stage 与 img 分两层：图比窗口大时该滚动的是 stage，
+   而不是让 img 把整个布局撑破（那会把标签栏也顶出视口）。 */
+.nexus-image-viewer {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.nexus-image-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+  /* 透明 PNG 需要一块底色才能看清边界 —— 白底上看白图等于什么都没有。 */
+  background-color: var(--nexus-bg-canvas);
+}
+
+/* max-width / max-height 两件一起做三件事：不裁剪、不变形、**不放大**。
+   替换元素同时受这两个约束时会等比缩到刚好装下；比窗口小的图保持原始尺寸，
+   因为 max-* 只封顶、不拉伸。所以这里不需要 object-fit —— 它是给
+   「显式设了 width/height 的盒子」用的，对 auto 尺寸的替换元素是空操作。 */
+.nexus-image-content {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+
+.nexus-image-caption {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-secondary);
+  font-size: 12px;
+}
+
+.nexus-image-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-image-size {
+  flex: none;
+  font-family: var(--font-mono);
+  color: var(--nexus-text-muted);
+}
+
+.nexus-image-error-path {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 /* State Containers (Loading / Error) */
 /* 工作区双栏布局：侧栏 + 编辑区。lightweight 模式不渲染侧栏，等同单栏 */
 .nexus-body {

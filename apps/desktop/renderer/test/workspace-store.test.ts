@@ -205,3 +205,103 @@ describe('WorkspaceStore', () => {
     expect(store.getSnapshot()).toBe(afterOpen);
   });
 });
+
+/**
+ * 只读附件与可编辑文档共用同一份文档集合（P3-05）。
+ *
+ * 这一组测的是「附件进的是同一个标签页列表」这条不变量 —— 它是 Tab 集成的地基。
+ * 此前附件是 App 里另立的一个 `viewerDocument` useState，标签栏根本看不见它。
+ */
+describe('WorkspaceStore：只读附件', () => {
+  it('附件与 Markdown 在同一个列表里，各自带 kind', () => {
+    const store = new WorkspaceStore();
+    store.openDocument({ filePath: '/vault/note.md', content: '# note\n' });
+    const pdf = store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf' });
+
+    expect(store.getDocuments()).toHaveLength(2);
+    expect(store.getDocuments().map((document) => document.kind)).toEqual(['editor', 'viewer']);
+    expect(pdf.type).toBe('pdf');
+    expect(pdf.filePath).toBe('/vault/stm32.pdf');
+    // 附件是只读的：状态栏与标签页都靠这一个字段，所以它必须是 readonly
+    expect(pdf.saveState).toBe('readonly');
+    expect(pdf.readOnly).toBe(true);
+  });
+
+  it('附件没有 session —— 不给「能改但没地方去」的假象', () => {
+    const store = new WorkspaceStore();
+    const pdf = store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf' });
+
+    expect(pdf.session).toBeNull();
+    expect(store.getActiveEditor()).toBeNull();
+  });
+
+  it('同一路径的附件重复打开只激活既有标签页', () => {
+    const store = new WorkspaceStore();
+    const first = store.openViewerDocument({ filePath: '/vault/a.png', type: 'image' });
+    store.openViewerDocument({ filePath: '/vault/b.png', type: 'image' });
+
+    const again = store.openViewerDocument({ filePath: '/vault/a.png', type: 'image' });
+
+    expect(store.getDocuments()).toHaveLength(2);
+    expect(again.id).toBe(first.id);
+    expect(store.getActiveId()).toBe(first.id);
+  });
+
+  it('活动的是附件时，保存态 / 路径 / 可写性都改不动', () => {
+    const store = new WorkspaceStore();
+    const pdf = store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf' });
+
+    // 这三个入口在附件上曾经会造成真实损坏：Ctrl+S 走 performSaveAs 会把
+    // 附件的路径改成用户另存的新路径，状态栏还会显示「已修改」。
+    store.setActiveSaveState('dirty');
+    store.setActiveFilePath('/vault/renamed.md');
+    store.setActiveReadOnly(false);
+
+    expect(pdf.saveState).toBe('readonly');
+    expect(pdf.filePath).toBe('/vault/stm32.pdf');
+    expect(pdf.readOnly).toBe(true);
+  });
+
+  it('updateActiveEditor 在活动的是附件时不调用回调', () => {
+    const store = new WorkspaceStore();
+    store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf' });
+    const mutate = vi.fn();
+
+    store.updateActiveEditor(mutate);
+
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('关掉附件后活动文档落到相邻的那个，不凭空补文档', () => {
+    const store = new WorkspaceStore();
+    const note = store.openDocument({ filePath: '/vault/note.md', content: '# note\n' });
+    const pdf = store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf' });
+
+    store.closeDocument(pdf.id);
+
+    expect(store.getDocuments()).toHaveLength(1);
+    expect(store.getActiveId()).toBe(note.id);
+    expect(store.getActiveEditor()?.id).toBe(note.id);
+  });
+
+  it('判定错了就立刻抛错，不静默建出第二份', () => {
+    const store = new WorkspaceStore();
+
+    // 1. 拿附件路径去开可编辑文档：可编辑分支只接受 Markdown
+    expect(() => store.openDocument({ filePath: '/vault/stm32.pdf', content: '' })).toThrow(
+      /is not a Markdown document/
+    );
+    expect(store.getDocuments()).toHaveLength(0);
+
+    // 2. type 与路径不符：渲染器是照 type 选的，错配会把 PNG 交给 PDF 渲染器
+    expect(() =>
+      store.openViewerDocument({ filePath: '/vault/diagram.png', type: 'pdf' })
+    ).toThrow(/does not match/);
+    expect(store.getDocuments()).toHaveLength(0);
+
+    // 3. 同一路径不会被开出两份
+    store.openViewerDocument({ filePath: '/vault/diagram.png', type: 'image' });
+    store.openViewerDocument({ filePath: '/vault/diagram.png', type: 'image' });
+    expect(store.getDocuments()).toHaveLength(1);
+  });
+});

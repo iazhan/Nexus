@@ -1,3 +1,5 @@
+import type { DocumentType } from '../document/types.js';
+
 /**
  * 已打开的本地文档，内容保持 UTF-8 原文。
  */
@@ -27,10 +29,25 @@ export interface WorkspaceMarkdownFile {
 }
 
 /**
- * 工作区扫描结果。
+ * 工作区扫描命中的一个文档文件 —— Markdown 或附件（Phase 3 / P3-04）。
+ *
+ * 与 `WorkspaceMarkdownFile` 的唯一区别是多了 `type`。用继承而不是另起一个平级
+ * 接口，是为了让「只关心路径与元数据」的调用方继续接收父类型 —— 多出来的字段
+ * 对它们是透明的。
  */
-export interface WorkspaceScanResult {
-  files: WorkspaceMarkdownFile[];
+export interface WorkspaceDocumentFile extends WorkspaceMarkdownFile {
+  type: DocumentType;
+}
+
+/**
+ * 工作区扫描结果。
+ *
+ * 泛型参数是 Phase 3 / P3-04 加的：同一个扫描器既要服务「只收 Markdown」的索引器
+ * （P2 的契约），也要服务「Markdown + 附件」的新扫描。带默认值是为了让既有调用方
+ * 一行都不用改。
+ */
+export interface WorkspaceScanResult<T = WorkspaceMarkdownFile> {
+  files: T[];
   /** 是否因达到 maxFiles 而提前停止 */
   truncated: boolean;
   /** 被跳过的目录数（node_modules、.git 等） */
@@ -38,7 +55,7 @@ export interface WorkspaceScanResult {
 }
 
 /**
- * 被索引的一篇 Markdown 文档。
+ * 被索引的一篇文档 —— Markdown 或附件。
  *
  * 索引是派生数据 —— 这里除了路径、标题和内容哈希，**不该有别的字段**。
  * 任何「只有索引才知道的事实」都会让「删库重建」不再等价。
@@ -49,6 +66,15 @@ export interface IndexedDocument {
   relativePath: string;
   name: string;
   title: string;
+  /**
+   * 文档类型（Phase 3 / P3-04）。
+   *
+   * 存进索引是**派生**的 —— 由路径经 `documentTypeForPath()` 判定，不是独立事实，
+   * 所以不违反上面那条不变量。之所以落库而不是查询时现算：Quick Open、文件树、
+   * 反向链接、图谱都要问「这是不是附件」，让每个消费方各跑一遍白名单判定
+   * 迟早出现某一处忘了过滤（P3-03 把白名单归并到 core 就是同一个教训）。
+   */
+  type: DocumentType;
   sizeBytes: number;
   modifiedAtMs: number;
   contentHash: string;

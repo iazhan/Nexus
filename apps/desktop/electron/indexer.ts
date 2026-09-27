@@ -1,19 +1,25 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import type { IndexWorkspaceResult } from '@nexus/core';
+import { attachmentContentFingerprint, type IndexWorkspaceResult } from '@nexus/core';
 import type { FileService, ScanWorkspaceOptions } from './file-service.js';
 import type { IndexStore } from './index-store.js';
 
 /**
- * 工作区索引器：扫盘 → 读内容 → 写进索引库。
+ * 工作区索引器：扫盘 → （Markdown 读内容）→ 写进索引库。
  *
  * 做**文档级**索引、全文检索，以及出链（wikilink 目标）的收集。
+ *
+ * Phase 3 / P3-04 起**附件也进索引**，但只记元数据：类型、大小、修改时间，
+ * 以及按 stat 算的内容指纹。附件不进全文检索，也没有出链和标签 —— 它的用途是
+ * 「能被列出来、能被 wikilink 指到、能被 Viewer 打开」，不参与检索。
+ *
  * headings 仍不进索引 —— 大纲面板直接从**当前源码**解析，那样才能跟随编辑实时更新；
  * tags 等需求明确之后再落。
  *
  * 全量而非增量：索引是派生数据，重建的代价只是几秒扫盘，而增量状态本身
- * 就是一类需要维护、会出错、还无法自证正确的数据。这里只用内容哈希跳过
- * 「读进来发现没变」的文件，不做基于 mtime 的猜测。
+ * 就是一类需要维护、会出错、还无法自证正确的数据。这里只用内容指纹跳过
+ * 「读进来发现没变」的文件，不做基于 mtime 的猜测 —— 附件的指纹**就是** stat 指纹，
+ * 那是刻意的取舍，见 core 的 `attachmentContentFingerprint()`。
  */
 
 export interface IndexWorkspaceOptions {
@@ -32,7 +38,7 @@ export async function indexWorkspace(
   const { service, store, rootPath } = options;
   const nowMs = options.nowMs ?? Date.now();
 
-  const scan = await service.scanWorkspaceMarkdownFiles(rootPath, options.scanOptions);
+  const scan = await service.scanWorkspaceFiles(rootPath, options.scanOptions);
 
   let indexed = 0;
   let skipped = 0;
@@ -43,9 +49,18 @@ export async function indexWorkspace(
     seenPaths.add(file.path);
 
     try {
-      const content = await service.readFile(file.path);
-      const contentHash = createHash('sha256').update(content, 'utf8').digest('hex');
+      // 附件**不读内容**：它不进全文检索，正文从不参与查询，而给一个 200MB 的 PDF
+      // 每次全量索引都读一遍算哈希是纯粹白付的 IO。指纹改用 stat，代价与理由见
+      // `attachmentContentFingerprint()`。
+      const content = file.type === 'markdown' ? await service.readFile(file.path) : null;
+      const contentHash =
+        content !== null
+          ? createHash('sha256').update(content, 'utf8').digest('hex')
+          : attachmentContentFingerprint(file.sizeBytes, file.modifiedAtMs);
 
+      // 跳过判据对两类文档是同一条：指纹没变就不重写。附件的指纹是 stat 指纹，
+      // 所以「改了内容但 size 与 mtime 都没变」不会触发重索引 —— 那需要人为构造，
+      // 且附件本来就是只读展示，见 `attachmentContentFingerprint()` 的说明。
       const existing = store.getDocumentByPath(file.path);
       if (existing && existing.contentHash === contentHash) {
         skipped += 1;
@@ -57,13 +72,14 @@ export async function indexWorkspace(
           path: file.path,
           relativePath: file.relativePath,
           name: file.name,
+          type: file.type,
           title: deriveTitle(file.name),
           sizeBytes: file.sizeBytes,
           modifiedAtMs: file.modifiedAtMs,
           contentHash,
-          body: content,
-          links: extractWikiLinkTargets(content),
-          tags: extractTags(content)
+          body: content ?? '',
+          links: content !== null ? extractWikiLinkTargets(content) : [],
+          tags: content !== null ? extractTags(content) : []
         },
         nowMs
       );

@@ -22,6 +22,11 @@ const UNSAVED_STATES = new Set(['dirty', 'saving', 'error', 'external-changed'])
  *
  * 只渲染「打开了几个文档」这一件事，所有状态都从 props 来 ——
  * 它不持有任何文档状态，所以不存在和 WorkspaceStore 漂移的可能。
+ *
+ * P3-05 起两类文档共用这一条栏：可编辑 Markdown 与只读附件（pdf / docx / 图片）。
+ * 它们**必须**在同一个列表里，否则「打开了一个 PDF」在界面上没有任何痕迹 ——
+ * 而用户明明刚双击了它。区分信息由文件名自带（`stm32.pdf` vs `stm32.md`），
+ * 脏点则天然只出现在可编辑文档上（附件的 saveState 恒为 `readonly`）。
  */
 export const TabBar: React.FC<TabBarProps> = ({
   documents,
@@ -48,6 +53,9 @@ export const TabBar: React.FC<TabBarProps> = ({
             key={document.id}
             role="tab"
             aria-selected={isActive}
+            // 供 E2E 区分两类标签：DOM 上看不出「这条是只读的」，
+            // 而「附件进的是同一份标签页集合」正是 P3-05 的核心不变量。
+            data-document-kind={document.kind}
             className={`nexus-tab${isActive ? ' nexus-tab-active' : ''}`}
             title={document.filePath ?? name}
             onClick={() => onActivate(document.id)}

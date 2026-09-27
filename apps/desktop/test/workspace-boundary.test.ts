@@ -233,7 +233,7 @@ describe('工作区边界与目录扫描', () => {
       expect(rootEntry?.modifiedAtMs).toBeGreaterThan(0);
     });
 
-    it('白名单扩展了可读类型，但扫描仍只收 Markdown（附件不进索引）', async () => {
+    it('白名单扩展了可读类型，但 Markdown 扫描仍只收 Markdown', async () => {
       const workspace = path.join(tempDir, 'vault');
       await fsPromises.mkdir(path.join(workspace, 'assets'), { recursive: true });
 
@@ -246,8 +246,9 @@ describe('工作区边界与目录扫描', () => {
       await service.authorizeWorkspace(workspace);
       const result = await service.scanWorkspaceMarkdownFiles(workspace);
 
-      // 附件是「可读」而不是「是文档」—— 索引里只有 Markdown，
-      // 附件枚举归 P3-09，别在这一步偷偷把索引撑大。
+      // 这个接口的名字就叫 Markdown，收附件的是它的姊妹方法
+      // `scanWorkspaceFiles()`（P3-04 加的）。两条路径必须各守本分：
+      // 索引器要两类都收，而「列出笔记」的地方不能突然多出 PDF。
       expect(result.files.map((f) => f.relativePath)).toEqual(['root.md']);
     });
 
@@ -304,6 +305,63 @@ describe('工作区边界与目录扫描', () => {
 
       expect(result.files).toHaveLength(3);
       expect(result.truncated).toBe(true);
+    });
+  });
+
+  describe('scanWorkspaceFiles（Phase 3 / P3-04）', () => {
+    it('Markdown 与附件一起收，每条都带 core 判定的类型', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      await fsPromises.mkdir(path.join(workspace, 'assets'), { recursive: true });
+
+      await fsPromises.writeFile(path.join(workspace, 'root.md'), '# root\n', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'notes.markdown'), '# n\n', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'assets', 'a.png'), 'x', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'assets', 'b.pdf'), 'x', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'assets', 'c.docx'), 'x', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'skip.txt'), 'x', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+      const result = await service.scanWorkspaceFiles(workspace);
+
+      expect(
+        result.files
+          .map((file) => [file.relativePath, file.type])
+          .sort((a, b) => a[0]!.localeCompare(b[0]!))
+      ).toEqual([
+        ['assets/a.png', 'image'],
+        ['assets/b.pdf', 'pdf'],
+        ['assets/c.docx', 'docx'],
+        ['notes.markdown', 'markdown'],
+        ['root.md', 'markdown']
+      ]);
+      // `.txt` 不在白名单 —— 「可读」不等于「是文档」
+      expect(result.files.some((file) => file.name === 'skip.txt')).toBe(false);
+    });
+
+    it('与 Markdown 扫描共用同一套跳过规则，不写第二份', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      await fsPromises.mkdir(path.join(workspace, 'assets'), { recursive: true });
+      await fsPromises.mkdir(path.join(workspace, '.trash'), { recursive: true });
+      await fsPromises.mkdir(path.join(workspace, 'node_modules'), { recursive: true });
+
+      await fsPromises.writeFile(path.join(workspace, 'assets', 'a.png'), 'x', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, '.trash', 'old.png'), 'x', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'node_modules', 'x.pdf'), 'x', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+      const result = await service.scanWorkspaceFiles(workspace);
+
+      expect(result.files.map((file) => file.relativePath)).toEqual(['assets/a.png']);
+      expect(result.skippedDirectories).toBe(2);
+    });
+
+    it('未授权的工作区同样无法扫描', async () => {
+      const service = new FileService();
+      await expect(service.scanWorkspaceFiles(tempDir)).rejects.toMatchObject({
+        code: 'OUT_OF_BOUNDS'
+      });
     });
   });
 });

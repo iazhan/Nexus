@@ -18,3 +18,18 @@ export type DocumentType = 'markdown' | 'pdf' | 'docx' | 'image';
  * 打开浏览后原文件的 mtime 与内容哈希必须不变）。
  */
 export type ViewerDocumentType = Exclude<DocumentType, 'markdown'>;
+
+/**
+ * 类型守卫：把 `DocumentType | null` 收窄成 `ViewerDocumentType`。
+ *
+ * 存在的理由是 `LaunchContext.documentType` 的类型只能是 `DocumentType | null`
+ * （它同时服务于 lightweight 与 viewer 两种模式），而 renderer 在 viewer 分支里
+ * 需要的是「确定不是 Markdown」这个更强的事实。让调用方写
+ * `ctx.documentType as ViewerDocumentType` 会把「viewer 模式一定不是 Markdown」
+ * 这条**由 main 侧保证**的约定降级成一句断言 —— 约定变了不会有任何提示。
+ */
+export function isViewerDocumentType(
+  type: DocumentType | null | undefined
+): type is ViewerDocumentType {
+  return type === 'pdf' || type === 'docx' || type === 'image';
+}

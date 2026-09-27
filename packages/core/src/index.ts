@@ -6,7 +6,8 @@ export {
 
 export {
   type DocumentType,
-  type ViewerDocumentType
+  type ViewerDocumentType,
+  isViewerDocumentType
 } from './document/types.js';
 
 export {
@@ -17,6 +18,11 @@ export {
 } from './document/extensions.js';
 
 export {
+  wikilinkCandidates,
+  attachmentContentFingerprint
+} from './document/links.js';
+
+export {
   parseLaunchArgs,
   type ParseLaunchArgsOptions
 } from './launch/parser.js';
@@ -24,6 +30,7 @@ export {
 export {
   type FileDocument,
   type WorkspaceMarkdownFile,
+  type WorkspaceDocumentFile,
   type WorkspaceScanResult,
   type IndexedDocument,
   type SearchHit,

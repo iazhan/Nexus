@@ -7,9 +7,11 @@ import {
   getPathExtension,
   isMarkdownPath,
   supportedDocumentExtensions,
+  type DocumentType,
   type FileDocument,
   type FileWatchListener,
   type Unsubscribe,
+  type WorkspaceDocumentFile,
   type WorkspaceMarkdownFile,
   type WorkspaceScanResult
 } from '@nexus/core';
@@ -787,7 +789,21 @@ export class FileService {
   }
 
   /**
-   * 递归扫描工作区下的 Markdown 文件。
+   * 递归扫描工作区下的**全部文档文件** —— Markdown 与附件（Phase 3 / P3-04）。
+   *
+   * 与 `scanWorkspaceMarkdownFiles` 走同一套遍历与跳过规则，区别只在「收哪些文件」。
+   * **不要为附件另写一套跳过规则** —— P2 踩过一次「逐个列举要跳过的目录，结果漏了
+   * 别的笔记工具留下的元数据目录」，那次的修法就是统一成前缀判定。
+   */
+  async scanWorkspaceFiles(
+    rootPath: string,
+    options: ScanWorkspaceOptions = {}
+  ): Promise<WorkspaceScanResult<WorkspaceDocumentFile>> {
+    return this.walkWorkspace(rootPath, options, (name) => documentTypeForPath(name));
+  }
+
+  /**
+   * 递归扫描工作区下的 Markdown 文件（P2 的契约，行为与返回形状保持不变）。
    *
    * 索引是派生数据、扫盘是唯一的重建途径，所以这里不做增量，每次全量跑。
    * 不跟随符号链接（避免目录环路与越界），跳过点开头目录与 node_modules/dist 等。
@@ -796,7 +812,36 @@ export class FileService {
   async scanWorkspaceMarkdownFiles(
     rootPath: string,
     options: ScanWorkspaceOptions = {}
-  ): Promise<WorkspaceScanResult> {
+  ): Promise<WorkspaceScanResult<WorkspaceMarkdownFile>> {
+    const scanned = await this.walkWorkspace(rootPath, options, (name) =>
+      isMarkdownPath(name) ? 'markdown' : null
+    );
+
+    // 剥掉 `type`：这是 P2 的接口，运行时形状也要保持一致 —— 否则既有断言里
+    // 任何「整个对象比较」都会因为多出一个字段而失败，而失败信息看起来像
+    // 「实现多返回了东西」，排查方向会跑偏。
+    return {
+      files: scanned.files.map((file) => ({
+        path: file.path,
+        relativePath: file.relativePath,
+        name: file.name,
+        modifiedAtMs: file.modifiedAtMs,
+        sizeBytes: file.sizeBytes
+      })),
+      truncated: scanned.truncated,
+      skippedDirectories: scanned.skippedDirectories
+    };
+  }
+
+  /**
+   * 遍历实现。`resolveType` 返回 `null` 表示「不收这个文件」——
+   * 两个公开扫描方法只是它的两种收法。
+   */
+  private async walkWorkspace(
+    rootPath: string,
+    options: ScanWorkspaceOptions,
+    resolveType: (fileName: string) => DocumentType | null
+  ): Promise<WorkspaceScanResult<WorkspaceDocumentFile>> {
     const normalizedRoot = this.normalizePath(rootPath);
     this.checkBoundary(normalizedRoot);
 
@@ -808,7 +853,7 @@ export class FileService {
     const maxFiles = options.maxFiles ?? 20000;
     const maxDepth = options.maxDepth ?? 24;
 
-    const files: WorkspaceMarkdownFile[] = [];
+    const files: WorkspaceDocumentFile[] = [];
     let truncated = false;
     let skippedDirectories = 0;
 
@@ -841,10 +886,10 @@ export class FileService {
         }
 
         if (!entry.isFile()) continue;
-        // 判据来自 core 的同一张白名单。这里**只收 Markdown** —— 附件（PDF / 图片…）
-        // 不进索引，它们的枚举归 P3-09 的附件扫描，届时复用 shouldSkipDirectory，
-        // 不要再写第二套跳过规则。
-        if (!isMarkdownPath(entry.name)) continue;
+
+        // 判据来自 core 的同一张白名单，不再有第二处硬编码。
+        const type = resolveType(entry.name);
+        if (type === null) continue;
 
         if (files.length >= maxFiles) {
           truncated = true;
@@ -865,6 +910,7 @@ export class FileService {
           path: childPath,
           relativePath: path.relative(normalizedRoot, childPath).split(path.sep).join('/'),
           name: entry.name,
+          type,
           sizeBytes,
           modifiedAtMs
         });

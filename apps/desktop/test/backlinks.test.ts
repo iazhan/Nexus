@@ -57,6 +57,7 @@ describe('反向链接', () => {
         relativePath,
         name: relativePath.split('/').pop() ?? relativePath,
         title: 'T',
+        type: 'markdown',
         sizeBytes: 1,
         modifiedAtMs: 1,
         // 用路径当哈希，保证每篇互不相同

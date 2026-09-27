@@ -3,9 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP 的每一条放宽都要有理由和日期（plan §5.1 的三条红线）。
+         2026-09-27（P3-06）加了 `img-src 'self' file:`：
+         - 图片是唯一走 `file://` 的资源（plan §10.4 定案 A，`nexus-asset://` 留给需要
+           Range 的 PDF/DOCX）。打包后页面本身就是 `file://`，`'self'` 已经覆盖它 ——
+           所以这一条**没有扩大已发布产物的安全面**。
+         - 加它是为了让 `pnpm dev`（页面来自 http://localhost，`'self'` 不匹配 file://）
+           与打包后的行为一致。dev 下看不见图片、线上却能看见，是最难查的一类差异。
+         - `file:` **只许出现在 img-src**：进了 frame-src / object-src / script-src /
+           connect-src 就是「可执行、可读 DOM」的另一种攻击面，A 方案的理由立刻失效。
+         - `connect-src` 保持只有 `'self'`：A 的安全性完全建立在「内容送不出去」上。 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file:;"
     />
     <!-- 中性初值：真正的标题由 App 按运行模式设置（workspace / lightweight）。
          这里写死「Nexus Lite」会让全量模式的窗口标题一直挂着 Lite ——

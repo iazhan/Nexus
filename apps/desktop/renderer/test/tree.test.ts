@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { IndexedDocument } from '@nexus/core';
+import { documentTypeForPath, type IndexedDocument } from '@nexus/core';
 import { buildFileTree, defaultExpandedDirectories } from '../src/workspace/tree.js';
 
 /** 只关心路径相关字段，其余给固定值。 */
@@ -11,6 +11,7 @@ function doc(relativePath: string): IndexedDocument {
     relativePath,
     name,
     title: name.replace(/\.[^.]+$/, ''),
+    type: documentTypeForPath(relativePath) ?? 'markdown',
     sizeBytes: 1,
     modifiedAtMs: 1,
     contentHash: 'x'

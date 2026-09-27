@@ -1,5 +1,11 @@
 import { Database } from 'node-sqlite3-wasm';
-import type { GraphEdge, IndexedDocument, SearchHit, WorkspaceGraph } from '@nexus/core';
+import type {
+  DocumentType,
+  GraphEdge,
+  IndexedDocument,
+  SearchHit,
+  WorkspaceGraph
+} from '@nexus/core';
 
 /**
  * 工作区索引的存储层。
@@ -21,8 +27,15 @@ import type { GraphEdge, IndexedDocument, SearchHit, WorkspaceGraph } from '@nex
  * 写入和查询都走 `segmentForIndex()` 按字切分，原因见该函数的注释。
  */
 
-/** schema 版本。改表结构就 +1 —— 旧库会被整个重建。 */
-const SCHEMA_VERSION = '3';
+/**
+ * schema 版本。改表结构就 +1 —— 旧库会被整个重建。
+ *
+ * v4（Phase 3 / P3-04）：`documents` 加 `type` 列，附件开始进索引。
+ * 注意这里**没有迁移脚本** —— 索引是派生数据，重建成本是几秒扫盘，
+ * 而迁移脚本会长期背着「派生数据的格式」这个不该背的包袱（见文件头注释）。
+ * 所以「schema v4 的 migration」在本项目里的含义就是「把版本号改掉」。
+ */
+const SCHEMA_VERSION = '4';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -35,12 +48,16 @@ const SCHEMA_STATEMENTS = [
      relative_path TEXT NOT NULL,
      name TEXT NOT NULL,
      title TEXT NOT NULL,
+     -- 文档类型（Phase 3 / P3-04）。**派生自 path**，不是独立事实 —— 存它是为了让
+     -- 「只要 Markdown」这类过滤能在 SQL 层完成，而不是把全表拉进内存再筛。
+     type TEXT NOT NULL DEFAULT 'markdown',
      size_bytes INTEGER NOT NULL DEFAULT 0,
      modified_at_ms INTEGER NOT NULL DEFAULT 0,
      content_hash TEXT NOT NULL,
      indexed_at_ms INTEGER NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS idx_documents_relative_path ON documents(relative_path)`,
+  `CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(type)`,
   // FTS5 虚表自带 rowid，这里让它等于 documents.id，查询时 join 回去。
   // 正文存的是**切分后**的文本，见 segmentForIndex()。
   `CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
@@ -85,11 +102,19 @@ export interface UpsertDocumentInput {
   path: string;
   relativePath: string;
   name: string;
+  /** 文档类型。决定这篇文档要不要进全文索引，见 `upsertDocument`。 */
+  type: DocumentType;
   title: string;
   sizeBytes: number;
   modifiedAtMs: number;
   contentHash: string;
-  /** 原始正文（未切分）；切分在本层内部完成 */
+  /**
+   * 原始正文（未切分）；切分在本层内部完成。
+   *
+   * **附件传空串** —— 附件不进全文检索，正文从不参与查询。这里用空串而不是
+   * 可选字段，是为了让「Markdown 必须给正文」在类型上不可省略：漏传会变成
+   * 索引里一篇搜不到的空文档，而那要等到用户搜不到东西才会被发现。
+   */
   body: string;
   /**
    * 本文档里的 wikilink 目标，**已归一化**（去掉 `.md`、转小写）。
@@ -210,7 +235,7 @@ export class IndexStore {
 
   getDocumentByPath(filePath: string): IndexedDocument | null {
     const row = this.db.get(
-      `SELECT id, path, relative_path, name, title, size_bytes, modified_at_ms, content_hash
+      `SELECT id, path, relative_path, name, title, type, size_bytes, modified_at_ms, content_hash
          FROM documents WHERE path = ?`,
       [filePath]
     );
@@ -220,27 +245,29 @@ export class IndexStore {
   /** 按相对路径排序的全部文档 —— 供 Quick Open 之类的扁平列表使用。 */
   listDocuments(): IndexedDocument[] {
     const rows = this.db.all(
-      `SELECT id, path, relative_path, name, title, size_bytes, modified_at_ms, content_hash
+      `SELECT id, path, relative_path, name, title, type, size_bytes, modified_at_ms, content_hash
          FROM documents ORDER BY relative_path`
     );
     return rows.map(mapDocument);
   }
 
   /**
-   * 写入或更新一篇文档（含全文索引）。
+   * 写入或更新一篇文档。
    *
    * 同一事务里替换 FTS 行：先删旧的再插新的，避免同一文档留下两份索引。
+   * 附件（非 Markdown）只写元数据，不碰 FTS —— 它没有可检索正文。
    */
   upsertDocument(input: UpsertDocumentInput, nowMs: number): number {
     this.db.exec('BEGIN');
     try {
       this.db.run(
-        `INSERT INTO documents(path, relative_path, name, title, size_bytes, modified_at_ms, content_hash, indexed_at_ms)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO documents(path, relative_path, name, title, type, size_bytes, modified_at_ms, content_hash, indexed_at_ms)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(path) DO UPDATE SET
            relative_path = excluded.relative_path,
            name = excluded.name,
            title = excluded.title,
+           type = excluded.type,
            size_bytes = excluded.size_bytes,
            modified_at_ms = excluded.modified_at_ms,
            content_hash = excluded.content_hash,
@@ -250,6 +277,7 @@ export class IndexStore {
           input.relativePath,
           input.name,
           input.title,
+          input.type,
           input.sizeBytes,
           input.modifiedAtMs,
           input.contentHash,
@@ -263,16 +291,26 @@ export class IndexStore {
         throw new Error(`写入文档后拿不到 id: ${input.path}`);
       }
 
+      // 先删后插，**与类型无关**：文档改过之后旧的出链可能已经不存在了，只删不插
+      // 会让反向链接永远停在第一次索引的结果上。附件本来就没有出链和标签，但删除
+      // 仍然必要 —— 路径 `note.md` 被换成同名 `note.pdf`（或反过来）时路径相同、
+      // id 相同，不删就会把旧类型的出链留给新文档。
       this.db.run(`DELETE FROM search_fts WHERE rowid = ?`, [documentId]);
+      this.db.run(`DELETE FROM links WHERE source_id = ?`, [documentId]);
+      this.db.run(`DELETE FROM tags WHERE source_id = ?`, [documentId]);
+
+      // 附件到此为止。
+      if (input.type !== 'markdown') {
+        this.db.exec('COMMIT');
+        return documentId;
+      }
+
       this.db.run(`INSERT INTO search_fts(rowid, title, body) VALUES(?, ?, ?)`, [
         documentId,
         segmentForIndex(input.title),
         segmentForIndex(input.body)
       ]);
 
-      // 出链同样先删后插：文档改过之后，旧的出链可能已经不存在了。
-      // 只删不插会让反向链接永远停在第一次索引的结果上。
-      this.db.run(`DELETE FROM links WHERE source_id = ?`, [documentId]);
       for (const target of input.links) {
         this.db.run(`INSERT OR IGNORE INTO links(source_id, target) VALUES(?, ?)`, [
           documentId,
@@ -280,8 +318,6 @@ export class IndexStore {
         ]);
       }
 
-      // 标签与出链同理：改过之后旧标签可能已经被删掉了
-      this.db.run(`DELETE FROM tags WHERE source_id = ?`, [documentId]);
       for (const tag of input.tags) {
         this.db.run(`INSERT OR IGNORE INTO tags(source_id, tag) VALUES(?, ?)`, [documentId, tag]);
       }
@@ -352,11 +388,11 @@ export class IndexStore {
    * 那种不一致极难被发现，因为两边单独看都对。
    */
   findBacklinks(document: IndexedDocument): IndexedDocument[] {
-    const targets = backlinkTargetsOf(document);
+    const targets = this.backlinkTargetsOf(document);
     const placeholders = targets.map(() => '?').join(', ');
 
     const rows = this.db.all(
-      `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title,
+      `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title, d.type,
               d.size_bytes, d.modified_at_ms, d.content_hash
          FROM links l
          JOIN documents d ON d.id = l.source_id
@@ -393,7 +429,7 @@ export class IndexStore {
     if (!normalized) return [];
 
     const rows = this.db.all(
-      `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title,
+      `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title, d.type,
               d.size_bytes, d.modified_at_ms, d.content_hash
          FROM tags t
          JOIN documents d ON d.id = t.source_id
@@ -426,7 +462,7 @@ export class IndexStore {
     // 相对路径或文件名，都去掉 `.md` 并转小写。
     const byTarget = new Map<string, number>();
     for (const document of documents) {
-      for (const key of backlinkTargetsOf(document)) {
+      for (const key of this.backlinkTargetsOf(document)) {
         if (!byTarget.has(key)) byTarget.set(key, document.id);
       }
     }
@@ -467,7 +503,75 @@ export class IndexStore {
     const row = this.db.get(`SELECT COUNT(*) AS count FROM documents`);
     return { documents: Number(row?.count ?? 0) };
   }
+
+  /**
+   * 一篇文档可能被链接到的写法，全部小写。
+   *
+   * - Markdown：相对路径（去 `.md`）与文件名（去 `.md`）。
+   * - 附件（Phase 3 / P3-04）：**额外**加「去掉自身扩展名」的候选，于是 `[[stm32]]`
+   *   也能命中 `stm32.pdf`。
+   *
+   * 与 `resolveWikiLink`（renderer 侧）的匹配口径必须一致。两处若不一致，会出现
+   * 「能跳转但查不到反向链接」这种极难察觉的偏差 —— 两边单独看都是对的。
+   *
+   * ## 为什么只给附件加「去扩展名」
+   *
+   * 给 Markdown 也加的话，`[[readme.txt]]` 会命中 `readme.md` —— 而用户写出 `.txt`
+   * 显然不是想链接一篇 Markdown。附件反过来：短名没有别的解释，加候选才不会歧义。
+   *
+   * ## 同名共存时**不加**短名候选
+   *
+   * `stm32.md` 与 `stm32.pdf` 同时存在时，`[[stm32]]` 在跳转侧归 `.md`
+   * （由 `wikilinkCandidates` 的顺序决定）。反向链接侧没有「顺序」这个概念，只有
+   * 集合匹配 —— 所以这里必须显式把短名从附件的候选里去掉，否则那条链接会**同时**
+   * 出现在两篇的反向链接面板里，而跳转只会去 `.md`，两处行为不一致。
+   * 这是「附件引用必须显式写扩展名」这条契约的另一半。
+   */
+  private backlinkTargetsOf(document: IndexedDocument): string[] {
+    const stripMarkdown = (value: string) => value.toLowerCase().replace(/\.md$/, '');
+    const targets = new Set([stripMarkdown(document.relativePath), stripMarkdown(document.name)]);
+
+    if (document.type !== 'markdown') {
+      const stripExtension = (value: string) => value.toLowerCase().replace(/\.[^./\\]+$/, '');
+      for (const short of [
+        stripExtension(document.relativePath),
+        stripExtension(document.name)
+      ]) {
+        if (short.length === 0) continue;
+        if (this.hasMarkdownTarget(short)) continue;
+        targets.add(short);
+      }
+    }
+
+    return [...targets];
+  }
+
+  /**
+   * 库里是否存在「会被短名 `shortTarget` 命中」的 Markdown 文档。
+   *
+   * 判据与 `backlinkTargetsOf` 对 Markdown 产出的候选一致：文件名或相对路径去掉
+   * `.md` / `.markdown` 后等于 `shortTarget`。写成 SQL 而不是拉到内存里比，
+   * 是因为 `getGraph()` 会对每篇文档调一次 —— 那会变成 O(n²)。
+   */
+  private hasMarkdownTarget(shortTarget: string): boolean {
+    const row = this.db.get(
+      `SELECT 1 FROM documents
+        WHERE type = 'markdown'
+          AND (lower(name) IN (?, ?) OR lower(relative_path) IN (?, ?))
+        LIMIT 1`,
+      [
+        `${shortTarget}.md`,
+        `${shortTarget}.markdown`,
+        `${shortTarget}.md`,
+        `${shortTarget}.markdown`
+      ]
+    );
+    return Boolean(row);
+  }
 }
+
+/** 允许出现在 `documents.type` 列里的值，用于把库里的字符串收敛回类型。 */
+const DOCUMENT_TYPES: readonly DocumentType[] = ['markdown', 'pdf', 'docx', 'image'];
 
 function mapDocument(row: Record<string, unknown>): IndexedDocument {
   return {
@@ -476,6 +580,7 @@ function mapDocument(row: Record<string, unknown>): IndexedDocument {
     relativePath: String(row.relative_path),
     name: String(row.name),
     title: String(row.title),
+    type: readDocumentType(row.type),
     sizeBytes: Number(row.size_bytes ?? 0),
     modifiedAtMs: Number(row.modified_at_ms ?? 0),
     contentHash: String(row.content_hash)
@@ -483,12 +588,13 @@ function mapDocument(row: Record<string, unknown>): IndexedDocument {
 }
 
 /**
- * 一篇文档可能被链接到的写法：相对路径（去 `.md`）与文件名（去 `.md`），都已小写。
+ * 把库里的 `type` 列收敛回 `DocumentType`。
  *
- * 与 `resolveWikiLink` 的匹配口径一致。两处若不一致，会出现「能跳转但查不到反向链接」
- * 这种极难察觉的偏差 —— 两边单独看都是对的。
+ * 认不出的值一律当 Markdown —— 索引是派生数据，宁可自愈也不要让一次脏读把整个
+ * 面板打挂。真出现认不出的值，说明 schema 变了而版本号没跟上，那会在
+ * 「可重建性」测试里先暴露。
  */
-function backlinkTargetsOf(document: IndexedDocument): string[] {
-  const strip = (value: string) => value.toLowerCase().replace(/\.md$/, '');
-  return [...new Set([strip(document.relativePath), strip(document.name)])];
+function readDocumentType(raw: unknown): DocumentType {
+  const value = typeof raw === 'string' ? raw : '';
+  return DOCUMENT_TYPES.includes(value as DocumentType) ? (value as DocumentType) : 'markdown';
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { IndexedDocument } from '@nexus/core';
+import { documentTypeForPath, type IndexedDocument } from '@nexus/core';
 import { resolveWikiLink } from '../src/workspace/wikilink.js';
 
 function doc(relativePath: string): IndexedDocument {
@@ -10,6 +10,9 @@ function doc(relativePath: string): IndexedDocument {
     relativePath,
     name,
     title: name.replace(/\.[^.]+$/, ''),
+    // 类型从路径推导，与索引层同一条判据 —— 手写死会让测试与白名单脱节，
+    // 将来加了新扩展名这里不会跟着变。
+    type: documentTypeForPath(relativePath) ?? 'markdown',
     sizeBytes: 1,
     modifiedAtMs: 1,
     contentHash: 'x'
@@ -74,5 +77,55 @@ describe('WikiLink 解析', () => {
 
   it('空工作区里任何目标都解析不到', () => {
     expect(resolveWikiLink('root', []).status).toBe('not-found');
+  });
+});
+
+/**
+ * Phase 3 / P3-04：候选里多了附件扩展名，于是 `[[stm32]]` 也能指向 `stm32.pdf`。
+ *
+ * 这一组的重点是**候选顺序**：它决定了同名共存时短名归谁。顺序由 core 的
+ * `wikilinkCandidates()` 统一给出，索引层的反向链接用的是同一套口径 ——
+ * 两处不一致会出现「能跳转但查不到反向链接」这种极难察觉的偏差。
+ */
+describe('WikiLink 解析：附件（Phase 3 / P3-04）', () => {
+  const WITH_ATTACHMENTS = [doc('index.md'), doc('stm32.pdf'), doc('assets/diagram.png')];
+
+  it('短名能解析到同名的附件', () => {
+    const result = resolveWikiLink('stm32', WITH_ATTACHMENTS);
+
+    expect(result.status).toBe('resolved');
+    expect(result.document?.relativePath).toBe('stm32.pdf');
+  });
+
+  it('图片的短名同样能解析，跨目录也认', () => {
+    expect(resolveWikiLink('diagram', WITH_ATTACHMENTS).document?.relativePath).toBe(
+      'assets/diagram.png'
+    );
+  });
+
+  it('写全名时精确指向附件', () => {
+    expect(resolveWikiLink('stm32.pdf', WITH_ATTACHMENTS).document?.relativePath).toBe(
+      'stm32.pdf'
+    );
+  });
+
+  it('同名共存时短名归 Markdown，附件必须写全名', () => {
+    const both = [doc('stm32.md'), doc('stm32.pdf')];
+
+    // `.md` 排在附件扩展名之前 —— 这是契约，不是实现细节：
+    // 笔记才是知识库的主体，短名默认指向笔记更符合预期。
+    expect(resolveWikiLink('stm32', both).document?.relativePath).toBe('stm32.md');
+    expect(resolveWikiLink('stm32.pdf', both).document?.relativePath).toBe('stm32.pdf');
+  });
+
+  it('带点但不是白名单扩展名的短名仍会展开', () => {
+    // `v1.2` 里的 `.2` 不在白名单，所以它是个短名，要能指向 `v1.2.md`。
+    // 判据若是「含点就不展开」，这条会静默失效。
+    expect(resolveWikiLink('v1.2', [doc('v1.2.md')]).document?.relativePath).toBe('v1.2.md');
+  });
+
+  it('不在白名单里的扩展名不会凭空命中 Markdown', () => {
+    // `[[readme.txt]]` 不该命中 `readme.md` —— 用户写出 `.txt` 显然不是想链接 Markdown
+    expect(resolveWikiLink('readme.txt', [doc('readme.md')]).status).toBe('not-found');
   });
 });
