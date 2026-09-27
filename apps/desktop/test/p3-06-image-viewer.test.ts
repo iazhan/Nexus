@@ -9,7 +9,9 @@ import { launchElectronApp, createTempDir, type ElectronAppInstance } from './sm
  *
  * 这是三个 Viewer 里第一个接通真实渲染器的切片，所以这个文件同时验三件事：
  *
- * 1. **资源通道通了** —— `file://` + 当前 CSP 下浏览器能把图片读出来。
+ * 1. **资源通道通了** —— `nexus-asset://` + 当前 CSP 下浏览器能把图片读出来。
+ *    （P3-06 时走的是 `file://`；P3-07 改到自定义协议，理由见 §5.1 的变更记录 ——
+ *    http 页面加载不了 `file://` 子资源，dev 下图片会全部打不开。）
  *    判据是 `naturalWidth > 0`：URL 错了、CSP 拦了、文件没了，三者都会让
  *    `<img>` 停在「没解码」状态，而只有真读到像素才会给出非 0 尺寸。
  * 2. **尺寸是对的** —— fixture 刻意用 3×2（宽高不等），宽高写反、被 CSS 缩放
@@ -94,9 +96,9 @@ describe('P3-06 图片 Viewer', () => {
     expect(image.height).toBe(PNG_HEIGHT);
     // 图片没显示出来时 alt 是唯一信息
     expect(image.alt).toBe('diagram.png');
-    // 走的是 file://（§10.4 定案 A），路径按 URL 规则转义过
-    expect(image.src.startsWith('file:///')).toBe(true);
-    expect(image.src.endsWith('/diagram.png')).toBe(true);
+    // 走的是 nexus-asset://，路径按 URL 规则转义过（`D:` → `D%3A`、`/` → `%2F`）
+    expect(image.src.startsWith('nexus-asset://')).toBe(true);
+    expect(image.src).toContain('diagram.png');
 
     // 状态栏把真实尺寸报出来 —— 这也是「图片尺寸正确」在界面上可核对的形式
     expect(await app.getText('.nexus-image-size')).toBe(`${PNG_WIDTH} × ${PNG_HEIGHT}`);
@@ -115,6 +117,9 @@ describe('P3-06 图片 Viewer', () => {
 
     // ---- 懒加载不变量：这一次它终于是真判据 ----
     // 打开图片 ⟹ 图片渲染器的 chunk 被请求了；而它是**唯一**被请求的。
+    // P3-07 起 `registered` 里多了 pdf、P3-08 起多了 docx —— 登记了三个
+    // 而只请求了一个，正是「登记是急切的、加载是懒的」这句话的字面证据。
+    // 这条断言从此**不再随切片变动**：三个 viewer 类型在 P3-08 全部登记完毕。
     const registry = await app.evaluate<{
       registered: string[];
       requested: string[];
@@ -126,7 +131,7 @@ describe('P3-06 图片 Viewer', () => {
         loaded: window.nexusViewerRenderers.loadedIds()
       })`
     );
-    expect(registry.registered).toEqual(['image']);
+    expect(registry.registered).toEqual(['image', 'pdf', 'docx']);
     expect(registry.requested).toEqual(['image']);
     expect(registry.loaded).toEqual(['image']);
   });

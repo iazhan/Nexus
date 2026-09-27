@@ -103,7 +103,9 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
     expect(imageProps.complete).toBe(true);
     expect(imageProps.naturalWidth).toBeGreaterThan(0);
     expect(imageProps.naturalHeight).toBeGreaterThan(0);
-    expect(imageProps.src).toContain('file:///');
+    // P3-07 起内嵌图片走 nexus-asset://（不再是 file://）—— http 页面（dev）加载不了
+    // file:// 子资源，那会让 dev 下所有内嵌图片变空白。详见 @nexus/core 的 asset/url.ts
+    expect(imageProps.src).toContain('nexus-asset://');
 
     // 5. Verify delimiter reveal on caret entry/exit and real blur/focus
     // 5a. Initial: caret at 0, no revealed delimiters

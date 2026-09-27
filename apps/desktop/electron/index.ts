@@ -1,9 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { BrowserWindow as BrowserWindowType } from 'electron';
 import {
+  ASSET_SCHEME,
   parseLaunchArgs,
   type LaunchContext,
   type FileWatchEvent,
@@ -12,6 +13,7 @@ import {
 } from '@nexus/core';
 import { createHash } from 'node:crypto';
 import { FileService } from './file-service.js';
+import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js';
 import { createElectronFileDialog } from './file-dialog.js';
 import { HistoryStore } from './history-store.js';
 import { IndexStore } from './index-store.js';
@@ -24,6 +26,44 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 资源协议（`nexus-asset://`，P3-07）的 privileged 声明。
+ *
+ * **必须在模块顶层、早于 `app.whenReady()` 调用** —— Electron 只在这个窗口期内
+ * 接受 scheme 注册，晚一步注册的 scheme 拿不到 `standard` / `secure` /
+ * `supportFetchAPI` 这些特权，症状是请求能到达 handler 但 CSP 与 fetch 行为都对不上，
+ * 且没有任何报错。真正的 handler 挂载在 `ensureAssetProtocol`（app ready 之后）。
+ */
+protocol.registerSchemesAsPrivileged([
+  { scheme: ASSET_SCHEME, privileges: { ...ASSET_SCHEME_PRIVILEGES } }
+]);
+
+/**
+ * 已经挂过资源协议 handler 的 session。
+ *
+ * 同一 scheme 在同一 session 上注册两次会抛，而 `getOrCreateSession` 是**按
+ * webContents** 建的 —— 多窗口时同一个 `defaultSession` 会被走到两次。
+ * 用 WeakSet 而不是 `protocol.isProtocolHandled()`：我们只关心「本进程挂过没有」，
+ * 不依赖 Electron 跨版本行为有变化的查询接口。
+ */
+const assetProtocolSessions = new WeakSet<Electron.Session>();
+
+/**
+ * 在某个 session 上挂载 `nexus-asset://` handler。
+ *
+ * **复用调用方传进来的 FileService 实例**，不另建一个：边界判据
+ * （`checkBoundary` + `assertNoSymlinkEscape`）只有那一份实现，新建实例等于把
+ * 授权逻辑复制一份 —— 正是 P3-03 在扩展名表上踩过的坑。
+ *
+ * 多窗口共用 `defaultSession` 时第一个 service 生效，这是**正确的**：
+ * `launchContext`（`workspaceRoot` / `filePath`）是进程级的，所有窗口的根完全相同。
+ */
+function ensureAssetProtocol(targetSession: Electron.Session, service: FileService): void {
+  if (assetProtocolSessions.has(targetSession)) return;
+  assetProtocolSessions.add(targetSession);
+  targetSession.protocol.handle(ASSET_SCHEME, createAssetHandler(service));
+}
 
 /**
  * 判断启动参数里的路径是目录还是文件，决定是否进入 workspace 模式。
@@ -128,6 +168,22 @@ function createWindow(): BrowserWindowType {
       sandbox: true
     }
   });
+
+  /**
+   * 立刻初始化 session —— 这一步顺带挂上 `nexus-asset://` 协议。
+   *
+   * **不能等第一次 IPC**（2026-09-27 P3-07 实测踩到）。`getOrCreateSession` 原本
+   * 只在 IPC handler 里被调用，注释里的理由是「renderer 要请求资源，必然先经过
+   * 一次 IPC 打开文档」。那个假设对 PDF 成立（PDF 由 IPC 打开文档触发），
+   * **对图片不成立**：图片 Viewer 可以由**启动参数**直接进入
+   * （`nexus photo.png`），renderer 一挂载就请求 `<img src="nexus-asset://…">`，
+   * 那时一个 IPC 都还没发生 —— 协议没挂上，请求 `TypeError: Failed to fetch`，
+   * 界面上只显示「图片加载失败」。
+   *
+   * 症状之所以难查，是因为它**只在一条入口上出现**：从文件树点开图片正常，
+   * 用启动参数打开永远失败。
+   */
+  getOrCreateSession(mainWindow.webContents);
 
   // ready-to-show 在隐藏窗口下并不保证触发（冷启动 dev 时首次绘制可能不发生），
   // 因此同时监听 did-finish-load 并加超时兜底，保证窗口一定可见。
@@ -368,10 +424,31 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
   if (!session) {
     const browserWindow = BrowserWindow.fromWebContents(webContents) ?? undefined;
     const dialog = createElectronFileDialog(browserWindow);
+
+    /**
+     * 轻量模式下，被打开文档**所在的那一层目录**是它的资源边界（P3-07）。
+     *
+     * Markdown 里的 `![](./assets/a.png)` 是相对文档自身解析的，所以「文档所在目录」
+     * 就是它引用得到的资源范围。没有这一条，`nexus-asset://` 会把每一张内嵌图片
+     * 都判成 `OUT_OF_BOUNDS` —— 因为轻量模式的 `allowedPaths` 只含被打开的那一个 `.md`。
+     *
+     * **只在没有工作区时登记**：工作区模式下 `workspaceRoots` 已经覆盖了文档所在目录，
+     * 再登记一次没有收益，却会让「工作区外的文件也能被打开」这种异常情形顺带
+     * 获得一个资源根。条件写出来比「反正冗余」更好读。
+     *
+     * 注意它是 `assetRoots` 而不是 `allowedPaths`：**只能读，不能写**。
+     * 轻量模式下可编辑的文件仍然只有用户打开的那一个。
+     */
+    const assetRoots =
+      !launchContext.workspaceRoot && launchContext.filePath
+        ? [path.dirname(launchContext.filePath)]
+        : [];
+
     const service = new FileService({
       dialog,
       allowedPaths: launchContext.filePath ? [launchContext.filePath] : [],
-      workspaceRoots: launchContext.workspaceRoot ? [launchContext.workspaceRoot] : []
+      workspaceRoots: launchContext.workspaceRoot ? [launchContext.workspaceRoot] : [],
+      assetRoots
     });
 
     // 构造函数不能 await，只登记了字符串层面的根；realpath 层面必须在这里补一次，
@@ -382,12 +459,30 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
       });
     }
 
+    // 资源根同理补一次 realpath：轻量模式下 `realRoots` 本来会是空的，
+    // 于是 `assertNoSymlinkEscape` 整条不生效。补上之后，文档目录里的链接
+    // 指向目录外也会被拒。失败不致命（字符串边界已经在构造函数里生效）。
+    for (const assetRoot of assetRoots) {
+      void service.authorizeAssetRoot(assetRoot).catch((err) => {
+        console.error('[Nexus Shell] 授权资源根失败:', err);
+      });
+    }
+
     session = {
       service,
       subscriptions: new Map(),
       workspaceRoot: launchContext.workspaceRoot ?? null
     };
     sessions.set(webContents.id, session);
+
+    // 资源通道（图片与 PDF 都走 `nexus-asset://`）挂在这里，是因为只有这里才拿得到
+    // 「与读写 Markdown 同一个」FileService 实例 —— 换一个实例会让协议看到一套
+    // 边界授权状态、IPC 看到另一套。
+    //
+    // **但触发时机不能只靠 IPC**：`createWindow` 会在窗口建好后主动调一次本函数。
+    // 原先注释里的「renderer 要请求资源必然先经过一次 IPC」对 PDF 成立、对图片
+    // 不成立（图片 Viewer 可由启动参数直接进入），见 `createWindow` 里的说明。
+    ensureAssetProtocol(webContents.session, service);
 
     const cleanup = () => {
       const current = sessions.get(webContents.id);

@@ -1,6 +1,6 @@
 {
   "name": "@nexus/editor",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -31,6 +31,7 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.0",
     "@lezer/highlight": "^1.2.1",
+    "@nexus/core": "workspace:*",
     "@nexus/i18n": "workspace:*",
     "@nexus/markdown": "workspace:*"
   },

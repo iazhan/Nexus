@@ -1,3 +1,5 @@
+import { toAssetUrl } from '@nexus/core';
+
 export function resolveDocumentAssetUrl(
   src: string,
   documentDirectory: string | null | undefined
@@ -26,13 +28,22 @@ export function resolveDocumentAssetUrl(
     const hashIndex = trimmed.indexOf('#');
     const queryIndex = trimmed.indexOf('?');
     let pathPart = trimmed;
-    let suffix = '';
+    let fragment = '';
 
     const firstSep =
       hashIndex === -1 ? queryIndex : queryIndex === -1 ? hashIndex : Math.min(hashIndex, queryIndex);
     if (firstSep !== -1) {
       pathPart = trimmed.slice(0, firstSep);
-      suffix = trimmed.slice(firstSep);
+    }
+    // **只保留 `#fragment`，丢弃 `?query`。**
+    //
+    // 目标路径现在住在 `nexus-asset://ws/?path=<编码后的路径>` 这个查询参数里，
+    // 再往 URL 末尾拼一个 `?query`，会被 `URLSearchParams` 当成 path 值的一部分
+    // （`path=D:/a.png?raw=true`）→ 主进程按这个名字找文件必然 404，图片变空白。
+    // 而图片的 query 在本地文件场景下没有任何语义（那是 GitHub `?raw=true` 那类
+    // 写法），fragment 则至少还有 SVG sprite（`icons.svg#home`）的可能，所以留它。
+    if (hashIndex !== -1) {
+      fragment = trimmed.slice(hashIndex);
     }
 
     try {
@@ -79,14 +90,21 @@ export function resolveDocumentAssetUrl(
       }
     }
 
+    // 走 `nexus-asset://` 而不是 `file://`：`pnpm dev` 的页面来自
+    // `http://localhost:6200`，而 Chromium 不允许 http 页面加载 `file://` 子资源
+    // （`Not allowed to load local resource`）—— 那会让 dev 下**所有**内嵌图片
+    // 变成空白，而打包产物却正常。这不是 CSP 能修的。详见 `@nexus/core`
+    // 的 `asset/url.ts`。
+    //
+    // URL 形状由 core 提供，editor 不再自己拼 —— 拼 URL 是宿主的职责，
+    // 硬编码 `file://` 正是这个 bug 的来源。
     if (isWindowsAbsolute) {
       const drive = resolvedSegments[0]!;
-      const rest = resolvedSegments.slice(1).map(encodeURIComponent).join('/');
-      return `file:///${drive}/${rest}${suffix}`;
-    } else {
-      const rest = resolvedSegments.map(encodeURIComponent).join('/');
-      return `file:///${rest}${suffix}`;
+      const rest = resolvedSegments.slice(1).join('/');
+      return `${toAssetUrl(`${drive}/${rest}`)}${fragment}`;
     }
+
+    return `${toAssetUrl(`/${resolvedSegments.join('/')}`)}${fragment}`;
   } catch {
     return null;
   }

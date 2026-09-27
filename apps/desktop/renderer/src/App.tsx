@@ -291,8 +291,8 @@ export const App: React.FC = () => {
    * Viewer 渲染器登记表。
    *
    * 与 `ExtensionHost` 同一套懒加载形状（§7 第 9 条）：这里只登记「哪个类型归谁」，
-   * 渲染器包本体要等真的渲染第一个该类型文档才 import。PDF 归 P3-07、
-   * DOCX 归 P3-08，各自在自己的切片里加一次 `registerLazy` 即可，本文件不用再改。
+   * 渲染器包本体要等真的渲染第一个该类型文档才 import。三个类型（图片 / PDF / DOCX）
+   * 在 P3-08 全部登记完毕，本文件从此不再需要改。
    */
   const viewerRegistryRef = useRef<ViewerRendererRegistry | null>(null);
   if (viewerRegistryRef.current === null) {
@@ -303,6 +303,19 @@ export const App: React.FC = () => {
     registry.registerLazy({
       type: 'image',
       load: () => import('./viewer/image/ImageRenderer.js')
+    });
+    // PDF：P3-07。这个 import 是**唯一**能把 pdfjs-dist（约 350KB min 后）
+    // 拉下来的路径，所以「打开 Markdown 的工作区不下载 pdfjs」这条不变量
+    // 完全取决于它保持成动态 import（§9 验收第 6 条）。
+    registry.registerLazy({
+      type: 'pdf',
+      load: () => import('./viewer/pdf/PdfRenderer.js')
+    });
+    // DOCX：P3-08。同上 —— mammoth 加上它的依赖（jszip / @xmldom/xmldom）
+    // 是三个渲染器里最重的一个，只有真的打开 DOCX 才该下载它。
+    registry.registerLazy({
+      type: 'docx',
+      load: () => import('./viewer/docx/DocxRenderer.js')
     });
     viewerRegistryRef.current = registry;
   }

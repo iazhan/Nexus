@@ -11,6 +11,21 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'viewer.loading': 'Loading {type} preview…',
     'viewer.image.loadError':
       'This image could not be loaded. It may have been moved, renamed, or deleted.',
+    'viewer.pdf.loading': 'Loading PDF…',
+    'viewer.pdf.loadError':
+      'This PDF could not be loaded. It may have been moved, renamed, or deleted.',
+    'viewer.pdf.previousPage': 'Previous',
+    'viewer.pdf.nextPage': 'Next',
+    'viewer.pdf.pageOf': 'Page {current} / {total}',
+    'viewer.docx.loading': 'Loading DOCX…',
+    'viewer.docx.loadError':
+      'This document could not be loaded. It may have been moved, renamed, or deleted.',
+    'viewer.docx.empty': 'This document has no content to display.',
+    // 常驻提示，不是错误：mammoth 做的是语义转换（标题/段落/列表），
+    // 不还原字体、字号、缩进、页边距 —— 所以「和 Word 不一样」是预期行为。
+    'viewer.docx.readOnlyNotice': 'Read-only preview · layout may differ from the original',
+    'viewer.docx.partialNotice':
+      'Read-only preview · {count} conversion warning(s)',
     'document.type.pdf': 'PDF',
     'document.type.docx': 'DOCX',
     'document.type.image': 'Image',
@@ -208,6 +223,16 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'viewer.pending': '{type} 预览尚未接入 —— 文档已识别，查看器将在后续切片提供。',
     'viewer.loading': '正在加载 {type} 预览…',
     'viewer.image.loadError': '图片加载失败。文件可能已被移动、重命名或删除。',
+    'viewer.pdf.loading': '正在加载 PDF…',
+    'viewer.pdf.loadError': 'PDF 加载失败。文件可能已被移动、重命名或删除。',
+    'viewer.pdf.previousPage': '上一页',
+    'viewer.pdf.nextPage': '下一页',
+    'viewer.pdf.pageOf': '第 {current} / {total} 页',
+    'viewer.docx.loading': '正在加载 DOCX…',
+    'viewer.docx.loadError': '文档加载失败。文件可能已被移动、重命名或删除。',
+    'viewer.docx.empty': '这份文档没有可显示的内容。',
+    'viewer.docx.readOnlyNotice': '只读预览 · 版式与原文件可能不同',
+    'viewer.docx.partialNotice': '只读预览 · {count} 条转换警告',
     'document.type.pdf': 'PDF',
     'document.type.docx': 'DOCX',
     'document.type.image': '图片',

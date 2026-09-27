@@ -59,6 +59,23 @@ export interface FileSystemAdapter {
    * 而实际只有一个调用点需要字节。
    */
   readFileBuffer(filePath: string): Promise<Uint8Array>;
+  /**
+   * 按**偏移**读一段字节 —— `nexus-asset://` 的 Range 原语（P3-07）。
+   *
+   * 与 `readFileBuffer` 分开是必须的，不是图省事：PDF.js 会发很多次 Range 请求，
+   * 把偏移读实现成「读全文再切片」等于每个请求都过一遍整个文件。
+   * `FileHandleLike` 上没有 `read`（只有 writeFile / sync / close），
+   * 所以偏移读只能落在适配层。
+   *
+   * 参数是 `length` 而不是 `end`：对齐 Node 的
+   * `fs.read(fd, buffer, offset, length, position)` 与 `Buffer.alloc(length)`。
+   * **闭区间 → 长度的转换只在 `FileService.readAssetRange` 一处发生**，
+   * 免得两个约定在中间层来回换算。
+   *
+   * 必填而非可选：可选成员会被漏实现，然后在运行时静默拿到 `undefined`
+   * （P3-03 给 `readFileBuffer` 定过同一条）。
+   */
+  readRange(filePath: string, start: number, length: number): Promise<Uint8Array>;
   open(filePath: string, flags: string | number, mode?: number): Promise<FileHandleLike>;
   rename(oldPath: string, newPath: string): Promise<void>;
   unlink(filePath: string): Promise<void>;
@@ -87,6 +104,19 @@ export class DefaultFileSystemAdapter implements FileSystemAdapter {
   async readFileBuffer(filePath: string): Promise<Uint8Array> {
     // Buffer 是 Uint8Array 的子类，按声明类型返回即可（不复制，零成本）。
     return fsPromises.readFile(filePath);
+  }
+
+  async readRange(filePath: string, start: number, length: number): Promise<Uint8Array> {
+    const handle = await fsPromises.open(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, start);
+      // 文件在 stat 与 read 之间被截断时 bytesRead < length。返回**实际读到的**字节，
+      // 而不是把零填充的尾巴当内容交出去 —— 后者会让 206 的 content-length 撒谎。
+      return bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
   }
 
   async open(filePath: string, flags: string | number, mode?: number): Promise<FileHandleLike> {
@@ -343,6 +373,19 @@ export interface FileServiceOptions {
   allowedPaths?: string[];
   /** 启动时即授权的工作区根目录 */
   workspaceRoots?: string[];
+  /**
+   * 启动时即授权的**资源读取根目录** —— 只对 `nexus-asset://` 生效（P3-07）。
+   *
+   * 与 `workspaceRoots` 的区别是**权限大小**，不是方便程度：
+   * `workspaceRoots` 之下的文件可读**也可写**；`assetRoots` 之下的文件**只能被
+   * 资源通道读取**，`readFile` / `writeFile` / `watchFile` 一律照旧拒绝。
+   * 两条判据因此不能合并成一个集合。
+   *
+   * 用途只有一个：**轻量模式下被打开文档所在的那一层目录**。Markdown 里
+   * `![](./assets/a.png)` 这类相对引用是相对文档自身解析的，所以「文档所在目录」
+   * 就是它的资源边界。没有这条，轻量模式下所有内嵌图片都会 403。
+   */
+  assetRoots?: string[];
   forceBackupSwap?: boolean;
 }
 
@@ -358,6 +401,11 @@ export class FileService {
   private readonly allowedPaths = new Set<string>();
   /** 已授权的工作区根（含用户传入路径与其 realpath） */
   private readonly allowedRoots = new Set<string>();
+  /**
+   * 已授权的**资源读取**根（P3-07）。**只被 `authorizeAsset` 查询** ——
+   * 这条集合里的路径不能读写，只能经 `nexus-asset://` 取字节。
+   */
+  private readonly assetRoots = new Set<string>();
   /** 只存 realpath 化的根，用于识别符号链接逃逸 */
   private readonly realRoots = new Set<string>();
 
@@ -378,6 +426,17 @@ export class FileService {
     if (options.workspaceRoots) {
       for (const root of options.workspaceRoots) {
         this.allowedRoots.add(this.toPathKey(root));
+      }
+    }
+
+    // 资源根同理：字符串登记是**同步**的，于是「窗口一建好、renderer 立刻请求图片」
+    // 时边界已经生效。realpath 那半交给 authorizeAssetRoot()。
+    //
+    // 同步这半不能省 —— 它的缺失会重现 P3-07 那个「只在一条入口上出现」的 bug：
+    // 从启动参数直接打开 Markdown 时，renderer 挂载即请求图片，而任何 await 都还没跑完。
+    if (options.assetRoots) {
+      for (const root of options.assetRoots) {
+        this.assetRoots.add(this.toPathKey(root));
       }
     }
   }
@@ -475,6 +534,92 @@ export class FileService {
 
     try {
       return await this.fsAdapter.readFileBuffer(normalizedPath);
+    } catch (err: unknown) {
+      if (isNotFoundError(err)) {
+        throw new FileServiceError('NOT_FOUND', `文件未找到: ${normalizedPath}`, normalizedPath);
+      }
+      throw wrapIoError('读取文件失败', normalizedPath, err);
+    }
+  }
+
+  /**
+   * 资源通道（`nexus-asset://`）的准入检查：规范化 → 边界 → 类型 → realpath。
+   *
+   * 抽成一个方法有两个理由，缺一不可：
+   *   1. `statAsset` 与 `readAssetRange` 都要走一遍，而 `assertNoSymlinkEscape`
+   *      会做一次 realpath 系统调用 —— PDF.js 会发很多次 Range 请求，
+   *      一次请求里跑两遍纯属浪费；
+   *   2. 两处各写一遍就**必然**有一处会漏。本文件已经因为「同一个判据存在两份」
+   *      吃过一次亏（见文件头关于扩展名表的说明）。
+   */
+  private async authorizeAsset(filePath: string): Promise<string> {
+    const normalizedPath = this.normalizePath(filePath);
+    this.checkAssetBoundary(normalizedPath);
+    this.assertReadableDocument(normalizedPath);
+    await this.assertNoSymlinkEscape(normalizedPath);
+    return normalizedPath;
+  }
+
+  /**
+   * 校验并返回可读资源的**字节长度**。
+   *
+   * `nexus-asset://` 必须先拿到它才能解析 Range：后缀形式 `bytes=-500` 的起点是
+   * `size - 500`，没有 size 就无从下手。所以「先 stat 再读」是协议本身的形状，
+   * 不是多余的往返。
+   */
+  async statAsset(filePath: string): Promise<number> {
+    return this.readAssetSize(await this.authorizeAsset(filePath));
+  }
+
+  /** 已通过准入检查的路径 → 字节长度。 */
+  private async readAssetSize(normalizedPath: string): Promise<number> {
+    let stats: { isFile(): boolean; size?: number };
+    try {
+      stats = await this.fsAdapter.stat(normalizedPath);
+    } catch (err: unknown) {
+      if (isNotFoundError(err)) {
+        throw new FileServiceError('NOT_FOUND', `文件未找到: ${normalizedPath}`, normalizedPath);
+      }
+      throw wrapIoError('读取文件失败', normalizedPath, err);
+    }
+
+    if (!stats.isFile()) {
+      throw new FileServiceError('NOT_FOUND', `不是文件: ${normalizedPath}`, normalizedPath);
+    }
+    // 适配层把 size 声明成可选（别的调用方不需要它）。这里必须有，
+    // 否则 `Content-Range` 的分母就是 undefined —— 宁可报错，也不要发出一个撒谎的响应。
+    if (typeof stats.size !== 'number') {
+      throw new FileServiceError('IO_ERROR', `无法确定文件大小: ${normalizedPath}`, normalizedPath);
+    }
+    return stats.size;
+  }
+
+  /**
+   * 按**闭区间** `[start, end]` 读资源字节（含两端）—— `nexus-asset://` 的读原语。
+   *
+   * 用闭区间是因为它离 HTTP 最近：`Content-Range` 写的就是 `bytes 0-99/1000` 这种
+   * 闭区间，中间少一次 `±1` 换算就少一处 off-by-one 的机会。适配层的 `readRange`
+   * 用 `{start, length}`（对齐 Node `fs.read`），**唯一的转换就是下面那一行**。
+   *
+   * 越界抛错而不是静默夹取：416 的判定必须发生在 handler 里（只有它知道该回什么
+   * 头），这里悄悄修正只会让 handler 永远看不到越界。
+   */
+  async readAssetRange(filePath: string, start: number, end: number): Promise<Uint8Array> {
+    const normalizedPath = await this.authorizeAsset(filePath);
+    const size = await this.readAssetSize(normalizedPath);
+
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= size) {
+      throw new FileServiceError(
+        'IO_ERROR',
+        `区间越界: ${start}-${end}（文件 ${size} 字节）`,
+        normalizedPath
+      );
+    }
+    // 允许 end 超过末字节（HTTP 的 `bytes=0-` 与 `bytes=0-99999999` 都合法），夹到 size-1。
+    const lastByte = Math.min(end, size - 1);
+
+    try {
+      return await this.fsAdapter.readRange(normalizedPath, start, lastByte - start + 1);
     } catch (err: unknown) {
       if (isNotFoundError(err)) {
         throw new FileServiceError('NOT_FOUND', `文件未找到: ${normalizedPath}`, normalizedPath);
@@ -717,6 +862,26 @@ export class FileService {
     return this.isInsideAnyRoot(this.allowedRoots, normalizedPath);
   }
 
+  /**
+   * `nexus-asset://` 的边界判据：读写边界 **或** 资源根，任一命中即放行。
+   *
+   * 刻意**不**把这个分支并进 `checkBoundary`：那样 `readFile` / `writeFile` 也会
+   * 接受资源根，等于把「轻量模式下只能编辑你打开的那一个文件」悄悄放宽成
+   * 「可以编辑同目录下的任何文件」。两条判据服务两种权限，合并会同时丢掉两者。
+   *
+   * 顺序上先查读写边界：工作区模式下 `allowedRoots` 已经覆盖资源根，
+   * 让常见路径走第一条、少一次集合遍历。
+   */
+  private checkAssetBoundary(normalizedPath: string): void {
+    if (this.isAuthorized(normalizedPath)) return;
+    if (this.isInsideAnyRoot(this.assetRoots, normalizedPath)) return;
+    throw new FileServiceError(
+      'OUT_OF_BOUNDS',
+      `资源路径超出允许边界: ${normalizedPath}`,
+      normalizedPath
+    );
+  }
+
   private isInsideAnyRoot(roots: Set<string>, targetPath: string): boolean {
     for (const root of roots) {
       if (isPathInside(root, targetPath)) return true;
@@ -779,6 +944,36 @@ export class FileService {
       try {
         const real = await this.fsAdapter.realpath(normalized);
         this.allowedRoots.add(this.toPathKey(real));
+        this.realRoots.add(this.toPathKey(real));
+      } catch {
+        // realpath 失败不阻塞授权：字符串边界已经生效
+      }
+    }
+
+    return normalized;
+  }
+
+  /**
+   * 授权一个**资源读取**根目录：该目录下的白名单文件可经 `nexus-asset://` 读取。
+   *
+   * 与 `authorizeWorkspace` 的唯一区别是**登记到 `assetRoots` 而不是 `allowedRoots`**，
+   * 所以它不会让 `readFile` / `writeFile` 放行 —— 这条边界只服务资源通道。
+   *
+   * realpath 同样登记（并进 `realRoots`），于是 `assertNoSymlinkEscape` 在
+   * **轻量模式下也生效**：文档目录里的链接指向目录外时会被拒。
+   * 这是相对 P3-06 的净加固 —— 那条路（`file://`）连边界都没有。
+   *
+   * 构造函数里已经同步登记了字符串路径，所以本方法是**加固而非必需**：
+   * 它失败不会让资源请求变成 403，只会少一层符号链接防护。
+   */
+  async authorizeAssetRoot(rootPath: string): Promise<string> {
+    const normalized = this.normalizePath(rootPath);
+    this.assetRoots.add(this.toPathKey(normalized));
+
+    if (this.fsAdapter.realpath) {
+      try {
+        const real = await this.fsAdapter.realpath(normalized);
+        this.assetRoots.add(this.toPathKey(real));
         this.realRoots.add(this.toPathKey(real));
       } catch {
         // realpath 失败不阻塞授权：字符串边界已经生效

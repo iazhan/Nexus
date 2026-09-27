@@ -523,6 +523,187 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* ── PDF Viewer（P3-07）──────────────────────────────────────────────── */
+
+/* 与图片同一套三层结构（viewer / stage / caption），多出来的只有工具栏：
+   PDF 必须能翻页，否则「打开一份 PDF」实际只能看到第一页。 */
+.nexus-pdf-viewer {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.nexus-pdf-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-secondary);
+  font-size: 12px;
+}
+
+.nexus-pdf-page-button {
+  padding: 2px 10px;
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 4px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nexus-pdf-page-button:hover:not(:disabled) {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+/* 禁用态必须在视觉上分得清。翻到第一页时「上一页」若看起来还能点，
+   人和测试都分不清是「按钮坏了」还是「到边界了」—— 而测试正是靠
+   `disabled` 判定边界的，两者必须一致。 */
+.nexus-pdf-page-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.nexus-pdf-page-indicator {
+  font-family: var(--font-mono);
+  color: var(--nexus-text-muted);
+}
+
+/* 滚动的是 stage，不是 canvas —— 与图片同一个理由（页比窗口大时不能撑破布局）。 */
+.nexus-pdf-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+  background-color: var(--nexus-bg-canvas);
+}
+
+/* canvas 的宽高由 JS 按 `viewport × devicePixelRatio` 内联设置，这里只保证
+   「不被 flex 压扁」与「不裁剪」。
+
+   `flex: none` 是必需的：默认 `flex-shrink: 1` 会在窗口比页窄时把 canvas
+   横向压扁，而 canvas 的**位图不会跟着重排** —— 结果是内容被拉伸变形，
+   看起来像「渲染错了」而不是「布局压扁了」。
+
+   白底也是必需的：pdfjs 只画内容、不画页面背景，深色主题下 canvas 透明 →
+   黑底黑字，看起来像「PDF 渲染失败」。 */
+.nexus-pdf-canvas {
+  flex: none;
+  display: block;
+  background-color: #ffffff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
+}
+
+/* 加载态浮在 stage 上，不占布局 —— 否则 canvas 会在 spinner 出现/消失时上下跳。 */
+.nexus-pdf-stage > .nexus-state-container {
+  position: absolute;
+  inset: 0;
+  background-color: var(--nexus-bg-canvas);
+}
+
+.nexus-pdf-caption {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-top: 1px solid var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-secondary);
+  font-size: 12px;
+}
+
+.nexus-pdf-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-pdf-error-path {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* ── DOCX Viewer（P3-08）──────────────────────────────────────────────── */
+
+/* 与图片 / PDF 同一套三层结构（viewer / stage / caption）。
+   区别在于内容不是一个替换元素，而是一个**装 shadow root 的宿主 div** ——
+   所以这里只能给宿主定尺寸与滚动，真正的文档排版在渲染器的 shadow 样式表里
+   （见 `DocxRenderer.tsx` 的 `SHADOW_STYLES`）。 */
+.nexus-docx-viewer {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 滚动的是 stage：文档比窗口长时该滚它，而不是让内容把标签栏顶出视口。 */
+.nexus-docx-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: auto;
+  padding: 16px 24px;
+  /* 文档要有一块「纸」的底色。深色主题下如果跟着 canvas 走，
+     正文与背景会糊在一起 —— DOCX 是白色文档模型，这里给白底最不容易出错。 */
+  background-color: var(--nexus-bg-canvas);
+}
+
+/* 宿主 div 是 shadow root 的挂载点：它自己不排版，只负责宽度约束。
+   `max-width` 是阅读体验的一部分 —— 一行 2000px 的正文没法读。 */
+.nexus-docx-content {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+/* 加载态浮在 stage 上，不占布局 —— 否则内容出现时整块会往上跳。 */
+.nexus-docx-stage > .nexus-state-container {
+  position: absolute;
+  inset: 0;
+  background-color: var(--nexus-bg-canvas);
+}
+
+.nexus-docx-caption {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-secondary);
+  font-size: 12px;
+}
+
+.nexus-docx-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 保真度提示常驻，不是错误态 —— 用 muted 色，不要用告警色。
+   它的作用是**管理预期**（mammoth 是语义转换，不是版式还原），
+   涂成警告色会让每一份 DOCX 都看起来像出了问题。 */
+.nexus-docx-notice {
+  flex: none;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-docx-error-path {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 /* State Containers (Loading / Error) */
 /* 工作区双栏布局：侧栏 + 编辑区。lightweight 模式不渲染侧栏，等同单栏 */
 .nexus-body {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useLocale } from '../../hooks.js';
 import type { ViewerRendererProps } from '../types.js';
-import { toFileUrl } from './file-url.js';
+import { toAssetUrl } from '@nexus/core';
 
 interface ImageSize {
   readonly width: number;
@@ -14,12 +14,26 @@ interface ImageSize {
  * 「AppMode.viewer → 外壳 → 标签栏 → 资源加载」整条链路。链路对了，
  * P3-07 / P3-08 就只是往里换渲染器。
  *
- * ## 为什么这里没有路径校验
+ * ## 为什么走 `nexus-asset://` 而不是 `file://`
  *
- * 图片走 `file://`（§10.4 定案 A），**不做 FileService 校验** —— 这是 A 方案的
- * 直接后果，不是漏了。在图片这条路上补一套「看起来像校验」的逻辑，只会让人
- * 误以为工作区边界在图片路径上成立（§10.4 第 3 条硬约束）。`checkBoundary`
- * 仍然服务于 `nexus-asset://` 与 Markdown 读写，不覆盖这里。
+ * 原方案（§10.4 定案 A）是图片走 `file://` 换取「零协议代码」。**2026-09-27 实测推翻了它**：
+ * `pnpm dev` 的 renderer 来自 `http://localhost:6200`，而 **Chromium 不允许 http 页面加载
+ * `file://` 子资源**（控制台报 `Not allowed to load local resource`）——
+ * 于是 dev 下图片**全部**打不开，而打包产物（`file://` 页面）却正常。
+ *
+ * 关键在于**这不是 CSP 能解决的**：CSP 是「允许什么」的上限，管不了浏览器自身的
+ * 本地资源策略。`index.html` 里原先写着「加 `img-src file:` 让 dev 与打包一致」，
+ * 那句话是错的 —— 加了也拦。
+ *
+ * 换成 `nexus-asset://`（P3-07 建的通道）之后：dev 与打包行为一致，而且图片路径
+ * **开始过 `checkBoundary` + symlink 逃逸检查** —— 定案 A 里「图片路径没有工作区边界」
+ * 那个已知缺口顺带被补上，CSP 里的 `file:` 也整条去掉了。
+ *
+ * ## 为什么这里没有额外的路径校验
+ *
+ * 边界校验在**主进程**的 `nexus-asset://` handler 里（`authorizeAsset`：规范化 →
+ * `checkBoundary` → 类型白名单 → symlink 逃逸）。渲染器只管把路径变成 URL ——
+ * 在渲染器里再补一套「看起来像校验」的逻辑，只会让人误以为这里有第二道防线。
  *
  * ## 尺寸为什么取 naturalWidth
  *
@@ -54,7 +68,7 @@ const ImageRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
       <div className="nexus-image-stage">
         <img
           className="nexus-image-content"
-          src={toFileUrl(doc.path)}
+          src={toAssetUrl(doc.path)}
           alt={doc.name}
           onLoad={(event) =>
             setSize({

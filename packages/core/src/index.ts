@@ -47,3 +47,11 @@ export {
   type FileServiceErrorCode,
   FileServiceError
 } from './types/file.js';
+
+export {
+  ASSET_SCHEME,
+  ASSET_HOST,
+  ASSET_PATH_PARAM,
+  toAssetUrl,
+  assetPathFromUrl
+} from './asset/url.js';

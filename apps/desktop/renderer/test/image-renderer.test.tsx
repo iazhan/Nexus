@@ -65,11 +65,15 @@ describe('ImageRenderer', () => {
     });
   };
 
-  it('把路径转成 file:// URL 交给浏览器，alt 用文件名', () => {
+  it('把路径转成 nexus-asset:// URL 交给浏览器，alt 用文件名', () => {
     const img = renderImage();
 
     expect(img).not.toBeNull();
-    expect(img!.getAttribute('src')).toBe('file:///D:/vault/assets/diagram.png');
+    // 走 nexus-asset:// 而不是 file:// —— http 页面（dev）加载不了 file:// 子资源，
+    // 而 CSP 管不了那条浏览器策略。详见 asset-url.ts 的文件头注释。
+    expect(img!.getAttribute('src')).toBe(
+      'nexus-asset://ws/?path=D%3A%2Fvault%2Fassets%2Fdiagram.png'
+    );
     // alt 是图片没显示出来时的唯一信息
     expect(img!.getAttribute('alt')).toBe('diagram.png');
     // 外层与 stage 是布局锚点，E2E 与样式都靠它们

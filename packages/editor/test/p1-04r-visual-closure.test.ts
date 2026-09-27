@@ -404,7 +404,9 @@ describe('P1-04R Visual semantic closure', () => {
   });
 
   it('resolves a relative image source against the Markdown document directory', () => {
-    // 1. With documentDirectory set: relative image resolves to file:/// URL
+    // 1. With documentDirectory set: relative image resolves to a nexus-asset:// URL
+    //    （P3-07 起不再用 file:// —— http 页面（dev）加载不了 file:// 子资源，
+    //    那会让 dev 下所有内嵌图片变空白。详见 @nexus/core 的 asset/url.ts）
     const source1 = 'Before ![Logo](./assets/logo.png) after.';
     const session1 = new MarkdownDocumentSession(source1);
     const parent1 = document.createElement('div');
@@ -420,7 +422,9 @@ describe('P1-04R Visual semantic closure', () => {
     try {
       const img = parent1.querySelector('.cm-visual-image img') as HTMLImageElement;
       assert(img, 'Missing img element');
-      expect(img.src).toBe('file:///D:/Projects/Codex/Nexus/docs/assets/logo.png');
+      expect(img.src).toBe(
+        'nexus-asset://ws/?path=D%3A%2FProjects%2FCodex%2FNexus%2Fdocs%2Fassets%2Flogo.png'
+      );
       expect(img.alt).toBe('Logo');
     } finally {
       handle1.destroy();
@@ -443,7 +447,9 @@ describe('P1-04R Visual semantic closure', () => {
     try {
       const img = parent2.querySelector('.cm-visual-image img') as HTMLImageElement;
       assert(img, 'Missing img element for Chinese path');
-      expect(img.src).toBe('file:///D:/%E9%A1%B9%E7%9B%AE%20%E7%9B%AE%E5%BD%95/%E5%AD%90%E6%96%87%E6%A1%A3/%E8%B5%84%E6%BA%90/%E6%9E%B6%E6%9E%84%20%E5%9B%BE.png');
+      expect(img.src).toBe(
+        'nexus-asset://ws/?path=D%3A%2F%E9%A1%B9%E7%9B%AE%20%E7%9B%AE%E5%BD%95%2F%E5%AD%90%E6%96%87%E6%A1%A3%2F%E8%B5%84%E6%BA%90%2F%E6%9E%B6%E6%9E%84%20%E5%9B%BE.png'
+      );
     } finally {
       handle2.destroy();
       parent2.remove();
@@ -783,7 +789,7 @@ describe('P1-04R Visual semantic closure', () => {
       setDocumentDirectory(mounted.handle.view, 'D:/dirA');
       const imgA = mounted.parent.querySelector('.cm-visual-image img') as HTMLImageElement;
       assert(imgA);
-      expect(imgA.src).toBe('file:///D:/dirA/assets/logo.png');
+      expect(imgA.src).toBe('nexus-asset://ws/?path=D%3A%2FdirA%2Fassets%2Flogo.png');
       expect(mounted.session.getSnapshot()).toEqual(beforeDirectoryChange);
       expect(mounted.session.canRedo).toBe(true);
 
@@ -791,7 +797,7 @@ describe('P1-04R Visual semantic closure', () => {
       setDocumentDirectory(mounted.handle.view, 'D:/dirB');
       const imgB = mounted.parent.querySelector('.cm-visual-image img') as HTMLImageElement;
       assert(imgB);
-      expect(imgB.src).toBe('file:///D:/dirB/assets/logo.png');
+      expect(imgB.src).toBe('nexus-asset://ws/?path=D%3A%2FdirB%2Fassets%2Flogo.png');
       expect(mounted.session.getSnapshot()).toEqual(beforeDirectoryChange);
       expect(mounted.session.canRedo).toBe(true);
 
@@ -848,7 +854,9 @@ describe('P1-04R Visual semantic closure', () => {
       setDocumentDirectory(mounted.handle.view, 'D:/Projects/Codex/Nexus/sub');
       const img = mounted.parent.querySelector('.cm-visual-image img') as HTMLImageElement;
       assert(img);
-      expect(img.src).toBe('file:///D:/Projects/Codex/Nexus/shared/assets/icon.png');
+      expect(img.src).toBe(
+        'nexus-asset://ws/?path=D%3A%2FProjects%2FCodex%2FNexus%2Fshared%2Fassets%2Ficon.png'
+      );
       expect(mounted.session.getSnapshot().source).toBe(source);
       expect(mounted.session.getSnapshot().revision).toBe(0);
       expect(mounted.session.canUndo).toBe(false);

@@ -79,6 +79,8 @@ function createMockFsAdapter(
     readFile: (p, enc) => (overrides.readFile ? overrides.readFile(p, enc) : baseFs.readFile(p, enc)),
     readFileBuffer: (p) =>
       overrides.readFileBuffer ? overrides.readFileBuffer(p) : baseFs.readFileBuffer(p),
+    readRange: (p, start, length) =>
+      overrides.readRange ? overrides.readRange(p, start, length) : baseFs.readRange(p, start, length),
     open: (p, flags, mode) => (overrides.open ? overrides.open(p, flags, mode) : baseFs.open(p, flags, mode)),
     rename: (oldPath, newPath) =>
       overrides.rename ? overrides.rename(oldPath, newPath) : baseFs.rename(oldPath, newPath),
@@ -89,6 +91,11 @@ function createMockFsAdapter(
       if (baseFs.exists) return baseFs.exists(p);
       return fsPromises.access(p).then(() => true, () => false);
     },
+    // `realpath` 是**可选**成员，但适配层的默认实现有它。
+    // 这里必须显式透传：漏掉的话 mock 出来的适配层就没有 `realpath`，
+    // 而 `assertNoSymlinkEscape` 会因此整条短路（`if (!this.fsAdapter.realpath) return`）——
+    // 于是「符号链接逃逸」的用例会**静默地永远通过**。
+    realpath: overrides.realpath ?? baseFs.realpath,
     watch: (p, opts, l) => (overrides.watch ? overrides.watch(p, opts, l) : baseFs.watch(p, opts, l))
   };
 }
@@ -368,6 +375,7 @@ describe('FileService & atomicWriteFile', () => {
       const failingFsAdapter: FileSystemAdapter = {
         readFile: (p, enc) => defaultFs.readFile(p, enc),
         readFileBuffer: (p) => defaultFs.readFileBuffer(p),
+        readRange: (p, start, length) => defaultFs.readRange(p, start, length),
         open: (p, flags, mode) => defaultFs.open(p, flags, mode),
         unlink: (p) => defaultFs.unlink(p),
         stat: (p) => defaultFs.stat(p),
@@ -609,6 +617,99 @@ describe('FileService & atomicWriteFile', () => {
       const service = new FileService({ allowedPaths: [mdPath] });
       const bytes = await service.readDocumentBytes(mdPath);
       expect(Buffer.from(bytes).toString('utf-8')).toBe('# 标题\n');
+    });
+  });
+
+  /**
+   * 资源根（P3-07）：轻量模式下被打开文档**所在的那一层目录**。
+   *
+   * 这组用例存在的理由是一次真实回归：图片从 `file://` 换到 `nexus-asset://` 之后，
+   * 相对引用（`![](./assets/a.png)`）会被边界判据拦下 —— 因为轻量模式的
+   * `allowedPaths` 只含被打开的那一个 `.md`。P1-04R 的端到端用例当场变红。
+   *
+   * 关键是**它不是「把边界放宽」而是「把边界改对」**：`file://` 那条路根本没有边界
+   * （工作区外的文件也读得到），资源根比它严格得多。
+   */
+  describe('资源根：只读、只服务 nexus-asset://（P3-07）', () => {
+    const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    it('文档同目录（含子目录）的资源可读，且字节无损', async () => {
+      const assetsDir = path.join(tempDir, 'assets');
+      await fsPromises.mkdir(assetsDir, { recursive: true });
+      const pngPath = path.join(assetsDir, 'a.png');
+      await fsPromises.writeFile(pngPath, PNG_HEADER);
+      const mdPath = path.join(tempDir, 'doc.md');
+      await fsPromises.writeFile(mdPath, '# t\n', 'utf-8');
+
+      const service = new FileService({
+        allowedPaths: [mdPath],
+        assetRoots: [path.dirname(mdPath)]
+      });
+
+      expect(await service.statAsset(pngPath)).toBe(PNG_HEADER.byteLength);
+      const bytes = await service.readAssetRange(pngPath, 0, PNG_HEADER.byteLength - 1);
+      expect(Buffer.from(bytes).toString('hex')).toBe(PNG_HEADER.toString('hex'));
+    });
+
+    it('资源根**不**授予读写通道 —— 同目录的另一个 .md 依然不可读、不可写', async () => {
+      const opened = path.join(tempDir, 'opened.md');
+      const sibling = path.join(tempDir, 'sibling.md');
+      await fsPromises.writeFile(opened, '# a\n', 'utf-8');
+      await fsPromises.writeFile(sibling, '# b\n', 'utf-8');
+
+      const service = new FileService({
+        allowedPaths: [opened],
+        assetRoots: [tempDir]
+      });
+
+      // 资源通道能拿到它（它是白名单内的类型）
+      await expect(service.statAsset(sibling)).resolves.toBe(4);
+
+      // 但文本读写通道不行 —— 这条是资源根与工作区根的分界线。
+      // 少了它，轻量模式就悄悄变成了「可以编辑同目录下任何文件」。
+      await expectFileServiceError(service.readFile(sibling), 'OUT_OF_BOUNDS');
+      await expectFileServiceError(service.readDocumentBytes(sibling), 'OUT_OF_BOUNDS');
+      await expectFileServiceError(service.writeFile(sibling, '# c\n'), 'OUT_OF_BOUNDS');
+    });
+
+    it('资源根之外的路径仍然 403（资源根不是「全盘放行」）', async () => {
+      const rootDir = path.join(tempDir, 'inside');
+      await fsPromises.mkdir(rootDir, { recursive: true });
+      const outsidePng = path.join(tempDir, 'outside.png');
+      await fsPromises.writeFile(outsidePng, PNG_HEADER);
+
+      const service = new FileService({ assetRoots: [rootDir] });
+      const err = await expectFileServiceError(service.statAsset(outsidePng), 'OUT_OF_BOUNDS');
+      expect(err.path).toBe(path.resolve(outsidePng));
+    });
+
+    it('资源根内仍受类型白名单约束（.txt 不放行）', async () => {
+      const txtPath = path.join(tempDir, 'notes.txt');
+      await fsPromises.writeFile(txtPath, 'hello', 'utf-8');
+
+      const service = new FileService({ assetRoots: [tempDir] });
+      await expectFileServiceError(service.statAsset(txtPath), 'UNSUPPORTED_TYPE');
+    });
+
+    it('authorizeAssetRoot 登记 realpath，使符号链接逃逸在轻量模式下也被拒', async () => {
+      const realDir = path.join(tempDir, 'real');
+      await fsPromises.mkdir(realDir, { recursive: true });
+      const pngPath = path.join(realDir, 'a.png');
+      await fsPromises.writeFile(pngPath, PNG_HEADER);
+
+      // 模拟「文档目录里的 link.png 实际指向目录外」：realpath 返回一个根外路径。
+      const escapeTarget = path.join(tempDir, 'elsewhere.png');
+      const adapter = createMockFsAdapter({
+        realpath: async (p) => (p === path.resolve(pngPath) ? escapeTarget : p)
+      });
+
+      const service = new FileService({ assetRoots: [realDir], fsAdapter: adapter });
+      // 字符串层面它就在 realDir 之下，所以这一步必须先通过 ——
+      // 否则下面的 OUT_OF_BOUNDS 可能来自「压根没授权」，测不出 realpath 那层。
+      expect(await service.statAsset(pngPath)).toBe(PNG_HEADER.byteLength);
+
+      await service.authorizeAssetRoot(realDir);
+      await expectFileServiceError(service.statAsset(pngPath), 'OUT_OF_BOUNDS');
     });
   });
 });

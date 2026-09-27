@@ -8,6 +8,11 @@ out/
 build/
 *.tsbuildinfo
 
+# pdfjs 静态资源（cmaps / standard_fonts，185 个二进制文件）
+# 由 scripts/copy-pdfjs-assets.mjs 从 node_modules/pdfjs-dist 复制，挂在 predev / prebuild 上。
+# 不进版本库：可以从依赖完整重建，而 185 个 .bcmap 进 diff 只会淹没真正的改动。
+apps/desktop/renderer/public/pdfjs/
+
 # Logs
 logs/
 *.log
