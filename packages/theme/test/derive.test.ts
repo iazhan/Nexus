@@ -5,9 +5,10 @@ import { seedsToTokens } from '../src/derive.js';
 import { rgbToOklch } from '../src/oklch.js';
 import { nexusDarkSeeds, nexusLightSeeds, type NexusThemeScheme } from '../src/seeds.js';
 
-const DERIVED: ReadonlyArray<readonly [string, Record<string, string>]> = [
-  ['light', seedsToTokens(nexusLightSeeds)],
-  ['dark', seedsToTokens(nexusDarkSeeds)],
+/** 内置主题**发布出去的值**。契约类断言一律守这一份，别再另算一条派生路径。 */
+const THEMES: ReadonlyArray<readonly [string, Record<string, string>]> = [
+  ['light', nexusLight.tokens],
+  ['dark', nexusDark.tokens],
 ];
 
 const luminanceGap = (a: string, b: string): number => {
@@ -41,40 +42,40 @@ const SOLARIZED_LIGHT: NexusThemeScheme = {
   },
 };
 
-describe('派生输出与手写 token 同构', () => {
-  it('token 集合完全一致（不多不少）', () => {
-    for (const [name, tokens] of DERIVED) {
-      const hand = name === 'light' ? nexusLight.tokens : nexusDark.tokens;
-      expect(Object.keys(tokens).sort(), `${name} 的 token 集合变了`).toEqual(Object.keys(hand).sort());
-    }
+describe('内置主题就是派生输出', () => {
+  // 看着像同义反复，其实是防回退：有人把手写值搬回 `index.ts` 就会红。
+  it('presets 的 token 逐值等于 seedsToTokens(种子)', () => {
+    expect(nexusLight.tokens).toEqual(seedsToTokens(nexusLightSeeds));
+    expect(nexusDark.tokens).toEqual(seedsToTokens(nexusDarkSeeds));
   });
 
-  it('两套主题的 token 名一致', () => {
-    expect(Object.keys(DERIVED[0]![1]).sort()).toEqual(Object.keys(DERIVED[1]![1]).sort());
+  it('每套 42 个 token，两套的名字一致', () => {
+    expect(Object.keys(nexusLight.tokens)).toHaveLength(42);
+    expect(Object.keys(nexusDark.tokens).sort()).toEqual(Object.keys(nexusLight.tokens).sort());
   });
 
-  it('没有派生漏掉的 token（每个都拿到了值）', () => {
-    for (const [name, tokens] of DERIVED) {
+  it('没有漏掉的 token（每个都拿到了值）', () => {
+    for (const [name, tokens] of THEMES) {
       const missing = Object.entries(tokens).filter(([, value]) => !value).map(([key]) => key);
       expect(missing, `${name} 有空值`).toEqual([]);
     }
   });
 });
 
-describe('派生输出的对比度不变量', () => {
+describe('内置主题的对比度不变量', () => {
   it('两套主题在契约矩阵下零不达标', () => {
-    for (const [name, tokens] of DERIVED) {
+    for (const [name, tokens] of THEMES) {
       const report = measureTheme(tokens);
       expect(report.measured, `${name} 的测量对数变了`).toBe(125);
       expect(
         report.failures.map((f) => `${f.token}@${f.ground} ${f.ratio.toFixed(2)}`),
-        `${name} 有派生后仍不达标的配对`,
+        `${name} 有不达标的配对`,
       ).toEqual([]);
     }
   });
 
   it('三级中性文字互不相等，且在 binding 背景上都能区分', () => {
-    for (const [name, tokens] of DERIVED) {
+    for (const [name, tokens] of THEMES) {
       const tiers = ['text-primary', 'text-secondary', 'text-muted'] as const;
       const values = tiers.map((t) => tokens[t]!);
       expect(new Set(values).size, `${name} 的三级文字有塌缩`).toBe(3);
@@ -88,7 +89,7 @@ describe('派生输出的对比度不变量', () => {
   });
 
   it('按钮文字在 accent-primary 与 accent-hover 上都达标', () => {
-    for (const [name, tokens] of DERIVED) {
+    for (const [name, tokens] of THEMES) {
       const text = parseColour(tokens['accent-contrast']!)!;
       for (const ground of ['accent-primary', 'accent-hover']) {
         const ratio = contrastRatio(text, parseColour(tokens[ground]!)!);
@@ -98,7 +99,7 @@ describe('派生输出的对比度不变量', () => {
   });
 
   it('accent-primary 作为图形在通用背景上达 3:1', () => {
-    for (const [name, tokens] of DERIVED) {
+    for (const [name, tokens] of THEMES) {
       const accent = parseColour(tokens['accent-primary']!)!;
       for (const surface of GENERAL_SURFACES) {
         const ratio = contrastRatio(accent, parseColour(tokens[surface]!)!);

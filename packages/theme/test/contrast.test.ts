@@ -19,67 +19,7 @@ const THEMES: ReadonlyArray<readonly [string, Record<string, string>]> = [
 
 const keyOf = (theme: string, failure: ContrastFailure): string => `${theme}/${failure.token}@${failure.ground}`;
 
-/**
- * 当前实测的不达标配对。只记「哪一对不达标」，不记比值 —— 比值微调不该让基线变红，
- * 配对集合变化才该。**派生路径接线后这张清单要缩到空**；在那之前它是回归网：
- * 出现清单外的配对就红。
- */
-const BASELINE: readonly string[] = [
-  // —— light 31 对：中性文字 5 + accent/syntax 26 ——
-  'light/text-muted@bg-surface-active',
-  'light/text-muted@bg-surface-hover',
-  'light/text-muted@bg-quote',
-  'light/text-muted@bg-surface',
-  'light/text-muted@bg-canvas',
-  'light/text-secondary@bg-surface-active',
-  'light/accent-text@bg-surface-active',
-  'light/accent-text@bg-surface-hover',
-  'light/accent-text@bg-quote',
-  'light/accent-text@bg-surface',
-  'light/syntax-url@bg-surface-active',
-  'light/syntax-url@bg-surface-hover',
-  'light/syntax-url@bg-quote',
-  'light/syntax-url@bg-surface',
-  'light/syntax-type@bg-surface-active',
-  'light/syntax-type@bg-surface-hover',
-  'light/syntax-type@bg-quote',
-  'light/syntax-type@bg-surface',
-  'light/syntax-number@bg-surface-active',
-  'light/syntax-number@bg-surface-hover',
-  'light/syntax-number@bg-quote',
-  'light/syntax-number@bg-surface',
-  'light/syntax-comment@bg-surface-active',
-  'light/syntax-comment@bg-surface-hover',
-  'light/syntax-comment@bg-quote',
-  'light/syntax-control@bg-surface-active',
-  'light/syntax-control@bg-surface-hover',
-  'light/syntax-control@bg-quote',
-  'light/syntax-module@bg-surface-active',
-  'light/syntax-module@bg-surface-hover',
-  'light/syntax-module@bg-quote',
-  // —— dark 19 对：中性文字 6 + accent 1 + syntax 11 + status 1 ——
-  'dark/text-muted@bg-surface-active',
-  'dark/text-muted@bg-surface-hover',
-  'dark/text-muted@bg-quote',
-  'dark/text-muted@bg-surface',
-  'dark/text-muted@bg-canvas',
-  'dark/text-secondary@bg-surface-active',
-  'dark/text-secondary@bg-surface-hover',
-  'dark/text-secondary@bg-quote',
-  'dark/text-secondary@bg-surface',
-  'dark/accent-primary@bg-surface-active',
-  'dark/syntax-comment@bg-surface-active',
-  'dark/syntax-comment@bg-surface-hover',
-  'dark/syntax-comment@bg-quote',
-  'dark/syntax-keyword@bg-surface-active',
-  'dark/syntax-bool@bg-surface-active',
-  'dark/syntax-control@bg-surface-active',
-  'dark/syntax-module@bg-surface-active',
-  'dark/syntax-string@bg-surface-active',
-  'dark/status-error-text@bg-surface-active',
-];
-
-/** 契约表实际测到的对数：每套 125 对。数字变了说明承载面或契约被改动，需要一并复核基线。 */
+/** 契约表实际测到的对数：每套 125 对。数字变了说明承载面或契约被改动，需要一并复核。 */
 const MEASURED_PER_THEME = 125;
 
 /** 边框类豁免：不参与测量，但必须显式列出，不能靠「没测到」。 */
@@ -194,20 +134,21 @@ describe('色彩数学', () => {
 });
 
 describe('对比度不变量', () => {
-  it('不达标配对不超出已知基线', () => {
-    const seen: string[] = [];
+  // 接线派生之前这里挂着一张 50 对（light 31 / dark 19）的「已知不达标」清单当回归网；
+  // 派生生效后清单缩到空，于是改成直接断言零不达标 —— 契约表才是唯一的判据。
+  it('两套内置主题零不达标', () => {
     let measured = 0;
 
     for (const [name, tokens] of THEMES) {
       const report = measureTheme(tokens);
       measured += report.measured;
       expect(report.measured, `${name} 的测量对数变了`).toBe(MEASURED_PER_THEME);
-      for (const failure of report.failures) seen.push(keyOf(name, failure));
+      expect(
+        report.failures.map((failure) => keyOf(name, failure)),
+        `${name} 有不达标的配对`,
+      ).toEqual([]);
     }
 
-    const known = new Set(BASELINE);
-    const unexpected = seen.filter((entry) => !known.has(entry));
-    expect(unexpected, '出现基线之外的不达标配对').toEqual([]);
     expect(measured).toBe(MEASURED_PER_THEME * THEMES.length);
   });
 });

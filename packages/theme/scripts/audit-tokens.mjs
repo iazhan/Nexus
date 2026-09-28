@@ -5,6 +5,9 @@
 //   2. 每个定义出的 `--nexus-*` token 都被引用，或标了 `@reserved`
 //   3. 定义文件之外没有颜色字面量，除非标了 `@constant`
 //
+// 定义从哪来：颜色字面量看 `seeds.ts`（16 色种子），token 名看 `derive.ts`（派生函数）。
+// 接线派生之前 token 名是 `index.ts` 里的字面量，现在是 `seedsToTokens()` 的输出。
+//
 // 用法：node packages/theme/scripts/audit-tokens.mjs [--root <dir>] [--quiet]
 //
 // 规则 1 必须先过才能剥掉消费侧的兜底色 —— 兜底还在时，断掉的引用只退化成近似色而不是可见的
@@ -24,12 +27,15 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return i === -1 ? d : 
 const ROOT = arg('root', '.');
 const QUIET = argv.includes('--quiet');
 
-// 色值定义文件：token 值与 16 色种子在这里按定义就是字面量，规则 3 不扫它们。
-const DEFS_FILES = new Set([
-  'packages/theme/src/index.ts',
-  'packages/theme/src/seeds.ts',
-]);
+// 色值定义文件：16 色种子在这里按定义就是字面量，规则 3 不扫它。
+const DEFS_FILES = new Set(['packages/theme/src/seeds.ts']);
 const DEFS_LABEL = [...DEFS_FILES].join(', ');
+// token 名的定义处。`index.ts` 接线派生后只剩 `seedsToTokens(...)` 调用，42 个字面量全在
+// `derive.ts`：显式赋值目标 `tokens['x'] =` 与规则表键 `'x': { slot:`。新加 token 按这两种
+// 形状写就能被认出来 —— 否则规则 1 会把全部 `var(--nexus-*)` 报成未定义。
+const TOKEN_NAME_FILES = new Set(['packages/theme/src/derive.ts']);
+const TOKEN_ASSIGN_RE = /tokens\['([a-z0-9-]+)'\]/g;
+const RULE_KEY_RE = /^\s*'([a-z0-9-]+)'\s*:\s*\{\s*slot:/;
 const THEME_PREFIX = '--nexus-';
 // `public/` 与 dist / out 同类：里面是构建期复制或生成的东西（pdfjs 的 185 个二进制、
 // 由 BUILT_IN_THEMES 生成的 theme.css），改不了也不该改，扫进来只会让规则 3 恒红。
@@ -89,6 +95,7 @@ const addRef = (token, file, line, form) => {
 for (const { rel, full } of files) {
   const lines = readFileSync(full, 'utf8').split(/\r?\n/);
   const isDefs = DEFS_FILES.has(rel);
+  const isTokenNames = TOKEN_NAME_FILES.has(rel);
 
   lines.forEach((text, i) => {
     const line = i + 1;
@@ -108,12 +115,18 @@ for (const { rel, full } of files) {
       }
     }
 
-    if (isDefs) {
-      const k = text.match(TOKEN_KEY_RE);
-      if (k && !defined.has(THEME_PREFIX + k[1])) {
-        defined.set(THEME_PREFIX + k[1], { file: rel, line, reserved: /@reserved/.test(text) });
+    if (isDefs || isTokenNames) {
+      const names = [...text.matchAll(TOKEN_ASSIGN_RE)].map((m) => m[1]);
+      const ruleKey = isTokenNames ? text.match(RULE_KEY_RE) : null;
+      if (ruleKey) names.push(ruleKey[1]);
+      const keyLiteral = text.match(TOKEN_KEY_RE);
+      if (keyLiteral) names.push(keyLiteral[1]);
+      for (const name of names) {
+        if (!defined.has(THEME_PREFIX + name)) {
+          defined.set(THEME_PREFIX + name, { file: rel, line, reserved: /@reserved/.test(text) });
+        }
       }
-      return;
+      if (isDefs) return;
     }
 
     const d = text.match(DEF_RE);

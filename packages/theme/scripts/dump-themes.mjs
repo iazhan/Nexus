@@ -1,46 +1,50 @@
 #!/usr/bin/env node
-// 把主题源码 dump 成 `{ light: { <token>: <colour> }, dark: { … } }` —— contrast-pairs.mjs /
-// contrast-target.mjs 的输入格式。
+// 把内置主题 dump 成 `{ light: { <token>: <colour> }, dark: { … } }` —— design-token-audit skill 的
+// contrast-pairs.mjs / contrast-target.mjs 的输入格式。
 //
 //   node packages/theme/scripts/dump-themes.mjs [--out <file>]
 //
-// 为什么要有这一件：那两个工具读的是 JSON，而手敲 JSON 就是"再造一份真理来源"——
-// 值改了 JSON 不会跟着改，然后你会对着过期数字做决策。这里**从源码正则抽**，
-// 不读 `dist/`（构建产物可能过期，而且它是 gitignore 的）。
+// **读 `dist/`，不读源码。** 原实现从 `index.ts` 正则抽手写字面量；接线派生后源码里只剩
+// `seedsToTokens(...)` 调用，正则抽不到东西，而且**会静默 dump 出空对象**（下面两条一致性
+// 校验都会通过）。改成读构建产物后唯一的代价是「产物可能过期」，所以先比 mtime：`src/**` 里
+// 有比 `dist/index.js` 新的文件就拒绝运行 —— 对着过期数字做决策正是本脚本要防的事。
 //
 // token 键不带 `--nexus-` 前缀：工具按 `text-*` / `bg-*` / `status-*-bg` 这些裸名做作用域配对。
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf('--' + n); return i === -1 ? d : argv[i + 1]; };
 
-const DEFS = arg('defs', 'packages/theme/src/index.ts');
-const src = readFileSync(DEFS, 'utf8');
+const PKG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const SRC = join(PKG, 'src');
+const DIST = join(PKG, 'dist', 'index.js');
 
-/** 取 `export const <name>` 到该对象字面量结尾（顶层 `};`）之间的文本。 */
-function blockOf(name) {
-  const start = src.indexOf(`export const ${name}`);
-  if (start === -1) throw new Error(`${DEFS}: 找不到 export const ${name}`);
-  const end = src.indexOf('\n};', start);
-  if (end === -1) throw new Error(`${DEFS}: ${name} 的对象字面量没有闭合`);
-  return src.slice(start, end);
-}
-
-// 行锚定 + 整行匹配：不加 `^` 会把三元表达式里的字符串也当成 token 定义
-// （`type === 'dark' ? 'nexus-dark' : 'nexus-light'` 会造出幻影 token）。
-function tokensOf(name) {
-  const tokens = {};
-  for (const m of blockOf(name).matchAll(/^[ \t]*'([a-z0-9-]+)'[ \t]*:[ \t]*'([^']+)'[ \t]*,?[ \t]*$/gm)) {
-    tokens[m[1]] = m[2];
+const newestMtime = (dir) => {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestMtime(full) : statSync(full).mtimeMs);
   }
-  return tokens;
+  return newest;
+};
+
+let distStamp;
+try {
+  distStamp = statSync(DIST).mtimeMs;
+} catch {
+  console.error(`${DIST} 不存在 —— 先跑 pnpm --filter @nexus/theme build`);
+  process.exit(1);
+}
+if (newestMtime(SRC) > distStamp) {
+  console.error('src/ 比 dist/ 新 —— 先跑 pnpm --filter @nexus/theme build 再 dump');
+  process.exit(1);
 }
 
-const themes = {
-  light: tokensOf('nexusLight'),
-  dark: tokensOf('nexusDark'),
-};
+const { nexusDark, nexusLight } = await import(pathToFileURL(DIST).href);
+const themes = { light: nexusLight.tokens, dark: nexusDark.tokens };
 
 const lightCount = Object.keys(themes.light).length;
 const darkCount = Object.keys(themes.dark).length;
@@ -59,7 +63,7 @@ const json = JSON.stringify(themes, null, 2);
 const out = arg('out');
 if (out) {
   writeFileSync(out, json + '\n');
-  console.error(`${DEFS} → ${out}（${lightCount} 个 token × 2 套）`);
+  console.error(`${DIST} → ${out}（${lightCount} 个 token × 2 套）`);
 } else {
   process.stdout.write(json + '\n');
 }
