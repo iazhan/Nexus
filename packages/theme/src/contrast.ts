@@ -9,7 +9,9 @@
  * - sRGB 逆变换拐点取 0.04045，不是 WCAG 旧稿的 0.03928。
  * - 半透明的一侧先与承载面合成再测，否则一层浅色底纹会被当成近黑色。
  * - 契约里 `on: []` 表示「纯装饰，豁免」，是显式登记而不是漏写。
- * - `accent-primary` 是按钮底色而非前景，但另有图形级契约，所以两边都出现。
+ * - `accent-solid` 是按钮底色而非前景，只作承载面；图形前景是 `accent-indicator`。
+ * - `status-*-border` 与 `border-*` 的 tier 不同：前者是语义指示器（1.4.11 适用，3:1），
+ *   后者是分隔线（纯装饰，豁免）。按 `-border` 后缀归一类是错的口径。
  * - `bg-quote` 属于通用背景；`OVERLAYS` 单独一组，正文不落在遮罩与选区高亮上。
  */
 
@@ -100,8 +102,8 @@ export const SURFACES: readonly string[] = [
   'syntax-inline-code-bg',
   'status-warning-bg',
   'status-error-bg',
-  'accent-primary',
-  'accent-hover',
+  'accent-solid',
+  'accent-solid-hover',
 ];
 
 export const OVERLAYS: readonly string[] = ['selection-bg'];
@@ -139,11 +141,11 @@ export const FOREGROUND_CONTRACT: Record<string, TokenContract> = {
   'text-secondary': { tier: 'text', on: [...general] },
   'text-muted': { tier: 'text', on: [...general] },
 
-  // 图形类：focus ring / 指示条。按文字级 4.5 要求会把两套主题都判成不达标。
-  'accent-primary': { tier: 'graphical', on: [...general] },
+  // 图形类：focus ring / 指示条 / caret。按文字级 4.5 要求会把两套主题都判成不达标。
+  'accent-indicator': { tier: 'graphical', on: [...general] },
   'accent-text': { tier: 'text', on: [...general] },
-  // 只落在主色底上（主按钮的文字色）。配到通用背景上会造出一个 1.00:1 的假失败。
-  'accent-contrast': { tier: 'text', on: ['accent-primary', 'accent-hover'] },
+  // 只落在主色实心底上（主按钮的文字色）。配到通用背景上会造出一个 1.00:1 的假失败。
+  'accent-contrast': { tier: 'text', on: ['accent-solid', 'accent-solid-hover'] },
 
   'syntax-inline-code-text': { tier: 'text', on: ['syntax-inline-code-bg'] },
 
@@ -162,16 +164,11 @@ for (const name of SYNTAX_HIGHLIGHTS) {
   FOREGROUND_CONTRACT[name] = { tier: 'text', on: [...general] };
 }
 
+// 状态边框是语义指示器（1.4.11 的非文本对比度适用），按图形级 3:1 实测 ——
+// 与上面三个纯装饰的分隔线不是一类。`derive.ts` 早就按 3:1 修它们，契约表却归进 `border`
+// 豁免、从不测量，两处口径不同。
 for (const scope of STATUS_SCOPES) {
-  FOREGROUND_CONTRACT[`status-${scope}-border`] = { tier: 'border', on: [] };
-}
-
-export function contractOf(token: string): TokenContract | null {
-  return FOREGROUND_CONTRACT[token] ?? null;
-}
-
-export function tierOf(token: string): ContrastTier | null {
-  return FOREGROUND_CONTRACT[token]?.tier ?? null;
+  FOREGROUND_CONTRACT[`status-${scope}-border`] = { tier: 'graphical', on: [...general] };
 }
 
 export interface ContrastFailure {

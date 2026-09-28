@@ -28,15 +28,16 @@ export function useSetting<P extends SettingPath>(
 }
 
 export function useTheme() {
-  const [theme, setThemeState] = useState(themeManager.theme);
+  const [resolvedTheme, setThemeState] = useState(themeManager.theme);
 
   useEffect(() => {
     return themeManager.subscribe(setThemeState);
   }, []);
 
-  // `theme` 是**解析结果**（具体某套主题），`themeChoice` 是**选择**（可能是 `system`）。
+  // `resolvedTheme` 是**解析结果**（具体某套主题），`themeChoice` 是**选择**（可能是 `system`）。
   // 设置页的选中态与菜单的勾都必须看后者：系统浅色时选「跟随系统」，解析结果不变、
   // `themeManager` 不发通知 —— 只有 store 那条订阅发得出来（见 `applyThemeChoice`）。
+  // 两个名字都必须带限定词：都叫「theme」时读代码分不清拿的是哪一个。
   const themeChoice = useSettingValue('appearance.theme');
 
   // 走 `applyThemeChoice` 而不是 `themeManager.setTheme`：前者同时落盘「选择」。
@@ -44,7 +45,7 @@ export function useTheme() {
     (type: 'light' | 'dark') => applyThemeChoice(themeIdForType(type)),
     []
   );
-  return { theme, themeChoice, setTheme };
+  return { resolvedTheme, themeChoice, setTheme };
 }
 
 export function useLocale() {

@@ -146,7 +146,7 @@ function getFileName(filePath: string | null): string {
 }
 
 export const App: React.FC = () => {
-  const { theme, themeChoice, setTheme } = useTheme();
+  const { resolvedTheme, themeChoice, setTheme } = useTheme();
   const { locale, setLocale, t } = useLocale();
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
@@ -1112,7 +1112,7 @@ export const App: React.FC = () => {
       commandRegistry.registerCommand({
         id: 'toggle-theme',
         titleKey: 'cmd.toggleTheme',
-        execute: () => setTheme(theme.type === 'light' ? 'dark' : 'light')
+        execute: () => setTheme(resolvedTheme.type === 'light' ? 'dark' : 'light')
       }),
       commandRegistry.registerCommand({
         id: 'toggle-locale',
@@ -1196,7 +1196,7 @@ export const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       unsubs.forEach(u => u());
     };
-  }, [handleOpenFile, saveAs, saveFile, theme, setTheme, locale, setLocale, settingsView.open]);
+  }, [handleOpenFile, saveAs, saveFile, resolvedTheme, setTheme, locale, setLocale, settingsView.open]);
 
   // Conflict resolution actions
   const handleReloadExternal = useCallback(async () => {
@@ -1430,7 +1430,7 @@ export const App: React.FC = () => {
       handleCut,
       handlePaste,
       handleSelectAll,
-      theme.type,
+      resolvedTheme.type,
       // 投影在渲染期读 accessor，值变了必须重新投影 —— 否则菜单勾选状态会停在旧值上。
       themeChoice,
       setTheme,
@@ -1505,11 +1505,11 @@ export const App: React.FC = () => {
           <button
             type="button"
             className="nexus-header-button nexus-theme-toggle"
-            onClick={() => setTheme(theme.type === 'light' ? 'dark' : 'light')}
+            onClick={() => setTheme(resolvedTheme.type === 'light' ? 'dark' : 'light')}
             aria-label={t('cmd.toggleTheme')}
             title={t('cmd.toggleTheme')}
           >
-            <span aria-hidden="true">{theme.type === 'light' ? MoonIcon : SunIcon}</span>
+            <span aria-hidden="true">{resolvedTheme.type === 'light' ? MoonIcon : SunIcon}</span>
           </button>
 
           <button
@@ -1834,7 +1834,7 @@ export const App: React.FC = () => {
               documentDirectory={getDocumentDirectory(filePath)}
               linkNavigator={handleLinkNavigation}
               extensionHost={extensionHostRef.current ?? undefined}
-              theme={theme.type}
+              theme={resolvedTheme.type}
               locale={locale}
               onChange={handleContentChange}
               onSelectionChange={handleSelectionChange}

@@ -90,10 +90,10 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({ activeFilePath, onOpenFi
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, size.width, size.height);
 
-    // 节点高亮是图形元素，走图形类阈值（3:1）的 accent-primary，不是文字类的 accent-text
+    // 节点高亮是图形元素，走图形类阈值（3:1）的 accent-indicator，不是文字类的 accent-text
     const edgeColor = readColor(canvas, '--nexus-border-default');
     const nodeColor = readColor(canvas, '--nexus-text-muted');
-    const activeColor = readColor(canvas, '--nexus-accent-primary');
+    const activeColor = readColor(canvas, '--nexus-accent-indicator');
 
     const positionById = new Map(layout.map((node) => [node.id, node]));
 

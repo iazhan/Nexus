@@ -100,7 +100,7 @@ body {
 }
 
 .nexus-header-button:focus-visible {
-  outline: 1px solid var(--nexus-accent-primary);
+  outline: 1px solid var(--nexus-accent-indicator);
   outline-offset: 1px;
   color: var(--nexus-text-primary);
 }
@@ -138,7 +138,7 @@ body {
 }
 
 .nexus-menu-bar-button:focus-visible {
-  outline: 1px solid var(--nexus-accent-primary);
+  outline: 1px solid var(--nexus-accent-indicator);
   outline-offset: 1px;
 }
 
@@ -255,7 +255,7 @@ body {
 }
 
 .nexus-window-button:focus-visible {
-  outline: 1px solid var(--nexus-accent-primary);
+  outline: 1px solid var(--nexus-accent-indicator);
   outline-offset: -1px;
 }
 
@@ -389,14 +389,14 @@ body {
 
 .nexus-conflict-reload-btn,
 .nexus-save-error-retry {
-  background-color: var(--nexus-accent-primary);
+  background-color: var(--nexus-accent-solid);
   color: var(--nexus-accent-contrast);
-  border-color: var(--nexus-accent-primary);
+  border-color: var(--nexus-accent-solid);
 }
 
 .nexus-conflict-reload-btn:hover,
 .nexus-save-error-retry:hover {
-  background-color: var(--nexus-accent-hover);
+  background-color: var(--nexus-accent-solid-hover);
 }
 
 .nexus-conflict-keep-btn,
@@ -840,7 +840,7 @@ body {
   top: 8px;
   bottom: 8px;
   width: 2px;
-  background-color: var(--nexus-accent-primary);
+  background-color: var(--nexus-accent-indicator);
   transform: scaleY(0);
   transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
 }
@@ -887,7 +887,7 @@ body {
 
 .nexus-panel-resizer:hover,
 .nexus-panel-resizer-active {
-  background-color: var(--nexus-accent-primary);
+  background-color: var(--nexus-accent-indicator);
   opacity: 0.5;
 }
 
@@ -1214,7 +1214,7 @@ body.nexus-resizing {
 }
 
 .nexus-search-input:focus {
-  border-color: var(--nexus-accent-primary);
+  border-color: var(--nexus-accent-indicator);
 }
 
 /* 文件名在上、相对路径在下：搜索跨整个工作区，重名文件靠路径区分 */
@@ -1309,7 +1309,7 @@ body.nexus-resizing {
 }
 
 .nexus-plugin-state-loading {
-  color: var(--nexus-accent-primary);
+  color: var(--nexus-accent-text);
 }
 
 .nexus-plugin-state-failed {
@@ -1681,7 +1681,7 @@ body.nexus-resizing {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background-color: var(--nexus-accent-primary);
+  background-color: var(--nexus-accent-indicator);
 }
 
 .nexus-tab-close {
@@ -1763,7 +1763,7 @@ body.nexus-resizing {
   width: 32px;
   height: 32px;
   border: 3px solid var(--nexus-border-default);
-  border-top-color: var(--nexus-accent-primary);
+  border-top-color: var(--nexus-accent-indicator);
   border-radius: 50%;
   animation: nexus-spin 0.8s linear infinite;
   margin-bottom: 12px;
@@ -1857,7 +1857,7 @@ body.nexus-resizing {
 }
 
 .status-dot.loading {
-  background-color: var(--nexus-accent-primary);
+  background-color: var(--nexus-accent-indicator);
 }
 
 .status-dot.error {
@@ -1872,8 +1872,8 @@ body.nexus-resizing {
 }
 
 .status-dot.saving {
-  background-color: var(--nexus-accent-primary);
-  box-shadow: 0 0 6px color-mix(in oklab, var(--nexus-accent-primary) 53%, transparent);
+  background-color: var(--nexus-accent-indicator);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--nexus-accent-indicator) 53%, transparent);
 }
 
 .status-dot.readonly {
@@ -2129,7 +2129,7 @@ body.nexus-resizing {
 }
 
 .nexus-settings-option-active {
-  border-color: var(--nexus-accent-primary);
+  border-color: var(--nexus-accent-indicator);
   background-color: var(--nexus-selection-bg);
   color: var(--nexus-accent-text);
   font-weight: 500;

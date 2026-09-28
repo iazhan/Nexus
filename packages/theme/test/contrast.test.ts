@@ -19,18 +19,11 @@ const THEMES: ReadonlyArray<readonly [string, Record<string, string>]> = [
 
 const keyOf = (theme: string, failure: ContrastFailure): string => `${theme}/${failure.token}@${failure.ground}`;
 
-/** 契约表实际测到的对数：每套 125 对。数字变了说明承载面或契约被改动，需要一并复核。 */
-const MEASURED_PER_THEME = 125;
+/** 契约表实际测到的对数：每套 140 对。数字变了说明承载面或契约被改动，需要一并复核。 */
+const MEASURED_PER_THEME = 140;
 
-/** 边框类豁免：不参与测量，但必须显式列出，不能靠「没测到」。 */
-const EXEMPT_BORDER_TOKENS = [
-  'border-default',
-  'border-strong',
-  'border-subtle',
-  'status-error-border',
-  'status-success-border',
-  'status-warning-border',
-];
+/** 装饰边框豁免：不参与测量，但必须显式列出，不能靠「没测到」。 */
+const EXEMPT_BORDER_TOKENS = ['border-default', 'border-strong', 'border-subtle'];
 
 describe('对比度契约的完整性', () => {
   it('每个 token 都被分类为前景、承载面或覆盖层', () => {
@@ -57,9 +50,11 @@ describe('对比度契约的完整性', () => {
     }
   });
 
-  it('承载面不会同时是通用背景之外的前景（accent-primary 是唯一双重身份）', () => {
+  it('拆分后不再有 token 兼承载面与前景', () => {
+    // accent 的两个身份（图形 / 按钮底）已分成 accent-indicator 与 accent-solid，
+    // 交集应当为空 —— 非空就说明又有 token 在两头站。
     const dual = SURFACES.filter((surface) => surface in FOREGROUND_CONTRACT);
-    expect(dual).toEqual(['accent-primary']);
+    expect(dual).toEqual([]);
   });
 
   it('契约表引用的承载面都真实存在', () => {
@@ -77,17 +72,32 @@ describe('对比度契约的完整性', () => {
 });
 
 describe('前缀推断踩过的四个坑（回归锁）', () => {
-  it('accent-contrast 只落在主色底上，不是通用背景', () => {
-    expect(FOREGROUND_CONTRACT['accent-contrast']?.on).toEqual(['accent-primary', 'accent-hover']);
+  it('accent-contrast 只落在主色实心底上，不是通用背景', () => {
+    expect(FOREGROUND_CONTRACT['accent-contrast']?.on).toEqual([
+      'accent-solid',
+      'accent-solid-hover',
+    ]);
   });
 
-  it('accent-primary 按图形类（3:1），不是文字类', () => {
-    expect(FOREGROUND_CONTRACT['accent-primary']?.tier).toBe('graphical');
+  it('accent-indicator 按图形类（3:1），不是文字类', () => {
+    expect(FOREGROUND_CONTRACT['accent-indicator']?.tier).toBe('graphical');
   });
 
-  it('accent-hover 是按钮 hover 的底，不是前景', () => {
-    expect(FOREGROUND_CONTRACT['accent-hover']).toBeUndefined();
-    expect(SURFACES).toContain('accent-hover');
+  it('accent-solid-hover 是按钮 hover 的底，不是前景', () => {
+    expect(FOREGROUND_CONTRACT['accent-solid-hover']).toBeUndefined();
+    expect(SURFACES).toContain('accent-solid-hover');
+  });
+
+  it('status-*-border 按图形类实测，不跟装饰边框一起豁免', () => {
+    // 按 `-border` 后缀归一类是错的口径：状态边框是语义指示器（1.4.11 适用），
+    // border-subtle/default/strong 是分隔线（纯装饰）。实测过的数字在 derive.test.ts。
+    for (const scope of ['success', 'warning', 'error']) {
+      const token = `status-${scope}-border`;
+      expect(FOREGROUND_CONTRACT[token]?.tier, `${token} 该按图形级测`).toBe('graphical');
+      for (const surface of GENERAL_SURFACES) {
+        expect(FOREGROUND_CONTRACT[token]?.on, `${token} 该落在通用背景上`).toContain(surface);
+      }
+    }
   });
 
   it('status-*-text 同时落在状态条与通用背景上', () => {

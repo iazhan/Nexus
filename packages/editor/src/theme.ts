@@ -12,7 +12,7 @@ export const nexusBaseTheme = EditorView.theme({
     fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace"
   },
   ".cm-content": {
-    caretColor: "var(--nexus-accent-primary)",
+    caretColor: "var(--nexus-accent-indicator)",
     padding: "12px 16px 12px 36px",
     lineHeight: "1.6"
   },
@@ -20,7 +20,7 @@ export const nexusBaseTheme = EditorView.theme({
     position: "relative"
   },
   "&.cm-focused .cm-cursor": {
-    borderLeftColor: "var(--nexus-accent-primary)",
+    borderLeftColor: "var(--nexus-accent-indicator)",
     borderLeftWidth: "2px"
   },
   "&.cm-focused .cm-selectionBackground, ::selection": {
@@ -123,12 +123,12 @@ export const nexusBaseTheme = EditorView.theme({
     top: "0",
     bottom: "0",
     width: "3px",
-    backgroundColor: "var(--nexus-accent-primary)"
+    backgroundColor: "var(--nexus-accent-indicator)"
   },
   ".cm-marker-wikilink": {
     color: "var(--nexus-accent-text)",
     textDecoration: "underline",
-    textDecorationColor: "var(--nexus-accent-primary)",
+    textDecorationColor: "var(--nexus-accent-indicator)",
     backgroundColor: "var(--nexus-bg-surface-active)",
     borderRadius: "3px",
     padding: "1px 3px"
@@ -207,7 +207,7 @@ export const nexusBaseTheme = EditorView.theme({
 
   // Blockquote styling
   ".cm-visual-blockquote-line": {
-    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    borderLeft: "3.5px solid var(--nexus-accent-indicator)",
     backgroundColor: "var(--nexus-bg-quote)",
     paddingLeft: "16px",
     paddingRight: "16px",
@@ -444,7 +444,7 @@ export const nexusBaseTheme = EditorView.theme({
   // The outer .cm-line maintains the continuous blockquote blue accent bar and light-blue background.
   // The code block is rendered as an inner card embedded inside the blockquote container.
   ".cm-visual-code-line.cm-visual-code-quote-nested": {
-    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    borderLeft: "3.5px solid var(--nexus-accent-indicator)",
     borderRight: "none",
     backgroundColor: "var(--nexus-bg-quote)",
     paddingLeft: "16px",
@@ -454,7 +454,7 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-visual-code-quote-nested.cm-visual-code-header-line": {
     display: "block",
     border: "none",
-    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    borderLeft: "3.5px solid var(--nexus-accent-indicator)",
     borderRadius: "0",
     backgroundColor: "var(--nexus-bg-quote)",
     padding: "8px 16px 0 16px",
@@ -486,7 +486,7 @@ export const nexusBaseTheme = EditorView.theme({
     isolation: "isolate",
     position: "relative",
     border: "none",
-    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    borderLeft: "3.5px solid var(--nexus-accent-indicator)",
     backgroundColor: "var(--nexus-bg-quote)",
     paddingLeft: "28px",
     paddingRight: "28px",
@@ -509,7 +509,7 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-visual-code-quote-nested.cm-visual-code-closing-line": {
     display: "block",
     border: "none",
-    borderLeft: "3.5px solid var(--nexus-accent-primary)",
+    borderLeft: "3.5px solid var(--nexus-accent-indicator)",
     borderRadius: "0",
     backgroundColor: "var(--nexus-bg-quote)",
     padding: "0 16px 8px 16px",
@@ -627,7 +627,7 @@ export const nexusBaseTheme = EditorView.theme({
       backgroundColor: "var(--nexus-bg-surface-hover)"
     },
     "&.is-active, &:focus-within": {
-      outline: "2px solid var(--nexus-accent-primary)",
+      outline: "2px solid var(--nexus-accent-indicator)",
       outlineOffset: "-2px"
     }
   },
@@ -723,7 +723,7 @@ export const nexusBaseTheme = EditorView.theme({
     },
     "&.is-active": {
       backgroundColor: "var(--nexus-bg-surface-active)",
-      color: "var(--nexus-accent-primary)",
+      color: "var(--nexus-accent-text)",
       borderColor: "var(--nexus-border-subtle)",
       fontWeight: "500"
     }
@@ -769,8 +769,8 @@ export const nexusBaseTheme = EditorView.theme({
     cursor: "pointer",
     transition: "background-color 0.1s ease, border-color 0.1s ease",
     "&.is-highlighted": {
-      backgroundColor: "var(--nexus-accent-primary)",
-      borderColor: "var(--nexus-accent-primary)",
+      backgroundColor: "var(--nexus-accent-indicator)",
+      borderColor: "var(--nexus-accent-indicator)",
       opacity: "0.85"
     }
   },
@@ -813,7 +813,7 @@ export const nexusBaseTheme = EditorView.theme({
     opacity: "1 !important",
     pointerEvents: "auto !important",
     backgroundColor: "var(--nexus-bg-surface-hover)",
-    color: "var(--nexus-accent-primary)"
+    color: "var(--nexus-accent-text)"
   },
   ".cm-table-handle-add-row": {
     position: "absolute",
@@ -846,7 +846,7 @@ export const nexusBaseTheme = EditorView.theme({
     opacity: "1 !important",
     pointerEvents: "auto !important",
     backgroundColor: "var(--nexus-bg-surface-hover)",
-    color: "var(--nexus-accent-primary)"
+    color: "var(--nexus-accent-text)"
   },
   
   // Extensions status

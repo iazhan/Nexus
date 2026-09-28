@@ -49,8 +49,8 @@ describe('内置主题就是派生输出', () => {
     expect(nexusDark.tokens).toEqual(seedsToTokens(nexusDarkSeeds));
   });
 
-  it('每套 42 个 token，两套的名字一致', () => {
-    expect(Object.keys(nexusLight.tokens)).toHaveLength(42);
+  it('每套 43 个 token，两套的名字一致', () => {
+    expect(Object.keys(nexusLight.tokens)).toHaveLength(43);
     expect(Object.keys(nexusDark.tokens).sort()).toEqual(Object.keys(nexusLight.tokens).sort());
   });
 
@@ -66,7 +66,7 @@ describe('内置主题的对比度不变量', () => {
   it('两套主题在契约矩阵下零不达标', () => {
     for (const [name, tokens] of THEMES) {
       const report = measureTheme(tokens);
-      expect(report.measured, `${name} 的测量对数变了`).toBe(125);
+      expect(report.measured, `${name} 的测量对数变了`).toBe(140);
       expect(
         report.failures.map((f) => `${f.token}@${f.ground} ${f.ratio.toFixed(2)}`),
         `${name} 有不达标的配对`,
@@ -88,22 +88,39 @@ describe('内置主题的对比度不变量', () => {
     }
   });
 
-  it('按钮文字在 accent-primary 与 accent-hover 上都达标', () => {
+  it('按钮文字在 accent-solid 与 accent-solid-hover 上都达标', () => {
     for (const [name, tokens] of THEMES) {
       const text = parseColour(tokens['accent-contrast']!)!;
-      for (const ground of ['accent-primary', 'accent-hover']) {
+      for (const ground of ['accent-solid', 'accent-solid-hover']) {
         const ratio = contrastRatio(text, parseColour(tokens[ground]!)!);
         expect(ratio, `${name} 的 ${ground} 上按钮文字只有 ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
       }
     }
   });
 
-  it('accent-primary 作为图形在通用背景上达 3:1', () => {
+  it('accent-indicator 作为图形在通用背景上达 3:1', () => {
     for (const [name, tokens] of THEMES) {
-      const accent = parseColour(tokens['accent-primary']!)!;
+      const accent = parseColour(tokens['accent-indicator']!)!;
       for (const surface of GENERAL_SURFACES) {
         const ratio = contrastRatio(accent, parseColour(tokens[surface]!)!);
-        expect(ratio, `${name} 的 accent-primary 在 ${surface} 上只有 ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3);
+        expect(ratio, `${name} 的 accent-indicator 在 ${surface} 上只有 ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  it('status-*-border 是不透明的，且作为指示器达 3:1', () => {
+    // 这两条绑在一起才有意义：半透明会抵消图形级修正（暗色曾用 alpha 0.4，
+    // 修到 3:1 再叠 alpha 只剩 1.5:1，1px 细线等于不可见）。
+    for (const [name, tokens] of THEMES) {
+      for (const scope of ['success', 'warning', 'error']) {
+        const value = tokens[`status-${scope}-border`]!;
+        expect(parseColour(value)?.a, `${name} 的 status-${scope}-border 是半透明`).toBe(1);
+
+        const colour = parseColour(value)!;
+        for (const surface of GENERAL_SURFACES) {
+          const ratio = contrastRatio(colour, parseColour(tokens[surface]!)!);
+          expect(ratio, `${name} 的 status-${scope}-border 在 ${surface} 上只有 ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3);
+        }
       }
     }
   });
@@ -126,7 +143,7 @@ describe('派生规则对第三方种子成立', () => {
 
   it('守卫不成立时不抛错，输出仍全部达标（Solarized Light 的带太窄）', () => {
     const tokens = seedsToTokens(SOLARIZED_LIGHT);
-    expect(Object.keys(tokens)).toHaveLength(42);
+    expect(Object.keys(tokens)).toHaveLength(43);
     expect(measureTheme(tokens).failures).toEqual([]);
   });
 });

@@ -7,8 +7,9 @@
  *
  * 三处代码里看不出来的判据：
  *
- * - `accent-primary` 兼按钮底与图形，取图形优先 —— 压暗到能承白字会让 focus ring 掉到 1.78:1。
- * - 按钮文字取黑取白不用亮度阈值，判据是「白字达标就用白字」；0.179 会误判主色蓝。
+ * - accent 拆成两个 token：`accent-indicator`（图形，通用背景上 3:1）与 `accent-solid`（按钮底，
+ *   压到承白字）。合成一个时这两条约束在暗色主题里数学互斥，只能二选一。
+ * - `accent-contrast` 恒为白：`darkenForText()` 已保证白字达标，再留一条取黑字的分支是死代码。
  * - `mix(a, b, t)` 的 `t` 朝 `b` 走，写反会得到深蓝。
  *
  * 其余不变量（三级可分、按钮文字 4.5、accent 图形 3:1、中性不继承 base04 色相）都有测试守着。
@@ -35,7 +36,6 @@ const DEFAULT_TUNING: Record<Variant, Required<Tuning>> = {
 const directionFor = (variant: Variant): Direction => (variant === 'light' ? 'darker' : 'lighter');
 
 const WHITE_TEXT: Rgba = { r: 255, g: 255, b: 255, a: 1 };
-const BLACK_TEXT: Rgba = { r: 0, g: 0, b: 0, a: 1 };
 
 const TEXT_MIN = TIER_MIN_RATIO.text;
 const GRAPHICAL_MIN = TIER_MIN_RATIO.graphical;
@@ -54,13 +54,31 @@ function atRatio(fg: Rgba, bg: Rgba, target: number, dir: Direction): Rgba {
   return current;
 }
 
+/**
+ * 把背景压暗，直到它上面的 `text` 达标 —— 「承白字」的专用辅助。
+ *
+ * 只朝暗走：背景越暗白字对比度越高，压到纯黑必然成立，所以没有失败分支，也不需要方向参数。
+ * 按钮底要深是硬需求，不能像前景那样按 variant 翻转方向。
+ */
+function darkenForText(background: Rgba, text: Rgba, target: number): Rgba {
+  if (contrastRatio(text, background) >= target) return background;
+  const start = rgbToOklch(background).l;
+  let current = background;
+  for (let i = 1; i <= 400; i += 1) {
+    const l = start - 0.002 * i;
+    if (l <= 0) break;
+    current = withLightness(background, l);
+    if (contrastRatio(text, current) >= target) break;
+  }
+  return current;
+}
+
 const rgbaString = ({ r, g, b, a }: Rgba): string =>
   a >= 1 ? toHex({ r, g, b, a }) : `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${a})`;
 
 interface Rule {
   slot: Base16Slot;
   dl?: number;
-  alpha?: number;
 }
 
 const RULES: Record<Variant, Record<string, Rule>> = {
@@ -108,11 +126,11 @@ const RULES: Record<Variant, Record<string, Rule>> = {
     'syntax-url': { slot: 'base0D' },
     'syntax-inline-code-text': { slot: 'base05', dl: 0.073 },
     'status-success-text': { slot: 'base0C', dl: 0.013 },
-    'status-success-border': { slot: 'base0C', alpha: 0.4 },
+    'status-success-border': { slot: 'base0C' },
     'status-warning-text': { slot: 'base0A' },
-    'status-warning-border': { slot: 'base0A', alpha: 0.4 },
+    'status-warning-border': { slot: 'base0A' },
     'status-error-text': { slot: 'base08' },
-    'status-error-border': { slot: 'base08', alpha: 0.4 },
+    'status-error-border': { slot: 'base08' },
   },
 };
 
@@ -184,22 +202,25 @@ export function seedsToTokens(scheme: NexusThemeScheme): Record<string, string> 
   }
 
   // ---- 4. accent 家族 ----
+  // 图形与实心底必须分开：图形要亮才看得见（3:1），实心底要暗才承得住白字（4.5:1）。
+  // 暗色主题的 base0D 是「链接色」（偏亮），两个约束在它身上数学互斥。
   const accentSeed = seed('base0D');
-  const solid = atRatio(accentSeed, binding, GRAPHICAL_MIN, dir);
-  const onAccentIsBlack = contrastRatio(WHITE_TEXT, solid) < TEXT_MIN;
-  tokens['accent-primary'] = solid;
-  tokens['accent-contrast'] = onAccentIsBlack ? BLACK_TEXT : WHITE_TEXT;
-  tokens['accent-hover'] = shiftLightness(solid, onAccentIsBlack ? 0.08 : -0.1);
+  tokens['accent-indicator'] = atRatio(accentSeed, binding, GRAPHICAL_MIN, dir);
+  const solid = darkenForText(accentSeed, WHITE_TEXT, TEXT_MIN);
+  tokens['accent-solid'] = solid;
+  tokens['accent-contrast'] = WHITE_TEXT;
+  tokens['accent-solid-hover'] = shiftLightness(solid, -0.1);
   tokens['accent-text'] = atRatio(accentSeed, binding, TEXT_MIN, dir);
 
   // ---- 5. 语法与状态 ----
   const rules = RULES[variant];
   for (const [token, rule] of Object.entries(rules)) {
     const base = shiftLightness(seed(rule.slot), rule.dl ?? 0);
-    const corrected = token.endsWith('-border')
-      ? atRatio(base, binding, GRAPHICAL_MIN, dir)
-      : atRatio(base, binding, TEXT_MIN, dir);
-    tokens[token] = rule.alpha === undefined ? corrected : { ...corrected, a: rule.alpha };
+    // 边框走图形级 3:1（语义指示器），其余走文字级 4.5。
+    // 这里没有 alpha 分支：半透明会抵消修正 —— 先修到 3:1 再叠 alpha 等于没修。
+    // 暗色的 status-*-border 曾带 alpha 0.4，实测在深底上只剩 1.5:1，1px 细线等于不可见。
+    const target = token.endsWith('-border') ? GRAPHICAL_MIN : TEXT_MIN;
+    tokens[token] = atRatio(base, binding, target, dir);
   }
   for (const [token, slot] of Object.entries(STATUS_BG_SLOT)) {
     tokens[token] = mix(seed(slot), canvas, STATUS_BG_TOWARD_CANVAS);
