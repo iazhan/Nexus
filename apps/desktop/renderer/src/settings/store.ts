@@ -7,7 +7,14 @@
  * —— 读初值与写入都过它一遍，内存态与磁盘不会分裂。
  */
 
-import { normalizeThemeChoice, SYSTEM_THEME, THEME_STORAGE_KEY } from '@nexus/theme';
+import {
+  normalizeThemeChoice,
+  parseUserTheme,
+  serializeUserTheme,
+  SYSTEM_THEME,
+  THEME_STORAGE_KEY,
+  type UserTheme
+} from '@nexus/theme';
 
 /** 一个设置项的定义。**不含 `path`** —— 表键就是它，两处各写一遍迟早对不上。 */
 export interface SettingDef<T> {
@@ -51,6 +58,17 @@ export const SETTING_DEFS = {
     fallback: DEFAULT_SECTION,
     parse: (raw) => (raw !== null && raw.trim() !== '' ? raw : DEFAULT_SECTION),
     serialize: (value) => value
+  }),
+  /**
+   * 用户主题（含它的覆盖项）。**不给覆盖项单开一个键** —— 覆盖项是用户主题的一部分，两个键存
+   * 同一份状态迟早对不上。清空时写空串而不是 `removeItem`：`set` 的落盘路径只有一条。
+   */
+  'appearance.userTheme': defineSetting<UserTheme | null>({
+    storageKey: 'nexus-user-theme',
+    fallback: null,
+    // 坏 JSON / 内置 id / 槽位不全一律回落 `null`，不抛 —— 存档是用户能改的，读初值抛错会白屏。
+    parse: parseUserTheme,
+    serialize: (value) => (value === null ? '' : serializeUserTheme(value))
   })
 };
 

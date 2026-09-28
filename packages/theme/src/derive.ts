@@ -1,5 +1,6 @@
 /**
- * `seedsToTokens()` —— 16 色种子 → 42 个语义 token 的纯计算。
+ * `seedsToTokens()` —— 16 色种子 → 43 个语义 token 的纯计算；`applyOverrides()` 是它之后的
+ * 可选一层。
  *
  * 六段顺序有依赖，不能重排：背景梯度 → 边框 → 中性文字 → accent → 语法与状态 → 半透明。
  * 中性三级走配额分配（相对 `binding`：离正文色最近的通用背景），而非逐 token 最小修正 ——
@@ -233,4 +234,20 @@ export function seedsToTokens(scheme: NexusThemeScheme): Record<string, string> 
   const out: Record<string, string> = {};
   for (const [token, colour] of Object.entries(tokens)) out[token] = rgbaString(colour);
   return out;
+}
+
+/**
+ * 覆盖项盖在派生结果上。**不修正、不校验** —— 用户手写的值原样生效，是否达标交给对比度报告去说。
+ *
+ * 没有覆盖项时返回**原对象**：`definitionOf()` 每次重算都调它，多造一个等值对象会让下游按引用
+ * 比 tokens 的判断（以及 devtools 里的对象对比）全部失真。
+ */
+export function applyOverrides(
+  tokens: Record<string, string>,
+  overrides?: Readonly<Record<string, string>>
+): Record<string, string> {
+  if (!overrides) return tokens;
+  const keys = Object.keys(overrides);
+  if (keys.length === 0) return tokens;
+  return { ...tokens, ...overrides };
 }

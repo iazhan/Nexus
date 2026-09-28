@@ -35,6 +35,14 @@ export interface NexusThemeScheme {
   variant: 'light' | 'dark';
   palette: Record<Base16Slot, string>;
   tuning?: Tuning;
+  /**
+   * token 名（**不带** `--nexus-` 前缀）→ 值。在 `seedsToTokens()` **之后**覆盖，且不参与对比度
+   * 修正 —— 用户明确要这个值，修正它等于骗人（不达标要在 UI 上标出来）。混进派生循环会让覆盖值
+   * 参与修正，语义完全不同。
+   *
+   * 与 `palette` 一起序列化：导出用户主题时两者都要带上，缺了覆盖项导出的就是另一套配色。
+   */
+  overrides?: Record<string, string>;
 }
 
 export const nexusLightSeeds: NexusThemeScheme = {

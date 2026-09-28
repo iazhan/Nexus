@@ -30,7 +30,7 @@ const QUIET = argv.includes('--quiet');
 // 色值定义文件：16 色种子在这里按定义就是字面量，规则 3 不扫它。
 const DEFS_FILES = new Set(['packages/theme/src/seeds.ts']);
 const DEFS_LABEL = [...DEFS_FILES].join(', ');
-// token 名的定义处。`index.ts` 接线派生后只剩 `seedsToTokens(...)` 调用，42 个字面量全在
+// token 名的定义处。`index.ts` 接线派生后只剩 `seedsToTokens(...)` 调用，43 个字面量全在
 // `derive.ts`：显式赋值目标 `tokens['x'] =` 与规则表键 `'x': { slot:`。新加 token 按这两种
 // 形状写就能被认出来 —— 否则规则 1 会把全部 `var(--nexus-*)` 报成未定义。
 const TOKEN_NAME_FILES = new Set(['packages/theme/src/derive.ts']);

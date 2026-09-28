@@ -1,9 +1,28 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SYSTEM_THEME, THEME_STORAGE_KEY } from '@nexus/theme';
+import { SYSTEM_THEME, THEME_STORAGE_KEY, type UserTheme } from '@nexus/theme';
 import { SETTING_DEFS, SettingsStore } from '../src/settings/store.js';
-import { applyThemeChoice, settings, themeManager } from '../src/platform.js';
+import { applyOverrides, applyThemeChoice, applyUserTheme, settings, themeManager } from '../src/platform.js';
 
 const LAST_SECTION_KEY = SETTING_DEFS['settings.lastSection'].storageKey;
+const USER_THEME_KEY = SETTING_DEFS['appearance.userTheme'].storageKey;
+
+/**
+ * 拿一份**真实的**用户主题：在内置主题上写一次覆盖项，`applyOverrides()` 会先 fork 出来。
+ * 手写 16 个槽位不如让产线生成 —— 手写的那份一旦与产线脱节，测的就不是真东西。
+ */
+function forkedUserTheme(): UserTheme {
+  applyThemeChoice('nexus-light');
+  applyOverrides({ 'bg-canvas': '#101010' });
+  const saved = settings.get('appearance.userTheme');
+  if (!saved) throw new Error('fork 之后没有落盘');
+  return saved;
+}
+
+/** 主题选择与存档归位 —— `themeManager` 是模块级单例，不还原会渗到同文件后面的用例。 */
+function resetTheme(): void {
+  settings.set('appearance.userTheme', null);
+  applyThemeChoice(SYSTEM_THEME);
+}
 
 describe('设置存储 · 读初值', () => {
   beforeEach(() => localStorage.clear());
@@ -182,5 +201,110 @@ describe('设置存储 · 与主题的接线', () => {
     expect(themeManager.themeChoice).toBe(resolved);
     expect(fromStore).toEqual([resolved]);
     expect(fromManager).toEqual([]);
+  });
+});
+
+describe('设置存储 · 用户主题', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('没有存档时是 null', () => {
+    expect(new SettingsStore().get('appearance.userTheme')).toBeNull();
+  });
+
+  it('坏 JSON 回落 null，不抛 —— 存档是用户能改的', () => {
+    localStorage.setItem(USER_THEME_KEY, '{ not json');
+    expect(new SettingsStore().get('appearance.userTheme')).toBeNull();
+  });
+
+  it('往返一致', () => {
+    const theme = forkedUserTheme();
+    const store = new SettingsStore();
+    store.set('appearance.userTheme', theme);
+
+    expect(new SettingsStore().get('appearance.userTheme')).toEqual(theme);
+    resetTheme();
+  });
+
+  it('内置 id 被拒 —— 切回 Nexus Light 必须拿到没被改过的 Nexus Light', () => {
+    const { scheme } = forkedUserTheme();
+    localStorage.setItem(USER_THEME_KEY, JSON.stringify({ id: 'nexus-light', scheme }));
+
+    expect(new SettingsStore().get('appearance.userTheme')).toBeNull();
+    resetTheme();
+  });
+
+  it('清空时落空串而不是删键 —— 落盘路径只有一条', () => {
+    const store = new SettingsStore();
+    store.set('appearance.userTheme', forkedUserTheme());
+    store.set('appearance.userTheme', null);
+
+    expect(localStorage.getItem(USER_THEME_KEY)).toBe('');
+    expect(store.get('appearance.userTheme')).toBeNull();
+    resetTheme();
+  });
+});
+
+describe('设置存储 · 注册用户主题', () => {
+  it('applyUserTheme 注册、切换、落盘一次到位', () => {
+    const theme = { ...forkedUserTheme(), id: 'user:imported' };
+    resetTheme();
+
+    applyUserTheme(theme);
+
+    expect(themeManager.theme.id).toBe('user:imported');
+    expect(settings.get('appearance.theme')).toBe('user:imported');
+    expect(settings.get('appearance.userTheme')).toEqual(theme);
+    resetTheme();
+  });
+
+  it('applyUserTheme 拒绝内置 id —— 不落盘、不切换', () => {
+    const { scheme } = forkedUserTheme();
+    resetTheme();
+    applyThemeChoice('nexus-light');
+
+    applyUserTheme({ id: 'nexus-light', scheme });
+
+    expect(settings.get('appearance.userTheme')).toBeNull();
+    expect(themeManager.theme.id).toBe('nexus-light');
+  });
+});
+
+describe('设置存储 · 覆盖项的接线', () => {
+  /**
+   * 内置主题不可写，所以这一条同时覆盖三件事：fork 出用户主题、覆盖项生效、两者一起落盘。
+   * 少任何一件的表现都是「拖了滑块没反应，或者重启后没了」。
+   */
+  it('在内置主题上写覆盖项会先 fork 成用户主题，并把覆盖项一起落盘', () => {
+    applyThemeChoice('nexus-light');
+    const derivedSurface = themeManager.theme.tokens['bg-surface'];
+
+    applyOverrides({ 'bg-canvas': '#101010' });
+
+    const saved = settings.get('appearance.userTheme');
+    expect(saved?.id.startsWith('user:')).toBe(true);
+    expect(saved?.scheme.overrides).toEqual({ 'bg-canvas': '#101010' });
+    expect(themeManager.theme.id).toBe(saved?.id);
+    expect(themeManager.themeChoice).toBe(saved?.id);
+    expect(themeManager.theme.tokens['bg-canvas']).toBe('#101010');
+    // 只盖了给定的一项，其余仍是派生值。
+    expect(themeManager.theme.tokens['bg-surface']).toBe(derivedSurface);
+
+    resetTheme();
+  });
+
+  it('已经在用户主题上时不再 fork，覆盖项继续累积', () => {
+    applyThemeChoice('nexus-light');
+    applyOverrides({ 'bg-canvas': '#101010' });
+    const firstId = settings.get('appearance.userTheme')?.id;
+
+    applyOverrides({ 'bg-surface': '#202020' });
+
+    expect(settings.get('appearance.userTheme')?.id).toBe(firstId);
+    expect(settings.get('appearance.userTheme')?.scheme.overrides).toEqual({
+      'bg-canvas': '#101010',
+      'bg-surface': '#202020',
+    });
+
+    resetTheme();
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { nexusDark, nexusLight } from '../src/index.js';
+import { definitionOf, nexusDark, nexusLight } from '../src/index.js';
 import { GENERAL_SURFACES, contrastRatio, measureTheme, parseColour } from '../src/contrast.js';
-import { seedsToTokens } from '../src/derive.js';
+import { applyOverrides, seedsToTokens } from '../src/derive.js';
 import { rgbToOklch } from '../src/oklch.js';
 import { nexusDarkSeeds, nexusLightSeeds, type NexusThemeScheme } from '../src/seeds.js';
 
@@ -145,5 +145,49 @@ describe('派生规则对第三方种子成立', () => {
     const tokens = seedsToTokens(SOLARIZED_LIGHT);
     expect(Object.keys(tokens)).toHaveLength(43);
     expect(measureTheme(tokens).failures).toEqual([]);
+  });
+});
+
+describe('覆盖项盖在派生结果上', () => {
+  const derived = seedsToTokens(nexusLightSeeds);
+
+  it('没有覆盖项时原样返回 —— 多造一个等值对象会让按引用比的判断失真', () => {
+    expect(applyOverrides(derived)).toBe(derived);
+    expect(applyOverrides(derived, {})).toBe(derived);
+  });
+
+  it('只盖给定的 token，其余逐值不动', () => {
+    const patched = applyOverrides(derived, { 'bg-canvas': '#123456' });
+
+    expect(patched['bg-canvas']).toBe('#123456');
+    expect(patched['bg-surface']).toBe(derived['bg-surface']);
+    expect(Object.keys(patched)).toHaveLength(Object.keys(derived).length);
+  });
+
+  it('不修正覆盖值 —— 用户要的就是这个值，修正它等于骗人', () => {
+    // 亮底上的近白文字：对比度必然不达标，但必须原样生效，由对比度报告去说。
+    const patched = applyOverrides(derived, { 'text-primary': '#fefefe' });
+
+    expect(patched['text-primary']).toBe('#fefefe');
+    expect(measureTheme(patched).failures.length).toBeGreaterThan(0);
+  });
+
+  it('definitionOf 的 token 等于「派生 + 覆盖」', () => {
+    const scheme: NexusThemeScheme = {
+      ...nexusLightSeeds,
+      palette: { ...nexusLightSeeds.palette },
+      overrides: { 'bg-canvas': '#123456', 'accent-solid': '#654321' },
+    };
+
+    const theme = definitionOf('user:test', scheme);
+    expect(theme.tokens).toEqual(applyOverrides(seedsToTokens(scheme), scheme.overrides));
+    expect(theme.tokens['bg-canvas']).toBe('#123456');
+    expect(theme.tokens['accent-solid']).toBe('#654321');
+    expect(theme.id).toBe('user:test');
+    expect(theme.type).toBe('light');
+  });
+
+  it('内置主题没有覆盖项，definitionOf 与 seedsToTokens 一致', () => {
+    expect(definitionOf('nexus-dark', nexusDarkSeeds).tokens).toEqual(seedsToTokens(nexusDarkSeeds));
   });
 });

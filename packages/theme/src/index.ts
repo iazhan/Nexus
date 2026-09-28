@@ -1,6 +1,7 @@
-import { seedsToTokens } from './derive.js';
+import { applyOverrides, seedsToTokens } from './derive.js';
 import { normalizeThemeChoice, resolveKnownThemeId, SYSTEM_THEME } from './resolve.js';
-import { nexusDarkSeeds, nexusLightSeeds } from './seeds.js';
+import { nexusDarkSeeds, nexusLightSeeds, type NexusThemeScheme } from './seeds.js';
+import { isUserThemeId, newUserThemeId, type UserTheme } from './user-theme.js';
 
 export {
   normalizeThemeChoice,
@@ -12,6 +13,14 @@ export {
   themeIdForType
 } from './resolve.js';
 export { themesToCss } from './static-css.js';
+export {
+  isUserThemeId,
+  newUserThemeId,
+  parseUserTheme,
+  serializeUserTheme,
+  USER_THEME_PREFIX,
+  type UserTheme
+} from './user-theme.js';
 
 export interface ThemeDefinition {
   id: string;
@@ -21,30 +30,58 @@ export interface ThemeDefinition {
 }
 
 /**
- * 内置主题的 token 全部由 16 色种子派生（`seedsToTokens()`）—— 改配色只改 `seeds.ts`。
- * 不要在这里写死值：手写值与派生值会漂移，而漂移只有肉眼能发现。
+ * 种子 + 覆盖项 → 主题定义。**这是唯一的合成点** —— 内置主题与用户主题走同一条路，两处各写
+ * 一遍「派生 + 盖覆盖」迟早漂移。
  *
- * `name` / `type` 也从种子取：`type` 与 `variant` 不一致会让派生方向反转（灰阶反了），
- * 两处各写一遍迟早对不上。
+ * `name` / `type` 也从种子取：`type` 与 `variant` 不一致会让派生方向反转（灰阶反了）。
  */
-export const nexusLight: ThemeDefinition = {
-  id: 'nexus-light',
-  name: nexusLightSeeds.name,
-  type: nexusLightSeeds.variant,
-  tokens: seedsToTokens(nexusLightSeeds)
-};
+export function definitionOf(id: string, scheme: NexusThemeScheme): ThemeDefinition {
+  return {
+    id,
+    name: scheme.name,
+    type: scheme.variant,
+    tokens: applyOverrides(seedsToTokens(scheme), scheme.overrides)
+  };
+}
 
-export const nexusDark: ThemeDefinition = {
-  id: 'nexus-dark',
-  name: nexusDarkSeeds.name,
-  type: nexusDarkSeeds.variant,
-  tokens: seedsToTokens(nexusDarkSeeds)
-};
+/** id 与种子成对登记 —— id 在两处各写一遍迟早对不上。 */
+const BUILT_IN: readonly { id: string; scheme: NexusThemeScheme }[] = [
+  { id: 'nexus-light', scheme: nexusLightSeeds },
+  { id: 'nexus-dark', scheme: nexusDarkSeeds }
+];
+
+/** 内置主题的种子表：fork 用户主题时要拿**种子**，从 43 个 token 反推不回 16 色。 */
+const builtInSchemes: ReadonlyMap<string, NexusThemeScheme> = new Map(
+  BUILT_IN.map((entry): [string, NexusThemeScheme] => [entry.id, entry.scheme])
+);
+
+/** 内置主题。静态 CSS 生成器与 `ThemeManager` 的 presets 都读它。 */
+export const BUILT_IN_THEMES: readonly ThemeDefinition[] = BUILT_IN.map((entry) =>
+  definitionOf(entry.id, entry.scheme)
+);
+
+function builtInDefinition(id: string): ThemeDefinition {
+  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === id);
+  if (!theme) throw new Error(`内置主题表里没有 ${id}`);
+  return theme;
+}
+
+/** 具名出口：`dump-themes.mjs` 与测试按名字读。 */
+export const nexusLight: ThemeDefinition = builtInDefinition('nexus-light');
+export const nexusDark: ThemeDefinition = builtInDefinition('nexus-dark');
 
 type Listener = (theme: ThemeDefinition) => void;
 
-/** 内置主题。静态 CSS 生成器与 `ThemeManager` 的 presets 都读它 —— 两处各列一遍必然漂移。 */
-export const BUILT_IN_THEMES: readonly ThemeDefinition[] = [nexusLight, nexusDark];
+const NO_OVERRIDES: Readonly<Record<string, string>> = {};
+
+function sameOverrides(
+  a: Readonly<Record<string, string>>,
+  b: Readonly<Record<string, string>>
+): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => a[key] === b[key]);
+}
 
 /**
  * 「跟随系统」要读的两个能力。默认实现走 `matchMedia`，测试注入假实现 —— 否则为了造一次
@@ -75,19 +112,31 @@ export class ThemeManager {
     BUILT_IN_THEMES.map((theme): [string, ThemeDefinition] => [theme.id, theme])
   );
 
+  private schemes: Map<string, NexusThemeScheme> = new Map(builtInSchemes);
+
+  private userThemes: Map<string, UserTheme> = new Map();
+
+  /** 上次广播出去的覆盖项快照 —— `applyResolved()` 的 `changed` 判据要连它一起比。 */
+  private appliedOverrides: Readonly<Record<string, string>> = NO_OVERRIDES;
+
   // 存档里该存的值：`system` 或主题 id。与 `activeTheme.id` 不同 —— 后者是解析结果。
   private choice: string;
 
   private readonly system: SystemThemeSource;
 
   /**
-   * 选择由构造参数传入，而不是构造完再 `setTheme()`：preload 已经按同一个规则写过 `data-theme`
-   * （见 `preload/theme-boot.ts`），这里若先落一个默认主题再改，就多出一次 DOM 写入 ——
-   * 只要这两次落在不同任务里就会闪一帧。一次解析到位，两边得到同一个值。
+   * 选择与已持久化的用户主题都由构造参数传入，而不是构造完再 `setTheme()` / `registerUserTheme()`：
+   * preload 已经按同一个规则写过 `data-theme`（见 `preload/theme-boot.ts`），这里若先落一个默认
+   * 主题再改，就多出一次 DOM 写入 —— 只要这两次落在不同任务里就会闪一帧。
    */
-  constructor(choice: string = SYSTEM_THEME, system: SystemThemeSource = matchMediaSystemTheme) {
+  constructor(
+    choice: string = SYSTEM_THEME,
+    system: SystemThemeSource = matchMediaSystemTheme,
+    userThemes: readonly UserTheme[] = []
+  ) {
     this.choice = normalizeThemeChoice(choice);
     this.system = system;
+    for (const theme of userThemes) this.registerUserTheme(theme);
     this.applyResolved();
     // 跟随系统时系统偏好一变就要重解析。监听常驻（只在选择是 system 时生效）——
     // 装上再拆会引入「什么时候装」的第二个状态。
@@ -110,9 +159,99 @@ export class ThemeManager {
     return this.activeTheme.type;
   }
 
+  /** 当前主题的覆盖项。内置主题恒为空 —— 它们不可写，见 `overrideToken()`。 */
+  get overrides(): Readonly<Record<string, string>> {
+    return this.userThemes.get(this.activeTheme.id)?.scheme.overrides ?? NO_OVERRIDES;
+  }
+
+  /** 当前主题是否可写（只有用户主题能承载覆盖项）。 */
+  get isEditable(): boolean {
+    return this.userThemes.has(this.activeTheme.id);
+  }
+
+  /** 当前主题对应的用户主题；落在内置主题上时为 `null`。 */
+  get activeUserTheme(): UserTheme | null {
+    return this.userThemes.get(this.activeTheme.id) ?? null;
+  }
+
+  /**
+   * 登记一个用户主题。**id 不是 `user:` 前缀的一律拒绝**：内置 id 被写成用户主题的话，
+   * 「切回 Nexus Light」得到的是改过的 Nexus Light，用户没有退路。
+   *
+   * 不切主题、不广播 —— 调用方拿到 `true` 后自己 `setTheme()`。注册与选择是两件事，
+   * 合成一件会让「导入后先注册再问用户要不要切」这种流程做不出来。
+   */
+  registerUserTheme(theme: UserTheme): boolean {
+    if (!isUserThemeId(theme.id)) return false;
+    this.userThemes.set(theme.id, theme);
+    this.schemes.set(theme.id, theme.scheme);
+    this.presets.set(theme.id, definitionOf(theme.id, theme.scheme));
+    return true;
+  }
+
+  /**
+   * 把当前主题另存成用户主题（可写副本）并切过去 —— 改内置主题前的必经一步。
+   * 已经在自己的用户主题上时直接返回它，不重复 fork。
+   */
+  forkActiveToUserTheme(id: string = newUserThemeId()): UserTheme | null {
+    const existing = this.activeUserTheme;
+    if (existing) return existing;
+
+    const scheme = this.schemes.get(this.activeTheme.id);
+    if (!scheme) return null;
+
+    // 浅拷 palette：fork 出来的副本要能独立改，共享对象会让两个主题一起变。
+    const forked: UserTheme = { id, scheme: { ...scheme, palette: { ...scheme.palette } } };
+    if (!this.registerUserTheme(forked)) return null;
+    this.setTheme(id);
+    return forked;
+  }
+
   setTheme(choiceOrId: string): void {
     this.choice = normalizeThemeChoice(choiceOrId);
     this.applyResolved();
+  }
+
+  /**
+   * 写一个覆盖项。**只对用户主题生效** —— 落在内置主题上返回 `false`，调用方先
+   * `forkActiveToUserTheme()`。覆盖项不参与对比度修正：用户要的就是这个值。
+   */
+  overrideToken(key: string, value: string): boolean {
+    return this.patchOverrides({ [key]: value });
+  }
+
+  /** 删掉一个覆盖项。`null` 与「不存在」等价 —— 删不存在的项返回 `true`，无操作可做。 */
+  clearOverride(key: string): boolean {
+    return this.patchOverrides({ [key]: null });
+  }
+
+  clearAllOverrides(): boolean {
+    const current = this.activeUserTheme;
+    if (!current) return false;
+    return this.writeOverrides(current, {});
+  }
+
+  /** 批量写覆盖项，`null` 表示删掉该项。一次重算、一次广播 —— 逐项调会广播 N 次。 */
+  patchOverrides(patch: Readonly<Record<string, string | null>>): boolean {
+    const current = this.activeUserTheme;
+    if (!current) return false;
+
+    const next: Record<string, string> = { ...current.scheme.overrides };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) delete next[key];
+      else next[key] = value;
+    }
+    return this.writeOverrides(current, next);
+  }
+
+  private writeOverrides(theme: UserTheme, overrides: Record<string, string>): boolean {
+    const scheme: NexusThemeScheme = { ...theme.scheme, overrides };
+    const updated: UserTheme = { ...theme, scheme };
+    this.userThemes.set(updated.id, updated);
+    this.schemes.set(updated.id, scheme);
+    this.presets.set(updated.id, definitionOf(updated.id, scheme));
+    this.applyResolved();
+    return true;
   }
 
   subscribe(listener: Listener): () => void {
@@ -140,11 +279,19 @@ export class ThemeManager {
     return this.presets.get(id) ?? nexusLight;
   }
 
+  private overridesOf(id: string): Readonly<Record<string, string>> {
+    return this.userThemes.get(id)?.scheme.overrides ?? NO_OVERRIDES;
+  }
+
   private applyResolved(): void {
     const theme = this.resolveChoice();
-    const changed = this.activeTheme.id !== theme.id;
+    const overrides = this.overridesOf(theme.id);
+    // 只比 id 的话覆盖项改了不广播 —— id 没变，UI 不重渲染，滑块拖了没反应。
+    const changed =
+      this.activeTheme.id !== theme.id || !sameOverrides(this.appliedOverrides, overrides);
 
     this.activeTheme = theme;
+    this.appliedOverrides = overrides;
     this.applyToDOM(theme);
     if (changed) this.notify();
   }
@@ -153,7 +300,7 @@ export class ThemeManager {
     if (typeof window === 'undefined') return;
 
     const root = document.documentElement;
-    // `data-theme` 取主题 **id** 而不是 type：它要能区分 5 套内置主题与用户主题。
+    // `data-theme` 取主题 **id** 而不是 type：它要能区分多套内置主题与用户主题。
     // `colorScheme` 仍取 type —— 它只控制原生滚动条 / 表单控件的配色，是个二值。
     root.style.colorScheme = theme.type;
     root.dataset.theme = theme.id;
@@ -172,10 +319,4 @@ export class ThemeManager {
     }
     styleEl.textContent = cssText;
   }
-
-  public overrideToken(key: string, value: string) {
-    if (typeof window === 'undefined') return;
-    document.documentElement.style.setProperty('--nexus-' + key, value);
-  }
 }
-
