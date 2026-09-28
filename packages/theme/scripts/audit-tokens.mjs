@@ -22,6 +22,12 @@
 //
 // Colour literals in the definition file (`packages/theme/src/index.ts`) are the single legal
 // hardcoding site and are not reported.
+//
+// Rule 3 reads CODE, not prose: a doc comment explaining what `rgb()` accepts, or citing
+// `rgba(27,31,35,0.05)` as an example, is documentation — not a hardcoded colour. Without this,
+// writing a comment about colour syntax fails the gate, and the fix people reach for is to stop
+// documenting. Only whole-line comments and trailing `//` are stripped; `@constant` is read from
+// the raw line, since that marker lives inside a comment itself.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -70,6 +76,16 @@ const DEF_RE = /^\s*(--[a-z0-9]+(?:-[a-z0-9]+)*)\s*:/;
 const TOKEN_KEY_RE = /^\s*'([a-z0-9-]+)'\s*:\s*'([^']+)'/;
 const COLOUR_RE = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\([^)]*\)/g;
 
+// Whole-line comments and trailing `//` only. `(?<!:)` keeps `https://` intact; a `//` inside a
+// string literal would still be cut, but the only cost of that is a missed literal, and no such
+// line exists today.
+const stripComment = (text) => {
+  const head = text.trimStart();
+  if (head.startsWith('//') || head.startsWith('/*') || head.startsWith('*')) return '';
+  const at = text.search(/(?<!:)\/\//);
+  return at === -1 ? text : text.slice(0, at);
+};
+
 const refs = new Map();       // token -> [{file, line, form}]
 const defined = new Map();    // token -> {file, line, reserved}
 const literals = [];
@@ -113,9 +129,10 @@ for (const { rel, full } of files) {
     if (d) defined.set(d[1], { file: rel, line, reserved: /@reserved/.test(text) });
 
     if (/@constant/.test(text)) return;
-    for (const m of text.matchAll(COLOUR_RE)) {
-      literals.push({ file: rel, line, value: m[0], text: text.trim() });
-    }
+    const code = stripComment(text);
+    if (!code) return;
+    const values = [...code.matchAll(COLOUR_RE)].map((m) => m[0]);
+    if (values.length) literals.push({ file: rel, line, values, text: text.trim() });
   });
 }
 
@@ -131,6 +148,7 @@ const rule2 = [...defined.entries()]
   .sort((a, b) => a.token.localeCompare(b.token));
 
 const rule3 = literals;
+const literalCount = rule3.reduce((n, l) => n + l.values.length, 0);
 
 const out = [];
 const say = (s = '') => out.push(s);
@@ -151,7 +169,7 @@ say(`\n=== [2] defined but NEVER referenced (${rule2.length}) ===`);
 for (const { token, info } of rule2) say(`  ${token}   ${short(info.file)}:${info.line}`);
 if (!rule2.length) say('  (none)');
 
-say(`\n=== [3] colour literals outside ${DEFS_FILE} (${rule3.length}) ===`);
+say(`\n=== [3] colour literals outside ${DEFS_FILE} (${literalCount} on ${rule3.length} lines) ===`);
 const byFile = new Map();
 for (const l of rule3) {
   if (!byFile.has(l.file)) byFile.set(l.file, []);
@@ -163,8 +181,8 @@ for (const [file, items] of [...byFile.entries()].sort((a, b) => b[1].length - a
 }
 if (!rule3.length) say('  (none)');
 
-const failed = rule1.length + rule2.length + rule3.length;
-say(`\n${failed === 0 ? 'PASS' : 'FAIL'} — ${rule1.length} undefined refs, ${rule2.length} unused tokens, ${rule3.length} colour literals`);
+const failed = rule1.length + rule2.length + literalCount;
+say(`\n${failed === 0 ? 'PASS' : 'FAIL'} — ${rule1.length} undefined refs, ${rule2.length} unused tokens, ${literalCount} colour literals`);
 
 console.log(out.join('\n'));
 process.exit(failed === 0 ? 0 : 1);
