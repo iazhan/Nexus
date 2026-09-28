@@ -13,6 +13,10 @@ build/
 # 不进版本库：可以从依赖完整重建，而 185 个 .bcmap 进 diff 只会淹没真正的改动。
 apps/desktop/renderer/public/pdfjs/
 
+# 内置主题的静态 CSS：由 packages/theme/scripts/generate-css.mjs 生成，挂在 predev / prebuild 上。
+# 不进版本库：可以从 BUILT_IN_THEMES 完整重建，而 84 行声明进 diff 只会淹没真正的改动。
+apps/desktop/renderer/public/theme.css
+
 # Logs
 logs/
 *.log

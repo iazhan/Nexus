@@ -1,13 +1,13 @@
 {
   "name": "@nexus/desktop",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "main": "./out/main/index.cjs",
   "scripts": {
-    "predev": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/editor build && node ../../scripts/copy-pdfjs-assets.mjs",
+    "predev": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/editor build && node ../../packages/theme/scripts/generate-css.mjs && node ../../scripts/copy-pdfjs-assets.mjs",
     "dev": "electron-vite dev",
-    "prebuild": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/editor build && node ../../scripts/copy-pdfjs-assets.mjs",
+    "prebuild": "pnpm --filter @nexus/core build && pnpm --filter @nexus/theme build && pnpm --filter @nexus/i18n build && pnpm --filter @nexus/command build && pnpm --filter @nexus/editor build && node ../../packages/theme/scripts/generate-css.mjs && node ../../scripts/copy-pdfjs-assets.mjs",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

@@ -625,10 +625,10 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = sharedApp;
     await activeApp.setSource('# Command Palette Test\n');
 
-    // 主题信号读 <html data-theme>（`ThemeManager.applyToDOM` 写入）。
+    // 主题信号读 <html data-theme>，值是主题 id（`ThemeManager.applyToDOM` 写入）。
     // 不要再用 body 的 `theme-*` class —— 全仓没有任何它的选择器，2026-09-28 已删。
     const themeBefore = await activeApp.evaluate('document.documentElement.dataset.theme');
-    expect(themeBefore).not.toBe('dark');
+    expect(themeBefore).not.toBe('nexus-dark');
 
     // Open Command Palette: Mod-K
     await activeApp.pressKey('k', { ctrl: true });
@@ -652,7 +652,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     // Wait for theme to change
     await activeApp.waitForFunction(
-      '() => document.documentElement.dataset.theme === "dark"',
+      '() => document.documentElement.dataset.theme === "nexus-dark"',
       15000
     );
     

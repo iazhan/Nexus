@@ -18,6 +18,11 @@ import {
   type WindowState
 } from '../ipc/channels.js';
 import type { NexusBridge } from './types.js';
+import { installThemeBoot } from './theme-boot.js';
+
+// 最早执行的一段：首帧之前把主题落到 `<html data-theme>` 上。放在 bridge 之前，
+// 因为它和 IPC 无关，越早越好。
+installThemeBoot(document, window);
 
 const listeners = new Map<string, FileWatchListener>();
 

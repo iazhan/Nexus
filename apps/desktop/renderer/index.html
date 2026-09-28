@@ -37,6 +37,13 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' nexus-asset: data:; connect-src 'self' nexus-asset:; worker-src 'self' blob:;"
     />
+    <!-- 内置主题的静态 CSS：由 `packages/theme/scripts/generate-css.mjs`（挂在 predev / prebuild 上）
+         从 `BUILT_IN_THEMES` 生成，不进版本库。
+         必须是 <link> 而不是 renderer 里的 CSS import —— 后者在 dev 下由 JS 注入、晚于首帧，
+         而 preload 在 9.6ms 就写好了 `data-theme`（plan §4.4.1）。两者错开就是
+         「开发时闪一下、打包后不闪」，最难查的一类差异。
+         路径写 `/theme.css`（public 目录的约定写法），构建期由 vite 按 `base` 改成相对路径。 -->
+    <link rel="stylesheet" href="/theme.css" />
     <!-- 中性初值：真正的标题由 App 按运行模式设置（workspace / lightweight）。
          这里写死「Nexus Lite」会让全量模式的窗口标题一直挂着 Lite ——
          页面加载后 <title> 会覆盖 BrowserWindow 的 title，所以问题出在这一行。 -->

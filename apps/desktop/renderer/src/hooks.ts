@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { themeManager, localeManager } from './platform.js';
+import { themeIdForType } from '@nexus/theme';
+import { applyThemeChoice, localeManager, themeManager } from './platform.js';
 
 export function useTheme() {
   const [theme, setThemeState] = useState(themeManager.theme);
@@ -8,7 +9,11 @@ export function useTheme() {
     return themeManager.subscribe(setThemeState);
   }, []);
 
-  const setTheme = useCallback((t: 'light' | 'dark') => themeManager.setThemeByType(t), []);
+  // 走 `applyThemeChoice` 而不是 `themeManager.setTheme`：前者同时落盘「选择」。
+  const setTheme = useCallback(
+    (type: 'light' | 'dark') => applyThemeChoice(themeIdForType(type)),
+    []
+  );
   return { theme, setTheme };
 }
 

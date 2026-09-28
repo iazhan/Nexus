@@ -1,37 +1,47 @@
 import { CommandRegistry } from '@nexus/command';
 import { LocaleManager } from '@nexus/i18n';
-import { ThemeManager } from '@nexus/theme';
+import { SYSTEM_THEME, ThemeManager, THEME_STORAGE_KEY } from '@nexus/theme';
 
 export const commandRegistry = new CommandRegistry();
 export const localeManager = new LocaleManager();
-export const themeManager = new ThemeManager();
+
+// 存档里是**选择**：`system` 或主题 id。缺省即「跟随系统」—— 与既有行为一致（没有存档时看系统
+// 偏好），且存档恒可解读，不用区分「跟随」与「从未选过」。旧存档的 'dark' / 'light' 由
+// `normalizeThemeChoice` 接住。
+//
+// 选择必须在**构造时**交进去，不能构造完再 setTheme：preload 已按同一规则写过 `data-theme`，
+// 多一次写入就多一次「先画一帧再跳」的机会（见 `ThemeManager` 的构造注释）。
+const savedThemeChoice =
+  typeof localStorage === 'undefined' ? null : localStorage.getItem(THEME_STORAGE_KEY);
+
+export const themeManager = new ThemeManager(savedThemeChoice ?? SYSTEM_THEME);
 
 // 暴露给冒烟测试与调试（与 App 里的 `window.nexusSession` 同一套接缝）
 if (typeof window !== 'undefined') {
   (window as unknown as { nexusLocale?: LocaleManager }).nexusLocale = localeManager;
 }
 
-// Load initial preferences from localStorage
 if (typeof localStorage !== 'undefined') {
-  const savedTheme = localStorage.getItem('nexus-theme');
-  if (savedTheme === 'dark' || savedTheme === 'light') {
-    themeManager.setThemeByType(savedTheme);
-  } else if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    themeManager.setThemeByType('dark');
-  }
-
   const savedLocale = localStorage.getItem('nexus-locale');
   if (savedLocale === 'zh-CN' || savedLocale === 'en-US') {
     localeManager.setLocale(savedLocale);
   }
 }
 
-// Persist to localStorage on change
-themeManager.subscribe((theme) => {
+/**
+ * 切换主题并落盘。
+ *
+ * 落盘的是**选择**（`themeChoice`）而不是解析结果 —— 跟随系统时解析结果会随系统偏好变，
+ * 写回去等于退出跟随。也**不能**改成「订阅里落盘」：通知只在**解析结果**变化时触发，
+ * 系统浅色时用户手选 Nexus Light，选择从 `system` 变成 `nexus-light` 而解析结果没变 ——
+ * 那次选择就丢了。
+ */
+export function applyThemeChoice(choice: string): void {
+  themeManager.setTheme(choice);
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('nexus-theme', theme.type);
+    localStorage.setItem(THEME_STORAGE_KEY, themeManager.themeChoice);
   }
-});
+}
 
 localeManager.subscribe((locale) => {
   if (typeof localStorage !== 'undefined') {

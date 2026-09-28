@@ -31,7 +31,9 @@ const DEFS_FILES = new Set([
 ]);
 const DEFS_LABEL = [...DEFS_FILES].join(', ');
 const THEME_PREFIX = '--nexus-';
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'out', 'build', '.git', '.workbuddy-ai', '.serena', 'coverage']);
+// `public/` 与 dist / out 同类：里面是构建期复制或生成的东西（pdfjs 的 185 个二进制、
+// 由 BUILT_IN_THEMES 生成的 theme.css），改不了也不该改，扫进来只会让规则 3 恒红。
+const SKIP_DIRS = new Set(['node_modules', 'dist', 'out', 'build', 'public', '.git', '.workbuddy-ai', '.serena', 'coverage']);
 const SCAN_EXT = /\.(ts|tsx|css)$/;
 
 // test/ 与 fixtures/ 排除：它们本来就断言颜色，算进来只会让规则 3 变成会被静音的噪声。
