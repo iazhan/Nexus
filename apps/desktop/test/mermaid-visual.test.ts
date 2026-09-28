@@ -257,15 +257,16 @@ describe('视觉模式 Mermaid 块', () => {
     );
   }, 90000);
 
-  it('Appearance 菜单里的开关能打开「点击图表显示源码」', async () => {
+  it('首选项菜单里的开关能打开「点击图表显示源码」', async () => {
     const app = await openVisual('menu.md', false);
 
     expect(await app.evaluate<boolean>(`window.nexusMermaidPreview.get()`)).toBe(false);
 
-    // 打开 Appearance 菜单
+    // 打开菜单。标题是「首选项」而不是「外观」—— 它装的是所有 `menu: true` 的字段，
+    // 跨 Appearance / General / Editor 三个分组（见 `settings/registry.ts`）。
     const menuButton = await app.evaluate<{ x: number; y: number } | null>(`(() => {
       const btn = Array.from(document.querySelectorAll('.nexus-menu-bar-button'))
-        .find((el) => (el.textContent || '').trim() === 'Appearance');
+        .find((el) => ['Preferences', '首选项'].includes((el.textContent || '').trim()));
       if (!btn) return null;
       const r = btn.getBoundingClientRect();
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };

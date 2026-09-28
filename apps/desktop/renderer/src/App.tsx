@@ -59,6 +59,9 @@ import {
   toggleActivity,
   type ActivityId
 } from './shell/activity-bar-state.js';
+import { SettingsView } from './settings/SettingsView.js';
+import { projectMenuItems } from './settings/registry.js';
+import { useSettingsView } from './settings/use-settings-view.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
 
@@ -143,9 +146,15 @@ function getFileName(filePath: string | null): string {
 }
 
 export const App: React.FC = () => {
-  const { theme, setTheme } = useTheme();
+  const { theme, themeChoice, setTheme } = useTheme();
   const { locale, setLocale, t } = useLocale();
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  /**
+   * 设置视图的会话状态。视图分派只替换**中间三栏**，标题栏与状态栏保留 ——
+   * 桌面应用不能没有窗口控制按钮。详见 `settings/SettingsView.tsx`。
+   */
+  const settingsView = useSettingsView();
 
   // Mermaid「点击图表显示源码」偏好。菜单的勾选状态必须与实际一致，
   // 所以订阅偏好变化 —— 别的入口改了也能同步过来。
@@ -1140,6 +1149,13 @@ export const App: React.FC = () => {
         execute: () => {
           // Placeholder for opening current file in workspace
         }
+      }),
+      // `Mod-,` 由下面的快捷键循环统一分发（读命令自己的 `shortcut` 字段），不用另写分支。
+      commandRegistry.registerCommand({
+        id: 'settings.open',
+        titleKey: 'cmd.openSettings',
+        shortcut: 'Mod-,',
+        execute: settingsView.open
       })
     ];
 
@@ -1180,7 +1196,7 @@ export const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       unsubs.forEach(u => u());
     };
-  }, [handleOpenFile, saveAs, saveFile, theme, setTheme, locale, setLocale]);
+  }, [handleOpenFile, saveAs, saveFile, theme, setTheme, locale, setLocale, settingsView.open]);
 
   // Conflict resolution actions
   const handleReloadExternal = useCallback(async () => {
@@ -1394,38 +1410,11 @@ export const App: React.FC = () => {
       },
       {
         id: 'appearance',
-        label: t('menu.appearance'),
-        items: [
-          {
-            label: t('theme.light'),
-            active: theme.type === 'light',
-            onSelect: () => setTheme('light')
-          },
-          {
-            label: t('theme.dark'),
-            active: theme.type === 'dark',
-            onSelect: () => setTheme('dark')
-          },
-          { label: '', separator: true },
-          {
-            label: t('lang.zhCN'),
-            active: locale === 'zh-CN',
-            onSelect: () => setLocale('zh-CN')
-          },
-          {
-            label: t('lang.enUS'),
-            active: locale === 'en-US',
-            onSelect: () => setLocale('en-US')
-          },
-          { label: '', separator: true },
-          {
-            // 默认关：进源码的默认路径是代码块 header 上的按钮（显式动作、效果可预期）。
-            // 打开后点图表 = 瞥一眼源码，光标一离开就回到预览。
-            label: t('mermaid.clickToReveal'),
-            active: mermaidClickToReveal,
-            onSelect: () => mermaidPreviewPreference.set(!mermaidClickToReveal)
-          }
-        ]
+        label: t('menu.preferences'),
+        // 菜单由注册表投影，装的是**所有** `menu: true` 的字段（跨 Appearance / General /
+        // Editor 三个分组）。按分组过滤会让语言与 mermaid 从菜单里消失 —— 那是功能回退，
+        // 所以标题也跟着从「外观」改成「首选项」。
+        items: projectMenuItems({ t, onOpenSettings: settingsView.open })
       }
     ],
     [
@@ -1442,10 +1431,13 @@ export const App: React.FC = () => {
       handlePaste,
       handleSelectAll,
       theme.type,
+      // 投影在渲染期读 accessor，值变了必须重新投影 —— 否则菜单勾选状态会停在旧值上。
+      themeChoice,
       setTheme,
       locale,
       setLocale,
-      mermaidClickToReveal
+      mermaidClickToReveal,
+      settingsView.open
     ]
   );
 
@@ -1632,13 +1624,24 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="nexus-body">
+        {/* 视图分派：设置页替换的是**中间三栏**（活动栏 / 侧栏 / 编辑区），标题栏与状态栏留在外面。
+            包裹用的 fragment 刻意不重排中间那 200 行的缩进 —— 缩进变化会把 diff 撑成整段重写，
+            而验收第 8 条要求 App.tsx 的净增行数是**个位数**。 */}
+        {settingsView.view === 'settings' ? (
+          <SettingsView
+            section={settingsView.section}
+            onSelectSection={settingsView.selectSection}
+            onClose={settingsView.close}
+          />
+        ) : (
+          <>
         {/* 活动栏与面板只在工作区模式下出现；lightweight 保持原来的单栏布局 */}
         {status === 'ready' && workspaceRoot && (
           <ActivityBar
             activeId={activity.activeId}
             panelOpen={activity.panelOpen}
             onSelect={handleActivitySelect}
-            onOpenSettings={() => setCommandPaletteOpen(true)}
+            onOpenSettings={settingsView.open}
           />
         )}
 
@@ -1840,6 +1843,8 @@ export const App: React.FC = () => {
           </ErrorBoundary>
         )}
         </main>
+          </>
+        )}
       </div>
 
       {/* Status Bar Footer */}

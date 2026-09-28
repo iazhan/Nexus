@@ -1,6 +1,12 @@
 type LocaleDictionary = Record<string, string>;
 
-const dictionaries: Record<string, LocaleDictionary> = {
+/**
+ * 两本字典。
+ *
+ * 导出只为一件事：让「键集合相等 / 占位符一致」这两条断言写得了 —— 它们此前**没有任何守护**，
+ * 而漏一边不会有任何东西报错，只会在切到那个语言时露出一个英文键名。
+ */
+export const DICTIONARIES: Record<string, LocaleDictionary> = {
   'en-US': {
     'app.title': 'Nexus Editor',
     'file.unsupported': 'Unsupported format: {format}',
@@ -106,11 +112,29 @@ const dictionaries: Record<string, LocaleDictionary> = {
       '{count} files match [[{target}]] — use a path like [[folder/{target}]].',
     'menu.file': 'File',
     'menu.edit': 'Edit',
-    'menu.appearance': 'Appearance',
-    'theme.light': 'Light',
-    'theme.dark': 'Dark',
+    // 菜单装的是所有 `menu: true` 的字段，跨 Appearance / General / Editor 三个分组 ——
+    // 叫「外观」名不副实。改名「首选项」不是顺手，是「不改名就得把语言与 mermaid 从菜单里砍掉」。
+    'menu.preferences': 'Preferences',
+    'theme.option.system': 'Follow system',
+    // 主题名是专有名词，中英都不译。
+    'theme.option.light': 'Nexus Light',
+    'theme.option.dark': 'Nexus Dark',
     'lang.zhCN': 'Chinese',
     'lang.enUS': 'English',
+    'settings.title': 'Settings',
+    'settings.navAria': 'Settings sections',
+    'settings.back': 'Back to workspace',
+    'settings.section.general': 'General',
+    'settings.section.editor': 'Editor',
+    'settings.section.appearance': 'Appearance',
+    'settings.section.keybindings': 'Keybindings',
+    'settings.section.plugins': 'Plugins',
+    'settings.section.sync': 'Sync',
+    'settings.section.data': 'Data',
+    'settings.planned': 'This section is not available yet.',
+    'settings.appearance.theme': 'Theme',
+    'settings.appearance.themeDescription': 'Follow the system setting, or pin a theme.',
+    'settings.general.locale': 'Language',
     'cmd.newFile': 'New',
     'cmd.undo': 'Undo',
     'cmd.redo': 'Redo',
@@ -136,6 +160,7 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'cmd.openContainingFolder': 'Open Containing Folder',
     'cmd.revealInFileExplorer': 'Reveal in File Explorer',
     'cmd.closeFile': 'Close File',
+    'cmd.openSettings': 'Open Settings',
     'table.addRow': 'Add Row',
     'table.addColumn': 'Add Column',
     'table.deleteRow': 'Delete Row',
@@ -328,11 +353,26 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'link.error.ambiguousWikiLink': '有 {count} 个文件匹配 [[{target}]] —— 请带上目录，如 [[folder/{target}]]。',
     'menu.file': '文件',
     'menu.edit': '编辑',
-    'menu.appearance': '外观',
-    'theme.light': '亮色',
-    'theme.dark': '暗色',
+    'menu.preferences': '首选项',
+    'theme.option.system': '跟随系统',
+    'theme.option.light': 'Nexus Light',
+    'theme.option.dark': 'Nexus Dark',
     'lang.zhCN': '中文',
     'lang.enUS': 'English',
+    'settings.title': '设置',
+    'settings.navAria': '设置分组',
+    'settings.back': '返回工作区',
+    'settings.section.general': '通用',
+    'settings.section.editor': '编辑器',
+    'settings.section.appearance': '外观',
+    'settings.section.keybindings': '快捷键',
+    'settings.section.plugins': '插件',
+    'settings.section.sync': '同步',
+    'settings.section.data': '数据',
+    'settings.planned': '该分组尚未提供。',
+    'settings.appearance.theme': '主题',
+    'settings.appearance.themeDescription': '跟随系统设置，或固定使用某套主题。',
+    'settings.general.locale': '语言',
     'cmd.newFile': '新建',
     'cmd.undo': '撤销',
     'cmd.redo': '重做',
@@ -358,6 +398,7 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'cmd.openContainingFolder': '打开所在文件夹',
     'cmd.revealInFileExplorer': '在文件管理器中显示',
     'cmd.closeFile': '关闭文件',
+    'cmd.openSettings': '打开设置',
     'table.addRow': '添加行',
     'table.addColumn': '添加列',
     'table.deleteRow': '删除行',
@@ -463,10 +504,10 @@ const dictionaries: Record<string, LocaleDictionary> = {
 type Listener = (locale: string) => void;
 
 export function translate(locale: string, key: string, variables?: Record<string, string>): string {
-  const dict = dictionaries[locale] || dictionaries['en-US'];
+  const dict = DICTIONARIES[locale] || DICTIONARIES['en-US'];
   let str = dict?.[key];
   if (str === undefined) {
-    str = dictionaries['en-US']?.[key];
+    str = DICTIONARIES['en-US']?.[key];
   }
   if (str === undefined) {
     return key;
@@ -490,7 +531,7 @@ export class LocaleManager {
   }
 
   setLocale(locale: string): void {
-    if (this.currentLocale !== locale && dictionaries[locale]) {
+    if (this.currentLocale !== locale && DICTIONARIES[locale]) {
       this.currentLocale = locale;
       this.notify();
     }

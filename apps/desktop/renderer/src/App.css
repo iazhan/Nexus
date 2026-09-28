@@ -1989,3 +1989,162 @@ body.nexus-resizing {
   color: var(--nexus-text-secondary);
 }
 
+/* 设置视图（P4-03）：替换中间三栏，左栏导航 + 内容区。标题栏与状态栏留在 nexus-body 外面。 */
+.nexus-settings-view {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--nexus-bg-canvas);
+}
+
+.nexus-settings-nav {
+  display: flex;
+  flex-direction: column;
+  width: 200px;
+  flex-shrink: 0;
+  padding: 12px 8px;
+  gap: 2px;
+  overflow-y: auto;
+  border-right: 1px solid var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface);
+}
+
+.nexus-settings-nav-title {
+  padding: 4px 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-settings-nav-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+  cursor: pointer;
+}
+
+.nexus-settings-nav-item:hover {
+  background-color: var(--nexus-selection-bg);
+}
+
+.nexus-settings-nav-item-active {
+  background-color: var(--nexus-selection-bg);
+  color: var(--nexus-accent-text);
+  font-weight: 500;
+}
+
+/* 未实现的分组仍然可点（点不动比空态更糟），靠弱化表达「还没有内容」 */
+.nexus-settings-nav-item[data-availability='planned'] {
+  color: var(--nexus-text-muted);
+}
+
+.nexus-settings-back {
+  margin-top: auto;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--nexus-text-secondary);
+  cursor: pointer;
+}
+
+.nexus-settings-back:hover {
+  background-color: var(--nexus-selection-bg);
+}
+
+.nexus-settings-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 32px;
+  /* 列向 flex：让空态能撑满内容区（否则那行字浮在顶部三分之一处）。 */
+  display: flex;
+  flex-direction: column;
+}
+
+.nexus-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 640px;
+}
+
+.nexus-settings-section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nexus-settings-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-settings-field-description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-settings-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.nexus-settings-option {
+  padding: 6px 14px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+  cursor: pointer;
+}
+
+.nexus-settings-option:hover {
+  border-color: var(--nexus-border-strong);
+}
+
+.nexus-settings-option-active {
+  border-color: var(--nexus-accent-primary);
+  background-color: var(--nexus-selection-bg);
+  color: var(--nexus-accent-text);
+  font-weight: 500;
+}
+
+.nexus-settings-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 200px;
+}
+
+.nexus-settings-empty-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--nexus-text-muted);
+}
