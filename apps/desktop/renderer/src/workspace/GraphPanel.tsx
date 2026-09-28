@@ -18,14 +18,15 @@ const MAX_DEGREE_BONUS = 6;
 const HIT_SLACK = 4;
 
 /**
- * 从 CSS 变量读颜色。
+ * 从 CSS 变量读颜色。Canvas 不认变量，只能读出来再传给绘制调用 —— 写死颜色的话，
+ * 浅色主题下图谱会是一片看不清的灰点。
  *
- * Canvas 不认 CSS 变量，只能读出来再传给绘制调用。这样做的好处是主题切换时
- * 图谱跟着变 —— 写死颜色的话，浅色主题下会是一片看不清的灰点。
+ * 不给兜底色：兜底值会变成第三套配色，主题失效时静默退回它，比画不出来更难发现。
  */
-function readColor(element: HTMLElement, name: string, fallback: string): string {
+function readColor(element: HTMLElement, name: string): string {
   const value = getComputedStyle(element).getPropertyValue(name).trim();
-  return value || fallback;
+  if (!value) console.error(`[graph] CSS 变量 ${name} 未定义，图谱颜色不正确`);
+  return value;
 }
 
 /** 图谱面板：把工作区的链接关系画成一张图。 */
@@ -89,9 +90,10 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({ activeFilePath, onOpenFi
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, size.width, size.height);
 
-    const edgeColor = readColor(canvas, '--nexus-border-default', '#d0d0d0');
-    const nodeColor = readColor(canvas, '--nexus-text-muted', '#888888');
-    const activeColor = readColor(canvas, '--nexus-accent', '#3b82f6');
+    // 节点高亮是图形元素，走图形类阈值（3:1）的 accent-primary，不是文字类的 accent-text
+    const edgeColor = readColor(canvas, '--nexus-border-default');
+    const nodeColor = readColor(canvas, '--nexus-text-muted');
+    const activeColor = readColor(canvas, '--nexus-accent-primary');
 
     const positionById = new Map(layout.map((node) => [node.id, node]));
 

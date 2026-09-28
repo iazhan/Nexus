@@ -196,7 +196,7 @@ const SHADOW_STYLES = `
   .docx-body p { margin: 0.7em 0; }
   .docx-body ul, .docx-body ol { margin: 0.7em 0; padding-left: 2em; }
   .docx-body li { margin: 0.25em 0; }
-  .docx-body a { color: var(--nexus-accent, #3b82f6); text-decoration: underline; cursor: default; }
+  .docx-body a { color: var(--nexus-accent-text); text-decoration: underline; cursor: default; }
   .docx-body img { max-width: 100%; height: auto; }
   .docx-body table {
     margin: 1em 0;

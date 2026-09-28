@@ -154,10 +154,6 @@ export const App: React.FC = () => {
   );
   useEffect(() => mermaidPreviewPreference.subscribe(setMermaidClickToReveal), []);
 
-  useEffect(() => {
-    document.body.className = `theme-${theme.type}`;
-  }, [theme]);
-
   const [status, setStatus] = useState<ShellStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -1651,7 +1647,7 @@ export const App: React.FC = () => {
             className={`nexus-activity-panel${
               activity.panelOpen ? ' nexus-activity-panel-open' : ''
             }`}
-            style={{ '--nexus-panel-width': `${panelWidth}px` } as React.CSSProperties}
+            style={{ '--nx-panel-width': `${panelWidth}px` } as React.CSSProperties}
           >
             {/* 拖拽把手：只在展开时挂载，收起状态下没有可拖的东西 */}
             {activity.panelOpen && (

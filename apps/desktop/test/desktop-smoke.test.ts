@@ -625,9 +625,10 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = sharedApp;
     await activeApp.setSource('# Command Palette Test\n');
 
-    // Initial theme should be light (or whatever is default)
-    const bodyClass = await activeApp.evaluate('document.body.className');
-    expect(bodyClass).not.toContain('theme-dark');
+    // 主题信号读 <html data-theme>（`ThemeManager.applyToDOM` 写入）。
+    // 不要再用 body 的 `theme-*` class —— 全仓没有任何它的选择器，2026-09-28 已删。
+    const themeBefore = await activeApp.evaluate('document.documentElement.dataset.theme');
+    expect(themeBefore).not.toBe('dark');
 
     // Open Command Palette: Mod-K
     await activeApp.pressKey('k', { ctrl: true });
@@ -650,7 +651,10 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.pressKey('Enter');
 
     // Wait for theme to change
-    await activeApp.waitForFunction('() => document.body.className.includes("theme-dark")', 15000);
+    await activeApp.waitForFunction(
+      '() => document.documentElement.dataset.theme === "dark"',
+      15000
+    );
     
     // The palette should be closed
     const paletteExists = await activeApp.evaluate('!!document.querySelector(".nexus-command-palette")');

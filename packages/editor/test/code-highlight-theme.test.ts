@@ -50,15 +50,20 @@ describe('Editor Syntax Highlighting Theme', () => {
     expect(rulesStr).not.toContain('#d4d4d4'); // pale gray operator/punctuation
   });
 
-  it('guarantees high-contrast fallback colors in theme rules', () => {
+  it('guarantees theme rules reference tokens instead of carrying hex fallbacks', () => {
     const parent = document.createElement('div');
     document.body.appendChild(parent);
     const view = new EditorView({ parent, extensions: [nexusBaseTheme] });
     const styles = Array.from(document.querySelectorAll('style')).map(s => s.textContent).join('\n');
-    expect(styles).toContain('#098658'); // high-contrast green number
-    expect(styles).toContain('#795e26'); // high-contrast gold/brown function
-    expect(styles).toContain('#001080'); // high-contrast blue variable
-    expect(styles).toContain('#af00db'); // high-contrast magenta control keyword
+    // 这四条断言以前写的是「CSS 里必须出现 #098658 / #795e26 / …」——那是把兜底色当成契约。
+    // 兜底色等于第三套色板（token 注入失败时静默退回 Tailwind 色），2026-09-28 已全部剥掉，
+    // 所以断言改成「引用 token」，并把那批旧兜底色列为禁止项。
+    for (const token of ['syntax-number', 'syntax-function', 'syntax-variable', 'syntax-control']) {
+      expect(styles).toContain(`var(--nexus-${token})`);
+    }
+    for (const gone of ['#098658', '#795e26', '#001080', '#af00db']) {
+      expect(styles).not.toContain(gone);
+    }
     view.destroy();
     parent.remove();
   });

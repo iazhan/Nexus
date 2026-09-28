@@ -146,7 +146,7 @@ export const nexusBaseTheme = EditorView.theme({
   // 列表标记的视觉替身（无序 `•` / 有序编号）。未进入编辑态时取代被隐藏的 source marker，
   // 因此必须有独立的可见样式，不能落到 .cm-visual-hidden-delimiter 的 display: none。
   ".cm-visual-list-marker": {
-    color: "var(--nexus-text-secondary, #666666)"
+    color: "var(--nexus-text-secondary)"
   },
   ".cm-visual-list-marker-ordered": {
     fontVariantNumeric: "tabular-nums"
@@ -154,12 +154,12 @@ export const nexusBaseTheme = EditorView.theme({
   // 链接文字现在是真实文档文本（mark 装饰），不再有原生 <a> 的默认链接样式，
   // 必须显式声明，否则链接看起来和普通文字没有区别。
   ".cm-visual-link": {
-    color: "var(--nexus-syntax-url, #007acc)",
+    color: "var(--nexus-syntax-url)",
     textDecoration: "underline"
   },
   // 被拦截的协议（javascript:、file: 等）不产生任何可点击目标，视觉上明确区分。
   ".cm-visual-link-blocked": {
-    color: "var(--nexus-text-muted, #888888)",
+    color: "var(--nexus-text-muted)",
     textDecoration: "underline dashed"
   },
   // 块级公式：KaTeX 的 display 模式会给 `.katex-display` 加上 `margin: 1em 0`。
@@ -179,7 +179,7 @@ export const nexusBaseTheme = EditorView.theme({
   // 块级公式进入编辑态时，源码行下方追加的实时预览。用 border + padding 做分隔，
   // **同样不能用 margin**（理由同上）。
   ".cm-visual-block-math-preview": {
-    borderTop: "1px dashed var(--nexus-border-subtle, #e0e0e0)",
+    borderTop: "1px dashed var(--nexus-border-subtle)",
     paddingTop: "6px",
     opacity: "0.85"
   },
@@ -208,7 +208,7 @@ export const nexusBaseTheme = EditorView.theme({
   // Blockquote styling
   ".cm-visual-blockquote-line": {
     borderLeft: "3.5px solid var(--nexus-accent-primary)",
-    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    backgroundColor: "var(--nexus-bg-quote)",
     paddingLeft: "16px",
     paddingRight: "16px",
     position: "relative"
@@ -224,7 +224,7 @@ export const nexusBaseTheme = EditorView.theme({
 
   // Code block line decorations and styling
   ".cm-visual-code-line": {
-    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    backgroundColor: "var(--nexus-bg-canvas)",
     fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace",
     paddingLeft: "12px",
     paddingRight: "12px"
@@ -238,7 +238,7 @@ export const nexusBaseTheme = EditorView.theme({
     borderTop: "1px solid var(--nexus-border-subtle)",
     borderLeft: "1px solid var(--nexus-border-subtle)",
     borderRight: "1px solid var(--nexus-border-subtle)",
-    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    backgroundColor: "var(--nexus-bg-surface)",
     paddingLeft: "12px",
     paddingRight: "12px",
     height: "28px",
@@ -330,15 +330,15 @@ export const nexusBaseTheme = EditorView.theme({
     color: "var(--nexus-text-primary)"
   },
   ".cm-code-copy-btn.copied": {
-    color: "var(--nexus-status-success-text, #065f46)",
-    borderColor: "var(--nexus-status-success-border, #34d399)"
+    color: "var(--nexus-status-success-text)",
+    borderColor: "var(--nexus-status-success-border)"
   },
   ".cm-code-copy-icon": {
     flexShrink: "0",
     transition: "transform 0.15s ease"
   },
   ".cm-code-copy-check": {
-    color: "var(--nexus-status-success-text, #065f46)"
+    color: "var(--nexus-status-success-text)"
   },
   ".cm-visual-code-content-line": {
     borderLeft: "1px solid var(--nexus-border-subtle)",
@@ -351,7 +351,7 @@ export const nexusBaseTheme = EditorView.theme({
     minWidth: "2.5ch",
     marginRight: "12px",
     paddingRight: "8px",
-    borderRight: "1px solid var(--nexus-border-default, #d4d4d4)",
+    borderRight: "1px solid var(--nexus-border-default)",
     color: "var(--nexus-text-muted)",
     textAlign: "right",
     userSelect: "none",
@@ -370,7 +370,7 @@ export const nexusBaseTheme = EditorView.theme({
     border: "1px solid var(--nexus-border-subtle)",
     borderRadius: "6px",
     overflow: "hidden",
-    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    backgroundColor: "var(--nexus-bg-canvas)",
     boxSizing: "border-box"
   },
   ".cm-code-header": {
@@ -381,7 +381,7 @@ export const nexusBaseTheme = EditorView.theme({
     height: "28px",
     minHeight: "28px",
     padding: "0 12px",
-    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    backgroundColor: "var(--nexus-bg-surface)",
     borderBottom: "1px solid var(--nexus-border-subtle)",
     boxSizing: "border-box"
   },
@@ -393,7 +393,7 @@ export const nexusBaseTheme = EditorView.theme({
     flexShrink: "0"
   },
   ".cm-code-language": {
-    color: "var(--nexus-text-secondary, #64748b)",
+    color: "var(--nexus-text-secondary)",
     fontSize: "0.75em",
     letterSpacing: "0.04em",
     textTransform: "uppercase",
@@ -402,7 +402,7 @@ export const nexusBaseTheme = EditorView.theme({
   // 预览体：点它会把光标送进块内、露出可编辑的源码，所以给 text 光标做暗示。
   ".cm-mermaid-preview": {
     padding: "12px",
-    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    backgroundColor: "var(--nexus-bg-canvas)",
     overflowX: "auto",
     textAlign: "center",
     cursor: "text",
@@ -414,7 +414,7 @@ export const nexusBaseTheme = EditorView.theme({
     borderBottom: "1px solid var(--nexus-border-subtle)",
     borderLeft: "1px solid var(--nexus-border-subtle)",
     borderRight: "1px solid var(--nexus-border-subtle)",
-    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    backgroundColor: "var(--nexus-bg-canvas)",
     height: "22px",
     minHeight: "22px",
     lineHeight: "22px"
@@ -446,7 +446,7 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-visual-code-line.cm-visual-code-quote-nested": {
     borderLeft: "3.5px solid var(--nexus-accent-primary)",
     borderRight: "none",
-    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    backgroundColor: "var(--nexus-bg-quote)",
     paddingLeft: "16px",
     paddingRight: "16px",
     position: "relative"
@@ -456,7 +456,7 @@ export const nexusBaseTheme = EditorView.theme({
     border: "none",
     borderLeft: "3.5px solid var(--nexus-accent-primary)",
     borderRadius: "0",
-    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    backgroundColor: "var(--nexus-bg-quote)",
     padding: "8px 16px 0 16px",
     height: "auto",
     minHeight: "36px",
@@ -467,7 +467,7 @@ export const nexusBaseTheme = EditorView.theme({
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    backgroundColor: "var(--nexus-bg-surface)",
     borderTop: "1px solid var(--nexus-border-subtle)",
     borderLeft: "1px solid var(--nexus-border-subtle)",
     borderRight: "1px solid var(--nexus-border-subtle)",
@@ -487,7 +487,7 @@ export const nexusBaseTheme = EditorView.theme({
     position: "relative",
     border: "none",
     borderLeft: "3.5px solid var(--nexus-accent-primary)",
-    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    backgroundColor: "var(--nexus-bg-quote)",
     paddingLeft: "28px",
     paddingRight: "28px",
     boxSizing: "border-box"
@@ -499,7 +499,7 @@ export const nexusBaseTheme = EditorView.theme({
     bottom: "0",
     left: "16px",
     right: "16px",
-    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    backgroundColor: "var(--nexus-bg-canvas)",
     borderLeft: "1px solid var(--nexus-border-subtle)",
     borderRight: "1px solid var(--nexus-border-subtle)",
     zIndex: "-1",
@@ -511,7 +511,7 @@ export const nexusBaseTheme = EditorView.theme({
     border: "none",
     borderLeft: "3.5px solid var(--nexus-accent-primary)",
     borderRadius: "0",
-    backgroundColor: "var(--nexus-bg-quote, var(--nexus-status-info-bg, rgba(59, 130, 246, 0.08)))",
+    backgroundColor: "var(--nexus-bg-quote)",
     padding: "0 16px 8px 16px",
     height: "auto",
     minHeight: "0",
@@ -520,7 +520,7 @@ export const nexusBaseTheme = EditorView.theme({
   },
   ".cm-visual-code-quote-nested.cm-visual-code-closing-line .cm-code-exit-widget": {
     display: "block",
-    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    backgroundColor: "var(--nexus-bg-canvas)",
     borderBottom: "1px solid var(--nexus-border-subtle)",
     borderLeft: "1px solid var(--nexus-border-subtle)",
     borderRight: "1px solid var(--nexus-border-subtle)",
@@ -576,29 +576,29 @@ export const nexusBaseTheme = EditorView.theme({
       background: "transparent"
     },
     "&::-webkit-scrollbar-thumb": {
-      background: "var(--nexus-border-subtle, rgba(0, 0, 0, 0.15))",
+      background: "var(--nexus-border-subtle)",
       borderRadius: "3px"
     },
     "&::-webkit-scrollbar-thumb:hover": {
-      background: "var(--nexus-border-strong, rgba(0, 0, 0, 0.3))"
+      background: "var(--nexus-border-strong)"
     }
   },
   ".cm-visual-table": {
     borderCollapse: "separate",
     borderSpacing: "0",
     width: "100%",
-    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    border: "1px solid var(--nexus-border-subtle)",
     borderRadius: "6px",
-    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    backgroundColor: "var(--nexus-bg-canvas)",
     tableLayout: "auto"
   },
   ".cm-visual-table th": {
-    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
-    color: "var(--nexus-text-primary, #1e293b)",
+    backgroundColor: "var(--nexus-bg-surface)",
+    color: "var(--nexus-text-primary)",
     fontWeight: "600",
     padding: "8px 12px",
-    borderBottom: "2px solid var(--nexus-border-strong, #cbd5e1)",
-    borderRight: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    borderBottom: "2px solid var(--nexus-border-strong)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
     minWidth: "3.5em",
     minHeight: "1.6em",
     textAlign: "left",
@@ -611,11 +611,11 @@ export const nexusBaseTheme = EditorView.theme({
   },
   ".cm-visual-table td": {
     padding: "8px 12px",
-    borderBottom: "1px solid var(--nexus-border-subtle, #e2e8f0)",
-    borderRight: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    borderBottom: "1px solid var(--nexus-border-subtle)",
+    borderRight: "1px solid var(--nexus-border-subtle)",
     minWidth: "3.5em",
     minHeight: "1.6em",
-    color: "var(--nexus-text-primary, #1e293b)",
+    color: "var(--nexus-text-primary)",
     boxSizing: "border-box",
     cursor: "cell",
     userSelect: "text",
@@ -624,10 +624,10 @@ export const nexusBaseTheme = EditorView.theme({
       borderRight: "none"
     },
     "&:hover": {
-      backgroundColor: "var(--nexus-bg-surface-hover, rgba(0, 0, 0, 0.03))"
+      backgroundColor: "var(--nexus-bg-surface-hover)"
     },
     "&.is-active, &:focus-within": {
-      outline: "2px solid var(--nexus-accent-primary, #3b82f6)",
+      outline: "2px solid var(--nexus-accent-primary)",
       outlineOffset: "-2px"
     }
   },
@@ -635,7 +635,7 @@ export const nexusBaseTheme = EditorView.theme({
     borderBottom: "none"
   },
   ".cm-table-cell-placeholder": {
-    color: "var(--nexus-text-muted, #94a3b8)",
+    color: "var(--nexus-text-muted)",
     opacity: "0.4",
     pointerEvents: "none",
     userSelect: "none",
@@ -646,8 +646,8 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-table-inline-math": {
     display: "inline-flex",
     alignItems: "center",
-    fontFamily: "var(--nexus-font-mono, monospace)",
-    backgroundColor: "var(--nexus-bg-surface, rgba(0, 0, 0, 0.04))",
+    fontFamily: "var(--font-mono)",
+    backgroundColor: "var(--nexus-bg-surface)",
     padding: "1px 4px",
     borderRadius: "3px",
     fontSize: "0.9em"
@@ -683,11 +683,11 @@ export const nexusBaseTheme = EditorView.theme({
     gap: "3px",
     padding: "3px 6px",
     borderRadius: "6px",
-    backgroundColor: "var(--nexus-bg-surface, #f8fafc)",
+    backgroundColor: "var(--nexus-bg-surface)",
     backdropFilter: "blur(8px)",
     WebkitBackdropFilter: "blur(8px)",
-    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)",
+    border: "1px solid var(--nexus-border-subtle)",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)", // @constant 抬升阴影，与主题无关
     opacity: "0",
     pointerEvents: "none",
     transition: "opacity 0.15s ease, transform 0.15s ease",
@@ -708,31 +708,31 @@ export const nexusBaseTheme = EditorView.theme({
     borderRadius: "4px",
     border: "1px solid transparent",
     backgroundColor: "transparent",
-    color: "var(--nexus-text-secondary, #64748b)",
+    color: "var(--nexus-text-secondary)",
     fontSize: "12px",
     cursor: "pointer",
     boxSizing: "border-box",
     transition: "all 0.15s ease",
     "&:hover:not(:disabled)": {
-      backgroundColor: "var(--nexus-bg-surface-hover, rgba(0, 0, 0, 0.05))",
-      color: "var(--nexus-text-primary, #0f172a)"
+      backgroundColor: "var(--nexus-bg-surface-hover)",
+      color: "var(--nexus-text-primary)"
     },
     "&:disabled": {
       opacity: "0.35",
       cursor: "not-allowed"
     },
     "&.is-active": {
-      backgroundColor: "var(--nexus-bg-surface-active, rgba(59, 130, 246, 0.1))",
-      color: "var(--nexus-accent-primary, #3b82f6)",
-      borderColor: "var(--nexus-border-subtle, #e2e8f0)",
+      backgroundColor: "var(--nexus-bg-surface-active)",
+      color: "var(--nexus-accent-primary)",
+      borderColor: "var(--nexus-border-subtle)",
       fontWeight: "500"
     }
   },
   ".cm-table-btn-del-table": {
-    color: "var(--nexus-status-error, #ef4444) !important",
+    color: "var(--nexus-status-error-text) !important",
     "&:hover:not(:disabled)": {
-      backgroundColor: "var(--nexus-status-error-bg, rgba(239, 68, 68, 0.1)) !important",
-      color: "var(--nexus-status-error, #ef4444) !important"
+      backgroundColor: "var(--nexus-status-error-bg) !important",
+      color: "var(--nexus-status-error-text) !important"
     }
   },
 
@@ -742,11 +742,11 @@ export const nexusBaseTheme = EditorView.theme({
     top: "calc(100% + 6px)",
     left: "0",
     zIndex: "35",
-    backgroundColor: "var(--nexus-bg-surface, #ffffff)",
-    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
+    backgroundColor: "var(--nexus-bg-surface)",
+    border: "1px solid var(--nexus-border-subtle)",
     borderRadius: "8px",
     padding: "8px",
-    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
+    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)", // @constant 抬升阴影，与主题无关
     display: "none",
     flexDirection: "column",
     gap: "6px",
@@ -764,19 +764,19 @@ export const nexusBaseTheme = EditorView.theme({
     width: "16px",
     height: "16px",
     borderRadius: "2px",
-    border: "1px solid var(--nexus-border-subtle, #cbd5e1)",
-    backgroundColor: "var(--nexus-bg-canvas, #ffffff)",
+    border: "1px solid var(--nexus-border-subtle)",
+    backgroundColor: "var(--nexus-bg-canvas)",
     cursor: "pointer",
     transition: "background-color 0.1s ease, border-color 0.1s ease",
     "&.is-highlighted": {
-      backgroundColor: "var(--nexus-accent-primary, #3b82f6)",
-      borderColor: "var(--nexus-accent-primary, #3b82f6)",
+      backgroundColor: "var(--nexus-accent-primary)",
+      borderColor: "var(--nexus-accent-primary)",
       opacity: "0.85"
     }
   },
   ".cm-table-grid-footer": {
     fontSize: "11px",
-    color: "var(--nexus-text-muted, #94a3b8)",
+    color: "var(--nexus-text-muted)",
     textAlign: "center",
     fontVariantNumeric: "tabular-nums"
   },
@@ -790,9 +790,9 @@ export const nexusBaseTheme = EditorView.theme({
     width: "22px",
     height: "28px",
     borderRadius: "4px",
-    backgroundColor: "var(--nexus-bg-surface, #ffffff)",
-    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
-    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.08)",
+    backgroundColor: "var(--nexus-bg-surface)",
+    border: "1px solid var(--nexus-border-subtle)",
+    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.08)", // @constant 抬升阴影，与主题无关
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -803,7 +803,7 @@ export const nexusBaseTheme = EditorView.theme({
     zIndex: "15",
     fontSize: "14px",
     fontWeight: "bold",
-    color: "var(--nexus-text-secondary, #64748b)"
+    color: "var(--nexus-text-secondary)"
   },
   ".cm-visual-table-container:hover .cm-table-handle-add-col": {
     opacity: "0.75",
@@ -812,8 +812,8 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-table-handle-add-col:hover": {
     opacity: "1 !important",
     pointerEvents: "auto !important",
-    backgroundColor: "var(--nexus-bg-surface-hover, #f1f5f9)",
-    color: "var(--nexus-accent-primary, #3b82f6)"
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    color: "var(--nexus-accent-primary)"
   },
   ".cm-table-handle-add-row": {
     position: "absolute",
@@ -823,9 +823,9 @@ export const nexusBaseTheme = EditorView.theme({
     width: "28px",
     height: "20px",
     borderRadius: "4px",
-    backgroundColor: "var(--nexus-bg-surface, #ffffff)",
-    border: "1px solid var(--nexus-border-subtle, #e2e8f0)",
-    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.08)",
+    backgroundColor: "var(--nexus-bg-surface)",
+    border: "1px solid var(--nexus-border-subtle)",
+    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.08)", // @constant 抬升阴影，与主题无关
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -836,7 +836,7 @@ export const nexusBaseTheme = EditorView.theme({
     zIndex: "15",
     fontSize: "14px",
     fontWeight: "bold",
-    color: "var(--nexus-text-secondary, #64748b)"
+    color: "var(--nexus-text-secondary)"
   },
   ".cm-visual-table-container:hover .cm-table-handle-add-row": {
     opacity: "0.75",
@@ -845,8 +845,8 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-table-handle-add-row:hover": {
     opacity: "1 !important",
     pointerEvents: "auto !important",
-    backgroundColor: "var(--nexus-bg-surface-hover, #f1f5f9)",
-    color: "var(--nexus-accent-primary, #3b82f6)"
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    color: "var(--nexus-accent-primary)"
   },
   
   // Extensions status
@@ -856,8 +856,8 @@ export const nexusBaseTheme = EditorView.theme({
     fontSize: "0.9em"
   },
   ".nexus-ext-error": {
-    color: "#f87171", // Fixed error color
-    backgroundColor: "rgba(248, 113, 113, 0.1)",
+    color: "var(--nexus-status-error-text)",
+    backgroundColor: "var(--nexus-status-error-bg)",
     padding: "2px 6px",
     borderRadius: "4px",
     fontSize: "0.9em",
@@ -877,67 +877,67 @@ export const nexusBaseTheme = EditorView.theme({
   ".nexus-ext-retry:hover": {
     backgroundColor: "var(--nexus-bg-surface-hover)"
   },
-  ".tok-keyword, .cm-prism-token.tok-keyword": { color: "var(--nexus-syntax-keyword, #0000ff)" },
-  ".tok-control, .cm-prism-token.tok-control": { color: "var(--nexus-syntax-control, #af00db)" },
-  ".tok-string, .cm-prism-token.tok-string": { color: "var(--nexus-syntax-string, #a31515)" },
-  ".tok-comment, .cm-prism-token.tok-comment": { color: "var(--nexus-syntax-comment, #008000)", fontStyle: "italic" },
-  ".tok-number, .cm-prism-token.tok-number": { color: "var(--nexus-syntax-number, #098658)" },
-  ".tok-boolean, .cm-prism-token.tok-boolean": { color: "var(--nexus-syntax-bool, #0000ff)" },
-  ".tok-function, .cm-prism-token.tok-function": { color: "var(--nexus-syntax-function, #795e26)" },
-  ".tok-builtin, .cm-prism-token.tok-builtin": { color: "var(--nexus-syntax-builtin, #001080)" },
-  ".tok-operator, .cm-prism-token.tok-operator": { color: "var(--nexus-syntax-operator, #000000)" },
-  ".tok-punctuation, .cm-prism-token.tok-punctuation": { color: "var(--nexus-syntax-punctuation, #333333)" },
-  ".tok-type, .cm-prism-token.tok-class-name": { color: "var(--nexus-syntax-type, #267f99)" },
-  ".tok-property, .cm-prism-token.tok-property": { color: "var(--nexus-syntax-property, #001080)" },
-  ".tok-variable, .cm-prism-token.tok-variable": { color: "var(--nexus-syntax-variable, #001080)" },
-  ".tok-regex, .cm-prism-token.tok-regex": { color: "var(--nexus-syntax-string, #a31515)" },
+  ".tok-keyword, .cm-prism-token.tok-keyword": { color: "var(--nexus-syntax-keyword)" },
+  ".tok-control, .cm-prism-token.tok-control": { color: "var(--nexus-syntax-control)" },
+  ".tok-string, .cm-prism-token.tok-string": { color: "var(--nexus-syntax-string)" },
+  ".tok-comment, .cm-prism-token.tok-comment": { color: "var(--nexus-syntax-comment)", fontStyle: "italic" },
+  ".tok-number, .cm-prism-token.tok-number": { color: "var(--nexus-syntax-number)" },
+  ".tok-boolean, .cm-prism-token.tok-boolean": { color: "var(--nexus-syntax-bool)" },
+  ".tok-function, .cm-prism-token.tok-function": { color: "var(--nexus-syntax-function)" },
+  ".tok-builtin, .cm-prism-token.tok-builtin": { color: "var(--nexus-syntax-builtin)" },
+  ".tok-operator, .cm-prism-token.tok-operator": { color: "var(--nexus-syntax-operator)" },
+  ".tok-punctuation, .cm-prism-token.tok-punctuation": { color: "var(--nexus-syntax-punctuation)" },
+  ".tok-type, .cm-prism-token.tok-class-name": { color: "var(--nexus-syntax-type)" },
+  ".tok-property, .cm-prism-token.tok-property": { color: "var(--nexus-syntax-property)" },
+  ".tok-variable, .cm-prism-token.tok-variable": { color: "var(--nexus-syntax-variable)" },
+  ".tok-regex, .cm-prism-token.tok-regex": { color: "var(--nexus-syntax-string)" },
 
   // Prism fallback token coverage.
   // Prism emits many more token types than Lezer. Any type without an explicit
   // rule would inherit the code-fence marker colour, making a highlighted block
   // look uniformly red/grey. Each entry below mirrors its Lezer counterpart.
-  ".tok-function-definition, .cm-prism-token.tok-function-definition, .tok-macro, .cm-prism-token.tok-macro, .tok-function-variable, .cm-prism-token.tok-function-variable": { color: "var(--nexus-syntax-function, #795e26)" },
-  ".tok-key, .cm-prism-token.tok-key, .tok-attr-name, .cm-prism-token.tok-attr-name, .tok-title, .cm-prism-token.tok-title, .tok-property-access, .cm-prism-token.tok-property-access, .tok-literal-property, .cm-prism-token.tok-literal-property": { color: "var(--nexus-syntax-property, #001080)" },
-  ".tok-attr-value, .cm-prism-token.tok-attr-value, .tok-char, .cm-prism-token.tok-char, .tok-entity, .cm-prism-token.tok-entity, .tok-interpolation, .cm-prism-token.tok-interpolation, .tok-triple-quoted-string, .cm-prism-token.tok-triple-quoted-string, .tok-string-property, .cm-prism-token.tok-string-property, .tok-template-string, .cm-prism-token.tok-template-string, .tok-value, .cm-prism-token.tok-value": { color: "var(--nexus-syntax-string, #a31515)" },
-  ".tok-tag, .cm-prism-token.tok-tag, .tok-selector, .cm-prism-token.tok-selector, .tok-namespace, .cm-prism-token.tok-namespace, .tok-generics, .cm-prism-token.tok-generics, .tok-maybe-class-name, .cm-prism-token.tok-maybe-class-name, .tok-class-reference, .cm-prism-token.tok-class-reference, .cm-prism-token.tok-type, .cm-prism-token.tok-section": { color: "var(--nexus-syntax-type, #267f99)" },
-  ".tok-atrule, .cm-prism-token.tok-atrule, .tok-important, .cm-prism-token.tok-important, .tok-annotation, .cm-prism-token.tok-annotation, .tok-attribute, .cm-prism-token.tok-attribute, .tok-decorator, .cm-prism-token.tok-decorator": { color: "var(--nexus-syntax-control, #af00db)" },
-  ".tok-constant, .cm-prism-token.tok-constant, .tok-symbol, .cm-prism-token.tok-symbol, .tok-version, .cm-prism-token.tok-version, .tok-datetime, .cm-prism-token.tok-datetime, .tok-lifetime, .cm-prism-token.tok-lifetime": { color: "var(--nexus-syntax-number, #098658)" },
-  ".tok-directive, .cm-prism-token.tok-directive, .tok-method, .cm-prism-token.tok-method, .tok-operation, .cm-prism-token.tok-operation, .tok-rule, .cm-prism-token.tok-rule": { color: "var(--nexus-syntax-keyword, #0000ff)" },
-  ".tok-label, .cm-prism-token.tok-label, .tok-parameter, .cm-prism-token.tok-parameter, .tok-package, .cm-prism-token.tok-package, .tok-global-variable, .cm-prism-token.tok-global-variable, .tok-argument, .cm-prism-token.tok-argument": { color: "var(--nexus-syntax-variable, #001080)" },
-  ".tok-delimiter, .cm-prism-token.tok-delimiter, .tok-punctuator, .cm-prism-token.tok-punctuator": { color: "var(--nexus-syntax-punctuation, #333333)" },
-  ".tok-url, .cm-prism-token.tok-url": { color: "var(--nexus-syntax-url, #007acc)" },
-  ".tok-doctype, .cm-prism-token.tok-doctype, .tok-prolog, .cm-prism-token.tok-prolog, .tok-cdata, .cm-prism-token.tok-cdata": { color: "var(--nexus-syntax-comment, #008000)" },
-  ".tok-inserted, .cm-prism-token.tok-inserted": { color: "var(--nexus-status-success-text, #065f46)" },
-  ".tok-deleted, .cm-prism-token.tok-deleted": { color: "var(--nexus-status-error-text, #991b1b)" },
+  ".tok-function-definition, .cm-prism-token.tok-function-definition, .tok-macro, .cm-prism-token.tok-macro, .tok-function-variable, .cm-prism-token.tok-function-variable": { color: "var(--nexus-syntax-function)" },
+  ".tok-key, .cm-prism-token.tok-key, .tok-attr-name, .cm-prism-token.tok-attr-name, .tok-title, .cm-prism-token.tok-title, .tok-property-access, .cm-prism-token.tok-property-access, .tok-literal-property, .cm-prism-token.tok-literal-property": { color: "var(--nexus-syntax-property)" },
+  ".tok-attr-value, .cm-prism-token.tok-attr-value, .tok-char, .cm-prism-token.tok-char, .tok-entity, .cm-prism-token.tok-entity, .tok-interpolation, .cm-prism-token.tok-interpolation, .tok-triple-quoted-string, .cm-prism-token.tok-triple-quoted-string, .tok-string-property, .cm-prism-token.tok-string-property, .tok-template-string, .cm-prism-token.tok-template-string, .tok-value, .cm-prism-token.tok-value": { color: "var(--nexus-syntax-string)" },
+  ".tok-tag, .cm-prism-token.tok-tag, .tok-selector, .cm-prism-token.tok-selector, .tok-namespace, .cm-prism-token.tok-namespace, .tok-generics, .cm-prism-token.tok-generics, .tok-maybe-class-name, .cm-prism-token.tok-maybe-class-name, .tok-class-reference, .cm-prism-token.tok-class-reference, .cm-prism-token.tok-type, .cm-prism-token.tok-section": { color: "var(--nexus-syntax-type)" },
+  ".tok-atrule, .cm-prism-token.tok-atrule, .tok-important, .cm-prism-token.tok-important, .tok-annotation, .cm-prism-token.tok-annotation, .tok-attribute, .cm-prism-token.tok-attribute, .tok-decorator, .cm-prism-token.tok-decorator": { color: "var(--nexus-syntax-control)" },
+  ".tok-constant, .cm-prism-token.tok-constant, .tok-symbol, .cm-prism-token.tok-symbol, .tok-version, .cm-prism-token.tok-version, .tok-datetime, .cm-prism-token.tok-datetime, .tok-lifetime, .cm-prism-token.tok-lifetime": { color: "var(--nexus-syntax-number)" },
+  ".tok-directive, .cm-prism-token.tok-directive, .tok-method, .cm-prism-token.tok-method, .tok-operation, .cm-prism-token.tok-operation, .tok-rule, .cm-prism-token.tok-rule": { color: "var(--nexus-syntax-keyword)" },
+  ".tok-label, .cm-prism-token.tok-label, .tok-parameter, .cm-prism-token.tok-parameter, .tok-package, .cm-prism-token.tok-package, .tok-global-variable, .cm-prism-token.tok-global-variable, .tok-argument, .cm-prism-token.tok-argument": { color: "var(--nexus-syntax-variable)" },
+  ".tok-delimiter, .cm-prism-token.tok-delimiter, .tok-punctuator, .cm-prism-token.tok-punctuator": { color: "var(--nexus-syntax-punctuation)" },
+  ".tok-url, .cm-prism-token.tok-url": { color: "var(--nexus-syntax-url)" },
+  ".tok-doctype, .cm-prism-token.tok-doctype, .tok-prolog, .cm-prism-token.tok-prolog, .tok-cdata, .cm-prism-token.tok-cdata": { color: "var(--nexus-syntax-comment)" },
+  ".tok-inserted, .cm-prism-token.tok-inserted": { color: "var(--nexus-status-success-text)" },
+  ".tok-deleted, .cm-prism-token.tok-deleted": { color: "var(--nexus-status-error-text)" },
   ".tok-bold, .cm-prism-token.tok-bold": { fontWeight: "bold" },
   ".tok-italic, .cm-prism-token.tok-italic": { fontStyle: "italic" }
 });
 
 export const markdownHighlightStyle = HighlightStyle.define([
-  { tag: t.heading1, fontSize: "1.4em", fontWeight: "bold", color: "var(--nexus-syntax-heading, #000000)" },
-  { tag: t.heading2, fontSize: "1.25em", fontWeight: "bold", color: "var(--nexus-syntax-heading, #000000)" },
-  { tag: t.heading3, fontSize: "1.1em", fontWeight: "bold", color: "var(--nexus-syntax-heading, #000000)" },
-  { tag: t.heading, fontWeight: "bold", color: "var(--nexus-syntax-heading, #000000)" },
-  { tag: t.strong, fontWeight: "bold", color: "var(--nexus-text-primary, #333333)" },
-  { tag: t.emphasis, fontStyle: "italic", color: "var(--nexus-text-primary, #333333)" },
-  { tag: t.link, color: "var(--nexus-syntax-url, #007acc)", textDecoration: "underline" },
-  { tag: t.url, color: "var(--nexus-syntax-url, #007acc)" },
-  { tag: t.monospace, color: "var(--nexus-syntax-inline-code-text, #24292e)", backgroundColor: "var(--nexus-syntax-inline-code-bg, rgba(27,31,35,0.05))" },
-  { tag: t.quote, color: "var(--nexus-text-secondary, #666666)", fontStyle: "italic" },
-  { tag: t.controlKeyword, class: "tok-control", color: "var(--nexus-syntax-control, #af00db)" },
-  { tag: t.moduleKeyword, class: "tok-control", color: "var(--nexus-syntax-module, #af00db)" },
-  { tag: [t.keyword, t.self, t.modifier, t.null, t.atom], class: "tok-keyword", color: "var(--nexus-syntax-keyword, #0000ff)" },
-  { tag: [t.string, t.special(t.string), t.regexp, t.escape], class: "tok-string", color: "var(--nexus-syntax-string, #a31515)" },
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], class: "tok-comment", color: "var(--nexus-syntax-comment, #008000)", fontStyle: "italic" },
-  { tag: t.number, class: "tok-number", color: "var(--nexus-syntax-number, #098658)" },
-  { tag: t.bool, class: "tok-boolean", color: "var(--nexus-syntax-bool, #0000ff)" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName))], class: "tok-function", color: "var(--nexus-syntax-function, #795e26)" },
-  { tag: t.standard(t.variableName), class: "tok-builtin", color: "var(--nexus-syntax-builtin, #001080)" },
-  { tag: [t.propertyName, t.labelName], class: "tok-property", color: "var(--nexus-syntax-property, #001080)" },
-  { tag: [t.variableName, t.definition(t.variableName)], class: "tok-variable", color: "var(--nexus-syntax-variable, #001080)" },
-  { tag: [t.typeName, t.className, t.namespace], class: "tok-type", color: "var(--nexus-syntax-type, #267f99)" },
-  { tag: t.operator, class: "tok-operator", color: "var(--nexus-syntax-operator, #000000)" },
-  { tag: t.punctuation, class: "tok-punctuation", color: "var(--nexus-syntax-punctuation, #333333)" }
+  { tag: t.heading1, fontSize: "1.4em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
+  { tag: t.heading2, fontSize: "1.25em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
+  { tag: t.heading3, fontSize: "1.1em", fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
+  { tag: t.heading, fontWeight: "bold", color: "var(--nexus-syntax-heading)" },
+  { tag: t.strong, fontWeight: "bold", color: "var(--nexus-text-primary)" },
+  { tag: t.emphasis, fontStyle: "italic", color: "var(--nexus-text-primary)" },
+  { tag: t.link, color: "var(--nexus-syntax-url)", textDecoration: "underline" },
+  { tag: t.url, color: "var(--nexus-syntax-url)" },
+  { tag: t.monospace, color: "var(--nexus-syntax-inline-code-text)", backgroundColor: "var(--nexus-syntax-inline-code-bg)" },
+  { tag: t.quote, color: "var(--nexus-text-secondary)", fontStyle: "italic" },
+  { tag: t.controlKeyword, class: "tok-control", color: "var(--nexus-syntax-control)" },
+  { tag: t.moduleKeyword, class: "tok-control", color: "var(--nexus-syntax-module)" },
+  { tag: [t.keyword, t.self, t.modifier, t.null, t.atom], class: "tok-keyword", color: "var(--nexus-syntax-keyword)" },
+  { tag: [t.string, t.special(t.string), t.regexp, t.escape], class: "tok-string", color: "var(--nexus-syntax-string)" },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], class: "tok-comment", color: "var(--nexus-syntax-comment)", fontStyle: "italic" },
+  { tag: t.number, class: "tok-number", color: "var(--nexus-syntax-number)" },
+  { tag: t.bool, class: "tok-boolean", color: "var(--nexus-syntax-bool)" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName))], class: "tok-function", color: "var(--nexus-syntax-function)" },
+  { tag: t.standard(t.variableName), class: "tok-builtin", color: "var(--nexus-syntax-builtin)" },
+  { tag: [t.propertyName, t.labelName], class: "tok-property", color: "var(--nexus-syntax-property)" },
+  { tag: [t.variableName, t.definition(t.variableName)], class: "tok-variable", color: "var(--nexus-syntax-variable)" },
+  { tag: [t.typeName, t.className, t.namespace], class: "tok-type", color: "var(--nexus-syntax-type)" },
+  { tag: t.operator, class: "tok-operator", color: "var(--nexus-syntax-operator)" },
+  { tag: t.punctuation, class: "tok-punctuation", color: "var(--nexus-syntax-punctuation)" }
 ]);
 
 export const editorSyntaxHighlighting = syntaxHighlighting(markdownHighlightStyle, {

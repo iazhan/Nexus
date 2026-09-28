@@ -1,4 +1,6 @@
 # Git hook 脚本必须是 LF。core.autocrlf=true 会把文本文件检出成 CRLF，
 # 那样 shebang 会变成 "#!/bin/sh\r" —— sh 找不到这个解释器，hook 静默失效。
-# 只锁这一个目录，不碰仓库里其他 CRLF 文件（App.css / App.tsx / desktop-smoke.test.ts）。
+# 只锁这一个目录：仓库里其他文件提交时由 autocrlf 归一化成 LF，
+# 工作区是 CRLF 还是 LF 不影响 diff（2026-09-28 实测：App.tsx 由 CRLF 转成 LF，
+# `git diff --numstat` 仍是 1/1，没有翻搅）。
 .githooks/** -text

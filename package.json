@@ -1,6 +1,6 @@
 {
   "name": "nexus-monorepo",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
     "version:check": "node scripts/version.mjs check",
     "version:check:staged": "node scripts/version.mjs check --staged",
     "version:bump": "node scripts/version.mjs bump",
+    "tokens:audit": "node packages/theme/scripts/audit-tokens.mjs",
     "hooks:install": "git config core.hooksPath .githooks"
   },
   "devDependencies": {

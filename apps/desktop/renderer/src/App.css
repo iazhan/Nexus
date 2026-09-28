@@ -1,8 +1,10 @@
+/* 命名空间：`--nexus-*` 是主题 token（由 ThemeManager 注入，审计脚本只看这一族），
+   `--nx-*` 是应用自己的布局 / 运行期变量，两者不可混用前缀。 */
 :root {
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", Consolas, Monaco, monospace;
   /* 与 Electron 主进程 titleBarOverlay.height 保持一致 */
-  --nexus-header-height: 42px;
+  --nx-header-height: 42px;
 }
 
 * {
@@ -43,7 +45,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--nexus-header-height);
+  height: var(--nx-header-height);
   /* 右侧不额外留白，让操作按钮紧邻自绘窗口按钮 */
   padding: 0 0 0 12px;
   background-color: var(--nexus-bg-surface);
@@ -149,7 +151,7 @@ body {
   background-color: var(--nexus-bg-surface);
   border: 1px solid var(--nexus-border-default);
   border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); /* @constant 抬升阴影，与主题无关 */
   z-index: 500;
   display: flex;
   flex-direction: column;
@@ -259,12 +261,12 @@ body {
 
 .nexus-window-button-close:hover,
 .nexus-window-button-close:focus-visible {
-  background-color: #e81123;
-  color: #ffffff;
+  background-color: #e81123; /* @constant Windows 关闭键惯例红，不随主题 */
+  color: #ffffff; /* @constant 红底上的图标色 */
 }
 
 .nexus-window-button-close:focus-visible {
-  outline-color: #ffffff;
+  outline-color: #ffffff; /* @constant 同上，红底上的焦点圈 */
 }
 
 
@@ -345,21 +347,21 @@ body {
 }
 
 .nexus-conflict-banner {
-  background-color: var(--nexus-status-warning-bg, #78350f33);
-  color: var(--nexus-status-warning-text, #fde68a);
-  border-bottom-color: var(--nexus-status-warning-border, #d9770666);
+  background-color: var(--nexus-status-warning-bg);
+  color: var(--nexus-status-warning-text);
+  border-bottom-color: var(--nexus-status-warning-border);
 }
 
 .nexus-warning-banner {
-  background-color: var(--nexus-status-warning-bg, #78350f33);
-  color: var(--nexus-status-warning-text, #fef08a);
-  border-bottom-color: var(--nexus-status-warning-border, #ca8a0466);
+  background-color: var(--nexus-status-warning-bg);
+  color: var(--nexus-status-warning-text);
+  border-bottom-color: var(--nexus-status-warning-border);
 }
 
 .nexus-save-error-banner {
-  background-color: var(--nexus-status-error-bg, #7f1d1d33);
-  color: var(--nexus-status-error-text, #fca5a5);
-  border-bottom-color: var(--nexus-status-error-border, #ef444466);
+  background-color: var(--nexus-status-error-bg);
+  color: var(--nexus-status-error-text);
+  border-bottom-color: var(--nexus-status-error-border);
 }
 
 .nexus-conflict-actions,
@@ -387,30 +389,30 @@ body {
 
 .nexus-conflict-reload-btn,
 .nexus-save-error-retry {
-  background-color: #3b82f6;
-  color: #ffffff;
-  border-color: #60a5fa;
+  background-color: var(--nexus-accent-primary);
+  color: var(--nexus-accent-contrast);
+  border-color: var(--nexus-accent-primary);
 }
 
 .nexus-conflict-reload-btn:hover,
 .nexus-save-error-retry:hover {
-  background-color: #2563eb;
+  background-color: var(--nexus-accent-hover);
 }
 
 .nexus-conflict-keep-btn,
 .nexus-banner-saveas-btn,
 .nexus-banner-dismiss-btn,
 .nexus-save-error-saveas {
-  background-color: #374151;
-  color: #e5e7eb;
-  border-color: #4b5563;
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+  border-color: var(--nexus-border-default);
 }
 
 .nexus-conflict-keep-btn:hover,
 .nexus-banner-saveas-btn:hover,
 .nexus-banner-dismiss-btn:hover,
 .nexus-save-error-saveas:hover {
-  background-color: #4b5563;
+  background-color: var(--nexus-bg-surface-active);
 }
 
 
@@ -606,8 +608,8 @@ body {
 .nexus-pdf-canvas {
   flex: none;
   display: block;
-  background-color: #ffffff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
+  background-color: #ffffff; /* @constant PDF 纸面恒白，深色主题下也不反色 */
+  box-shadow: 0 1px 4px rgb(0 0 0 / 18%); /* @constant 抬升阴影，与主题无关 */
 }
 
 /* pdfjs 的文本层：**透明的字**浮在 canvas 上，唯一的用途是让浏览器能选中它
@@ -637,7 +639,7 @@ body {
 
 /* 选中高亮必须看得见：文字是透明的，不给选中态上色就等于「选了但没反馈」。 */
 .nexus-pdf-text-layer ::selection {
-  background: rgb(0 100 255 / 25%);
+  background: var(--nexus-selection-bg);
 }
 
 /* 选区非空时才出现（P3-11）。显示生成的 Markdown 原文，让用户在复制之前
@@ -863,9 +865,9 @@ body {
   transition: flex-basis 160ms cubic-bezier(0.2, 0, 0, 1), border-color 160ms ease-out;
 }
 
-/* 宽度来自 --nexus-panel-width（App 的拖拽逻辑写入这个变量），默认 240px */
+/* 宽度来自 --nx-panel-width（App 的拖拽逻辑写入这个变量），默认 240px */
 .nexus-activity-panel-open {
-  flex-basis: var(--nexus-panel-width, 240px);
+  flex-basis: var(--nx-panel-width);
   border-right-color: var(--nexus-border-subtle);
 }
 
@@ -902,7 +904,7 @@ body.nexus-resizing {
   height: 100%;
   /* 内容宽度跟随面板宽度：否则展开/收起动画过程中文字会跟着回流重排，看起来在抖。
      用 var 而不是写死 240px —— 用户拖宽之后内容也要跟着变宽。 */
-  min-width: var(--nexus-panel-width, 240px);
+  min-width: var(--nx-panel-width);
 }
 
 .nexus-panel-slot-hidden {
@@ -1156,11 +1158,11 @@ body.nexus-resizing {
 /* 这里是 **diff 的通用配色**（红=删除、绿=新增），
    不是本项目的股票涨跌配色约定 —— 两者语义相反，别混。 */
 .nexus-diff-added {
-  background-color: rgba(46, 160, 67, 0.12);
+  background-color: rgba(46, 160, 67, 0.12); /* @constant GitHub diff 新增底色 */
 }
 
 .nexus-diff-removed {
-  background-color: rgba(248, 81, 73, 0.12);
+  background-color: rgba(248, 81, 73, 0.12); /* @constant GitHub diff 删除底色 */
 }
 
 .nexus-diff-same {
@@ -1174,11 +1176,11 @@ body.nexus-resizing {
 }
 
 .nexus-diff-added .nexus-diff-marker {
-  color: #2ea043;
+  color: #2ea043; /* @constant GitHub diff 新增标记色 */
 }
 
 .nexus-diff-removed .nexus-diff-marker {
-  color: #f85149;
+  color: #f85149; /* @constant GitHub diff 删除标记色 */
 }
 
 .nexus-diff-text {
@@ -1323,7 +1325,7 @@ body.nexus-resizing {
   display: flex;
   justify-content: center;
   padding-top: 80px;
-  background-color: rgba(0, 0, 0, 0.18);
+  background-color: rgba(0, 0, 0, 0.18); /* @constant quick-open 遮罩，只盖应用区 */
 }
 
 .nexus-quickopen {
@@ -1336,7 +1338,7 @@ body.nexus-resizing {
   border: 1px solid var(--nexus-border-default);
   border-radius: 10px;
   background-color: var(--nexus-bg-surface);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); /* @constant 抬升阴影，与主题无关 */
 }
 
 .nexus-quickopen-input {
@@ -1760,7 +1762,7 @@ body.nexus-resizing {
 .nexus-loading-spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #2c2f38;
+  border: 3px solid var(--nexus-border-default);
   border-top-color: var(--nexus-accent-primary);
   border-radius: 50%;
   animation: nexus-spin 0.8s linear infinite;
@@ -1781,24 +1783,24 @@ body.nexus-resizing {
 .nexus-error-card {
   max-width: 540px;
   padding: 20px;
-  background-color: var(--error-card-bg);
-  border: 1px solid var(--error-card-border);
+  background-color: var(--nexus-status-error-bg);
+  border: 1px solid var(--nexus-status-error-border);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); /* @constant 抬升阴影，与主题无关 */
 }
 
 .error-title {
   font-weight: 600;
   font-size: 1rem;
-  color: #f87171;
+  color: var(--nexus-status-error-text);
 }
 
 .error-description {
   font-size: 0.85rem;
-  color: #fca5a5;
+  color: var(--nexus-status-error-text);
   line-height: 1.45;
   word-break: break-word;
 }
@@ -1808,16 +1810,16 @@ body.nexus-resizing {
   padding: 6px 16px;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #ffffff;
-  background-color: #dc2626;
-  border: 1px solid #ef4444;
+  color: #ffffff; /* @constant 红底白字 */
+  background-color: #dc2626; /* @constant 错误按钮实底，status-error 家族只有文字/边框/淡底 */
+  border: 1px solid #ef4444; /* @constant 同上 */
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .nexus-retry-btn:hover {
-  background-color: #b91c1c;
+  background-color: #b91c1c; /* @constant 重试按钮 hover 实底 */
 }
 
 /* Footer Status Bar */
@@ -1850,38 +1852,38 @@ body.nexus-resizing {
 
 
 .status-dot.dirty {
-  background-color: #f59e0b;
-  box-shadow: 0 0 6px #f59e0b88;
+  background-color: var(--nexus-status-warning-text);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--nexus-status-warning-text) 53%, transparent);
 }
 
 .status-dot.loading {
-  background-color: #3b82f6;
+  background-color: var(--nexus-accent-primary);
 }
 
 .status-dot.error {
-  background-color: #ef4444;
-  box-shadow: 0 0 6px #ef444488;
+  background-color: var(--nexus-status-error-text);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--nexus-status-error-text) 53%, transparent);
 }
 
 /* 保存状态的色调：与状态栏文案同源（SAVE_STATE_TONE），语义一致 */
 .status-dot.saved {
-  background-color: #10b981;
-  box-shadow: 0 0 6px #10b98188;
+  background-color: var(--nexus-status-success-text);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--nexus-status-success-text) 53%, transparent);
 }
 
 .status-dot.saving {
-  background-color: #3b82f6;
-  box-shadow: 0 0 6px #3b82f688;
+  background-color: var(--nexus-accent-primary);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--nexus-accent-primary) 53%, transparent);
 }
 
 .status-dot.readonly {
-  background-color: #9ca3af;
+  background-color: var(--nexus-text-muted);
 }
 
 .status-dot.conflict,
 .status-dot.deleted {
-  background-color: #f59e0b;
-  box-shadow: 0 0 6px #f59e0b88;
+  background-color: var(--nexus-status-warning-text);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--nexus-status-warning-text) 53%, transparent);
 }
 
 .status-text {
@@ -1914,7 +1916,7 @@ body.nexus-resizing {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: rgba(0, 0, 0, 0.4); /* @constant 命令面板遮罩，全窗口 */
   z-index: 10000;
   display: flex;
   justify-content: center;
@@ -1928,7 +1930,7 @@ body.nexus-resizing {
   border-radius: 8px;
   width: 100%;
   max-width: 600px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); /* @constant 抬升阴影，与主题无关 */
   display: flex;
   flex-direction: column;
   overflow: hidden;

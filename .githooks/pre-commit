@@ -1,5 +1,8 @@
 #!/bin/sh
-# Nexus pre-commit hook —— 拦截「改了代码但没动版本号」的提交。
+# Nexus pre-commit hook —— 两道门禁：
+#   1. 主题 token 审计（plan §4.8 / D7）：引用必有定义、定义必有引用或 @reserved、
+#      :root 之外无硬编码色值。秒级，失败会直接列出站点。
+#   2. 「改了代码但没动版本号」的提交。
 #
 # 安装（换 checkout 后需要重跑，core.hooksPath 是本机配置，不进版本库）：
 #   pnpm hooks:install
@@ -10,8 +13,13 @@
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "pre-commit: 找不到 node，跳过版本号校验" >&2
+  echo "pre-commit: 找不到 node，跳过校验" >&2
   exit 0
+fi
+
+if ! node packages/theme/scripts/audit-tokens.mjs; then
+  echo "pre-commit: 主题 token 审计未通过（明细见上）" >&2
+  exit 1
 fi
 
 exec node scripts/version.mjs check --staged
