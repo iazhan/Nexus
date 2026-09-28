@@ -3,7 +3,7 @@ import type { DiffLine, HistoryEntry } from '@nexus/core';
 import type { MarkdownDocumentSession } from '@nexus/editor';
 import { useLocale } from '../hooks.js';
 import { diffLines } from './line-diff.js';
-import { formatSavedAt } from './history-time.js';
+import { formatSavedAt } from './time-format.js';
 
 export interface HistoryPanelProps {
   /** 当前活动文档的绝对路径；null 表示没有活动文档 */

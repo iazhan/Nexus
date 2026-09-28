@@ -17,6 +17,9 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'viewer.pdf.previousPage': 'Previous',
     'viewer.pdf.nextPage': 'Next',
     'viewer.pdf.pageOf': 'Page {current} / {total}',
+    'viewer.pdf.copyCitation': 'Copy citation',
+    'viewer.pdf.copied': 'Citation copied',
+    'viewer.pdf.copyFailed': 'Could not copy the citation',
     'viewer.docx.loading': 'Loading DOCX…',
     'viewer.docx.loadError':
       'This document could not be loaded. It may have been moved, renamed, or deleted.',
@@ -35,8 +38,26 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'workspace.pickFile': 'Pick a file from the sidebar to start editing.',
     'workspace.indexing': 'Indexing workspace…',
     'workspace.indexFailed': 'Failed to build the index',
-    'workspace.noFiles': 'No Markdown files in this workspace.',
+    // P3-09 起「有没有文档」与「有没有 Markdown」是两件事：侧栏分成两段后，
+    // 只有整个工作区**一个文档都没有**才走这句，所以文案跟着判据改。
+    'workspace.noFiles': 'No documents in this workspace.',
     'workspace.fileCount': '{count} files',
+    // 侧栏两段（UI 蓝图 §8.1：Attachments 与 Notes 并列）。
+    // 组标题复用 `document.type.*`，所以这里只缺区标题与两段各自的空态。
+    'workspace.sectionNotes': 'Notes',
+    'workspace.sectionAttachments': 'Attachments',
+    'workspace.noNotes': 'No notes in this workspace.',
+    'workspace.noAttachments': 'No attachments in this workspace.',
+    // 同名附件才显示的目录提示 —— 文件就在工作区根目录时用这句
+    'workspace.attachmentRoot': 'root',
+    // 附件行的文本提取提示（P3-10）。长句给 tooltip，短标记给行内 —— 侧栏很窄，
+    // 把「未提取到文本」塞进行内会把文件名挤掉。
+    // 只有 `empty` 与 `failed` 会出现（见 `extractionNoteOf()`）：`extracted` 是成功
+    // 不必说话，`none` 是「这个类型没有处理器 / 这一轮它没被引用」，也不该提示。
+    'workspace.extraction.empty': 'No text extracted (scanned PDF?)',
+    'workspace.extraction.emptyShort': 'no text',
+    'workspace.extraction.failed': 'Text extraction failed',
+    'workspace.extraction.failedShort': 'failed',
     'tab.untitled': 'Untitled',
     'tab.close': 'Close {name}',
     'tab.discardConfirm': 'Discard unsaved changes in "{name}"?',
@@ -228,6 +249,9 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'viewer.pdf.previousPage': '上一页',
     'viewer.pdf.nextPage': '下一页',
     'viewer.pdf.pageOf': '第 {current} / {total} 页',
+    'viewer.pdf.copyCitation': '复制引用',
+    'viewer.pdf.copied': '引用已复制',
+    'viewer.pdf.copyFailed': '复制引用失败',
     'viewer.docx.loading': '正在加载 DOCX…',
     'viewer.docx.loadError': '文档加载失败。文件可能已被移动、重命名或删除。',
     'viewer.docx.empty': '这份文档没有可显示的内容。',
@@ -241,8 +265,23 @@ const dictionaries: Record<string, LocaleDictionary> = {
     'workspace.pickFile': '从左侧列表选择一个文件开始编辑。',
     'workspace.indexing': '正在建立索引…',
     'workspace.indexFailed': '建立索引失败',
-    'workspace.noFiles': '这个工作区里没有 Markdown 文件。',
+    // P3-09 起「有没有文档」与「有没有 Markdown」是两件事：侧栏分成两段后，
+    // 只有整个工作区**一个文档都没有**才走这句，所以文案跟着判据改。
+    'workspace.noFiles': '这个工作区里没有文档。',
     'workspace.fileCount': '{count} 个文件',
+    // 侧栏两段（UI 蓝图 §8.1：Attachments 与 Notes 并列）。
+    // 组标题复用 `document.type.*`，所以这里只缺区标题与两段各自的空态。
+    'workspace.sectionNotes': '笔记',
+    'workspace.sectionAttachments': '附件',
+    'workspace.noNotes': '这个工作区里还没有笔记。',
+    'workspace.noAttachments': '这个工作区里还没有附件。',
+    // 同名附件才显示的目录提示 —— 文件就在工作区根目录时用这句
+    'workspace.attachmentRoot': '根目录',
+    // 附件行的文本提取提示（P3-10），与英文侧同一套判据
+    'workspace.extraction.empty': '未提取到文本（扫描版？）',
+    'workspace.extraction.emptyShort': '无文本',
+    'workspace.extraction.failed': '文本提取失败',
+    'workspace.extraction.failedShort': '失败',
     'tab.untitled': '未命名',
     'tab.close': '关闭 {name}',
     'tab.discardConfirm': '「{name}」有未保存的内容，确定丢弃吗？',

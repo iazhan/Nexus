@@ -3,8 +3,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import zlib from 'node:zlib';
 import { launchElectronApp, createTempDir, type ElectronAppInstance } from './smoke-harness.js';
+import { createDocx } from './fixtures/documents.js';
 
 /**
  * P3-08 的端到端验收：**一份真实的 DOCX 被真的解析成了 HTML**，而且
@@ -33,158 +33,7 @@ import { launchElectronApp, createTempDir, type ElectronAppInstance } from './sm
  * 「有没有未还原的内容」用 `data-docx-warnings` 判，不用提示文字。
  */
 
-/**
- * 生成一个 ZIP —— **stored（不压缩）** 条目，手写三个结构。
- *
- * 为什么不用现成的 zip 库：DOCX 就是一个 ZIP，而这个用例需要的是**完全可控**的
- * 字节 —— 条目名、内容、是否压缩都由测试决定，出了问题能一眼看出是哪一段。
- * 引一个库只会多一层「它生成的 ZIP 长什么样」的未知。
- *
- * 为什么可以用 stored：ZIP 允许逐条目选择压缩方式，读取方（mammoth 用的 JSZip）
- * 对 stored 条目是原生支持的。省掉 deflate 也省掉了「压缩结果不稳定」这类噪声。
- *
- * 三个结构缺一不可：local file header（每条的元数据 + 数据）、
- * central directory（目录）、EOCD（目录的位置与条目数）。读取方先找 EOCD。
- */
-function createZip(entries: ReadonlyArray<readonly [string, Buffer | string]>): Buffer {
-  const parts: Buffer[] = [];
-  const centralParts: Buffer[] = [];
-  let offset = 0;
-
-  for (const [name, content] of entries) {
-    const data = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf-8');
-    const nameBytes = Buffer.from(name, 'utf-8');
-    const crc = zlib.crc32(data) >>> 0;
-
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0); // 签名
-    local.writeUInt16LE(20, 4); // 需要的解压版本
-    local.writeUInt16LE(0x0800, 6); // 标志位：文件名为 UTF-8
-    local.writeUInt16LE(0, 8); // 压缩方式 0 = stored
-    local.writeUInt16LE(0, 10); // 修改时间
-    local.writeUInt16LE(0, 12); // 修改日期
-    local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(data.length, 18); // 压缩后大小（stored 时等于原大小）
-    local.writeUInt32LE(data.length, 22);
-    local.writeUInt16LE(nameBytes.length, 26);
-    local.writeUInt16LE(0, 28); // 扩展字段长度
-    parts.push(local, nameBytes, data);
-
-    const central = Buffer.alloc(46);
-    central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE(20, 4); // 生成方版本
-    central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0x0800, 8);
-    central.writeUInt16LE(0, 10);
-    central.writeUInt16LE(0, 12);
-    central.writeUInt16LE(0, 14);
-    central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20);
-    central.writeUInt32LE(data.length, 24);
-    central.writeUInt16LE(nameBytes.length, 28);
-    central.writeUInt16LE(0, 30); // 扩展字段
-    central.writeUInt16LE(0, 32); // 注释
-    central.writeUInt16LE(0, 34); // 起始磁盘号
-    central.writeUInt16LE(0, 36); // 内部属性
-    central.writeUInt32LE(0, 38); // 外部属性
-    central.writeUInt32LE(offset, 42); // 本地头偏移
-    centralParts.push(central, nameBytes);
-
-    offset += local.length + nameBytes.length + data.length;
-  }
-
-  const centralDirectory = Buffer.concat(centralParts);
-  const eocd = Buffer.alloc(22);
-  eocd.writeUInt32LE(0x06054b50, 0);
-  eocd.writeUInt16LE(entries.length, 8); // 本磁盘条目数
-  eocd.writeUInt16LE(entries.length, 10); // 条目总数
-  eocd.writeUInt32LE(centralDirectory.length, 12);
-  eocd.writeUInt32LE(offset, 16); // 中央目录偏移
-  // 注释长度为 0（`alloc` 已经置零）
-
-  return Buffer.concat([...parts, centralDirectory, eocd]);
-}
-
-/** 1×1 透明 PNG —— 内嵌图片用，够小且能被浏览器解码。 */
-const ONE_PIXEL_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-  'base64'
-);
-
-const W_NS =
-  'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
-  'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
-  'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" ' +
-  'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
-  'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
-
-/**
- * 生成一份**结构完整**的 DOCX。
- *
- * 刻意用代码生成而不是塞一段 base64：这样 fixture 的来源就是可读的代码，
- * 「标题是哪一级、表格几行几列、有没有内嵌图片」都是显式参数，改断言时
- * 不用去猜「那坨二进制是什么」。
- *
- * 六个刻意的选择，每个都对应一条断言：
- * - **`Heading 1` 样式 + 中文标题** ⟹ 断言 `<h1>` 的文本。mammoth 靠
- *   `word/styles.xml` 里的**样式名**（不是 styleId）识别标题，所以那份文件必须真的给。
- * - **两段中文正文** ⟹ 断言段落结构，且证明 UTF-8 一路没坏。
- * - **一个 `<w:b/>` 的 run** ⟹ 断言 `<strong>`：字符级格式有没有被转换。
- * - **一个未在 styles.xml 里声明的段落样式** ⟹ 逼 mammoth 报 warning，
- *   于是「未还原的内容被如实显示」这条有真机证据（而不是只在单测里用假数据验）。
- * - **2×2 表格** ⟹ 断言 `<table>` 与行列数。表格是 DOCX 里最容易转换出错的块级结构。
- * - **一张内嵌 PNG** ⟹ 断言 `<img>` 的 `src` 是 `data:image/png;base64,…`
- *   且**真的解码出来了**（`naturalWidth > 0`）。这是 `img-src data:` 那条 CSP 的验收。
- */
-function createDocx(): Buffer {
-  const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document ${W_NS}><w:body>
-<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>标题一</w:t></w:r></w:p>
-<w:p><w:r><w:t>这是第一段正文。</w:t></w:r></w:p>
-<w:p><w:pPr><w:pStyle w:val="TotallyUnknownStyle"/></w:pPr><w:r><w:t>样式未声明的段落。</w:t></w:r></w:p>
-<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>加粗文字</w:t></w:r><w:r><w:t>与普通文字</w:t></w:r></w:p>
-<w:tbl>
-<w:tr><w:tc><w:p><w:r><w:t>列一</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>列二</w:t></w:r></w:p></w:tc></w:tr>
-<w:tr><w:tc><w:p><w:r><w:t>值一</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>值二</w:t></w:r></w:p></w:tc></w:tr>
-</w:tbl>
-<w:p><w:r><w:drawing><wp:inline><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="rId10"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>
-</w:body></w:document>`;
-
-  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/></w:style>
-<w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style>
-</w:styles>`;
-
-  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-<Default Extension="xml" ContentType="application/xml"/>
-<Default Extension="png" ContentType="image/png"/>
-<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-</Types>`;
-
-  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>`;
-
-  const documentRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
-</Relationships>`;
-
-  return createZip([
-    ['[Content_Types].xml', contentTypes],
-    ['_rels/.rels', rootRels],
-    ['word/document.xml', document],
-    ['word/styles.xml', styles],
-    ['word/_rels/document.xml.rels', documentRels],
-    ['word/media/image1.png', ONE_PIXEL_PNG]
-  ]);
-}
-
+// fixture 生成器在 `fixtures/documents.ts`（P3-10 起三份 PDF 与 DOCX 的生成逻辑共用一处）。
 /** shadow root 里那份文档的可观测形状。 */
 interface DocxView {
   hasShadowRoot: boolean;

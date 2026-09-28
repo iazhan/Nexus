@@ -11,13 +11,23 @@
 export type DocumentType = 'markdown' | 'pdf' | 'docx' | 'image';
 
 /**
+ * 全部 viewer 类型。**顺序就是 UI 里的分组顺序** —— 附件区的分组直接照这个数组排。
+ *
+ * 定义成数组而不是手写联合，是为了让「有哪些 viewer 类型」只有**一处**判据：
+ * `ViewerDocumentType` 从它派生，`isViewerDocumentType()` 也从它派生。
+ * 手写两遍的后果是具体的 —— 新增一个类型时，类型会跟着变而守卫不会，
+ * 于是新类型在运行时被当成「不是 viewer」，而**编译器一声不吭**。
+ */
+export const VIEWER_DOCUMENT_TYPES = ['image', 'pdf', 'docx'] as const;
+
+/**
  * 能被 Viewer 打开、但不是 Markdown 的类型。
  *
  * 单独取出来是因为它有一条**不同的行为契约**：Markdown 是可编辑的
  * canonical source，而这些都是**严格只读**的（Phase 3 的验收第 3 条：
  * 打开浏览后原文件的 mtime 与内容哈希必须不变）。
  */
-export type ViewerDocumentType = Exclude<DocumentType, 'markdown'>;
+export type ViewerDocumentType = (typeof VIEWER_DOCUMENT_TYPES)[number];
 
 /**
  * 类型守卫：把 `DocumentType | null` 收窄成 `ViewerDocumentType`。
@@ -31,5 +41,9 @@ export type ViewerDocumentType = Exclude<DocumentType, 'markdown'>;
 export function isViewerDocumentType(
   type: DocumentType | null | undefined
 ): type is ViewerDocumentType {
-  return type === 'pdf' || type === 'docx' || type === 'image';
+  if (type === null || type === undefined) return false;
+  // 这里放宽的只是**入参**的类型（`readonly ['image','pdf','docx']` 的 `includes`
+  // 只接受那三个字面量，而调用方给的是更宽的 `DocumentType`）。
+  // 判据本身仍然只有 `VIEWER_DOCUMENT_TYPES` 一处 —— 不重复列举。
+  return (VIEWER_DOCUMENT_TYPES as readonly DocumentType[]).includes(type);
 }

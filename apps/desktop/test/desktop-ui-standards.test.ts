@@ -3,7 +3,6 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { App } from '../renderer/src/App.js';
-import type { NexusBridge } from '../preload/types.js';
 import type { EditorView, MarkdownDocumentSession } from '@nexus/editor';
 
 const testWindow = window as Window & {

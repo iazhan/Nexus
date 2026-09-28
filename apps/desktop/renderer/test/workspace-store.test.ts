@@ -247,6 +247,29 @@ describe('WorkspaceStore：只读附件', () => {
     expect(store.getActiveId()).toBe(first.id);
   });
 
+  it('带 #page= 再打开同一份附件：只换页码，不新建标签页', () => {
+    const store = new WorkspaceStore();
+    const first = store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf' });
+    expect(first.viewerPage).toBeNull();
+
+    const again = store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf', page: 42 });
+
+    expect(store.getDocuments()).toHaveLength(1);
+    expect(again.id).toBe(first.id);
+    expect(again.viewerPage).toBe(42);
+    // 快照里也必须是新值 —— 只改内部数组而不 emit，界面拿到的还是旧快照
+    expect(store.getSnapshot().documents[0]).toMatchObject({ viewerPage: 42 });
+  });
+
+  it('不带 page 再打开已经定位过的附件：页码保持不变，不被抹成 null', () => {
+    const store = new WorkspaceStore();
+    store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf', page: 7 });
+
+    const again = store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf' });
+
+    expect(again.viewerPage).toBe(7);
+  });
+
   it('活动的是附件时，保存态 / 路径 / 可写性都改不动', () => {
     const store = new WorkspaceStore();
     const pdf = store.openViewerDocument({ filePath: '/vault/stm32.pdf', type: 'pdf' });

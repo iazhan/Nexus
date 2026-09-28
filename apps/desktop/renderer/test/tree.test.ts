@@ -14,7 +14,8 @@ function doc(relativePath: string): IndexedDocument {
     type: documentTypeForPath(relativePath) ?? 'markdown',
     sizeBytes: 1,
     modifiedAtMs: 1,
-    contentHash: 'x'
+    contentHash: 'x',
+    extractionStatus: 'none'
   };
 }
 

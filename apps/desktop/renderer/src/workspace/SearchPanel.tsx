@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import type { SearchHit } from '@nexus/core';
+import { isViewerDocumentType, type SearchHit } from '@nexus/core';
 import { useLocale } from '../hooks.js';
 
 export interface SearchPanelProps {
@@ -104,7 +104,17 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ onOpenFile }) => {
                 title={hit.path}
                 onClick={() => onOpenFile(hit.path)}
               >
-                <span className="nexus-search-hit-name">{hit.name}</span>
+                <span className="nexus-search-hit-title">
+                  <span className="nexus-search-hit-name">{hit.name}</span>
+                  {/* 类型徽标：PDF / DOCX 的命中来自**正文**（P3-10 提取出来的文本），
+                      和 Markdown 的命中不是一回事 —— 不带徽标的话，用户会以为
+                      「搜到了文件名」，点进去才发现是内容里的字。
+                      判据用 `isViewerDocumentType()`（与侧栏同一套），不写
+                      `hit.type !== 'markdown'` —— 将来新增类型时后者会静默漏标。 */}
+                  {isViewerDocumentType(hit.type) && (
+                    <span className="nexus-search-hit-badge">{t(`document.type.${hit.type}`)}</span>
+                  )}
+                </span>
                 <span className="nexus-search-hit-path">{hit.relativePath}</span>
               </button>
             </li>

@@ -1,4 +1,5 @@
 import type { DocumentType } from '../document/types.js';
+import type { ExtractionStatus } from '../processor/types.js';
 
 /**
  * 已打开的本地文档，内容保持 UTF-8 原文。
@@ -78,6 +79,16 @@ export interface IndexedDocument {
   sizeBytes: number;
   modifiedAtMs: number;
   contentHash: string;
+  /**
+   * **文本提取状态**（Phase 3 / P3-10）。
+   *
+   * 只有附件会带上有意义的值；Markdown 恒为 `'none'`（它本身就是文本，不需要提取）。
+   *
+   * 落库而不是查询时现算：界面要凭它显示「未提取到文本」，而那个判断只该有
+   * **一处**判据。让侧栏与搜索面板各自去问一次「这个 PDF 提过没有」，
+   * 迟早出现「一边说提过、一边说没提过」。
+   */
+  extractionStatus: ExtractionStatus;
 }
 
 /** 全文检索命中的一条结果。 */
@@ -87,6 +98,14 @@ export interface SearchHit {
   relativePath: string;
   name: string;
   title: string;
+  /**
+   * 文档类型。搜索面板凭它显示类型徽标 ——
+   * P3-10 起附件也会出现在结果里（被 Markdown 引用过的 PDF/DOCX 提取出的文本进了
+   * 全文索引），不标出来用户会以为搜到的是笔记。
+   */
+  type: DocumentType;
+  /** 与 `IndexedDocument.extractionStatus` 同义，见那里的说明。 */
+  extractionStatus: ExtractionStatus;
 }
 
 /** 一次工作区索引的结果统计。 */
@@ -99,9 +118,21 @@ export interface IndexWorkspaceResult {
   skipped: number;
   /** 磁盘上已消失、从索引里清掉的文档数 */
   removed: number;
+  /**
+   * 本次**提取出文本**的附件数（Phase 3 / P3-10）。
+   *
+   * 只统计「真的提出了字」的：被引用但提不出文本（扫描版 PDF）的不算，
+   * 它们的状态在 `extractionStatus` 里是 `empty`，那是另一件事。
+   */
+  extracted: number;
   /** 扫描是否因达到上限而提前结束 */
   truncated: boolean;
-  /** 单个文件失败的原因（不阻断整次索引） */
+  /**
+   * 单个文件失败的原因（不阻断整次索引）。
+   *
+   * 包含两类：读不动（权限、扫描途中被删）与**提取失败**（损坏的 PDF/DOCX）。
+   * 两者都带 `相对路径: 原因` 的形状 —— 分开成两个数组只会让消费方两处都写。
+   */
   errors: string[];
 }
 

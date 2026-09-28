@@ -1,13 +1,13 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
+import type { PDFDocumentProxy, RenderTask, TextLayer } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { formatDocumentCitation, toAssetUrl } from '@nexus/core';
 import { useLocale } from '../../hooks.js';
 import type { ViewerRendererProps } from '../types.js';
-import { toAssetUrl } from '@nexus/core';
 
 /**
- * PDF Viewer（P3-07）。
+ * PDF Viewer（P3-07，P3-11 加文本层与引用）。
  *
  * ## worker 必须在模块顶层指定，且用 `?url` 而不是 `new URL(..., import.meta.url)`
  *
@@ -47,8 +47,14 @@ const STANDARD_FONT_DATA_URL = new URL('./pdfjs/standard_fonts/', document.baseU
  * **这不是「缩放功能」** —— P3-07 与 P3-06 同一口径，不做用户可调的缩放。
  * 它只是一个固定的基准换算，让页面在 100% 系统缩放下看起来是正常文档大小。
  * 用户可调的缩放归 Phase 5。
+ *
+ * 它同时是文本层的 `--scale-factor` —— 两者必须是同一个数，否则选中的文字
+ * 与画面上的字对不上（能选，但选偏）。
  */
 const BASE_SCALE = 1.5;
+
+/** 复制引用的三种结果，驱动按钮文案与 `data-copy-state`。 */
+type CopyState = 'idle' | 'copied' | 'failed';
 
 /**
  * PDF Viewer —— 三个 Viewer 里唯一需要 worker、静态资源与分页的。
@@ -63,20 +69,26 @@ const BASE_SCALE = 1.5;
  *
  * 组件身份由外壳的 `key={doc.path}` 决定，所以**不需要处理「换文档」** ——
  * 换一份 PDF 就是换一个组件实例。这消掉了整类「上一份文档的页数/当前页
- * 挂到下一份上」的问题。
+ * 挂到下一份上」的问题。**但 `#page=` 锚点不同**：同一份 PDF 已经开着时宿主
+ * 只换 `doc.page`、不换 key，所以那一个值要由 effect 接住。
  *
- * 两个 effect 各自负责一件事，且都必须能安全取消：
+ * 三个 effect 各自负责一件事，且都必须能安全取消：
  * - 加载：`loadingTask.destroy()` 会连同已解析的文档一起释放 worker 资源。
  * - 渲染：`renderTask.cancel()` 让上一页的绘制不再往 canvas 上写。
  *   取消会以 `RenderingCancelledException` **拒绝 promise**，那是正常路径不是错误 ——
  *   不区分它的话，快速翻页会让界面弹出「加载失败」。
+ * - 选区：监听 document 的 `mouseup`（拖到容器外松手也收得到），再判选区是否
+ *   整段落在文本层内。
  */
 const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
   const { t } = useLocale();
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
-  const [pageNumber, setPageNumber] = useState(1);
+  const [pageNumber, setPageNumber] = useState(doc.page ?? 1);
   const [failed, setFailed] = useState(false);
+  const [quote, setQuote] = useState('');
+  const [copyState, setCopyState] = useState<CopyState>('idle');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const textLayerRef = useRef<HTMLDivElement | null>(null);
 
   // ── 加载文档 ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -108,12 +120,27 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
     };
   }, [doc.path]);
 
+  // ── `#page=` 锚点 ─────────────────────────────────────────────────────
+  // 宿主换掉 doc.page 就是「翻到这一页」。同一份 PDF 已开着时 store 只更新这个值、
+  // 不换 key，所以组件不重挂载 —— 变化必须由这里接住。
+  useEffect(() => {
+    if (doc.page !== null) setPageNumber(doc.page);
+  }, [doc.page]);
+
+  // 锚点页码可能超出这份 PDF 的页数（引用写的时候是另一份文件、或文件被换过）。
+  // 不钳住的话渲染 effect 会 reject，界面变成「加载失败」—— 而它其实打开成功了。
+  useEffect(() => {
+    if (!pdfDocument) return;
+    setPageNumber((current) => Math.min(Math.max(1, current), pdfDocument.numPages));
+  }, [pdfDocument]);
+
   // ── 渲染当前页 ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!pdfDocument) return;
 
     let cancelled = false;
     let renderTask: RenderTask | null = null;
+    let textLayer: TextLayer | null = null;
 
     const draw = async (): Promise<void> => {
       const page = await pdfDocument.getPage(pageNumber);
@@ -134,6 +161,8 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
       const context = canvas.getContext('2d');
       if (!context) return;
 
+      // 文本与画面并行取：串行会让「翻页后要等一下文字才能选」成为常态。
+      const textContentPromise = page.getTextContent();
       renderTask = page.render({
         canvasContext: context,
         viewport,
@@ -143,7 +172,22 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
         // 矩阵形状是 pdfjs 的公开契约（`[sx, 0, 0, sy, 0, 0]`），直接写出来更稳。
         transform: outputScale.scaled ? [outputScale.sx, 0, 0, outputScale.sy, 0, 0] : undefined
       });
-      await renderTask.promise;
+      const [textContent] = await Promise.all([textContentPromise, renderTask.promise]);
+      if (cancelled) return;
+
+      const container = textLayerRef.current;
+      if (!container) return;
+      container.replaceChildren();
+      // canvas 画不出「可选择的字」，选区只能来自这一层。`--scale-factor` 是
+      // pdfjs 的尺寸基准（字号与坐标都写成 `calc(Npx * var(--scale-factor))`），
+      // 必须等于 viewport 的 scale —— 少了它文字会全部叠在左上角。
+      container.style.setProperty('--scale-factor', String(viewport.scale));
+      textLayer = new pdfjsLib.TextLayer({
+        textContentSource: textContent,
+        container,
+        viewport
+      });
+      await textLayer.render();
     };
 
     draw().catch((error: unknown) => {
@@ -156,8 +200,56 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
     return () => {
       cancelled = true;
       renderTask?.cancel();
+      textLayer?.cancel();
     };
   }, [pdfDocument, pageNumber]);
+
+  // ── 选区 → 引用（P3-11）────────────────────────────────────────────────
+  useEffect(() => {
+    const handleMouseUp = (): void => {
+      const selection = window.getSelection();
+      const container = textLayerRef.current;
+      const text = selection?.toString() ?? '';
+
+      // 选区必须**整段落在文本层里**。跨到工具栏或侧栏的选区不是「选中了这段原文」，
+      // 拿它生成引用会得到半截界面文字 —— 而那种引用看起来完全正常。
+      const within = (node: Node | null): boolean =>
+        node !== null && container !== null && (node === container || container.contains(node));
+      const isInside =
+        text.trim().length > 0 &&
+        within(selection?.anchorNode ?? null) &&
+        within(selection?.focusNode ?? null);
+
+      setQuote(isInside ? text : '');
+      setCopyState('idle');
+    };
+
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => document.removeEventListener('mouseup', handleMouseUp);
+  }, []);
+
+  const citation = useMemo(
+    () =>
+      quote.trim().length === 0
+        ? ''
+        : formatDocumentCitation({
+            quote,
+            targetPath: doc.path,
+            baseDirectory: doc.citationBase,
+            page: pageNumber
+          }),
+    [quote, doc.path, doc.citationBase, pageNumber]
+  );
+
+  const handleCopyCitation = useCallback((): void => {
+    const copyText = window.nexus?.copyText;
+    if (citation.length === 0 || !copyText) return;
+    // 失败必须可见：剪贴板被别的程序占着时用户按了没反应，会以为「这个按钮是摆设」。
+    void copyText(citation).then(
+      (ok) => setCopyState(ok ? 'copied' : 'failed'),
+      () => setCopyState('failed')
+    );
+  }, [citation]);
 
   const goToPreviousPage = useCallback(() => {
     setPageNumber((current) => Math.max(1, current - 1));
@@ -213,13 +305,38 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
             <p className="nexus-state-text">{t('viewer.pdf.loading')}</p>
           </div>
         )}
-        <canvas ref={canvasRef} className="nexus-pdf-canvas" data-page-number={pageNumber} />
+        <div className="nexus-pdf-page">
+          <canvas ref={canvasRef} className="nexus-pdf-canvas" data-page-number={pageNumber} />
+          {/* 文本层：透明文字浮在 canvas 上，只为让浏览器能选中它。
+              两者必须同一个 viewport，否则选中的位置与看到的字对不上。 */}
+          <div ref={textLayerRef} className="nexus-pdf-text-layer" />
+        </div>
       </div>
+      {/* 只在有选区时出现 —— 没有选区时它没有任何可做的动作，占着位置只会让
+          「翻页」这个主要动作被挤下去。 */}
+      {citation.length > 0 && (
+        <div className="nexus-pdf-citation" data-copy-state={copyState}>
+          <code className="nexus-pdf-citation-text">{citation}</code>
+          <button
+            type="button"
+            className="nexus-pdf-copy-button"
+            onClick={handleCopyCitation}
+          >
+            {t(copyLabelKey(copyState))}
+          </button>
+        </div>
+      )}
       <div className="nexus-pdf-caption">
         <span className="nexus-pdf-name">{doc.name}</span>
       </div>
     </div>
   );
 };
+
+function copyLabelKey(state: CopyState): string {
+  if (state === 'copied') return 'viewer.pdf.copied';
+  if (state === 'failed') return 'viewer.pdf.copyFailed';
+  return 'viewer.pdf.copyCitation';
+}
 
 export default PdfRenderer;

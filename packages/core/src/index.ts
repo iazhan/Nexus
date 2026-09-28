@@ -7,6 +7,7 @@ export {
 export {
   type DocumentType,
   type ViewerDocumentType,
+  VIEWER_DOCUMENT_TYPES,
   isViewerDocumentType
 } from './document/types.js';
 
@@ -19,8 +20,35 @@ export {
 
 export {
   wikilinkCandidates,
+  normalizeWikilinkTarget,
   attachmentContentFingerprint
 } from './document/links.js';
+
+export {
+  attachmentReferences,
+  resolveWorkspacePath,
+  type AttachmentReferences
+} from './document/references.js';
+
+export {
+  parsePageAnchor,
+  pageAnchorOf,
+  relativePathFrom,
+  fileNameOf,
+  documentTitleOf,
+  formatDocumentCitation,
+  type DocumentCitationInput
+} from './document/citation.js';
+
+export {
+  type ExtractionStatus,
+  type ProcessorResult,
+  type ProcessorExtractInput,
+  type ProcessorOutcome,
+  type DocumentProcessor
+} from './processor/types.js';
+
+export { ProcessorRegistry } from './processor/registry.js';
 
 export {
   parseLaunchArgs,

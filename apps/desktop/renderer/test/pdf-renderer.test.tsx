@@ -19,7 +19,11 @@ import type { ViewerDocumentDescriptor } from '../src/viewer/types.js';
  * `vi.hoisted` 是必需的：`vi.mock` 的工厂会被提升到 import 之前，
  * 直接引用外层的 `vi.fn()` 会在初始化前被求值。
  */
-const { getDocumentMock } = vi.hoisted(() => ({ getDocumentMock: vi.fn() }));
+const { getDocumentMock, textLayerCtor } = vi.hoisted(() => ({
+  getDocumentMock: vi.fn(),
+  /** 文本层的构造参数 —— 断言 `--scale-factor` 与 viewport 必须配套时要用到。 */
+  textLayerCtor: vi.fn()
+}));
 
 vi.mock('pdfjs-dist', () => ({
   // 组件在模块顶层写 `workerSrc`，所以这里必须是个可写对象而不是常量
@@ -32,6 +36,17 @@ vi.mock('pdfjs-dist', () => ({
     }
   },
   RenderingCancelledException: class RenderingCancelledException extends Error {},
+  TextLayer: class {
+    public constructor(options: unknown) {
+      textLayerCtor(options);
+    }
+
+    public render(): Promise<void> {
+      return Promise.resolve();
+    }
+
+    public cancel(): void {}
+  },
   getDocument: (...args: unknown[]) => getDocumentMock(...args)
 }));
 
@@ -42,7 +57,9 @@ vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({
 const DOC: ViewerDocumentDescriptor = {
   path: 'D:\\vault\\assets\\spec.pdf',
   name: 'spec.pdf',
-  type: 'pdf'
+  type: 'pdf',
+  page: null,
+  citationBase: 'D:////vault'
 };
 
 /** 一次 `getDocument` 的返回值：`promise` 由测试自己决定何时兑现。 */
@@ -68,7 +85,12 @@ function createFakeDocument(pageCount: number): unknown {
   return {
     numPages: pageCount,
     getPage: async () => ({
-      getViewport: ({ scale }: { scale: number }) => ({ width: 200 * scale, height: 200 * scale }),
+      getViewport: ({ scale }: { scale: number }) => ({
+        width: 200 * scale,
+        height: 200 * scale,
+        scale
+      }),
+      getTextContent: async () => ({ items: [], styles: {} }),
       render: () => ({ promise: Promise.resolve(), cancel: () => undefined })
     }),
     destroy: async () => undefined
@@ -84,9 +106,14 @@ describe('PdfRenderer', () => {
     document.body.appendChild(container);
     root = createRoot(container);
     getDocumentMock.mockReset();
-    // happy-dom 没有 canvas 实现。返回 null 会让渲染器「跳过绘制」而不是抛错 ——
-    // 抛错会被它当成加载失败，那样这个文件就永远在测错误态。
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    textLayerCtor.mockReset();
+    // happy-dom 没有 canvas 实现，默认 `getContext` 返回 null —— 那会让渲染器
+    // 「跳过绘制」而不是抛错（抛错会被它当成加载失败，这个文件就永远在测错误态）。
+    // 但跳过绘制也意味着**文本层不会构造**，所以给一个空 context，让这条路径走完：
+    // `page.render` 是替身、立即 resolve，不需要真 context。
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      {} as unknown as CanvasRenderingContext2D
+    );
   });
 
   afterEach(() => {
@@ -95,6 +122,8 @@ describe('PdfRenderer', () => {
     });
     container.remove();
     vi.restoreAllMocks();
+    // 桥是挂在 window 上的，不清理会漏到下一个用例（`restoreAllMocks` 不管它）
+    delete (window as unknown as Record<string, unknown>).nexus;
   });
 
   const renderPdf = (doc: ViewerDocumentDescriptor = DOC): void => {
@@ -245,7 +274,9 @@ describe('PdfRenderer', () => {
     const next: ViewerDocumentDescriptor = {
       path: 'D:\\vault\\assets\\other.pdf',
       name: 'other.pdf',
-      type: 'pdf'
+      type: 'pdf',
+      page: null,
+      citationBase: 'D:////vault'
     };
     act(() => {
       root.render(<PdfRenderer key={next.path} document={next} />);
@@ -257,6 +288,117 @@ describe('PdfRenderer', () => {
 
     expect(container.querySelector('.nexus-pdf-canvas')?.getAttribute('data-page-number')).toBe('1');
     expect(container.querySelector('.nexus-pdf-name')?.textContent).toBe('other.pdf');
+  });
+
+  it('引用里的 #page= 锚点决定初始页 —— 换页不换 key，靠 doc.page 接住', async () => {
+    const load = createPendingLoad();
+    getDocumentMock.mockReturnValue(load);
+    renderPdf({ ...DOC, page: 3 });
+
+    await act(async () => {
+      load.resolve(createFakeDocument(3));
+    });
+
+    expect(container.querySelector('.nexus-pdf-canvas')?.getAttribute('data-page-number')).toBe('3');
+  });
+
+  it('锚点页码超出页数时钳到末页 —— 不钳住会让渲染 reject，界面变成「加载失败」', async () => {
+    const load = createPendingLoad();
+    getDocumentMock.mockReturnValue(load);
+    renderPdf({ ...DOC, page: 99 });
+
+    await act(async () => {
+      load.resolve(createFakeDocument(2));
+    });
+
+    expect(container.querySelector('.nexus-pdf-canvas')?.getAttribute('data-page-number')).toBe('2');
+  });
+
+  it('文本层的 --scale-factor 与 viewport 的 scale 是同一个数', async () => {
+    // 两者不一致时选中的字与画面上的字对不上 —— 能选，但选偏，且不报错
+    const load = createPendingLoad();
+    getDocumentMock.mockReturnValue(load);
+    renderPdf();
+
+    await act(async () => {
+      load.resolve(createFakeDocument(2));
+    });
+
+    const layer = container.querySelector<HTMLElement>('.nexus-pdf-text-layer');
+    const options = textLayerCtor.mock.calls[0]?.[0] as { viewport: { scale: number } };
+    expect(options.viewport.scale).toBe(1.5);
+    expect(layer?.style.getPropertyValue('--scale-factor')).toBe(String(options.viewport.scale));
+  });
+
+  it('选中文本层里的文字 → 生成引用 → 复制走 copyText 桥', async () => {
+    const copyText = vi.fn().mockResolvedValue(true);
+    (window as unknown as { nexus: unknown }).nexus = { copyText };
+
+    const load = createPendingLoad();
+    getDocumentMock.mockReturnValue(load);
+    renderPdf();
+
+    await act(async () => {
+      load.resolve(createFakeDocument(2));
+    });
+
+    // mock 的 TextLayer 不产生 span，手动塞一个 —— 组件判的是「选区在不在这一层里」
+    const layer = container.querySelector<HTMLElement>('.nexus-pdf-text-layer');
+    const span = document.createElement('span');
+    span.textContent = 'DMA   controller\nsupports';
+    layer?.appendChild(span);
+
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    await act(async () => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+
+    // 引文折成一行（text layer 的换行是排版产物），路径相对 citationBase
+    const expected = '> DMA controller supports\n\n[spec](assets/spec.pdf#page=1)';
+    expect(container.querySelector('.nexus-pdf-citation-text')?.textContent).toBe(expected);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('.nexus-pdf-copy-button')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(copyText).toHaveBeenCalledWith(expected);
+    // 判据用组件自己的状态属性，不用文案 —— 加载态与空态常共用同一个类名
+    expect(container.querySelector('.nexus-pdf-citation')?.getAttribute('data-copy-state')).toBe(
+      'copied'
+    );
+  });
+
+  it('选区不在文本层里时不给引用 —— 半截界面文字拼出来的引用看起来完全正常', async () => {
+    const load = createPendingLoad();
+    getDocumentMock.mockReturnValue(load);
+    renderPdf();
+
+    await act(async () => {
+      load.resolve(createFakeDocument(2));
+    });
+
+    const outside = document.createElement('div');
+    outside.textContent = '工具栏上的字';
+    container.appendChild(outside);
+
+    const range = document.createRange();
+    range.selectNodeContents(outside);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    await act(async () => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+
+    expect(container.querySelector('.nexus-pdf-citation')).toBeNull();
   });
 });
 

@@ -81,7 +81,9 @@ describe('Phase 1 - Code Block Line Decorations (Slice 1)', () => {
 
     // Cursor should be placed at the line after the code block
     const doc = handle.view.state.doc.toString();
-    const afterCodePos = doc.indexOf('After code.');
+    // 下划线前缀：这个位置是「游标该落在哪」的意图记录，但断言用的是更宽松的
+    // 「代码块围栏之后」。改断言会动到测试语义，这里只让它不触发 lint。
+    const _afterCodePos = doc.indexOf('After code.');
     expect(handle.view.state.selection.main.head).toBeGreaterThanOrEqual(doc.indexOf('```') + 3);
 
     handle.destroy();

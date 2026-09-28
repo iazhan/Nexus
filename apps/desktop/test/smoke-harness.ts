@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const CDP_COMMAND_TIMEOUT_MS = 15000;
 
 /**
  * 单字符 → US 布局 KeyboardEvent.code。
@@ -248,11 +249,34 @@ export class ElectronAppInstance {
     };
   }
 
-  public sendCommand<T = any>(method: string, params: Record<string, any> = {}): Promise<T> {
+  public sendCommand<T = any>(
+    method: string,
+    params: Record<string, any> = {},
+    timeoutMs = CDP_COMMAND_TIMEOUT_MS
+  ): Promise<T> {
     return new Promise((resolve, reject) => {
       const id = ++this.msgId;
-      this.pendingRequests.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`CDP command timed out after ${timeoutMs}ms: ${method}`));
+      }, timeoutMs);
+      this.pendingRequests.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      });
+      try {
+        this.ws.send(JSON.stringify({ id, method, params }));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        reject(error);
+      }
     });
   }
 
@@ -276,19 +300,21 @@ export class ElectronAppInstance {
 
   public async waitForSelector(selector: string, timeoutMs = 10000): Promise<void> {
     const start = Date.now();
+    let lastEvaluationError: unknown;
     while (Date.now() - start < timeoutMs) {
       try {
         const found = await this.evaluate<boolean>(`Boolean(document.querySelector(${JSON.stringify(selector)}))`);
         if (found) return;
-      } catch {
-        // ignore evaluate error during loading
+      } catch (error) {
+        lastEvaluationError = error;
       }
       await new Promise((r) => setTimeout(r, 100));
     }
     const htmlObj = await this.sendCommand('Runtime.evaluate', { expression: 'document.body.innerHTML' });
     console.log('[HTML DUMP]', htmlObj.result?.value);
 
-    throw new Error(`Timeout (${timeoutMs}ms) waiting for selector: ${selector}`);
+    const detail = lastEvaluationError instanceof Error ? ` Last evaluation error: ${lastEvaluationError.message}` : '';
+    throw new Error(`Timeout (${timeoutMs}ms) waiting for selector: ${selector}.${detail}`);
   }
 
   /**
@@ -303,18 +329,20 @@ export class ElectronAppInstance {
    */
   public async waitForFunction(fnExpression: string, timeoutMs = 10000): Promise<void> {
     const start = Date.now();
+    let lastEvaluationError: unknown;
     while (Date.now() - start < timeoutMs) {
       try {
         const ok = await this.evaluate<boolean>(
           `(() => { const v = (${fnExpression}); return typeof v === 'function' ? Boolean(v()) : Boolean(v); })()`
         );
         if (ok) return;
-      } catch {
-        // ignore
+      } catch (error) {
+        lastEvaluationError = error;
       }
       await new Promise((r) => setTimeout(r, 100));
     }
-    throw new Error(`Timeout (${timeoutMs}ms) waiting for function: ${fnExpression}`);
+    const detail = lastEvaluationError instanceof Error ? ` Last evaluation error: ${lastEvaluationError.message}` : '';
+    throw new Error(`Timeout (${timeoutMs}ms) waiting for function: ${fnExpression}.${detail}`);
   }
 
   public async getText(selector: string): Promise<string> {

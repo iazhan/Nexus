@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import { launchElectronApp, createTempDir, type ElectronAppInstance } from './smoke-harness.js';
+import { createPdf } from './fixtures/documents.js';
 import { toAssetUrl } from '@nexus/core';
 
 /**
@@ -32,66 +33,8 @@ import { toAssetUrl } from '@nexus/core';
  * `canvas[data-page-number]` 与按钮的 `disabled`，两者都与文案无关。
  */
 
-/**
- * 生成一份**结构完整**的多页 PDF。
- *
- * 刻意用代码生成而不是内联一段 base64：这样 fixture 的来源就是可读的代码，
- * 页数、页面尺寸、每页文字都是**显式参数**，改断言时不用去猜「那坨二进制是什么」。
- *
- * 两个刻意的选择：
- * - **MediaBox 200×200、scale 1.5 ⟹ 逻辑宽度正好 300px**。300 是精确值，
- *   于是「canvas 尺寸算错」这类 bug 会立刻显形，而不是靠一个范围断言糊过去。
- * - **每页画不同的字**（`Page 1` / `Page 2`），翻页后像素会变 —— 这是「换页真的
- *   重新渲染了」而不是「只是把页码标签改了」的判据。
- *
- * xref 表是**真算出来**的（不是省掉让阅读器容错重建）：spike 用的那份缺 xref 也能
- * 被 pdfjs 接受，但那会让「PDF 解析失败」和「xref 缺失」两种原因纠缠在一起。
- */
-function createPdf(pageTexts: readonly string[]): Buffer {
-  const escapeText = (text: string): string => text.replace(/([\\()])/g, '\\$1');
-
-  // 对象号布局：1=Catalog、2=Pages、3+2i=第 i 页、4+2i=第 i 页内容流、末位=字体
-  const fontObjectNumber = 3 + pageTexts.length * 2;
-  const objects: string[] = [];
-
-  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
-  objects[2] =
-    `<< /Type /Pages /Kids [${pageTexts.map((_, i) => `${3 + i * 2} 0 R`).join(' ')}] ` +
-    `/Count ${pageTexts.length} >>`;
-
-  pageTexts.forEach((text, index) => {
-    const pageObjectNumber = 3 + index * 2;
-    const contentObjectNumber = pageObjectNumber + 1;
-    const stream = `BT /F1 24 Tf 24 140 Td (${escapeText(text)}) Tj ET`;
-
-    objects[pageObjectNumber] =
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] ` +
-      `/Resources << /Font << /F1 ${fontObjectNumber} 0 R >> >> ` +
-      `/Contents ${contentObjectNumber} 0 R >>`;
-    objects[contentObjectNumber] =
-      `<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`;
-  });
-
-  objects[fontObjectNumber] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
-
-  let pdf = '%PDF-1.4\n';
-  const offsets: number[] = [];
-  for (let number = 1; number < objects.length; number += 1) {
-    offsets[number] = Buffer.byteLength(pdf, 'latin1');
-    pdf += `${number} 0 obj\n${objects[number]}\nendobj\n`;
-  }
-
-  const xrefOffset = Buffer.byteLength(pdf, 'latin1');
-  const entryCount = objects.length; // 含 0 号自由条目
-  pdf += `xref\n0 ${entryCount}\n0000000000 65535 f \n`;
-  for (let number = 1; number < entryCount; number += 1) {
-    pdf += `${String(offsets[number]).padStart(10, '0')} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${entryCount} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-
-  return Buffer.from(pdf, 'latin1');
-}
-
+// fixture 生成器在 `fixtures/documents.ts` —— P3-10 需要第三种字体编法的 PDF
+// （CMap 编码、无 ToUnicode），三份 PDF 与 DOCX 的生成逻辑收拢到一处。
 const PDF_PAGE_TEXTS = ['Page 1', 'Page 2'];
 const PAGE_COUNT = PDF_PAGE_TEXTS.length;
 /** MediaBox 200×200 × BASE_SCALE 1.5 —— 与 `PdfRenderer` 的常量一致，必须精确。 */

@@ -43,6 +43,12 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# vite / vitest / electron-vite 加载 TS 配置时写的临时文件。
+# 正常会自己删掉，但进程被强杀（或批跑脚本超时 kill）时会残留 ——
+# 落进工作区后 `git status` 里会多出一堆看不懂的文件。
+*.timestamp-*.mjs
+electron.vite.config.*.mjs
+
 # Development documents
 docs/
 

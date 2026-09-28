@@ -15,6 +15,21 @@ export interface ViewerDocumentDescriptor {
   /** 文件名（含扩展名），供渲染器显示。 */
   readonly name: string;
   readonly type: ViewerDocumentType;
+  /**
+   * 打开时要定位到的页码（`#page=` 锚点解析出来的），`null` = 从第一页开始。
+   *
+   * 放进描述对象而不是让渲染器自己去读链接：渲染器只该知道「打开哪一份、翻到第几页」，
+   * 「这个页码是从哪来的」是宿主的策略。同一份 PDF 已经开着时，宿主换掉这个值即可，
+   * 渲染器不需要重挂载（`ViewerSurface` 的 key 是路径，换页不换 key）。
+   */
+  readonly page: number | null;
+  /**
+   * 生成引用时算相对路径的基准目录 —— 有工作区时是工作区根，轻量模式下是文档所在目录。
+   *
+   * 由宿主算好传进来：渲染器拿不到工作区根，也不该去猜「相对谁」。蓝图 §11.4 要求
+   * 引用里的路径相对**工作区**，所以这个基准不能是渲染器自己的 `path` 的目录。
+   */
+  readonly citationBase: string;
 }
 
 /**

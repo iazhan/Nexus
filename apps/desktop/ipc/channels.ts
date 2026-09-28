@@ -7,6 +7,8 @@ export const IPC_CHANNELS = {
   getLaunchContext: 'nexus:get-launch-context',
   openFile: 'nexus:open-file',
   openExternal: 'nexus:open-external',
+  /** 把文本写进系统剪贴板（P3-11 的「复制引用」）。 */
+  copyText: 'nexus:copy-text',
   readFile: 'nexus:read-file',
   writeFile: 'nexus:write-file',
   saveAs: 'nexus:save-as',

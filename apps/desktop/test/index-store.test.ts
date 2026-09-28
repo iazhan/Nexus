@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fsPromises from 'node:fs/promises';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,8 @@ import {
   segmentForIndex
 } from '../electron/index-store.js';
 import { indexWorkspace } from '../electron/indexer.js';
+import { createProcessorRegistry } from '../electron/processor/index.js';
+import { createPdf } from './fixtures/documents.js';
 
 /**
  * 工作区索引层（P2-05）。
@@ -40,10 +42,10 @@ describe('工作区索引', () => {
     await fsPromises.rm(tempDir, { recursive: true, force: true });
   });
 
-  const writeDoc = async (relativePath: string, content: string) => {
+  const writeDoc = async (relativePath: string, content: string | Buffer) => {
     const absolute = path.join(workspace, relativePath);
     await fsPromises.mkdir(path.dirname(absolute), { recursive: true });
-    await fsPromises.writeFile(absolute, content, 'utf-8');
+    await fsPromises.writeFile(absolute, content);
     return absolute;
   };
 
@@ -115,6 +117,30 @@ describe('工作区索引', () => {
   });
 
   describe('增量与清理', () => {
+    it('冷索引与热索引都从一次文档快照比对路径，不逐文件查询数据库', async () => {
+      await writeDoc('a.md', '甲。');
+      await writeDoc('b.md', '乙。');
+      await writeDoc('assets/one.png', 'png');
+
+      const store = IndexStore.open(dbPath);
+      const perPathLookup = vi.spyOn(store, 'getDocumentByPath');
+      const batchUpsert = vi.spyOn(store, 'upsertDocuments');
+      const singleUpsert = vi.spyOn(store, 'upsertDocument');
+
+      const first = await indexWorkspace({ service, store, rootPath: workspace });
+      expect(first).toMatchObject({ scanned: 3, indexed: 3, skipped: 0 });
+      expect(perPathLookup).not.toHaveBeenCalled();
+      expect(batchUpsert).toHaveBeenCalledTimes(1);
+      expect(singleUpsert).not.toHaveBeenCalled();
+
+      const second = await indexWorkspace({ service, store, rootPath: workspace });
+      expect(second).toMatchObject({ scanned: 3, indexed: 0, skipped: 3 });
+      expect(perPathLookup).not.toHaveBeenCalled();
+      expect(batchUpsert).toHaveBeenCalledTimes(1);
+
+      store.close();
+    });
+
     it('内容未变的文档被跳过，改过的重新索引', async () => {
       await writeDoc('a.md', '原始内容。');
       await writeDoc('b.md', '另一篇。');
@@ -191,6 +217,15 @@ describe('工作区索引', () => {
       expect(store.getStats().documents).toBe(3);
 
       store.close();
+    });
+  });
+
+  describe('锁目录诊断', () => {
+    it('SQLite 因锁目录无法打开时给出可行动的路径提示', async () => {
+      await fsPromises.mkdir(`${dbPath}.lock`);
+
+      expect(() => IndexStore.open(dbPath)).toThrow(/索引数据库锁目录已存在/);
+      expect(() => IndexStore.open(dbPath)).toThrow(`${dbPath}.lock`);
     });
   });
 
@@ -328,33 +363,56 @@ describe('工作区索引', () => {
       // 哪天改成读全文算哈希、或者顺手加一个只有索引才知道的字段，这条会先红。
       await writeDoc('assets/diagram.png', 'PNG 占位');
       await writeDoc('docs/manual.pdf', '%PDF-1.4 占位');
+      // Phase 3 / P3-10 把「附件元数据」扩展成了「元数据 + 提取状态」：被 Markdown
+      // 引用过的 PDF 会被提取文本并进全文索引，重建后这些都必须等价恢复。
+      // 计划 §9 第 2 条明确要求**扩展这个块**而不是另写一套「可重建性」测试 ——
+      // 同一个不变量有两处断言时，只会改一处。
+      await writeDoc('docs/datasheet.pdf', createPdf(['ZebraQuartz']));
+      await writeDoc(
+        'notes/引用.md',
+        '见 [手册](../docs/datasheet.pdf) 与 ![](../assets/diagram.png)。'
+      );
 
-      // 快照带上 type 与 sizeBytes：只比 path + title + hash 的话，
-      // 「附件被当成 Markdown 索引」这种错法照样能过。
+      // 快照带上 type / sizeBytes / extractionStatus：只比 path + title + hash 的话，
+      // 「附件被当成 Markdown 索引」或「提取状态没恢复」这类错法照样能过。
       const snapshot = (store: IndexStore) =>
         store.listDocuments().map((doc) => ({
           path: doc.path,
           title: doc.title,
           type: doc.type,
           sizeBytes: doc.sizeBytes,
-          hash: doc.contentHash
+          hash: doc.contentHash,
+          extractionStatus: doc.extractionStatus
         }));
 
+      const processors = createProcessorRegistry();
       const first = IndexStore.open(dbPath);
-      await indexWorkspace({ service, store: first, rootPath: workspace });
+      await indexWorkspace({ service, store: first, rootPath: workspace, processors });
       const before = snapshot(first);
       const beforeHits = first.search('从站').map((hit) => hit.relativePath);
+      // `ZebraQuartz` 只出现在 PDF 的**正文**里（文件名是 datasheet，标题会进 FTS），
+      // 所以这条命中只可能来自提取出的文本。
+      const beforeExtractedHits = first.search('ZebraQuartz').map((hit) => hit.relativePath);
+      expect(beforeExtractedHits).toEqual(['docs/datasheet.pdf']);
+      expect(before.find((doc) => doc.path.endsWith('datasheet.pdf'))?.extractionStatus).toBe(
+        'extracted'
+      );
+      // 没被任何笔记引用的 PDF 不提取 —— 计划 §10.1 决策 1
+      expect(before.find((doc) => doc.path.endsWith('manual.pdf'))?.extractionStatus).toBe('none');
       first.close();
 
       // 删库 —— 索引是派生数据，这一步不该丢任何用户内容
       fs.unlinkSync(dbPath);
 
       const rebuilt = IndexStore.open(dbPath);
-      await indexWorkspace({ service, store: rebuilt, rootPath: workspace });
+      await indexWorkspace({ service, store: rebuilt, rootPath: workspace, processors });
       const after = snapshot(rebuilt);
 
       expect(after).toEqual(before);
       expect(rebuilt.search('从站').map((hit) => hit.relativePath)).toEqual(beforeHits);
+      expect(rebuilt.search('ZebraQuartz').map((hit) => hit.relativePath)).toEqual(
+        beforeExtractedHits
+      );
 
       rebuilt.close();
     });

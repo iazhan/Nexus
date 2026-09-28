@@ -20,6 +20,14 @@ export interface NexusBridge {
    * 返回 `false` 表示协议不在白名单内、URL 非法，或系统调用失败。
    */
   openExternal: (url: string) => Promise<boolean>;
+  /**
+   * 把文本写进系统剪贴板，返回是否成功。
+   *
+   * 走 IPC 而不是渲染进程的 `navigator.clipboard`：sandbox 化的 preload 拿不到
+   * Electron 的 `clipboard` 模块，而 Clipboard API 在 `file://` 页面下要额外的
+   * 权限与聚焦条件 —— 复制失败时用户只会看到「按了没反应」。
+   */
+  copyText: (text: string) => Promise<boolean>;
   readFile: (filePath: string) => Promise<string>;
   writeFile: (filePath: string, content: string) => Promise<void>;
   saveAs: (content: string) => Promise<string>;

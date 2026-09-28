@@ -43,6 +43,23 @@ export function wikilinkCandidates(target: string): readonly string[] {
 }
 
 /**
+ * 把 wikilink 目标归一化成 `links` 表要存的形式：**去 `.md`、转小写**。
+ *
+ * ## 为什么单独提出来
+ *
+ * 归一化必须**只做一次**：写进 `links` 表的是它，查询反向链接时拿去比对的是它，
+ * 判断「附件有没有被引用」时用的也是它。三处各写一遍 `toLowerCase().replace(...)`，
+ * 改一处的规则（比如将来连 `.markdown` 一起去掉）就会让另一处静默失配 ——
+ * 症状是「能跳转但查不到反向链接」或「引用了却没进索引」，两边单独看都对。
+ *
+ * 这里只去 `.md`、不去其它扩展名：`[[stm32.pdf]]` 必须保持 `.pdf`，
+ * 否则附件引用会和笔记引用撞在同一个键上。
+ */
+export function normalizeWikilinkTarget(target: string): string {
+  return target.trim().toLowerCase().replace(/\.md$/, '');
+}
+
+/**
  * 附件的**内容指纹**（P3-04）。
  *
  * ## 为什么不读全文算 sha256

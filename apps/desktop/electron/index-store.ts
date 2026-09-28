@@ -1,6 +1,8 @@
 import { Database } from 'node-sqlite3-wasm';
+import fs from 'node:fs';
 import type {
   DocumentType,
+  ExtractionStatus,
   GraphEdge,
   IndexedDocument,
   SearchHit,
@@ -31,11 +33,13 @@ import type {
  * schema 版本。改表结构就 +1 —— 旧库会被整个重建。
  *
  * v4（Phase 3 / P3-04）：`documents` 加 `type` 列，附件开始进索引。
+ * v5（Phase 3 / P3-10）：`documents` 加 `extraction_status` 列，被 Markdown 引用过的
+ * PDF / DOCX 提取出的文本开始进 FTS。
  * 注意这里**没有迁移脚本** —— 索引是派生数据，重建成本是几秒扫盘，
  * 而迁移脚本会长期背着「派生数据的格式」这个不该背的包袱（见文件头注释）。
- * 所以「schema v4 的 migration」在本项目里的含义就是「把版本号改掉」。
+ * 所以「schema v5 的 migration」在本项目里的含义就是「把版本号改掉」。
  */
-const SCHEMA_VERSION = '4';
+const SCHEMA_VERSION = '5';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -54,6 +58,12 @@ const SCHEMA_STATEMENTS = [
      size_bytes INTEGER NOT NULL DEFAULT 0,
      modified_at_ms INTEGER NOT NULL DEFAULT 0,
      content_hash TEXT NOT NULL,
+     -- 文本提取状态（Phase 3 / P3-10）。**派生自「文件内容 + 它有没有被引用」**，
+     -- 同样是可重建的：删库重建必然得到同一个值。取值见 ExtractionStatus。
+     --
+     -- 默认 'none' 同时承担两个语义：「没有处理器认领这个类型」（图片、Markdown）
+     -- 与「这一轮它没被引用」。两者在界面上都不显示任何提示，所以不必再区分。
+     extraction_status TEXT NOT NULL DEFAULT 'none',
      indexed_at_ms INTEGER NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS idx_documents_relative_path ON documents(relative_path)`,
@@ -189,15 +199,29 @@ export class IndexStore {
 
   /** 打开（或创建）索引库，并确保 schema 是当前版本。 */
   static open(dbPath: string): IndexStore {
-    const db = new Database(dbPath);
-    const store = new IndexStore(db, dbPath);
+    let db: Database | null = null;
     try {
+      db = new Database(dbPath);
+      const store = new IndexStore(db, dbPath);
       store.ensureSchema();
+      return store;
     } catch (err) {
-      db.close();
+      db?.close();
+      const lockPath = `${dbPath}.lock`;
+      let lockDirectoryExists = false;
+      try {
+        lockDirectoryExists = fs.statSync(lockPath).isDirectory();
+      } catch (statError) {
+        if ((statError as NodeJS.ErrnoException).code !== 'ENOENT') throw statError;
+      }
+      if (lockDirectoryExists && /locked|busy/i.test(err instanceof Error ? err.message : String(err))) {
+        throw new Error(
+          `索引数据库锁目录已存在，可能被另一个 Nexus 实例使用，也可能是上次异常退出留下的残留：${lockPath}。关闭所有 Nexus 实例后再检查该目录。`,
+          { cause: err }
+        );
+      }
       throw err;
     }
-    return store;
   }
 
   close(): void {
@@ -235,7 +259,8 @@ export class IndexStore {
 
   getDocumentByPath(filePath: string): IndexedDocument | null {
     const row = this.db.get(
-      `SELECT id, path, relative_path, name, title, type, size_bytes, modified_at_ms, content_hash
+      `SELECT id, path, relative_path, name, title, type, size_bytes, modified_at_ms,
+              content_hash, extraction_status
          FROM documents WHERE path = ?`,
       [filePath]
     );
@@ -245,7 +270,8 @@ export class IndexStore {
   /** 按相对路径排序的全部文档 —— 供 Quick Open 之类的扁平列表使用。 */
   listDocuments(): IndexedDocument[] {
     const rows = this.db.all(
-      `SELECT id, path, relative_path, name, title, type, size_bytes, modified_at_ms, content_hash
+      `SELECT id, path, relative_path, name, title, type, size_bytes, modified_at_ms,
+              content_hash, extraction_status
          FROM documents ORDER BY relative_path`
     );
     return rows.map(mapDocument);
@@ -258,53 +284,63 @@ export class IndexStore {
    * 附件（非 Markdown）只写元数据，不碰 FTS —— 它没有可检索正文。
    */
   upsertDocument(input: UpsertDocumentInput, nowMs: number): number {
+    return this.upsertDocuments([input], nowMs)[0] ?? 0;
+  }
+
+  /**
+   * 在单个事务中写入一批变更文档，减少 wasm VFS 反复获取和释放目录锁的开销。
+   */
+  upsertDocuments(inputs: UpsertDocumentInput[], nowMs: number): number[] {
+    if (inputs.length === 0) return [];
+
     this.db.exec('BEGIN');
     try {
-      this.db.run(
-        `INSERT INTO documents(path, relative_path, name, title, type, size_bytes, modified_at_ms, content_hash, indexed_at_ms)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(path) DO UPDATE SET
-           relative_path = excluded.relative_path,
-           name = excluded.name,
-           title = excluded.title,
-           type = excluded.type,
-           size_bytes = excluded.size_bytes,
-           modified_at_ms = excluded.modified_at_ms,
-           content_hash = excluded.content_hash,
-           indexed_at_ms = excluded.indexed_at_ms`,
-        [
-          input.path,
-          input.relativePath,
-          input.name,
-          input.title,
-          input.type,
-          input.sizeBytes,
-          input.modifiedAtMs,
-          input.contentHash,
-          nowMs
-        ]
-      );
+      const ids = inputs.map((input) => this.upsertDocumentInTransaction(input, nowMs));
+      this.db.exec('COMMIT');
+      return ids;
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
 
-      const row = this.db.get(`SELECT id FROM documents WHERE path = ?`, [input.path]);
-      const documentId = Number(row?.id ?? 0);
-      if (documentId <= 0) {
-        throw new Error(`写入文档后拿不到 id: ${input.path}`);
-      }
+  /** 写入单篇文档，不管理事务；调用方负责批次提交或回滚。 */
+  private upsertDocumentInTransaction(input: UpsertDocumentInput, nowMs: number): number {
+    this.db.run(
+      `INSERT INTO documents(path, relative_path, name, title, type, size_bytes, modified_at_ms, content_hash, indexed_at_ms)
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(path) DO UPDATE SET
+         relative_path = excluded.relative_path,
+         name = excluded.name,
+         title = excluded.title,
+         type = excluded.type,
+         size_bytes = excluded.size_bytes,
+         modified_at_ms = excluded.modified_at_ms,
+         content_hash = excluded.content_hash,
+         extraction_status = 'none',
+         indexed_at_ms = excluded.indexed_at_ms`,
+      [
+        input.path,
+        input.relativePath,
+        input.name,
+        input.title,
+        input.type,
+        input.sizeBytes,
+        input.modifiedAtMs,
+        input.contentHash,
+        nowMs
+      ]
+    );
 
-      // 先删后插，**与类型无关**：文档改过之后旧的出链可能已经不存在了，只删不插
-      // 会让反向链接永远停在第一次索引的结果上。附件本来就没有出链和标签，但删除
-      // 仍然必要 —— 路径 `note.md` 被换成同名 `note.pdf`（或反过来）时路径相同、
-      // id 相同，不删就会把旧类型的出链留给新文档。
-      this.db.run(`DELETE FROM search_fts WHERE rowid = ?`, [documentId]);
-      this.db.run(`DELETE FROM links WHERE source_id = ?`, [documentId]);
-      this.db.run(`DELETE FROM tags WHERE source_id = ?`, [documentId]);
+    const row = this.db.get(`SELECT id FROM documents WHERE path = ?`, [input.path]);
+    const documentId = Number(row?.id ?? 0);
+    if (documentId <= 0) throw new Error(`写入文档后拿不到 id: ${input.path}`);
 
-      // 附件到此为止。
-      if (input.type !== 'markdown') {
-        this.db.exec('COMMIT');
-        return documentId;
-      }
+    this.db.run(`DELETE FROM search_fts WHERE rowid = ?`, [documentId]);
+    this.db.run(`DELETE FROM links WHERE source_id = ?`, [documentId]);
+    this.db.run(`DELETE FROM tags WHERE source_id = ?`, [documentId]);
 
+    if (input.type === 'markdown') {
       this.db.run(`INSERT INTO search_fts(rowid, title, body) VALUES(?, ?, ?)`, [
         documentId,
         segmentForIndex(input.title),
@@ -321,13 +357,9 @@ export class IndexStore {
       for (const tag of input.tags) {
         this.db.run(`INSERT OR IGNORE INTO tags(source_id, tag) VALUES(?, ?)`, [documentId, tag]);
       }
-
-      this.db.exec('COMMIT');
-      return documentId;
-    } catch (err) {
-      this.db.exec('ROLLBACK');
-      throw err;
     }
+
+    return documentId;
   }
 
   /** 删除一批文档及其全文索引，返回实际删掉的行数。 */
@@ -362,7 +394,8 @@ export class IndexStore {
 
     const rows = this.db.all(
       `SELECT d.id AS id, d.path AS path, d.relative_path AS relative_path,
-              d.name AS name, d.title AS title
+              d.name AS name, d.title AS title, d.type AS type,
+              d.extraction_status AS extraction_status
          FROM search_fts f
          JOIN documents d ON d.id = f.rowid
         WHERE search_fts MATCH ?
@@ -376,8 +409,101 @@ export class IndexStore {
       path: String(row.path),
       relativePath: String(row.relative_path),
       name: String(row.name),
-      title: String(row.title)
+      title: String(row.title),
+      type: readDocumentType(row.type),
+      extractionStatus: readExtractionStatus(row.extraction_status)
     }));
+  }
+
+  /**
+   * 写入（或清掉）一份附件的**文本提取结果**（Phase 3 / P3-10）。
+   *
+   * ## 为什么是一个独立方法，而不是 `upsertDocument` 的一个字段
+   *
+   * 两者的触发条件**不同**。`upsertDocument` 只在内容指纹变了时才跑；而提取结果
+   * 会因为「一篇 Markdown 开始引用这个附件」而变化 —— 那时附件自己的指纹**一个字
+   * 都没变**，`upsertDocument` 根本不会被调用。把提取结果塞进 upsert 的入参里，
+   * 就会出现「明明引用了却一直没被提取」这种只在第二次索引才显形的问题。
+   *
+   * ## 幂等
+   *
+   * 反复写同一个结果不会产生第二行 FTS —— 先删后插，与 `upsertDocument` 同一条口径。
+   * `status` 传 `'none'` 时只清 FTS 与状态，不插空行：FTS 里存一条空正文没有意义，
+   * 还会让「搜得到但打开什么都没有」成为可能。
+   */
+  setExtraction(
+    filePath: string,
+    result: { status: ExtractionStatus; text: string }
+  ): void {
+    const row = this.db.get(`SELECT id, title FROM documents WHERE path = ?`, [filePath]);
+    const documentId = Number(row?.id ?? 0);
+    if (documentId <= 0) return;
+
+    this.db.exec('BEGIN');
+    try {
+      this.db.run(`UPDATE documents SET extraction_status = ? WHERE id = ?`, [
+        result.status,
+        documentId
+      ]);
+
+      // 先删后插：与 upsertDocument 同一条口径，避免同一文档留下两份 FTS 行
+      this.db.run(`DELETE FROM search_fts WHERE rowid = ?`, [documentId]);
+
+      if (result.status === 'extracted' && result.text.length > 0) {
+        // 标题照常切分 —— 中文 PDF 的标题多半也是中文，不切就搜不到
+        this.db.run(`INSERT INTO search_fts(rowid, title, body) VALUES(?, ?, ?)`, [
+          documentId,
+          segmentForIndex(String(row?.title ?? '')),
+          segmentForIndex(result.text)
+        ]);
+      }
+
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  /**
+   * 从工作区里挑出**被 Markdown 引用过的附件**（Phase 3 / P3-10）。
+   *
+   * ## 为什么「被引用」才提取
+   *
+   * 计划 §10.1 决策 1：只索引被引用过的附件，索引体积与重建时间可控 ——
+   * P2 的「重建只要几秒」基线得以保住。一个 3000 张图 + 200 份手册的工作区里，
+   * 大部分附件从没被任何笔记引用过，给它们做全文索引是纯白付的代价。
+   *
+   * ## 两条匹配口径，都是**复用**而不是重写
+   *
+   * - **路径式引用**（`![](a.png)` / `[x](a.pdf)`）：直接比对工作区相对路径，
+   *   大小写不敏感。
+   * - **名字式引用**（`[[stm32.pdf]]`）：走 `backlinkTargetsOf()` —— 与反向链接
+   *   面板**同一个**函数。这一点是刻意的：如果这里另写一套候选规则，就会出现
+   *   「反向链接面板说指到了、索引说没指到」（或反过来），而两边单独看都对。
+   *   顺带，同名 Markdown 抢走短名的那条规则（`[[stm32]]` 归 `stm32.md`）
+   *   也一并生效，不会把 `stm32.pdf` 误判成被引用。
+   */
+  findReferencedAttachments(references: {
+    paths: ReadonlySet<string>;
+    wikilinkTargets: ReadonlySet<string>;
+  }): IndexedDocument[] {
+    const referenced: IndexedDocument[] = [];
+
+    for (const document of this.listDocuments()) {
+      if (document.type === 'markdown') continue;
+
+      if (references.paths.has(document.relativePath.toLowerCase())) {
+        referenced.push(document);
+        continue;
+      }
+
+      if (this.backlinkTargetsOf(document).some((target) => references.wikilinkTargets.has(target))) {
+        referenced.push(document);
+      }
+    }
+
+    return referenced;
   }
 
   /**
@@ -393,7 +519,7 @@ export class IndexStore {
 
     const rows = this.db.all(
       `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title, d.type,
-              d.size_bytes, d.modified_at_ms, d.content_hash
+              d.size_bytes, d.modified_at_ms, d.content_hash, d.extraction_status
          FROM links l
          JOIN documents d ON d.id = l.source_id
         WHERE l.target IN (${placeholders})
@@ -430,7 +556,7 @@ export class IndexStore {
 
     const rows = this.db.all(
       `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title, d.type,
-              d.size_bytes, d.modified_at_ms, d.content_hash
+              d.size_bytes, d.modified_at_ms, d.content_hash, d.extraction_status
          FROM tags t
          JOIN documents d ON d.id = t.source_id
         WHERE t.tag = ?
@@ -573,6 +699,14 @@ export class IndexStore {
 /** 允许出现在 `documents.type` 列里的值，用于把库里的字符串收敛回类型。 */
 const DOCUMENT_TYPES: readonly DocumentType[] = ['markdown', 'pdf', 'docx', 'image'];
 
+/** 允许出现在 `documents.extraction_status` 列里的值。 */
+const EXTRACTION_STATUSES: readonly ExtractionStatus[] = [
+  'none',
+  'extracted',
+  'empty',
+  'failed'
+];
+
 function mapDocument(row: Record<string, unknown>): IndexedDocument {
   return {
     id: Number(row.id),
@@ -583,7 +717,8 @@ function mapDocument(row: Record<string, unknown>): IndexedDocument {
     type: readDocumentType(row.type),
     sizeBytes: Number(row.size_bytes ?? 0),
     modifiedAtMs: Number(row.modified_at_ms ?? 0),
-    contentHash: String(row.content_hash)
+    contentHash: String(row.content_hash),
+    extractionStatus: readExtractionStatus(row.extraction_status)
   };
 }
 
@@ -597,4 +732,18 @@ function mapDocument(row: Record<string, unknown>): IndexedDocument {
 function readDocumentType(raw: unknown): DocumentType {
   const value = typeof raw === 'string' ? raw : '';
   return DOCUMENT_TYPES.includes(value as DocumentType) ? (value as DocumentType) : 'markdown';
+}
+
+/**
+ * 把库里的 `extraction_status` 列收敛回 `ExtractionStatus`。
+ *
+ * 与 `readDocumentType` 同一条口径：认不出一律当 `'none'`。这个方向是安全的 ——
+ * `'none'` 在界面上不显示任何提示，宁可少说一句，也不要把一个脏值渲染成
+ * 「未提取到文本」那种**看起来像结论**的东西。
+ */
+function readExtractionStatus(raw: unknown): ExtractionStatus {
+  const value = typeof raw === 'string' ? raw : '';
+  return EXTRACTION_STATUSES.includes(value as ExtractionStatus)
+    ? (value as ExtractionStatus)
+    : 'none';
 }

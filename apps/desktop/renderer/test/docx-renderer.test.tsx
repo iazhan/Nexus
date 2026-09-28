@@ -37,7 +37,9 @@ vi.mock('mammoth', () => ({
 const DOC: ViewerDocumentDescriptor = {
   path: 'D:\\vault\\assets\\spec.docx',
   name: 'spec.docx',
-  type: 'docx'
+  type: 'docx',
+  page: null,
+  citationBase: 'D:////vault'
 };
 
 /** 一次 `convertToHtml` 的返回值：由测试决定何时兑现、兑现成什么。 */

@@ -7,7 +7,7 @@ import React, {
   useSyncExternalStore
 } from 'react';
 import type { FileDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
-import { isViewerDocumentType } from '@nexus/core';
+import { isViewerDocumentType, parsePageAnchor } from '@nexus/core';
 import {
   MarkdownDocumentSession,
   openSearchPanel,
@@ -265,6 +265,7 @@ export const App: React.FC = () => {
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const initialContentRef = useRef('');
+  const savingContentRef = useRef<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const unwatchRef = useRef<Unsubscribe | null>(null);
@@ -516,7 +517,12 @@ export const App: React.FC = () => {
         if (!window.nexus?.writeFile) {
           throw new Error('writeFile bridge is unavailable');
         }
-        await window.nexus.writeFile(filePath, currentSource);
+        savingContentRef.current = currentSource;
+        try {
+          await window.nexus.writeFile(filePath, currentSource);
+        } finally {
+          savingContentRef.current = null;
+        }
 
         // 写入期间可能发生新编辑；此时旧快照已落盘，但不能把当前文档标记为已保存。
         const sourceStillCurrent = session.getSnapshot().source === currentSource;
@@ -578,10 +584,13 @@ export const App: React.FC = () => {
    * 只登记路径与类型，**不读内容** —— 内容怎么来是渲染器的事（P3-06 起走
    * `nexus-asset://`，见 §5.1）。在这里顺手读一遍会把 200MB 的 PDF 塞进
    * IPC 与 renderer 内存，而渲染器最终还是要按 Range 重新取一次。
+   *
+   * `page` 来自引用里的 `#page=` 锚点（P3-11）。同一份附件已经开着时它只换位置、
+   * 不新建标签页 —— 那条规则在 store 里，这里只负责把值递进去。
    */
   const openViewerDocumentAt = useCallback(
-    (targetPath: string, type: ViewerDocumentType) => {
-      store.openViewerDocument({ filePath: targetPath, type });
+    (targetPath: string, type: ViewerDocumentType, page?: number) => {
+      store.openViewerDocument({ filePath: targetPath, type, page });
       // 附件不参与编辑，所以窗口不该处于「有未保存内容」的状态 ——
       // 否则关窗确认框会因为「刚才看了一眼 PDF」而弹出来。
       window.nexus?.setDirty?.(false);
@@ -597,9 +606,11 @@ export const App: React.FC = () => {
    * 落到各自的动作上。原先这条逻辑散在两个函数里（`handleOpenWorkspaceFile`
    * 与 `openDocumentAt`），两者唯一的差别只是日志文案 —— 而「链接点进去能开、
    * 文件树点进去报不支持」正是从这种分叉里长出来的。
+   *
+   * `page` 是引用里的 `#page=` 锚点（P3-11），只对 viewer 分支有意义。
    */
   const handleOpenWorkspaceFile = useCallback(
-    async (targetPath: string): Promise<boolean> => {
+    async (targetPath: string, page?: number): Promise<boolean> => {
       const target = classifyOpenTarget(targetPath);
 
       if (target.kind === 'unsupported') {
@@ -610,7 +621,8 @@ export const App: React.FC = () => {
       }
 
       if (target.kind === 'viewer') {
-        openViewerDocumentAt(target.path, target.type);
+        // `page` 只对 viewer 有意义（`#page=` 是引用 PDF 的位置），Markdown 分支忽略它。
+        openViewerDocumentAt(target.path, target.type, page);
         setLinkError(null);
         return true;
       }
@@ -676,6 +688,22 @@ export const App: React.FC = () => {
           setSaveError(watchEvent.message);
           updateSaveState('error');
         } else if (watchEvent.type === 'changed') {
+          // 自身保存触发的 watcher 可能先于 IPC 完成返回。确认磁盘内容与本次保存
+          // 的快照一致后忽略该事件，避免把 saving 瞬间误判为外部冲突。
+          if (saveStateRef.current === 'saving' && savingContentRef.current !== null) {
+            try {
+              const freshContent = await window.nexus?.readFile?.(filePath);
+              if (freshContent === savingContentRef.current) return;
+            } catch (readErr) {
+              console.error('Failed to verify file during save:', readErr);
+              setSaveError(String(readErr));
+              updateSaveState('error');
+              return;
+            }
+            updateSaveState('external-changed');
+            return;
+          }
+
           // Only auto-reload if document is completely clean and saved
           const isDocClean =
             (saveStateRef.current === 'saved' || saveStateRef.current === 'clean' || saveStateRef.current === 'readonly') &&
@@ -960,6 +988,7 @@ export const App: React.FC = () => {
    *   1. `#anchor`         → 文档内标题跳转，不离开当前文档
    *   2. http/https/mailto → 交给系统默认浏览器
    *   3. 相对路径           → 按当前文档目录解析，再由编辑器打开
+   *                          （可带 `#page=` 页码锚点，P3-11 的引用就是这种）
    *
    * 返回 false 表示不处理，事件交回浏览器，保持默认的落光标行为。
    */
@@ -1042,7 +1071,7 @@ export const App: React.FC = () => {
         return true;
       }
 
-      void handleOpenWorkspaceFile(resolved);
+      void handleOpenWorkspaceFile(resolved, parsePageAnchor(target) ?? undefined);
       return true;
     },
     [filePath, handleOpenWorkspaceFile, t]
@@ -1766,7 +1795,14 @@ export const App: React.FC = () => {
             document={{
               path: activeDocument.filePath,
               name: getFileName(activeDocument.filePath),
-              type: activeDocument.type
+              type: activeDocument.type,
+              page: activeDocument.viewerPage,
+              // 有工作区时引用相对工作区根（蓝图 §11.4），轻量模式下退回文档所在目录 ——
+              // 那时没有工作区可言，相对同目录是唯一能点开的写法。
+              citationBase:
+                workspaceRoot ??
+                getDocumentDirectory(activeDocument.filePath) ??
+                activeDocument.filePath
             }}
             registry={viewerRegistryRef.current}
           />

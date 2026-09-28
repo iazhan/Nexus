@@ -13,7 +13,18 @@ export default defineConfig({
           name: 'unit',
           globals: true,
           environment: 'node',
-          include: ['packages/*/test/**/*.test.ts']
+          include: ['packages/*/test/**/*.test.ts'],
+          // `@codemirror` / `@lezer` 必须都走 vite 的模块图。默认它们会被加载**两份**
+          // （vite-node 一份、包内部 `require` 走 Node 又一份），`instanceof` 于是失败：
+          // `Unrecognized extension value in extension set ... multiple instances of
+          // @codemirror/state are loaded`（实测 17 文件 / 313 条全红）。
+          // **不能收窄**到 `state` + `view` —— `language-data` 的动态 import 会落到
+          // 另一份实例上，7 条语法高亮用例变红。
+          server: {
+            deps: {
+              inline: [/@codemirror[\\/]/, /@lezer[\\/]/]
+            }
+          }
         }
       },
       {
@@ -23,7 +34,9 @@ export default defineConfig({
           environment: 'happy-dom',
           // 同时匹配 .ts：renderer 层的纯逻辑（状态层、纯函数）没有 JSX，
           // 不该因为后缀被挡在测试之外。
-          include: ['apps/desktop/renderer/test/**/*.test.{ts,tsx}']
+          include: ['apps/desktop/renderer/test/**/*.test.{ts,tsx}'],
+          // 见该文件注释：本机 react 被加载两份，act 不会提交 DOM，这里补一层。
+          setupFiles: ['apps/desktop/renderer/test/support/setup.ts']
         }
       },
       {

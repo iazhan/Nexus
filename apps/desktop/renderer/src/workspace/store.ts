@@ -69,6 +69,13 @@ export interface ViewerDocument extends WorkspaceDocumentBase {
    * 的假象（验收第 3 条要求原文件 mtime 与哈希不变），所以这一层直接不给。
    */
   readonly session: null;
+  /**
+   * 要定位到的页码（`#page=` 锚点），`null` = 从第一页开始。
+   *
+   * 与 `saveState` 不同，它是**会变**的：同一个 PDF 已经开着时点另一条带
+   * `#page=` 的引用，只该换位置、不该新建标签页。所以这里不是 readonly。
+   */
+  viewerPage: number | null;
 }
 
 /**
@@ -103,6 +110,8 @@ export interface OpenViewerDocumentInput {
    * viewer」变成类型错误，而不是一条要靠人记住的约定。
    */
   type: ViewerDocumentType;
+  /** 引用里的 `#page=` 锚点解析出来的页码；不传就是「从第一页开始」。 */
+  page?: number;
 }
 
 let documentCounter = 0;
@@ -231,8 +240,20 @@ export class WorkspaceStore {
 
     const existing = this.findDocumentByPath(input.filePath);
     if (existing) {
-      this.activate(existing.id);
-      return this.expectViewer(existing, 'openViewerDocument');
+      const viewer = this.expectViewer(existing, 'openViewerDocument');
+      // 同一份附件已经开着时，`#page=` 只该换位置。新建标签页会让「点两次引用」
+      // 开出两份同一个 PDF —— 而两份之间没有任何同步，用户看到的是「页码又回去了」。
+      const page = input.page ?? viewer.viewerPage;
+      const updated: ViewerDocument =
+        page === viewer.viewerPage ? viewer : { ...viewer, viewerPage: page };
+      if (updated !== viewer) {
+        this.documents = this.documents.map((document) =>
+          document.id === viewer.id ? updated : document
+        );
+      }
+      this.activeId = viewer.id;
+      this.emit();
+      return updated;
     }
 
     const document: ViewerDocument = {
@@ -243,7 +264,8 @@ export class WorkspaceStore {
       session: null,
       saveState: 'readonly',
       saveError: null,
-      readOnly: true
+      readOnly: true,
+      viewerPage: input.page ?? null
     };
 
     this.documents = [...this.documents, document];

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,7 @@ import { createElectronFileDialog } from './file-dialog.js';
 import { HistoryStore } from './history-store.js';
 import { IndexStore } from './index-store.js';
 import { indexWorkspace } from './indexer.js';
+import { createProcessorRegistry } from './processor/index.js';
 import {
   IPC_CHANNELS,
   type FileWatchIpcPayload,
@@ -537,6 +538,14 @@ ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, url: unknown) => {
   }
 });
 
+ipcMain.handle(IPC_CHANNELS.copyText, (_event, text: unknown) => {
+  // 只接受字符串。写剪贴板是系统级副作用，不接受任何形状不明的输入 ——
+  // 一个对象被 `writeText` 静默转成 `[object Object]` 的话，用户粘出来的是垃圾。
+  if (typeof text !== 'string') return false;
+  clipboard.writeText(text);
+  return true;
+});
+
 ipcMain.handle(IPC_CHANNELS.readFile, async (event, filePath: string) => {
   const session = getOrCreateSession(event.sender);
   return await session.service.readFile(filePath);
@@ -636,7 +645,15 @@ ipcMain.handle(IPC_CHANNELS.rebuildIndex, async (event, rootPath: unknown) => {
   }
 
   const store = openIndexStore(event.sender.id, rootPath);
-  return indexWorkspace({ service, store, rootPath });
+  // 处理器注册表**每次索引新建**：它是无状态的纯装配，缓存在进程级只会让
+  // 「测试之间不串味」这条性质消失（`p3-10-processors.test.ts` 有一条钉它）。
+  // 两个处理器内部的模块懒加载缓存是进程级的，那部分本来就该共用。
+  return indexWorkspace({
+    service,
+    store,
+    rootPath,
+    processors: createProcessorRegistry()
+  });
 });
 
 ipcMain.handle(IPC_CHANNELS.searchIndex, (event, query: unknown, limit: unknown) => {

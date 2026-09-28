@@ -11,7 +11,9 @@ import type { ViewerDocumentDescriptor } from '../src/viewer/types.js';
 const DOC: ViewerDocumentDescriptor = {
   path: 'D:\\vault\\assets\\diagram.png',
   name: 'diagram.png',
-  type: 'image'
+  type: 'image',
+  page: null,
+  citationBase: 'D:////vault'
 };
 
 /**

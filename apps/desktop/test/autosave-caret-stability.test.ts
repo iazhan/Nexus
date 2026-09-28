@@ -66,6 +66,10 @@ describe('Auto-save caret stability', () => {
     // 再等 fs.watch 事件与可能的整篇重载往返
     await new Promise((resolve) => setTimeout(resolve, 2500));
 
+    expect(
+      await app.evaluate<boolean>(`Boolean(document.querySelector('.nexus-conflict-banner'))`)
+    ).toBe(false);
+
     const settled = await app.evaluate(`(() => {
       const view = window.nexusActiveView;
       return {

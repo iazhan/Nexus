@@ -596,11 +596,91 @@ body {
 
    白底也是必需的：pdfjs 只画内容、不画页面背景，深色主题下 canvas 透明 →
    黑底黑字，看起来像「PDF 渲染失败」。 */
+/* canvas 与文本层必须严格同尺寸叠放，所以外面包一层相对定位的容器 ——
+   文本层是 `inset: 0` 的绝对定位元素，它的坐标系就是这一层。 */
+.nexus-pdf-page {
+  position: relative;
+  flex: none;
+}
+
 .nexus-pdf-canvas {
   flex: none;
   display: block;
   background-color: #ffffff;
   box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
+}
+
+/* pdfjs 的文本层：**透明的字**浮在 canvas 上，唯一的用途是让浏览器能选中它
+   （canvas 里的像素选不中）。规则照 `pdfjs-dist/web/pdf_viewer.css` 的 `.textLayer`
+   取最小集 —— 不整份引入那份样式表，它带着整个 viewer 的排版与主题。
+
+   字号与坐标由 pdfjs 写成 `calc(Npx * var(--scale-factor))`，那个变量由渲染器
+   按 viewport 的 scale 设在容器上（见 `PdfRenderer.tsx`）。 */
+.nexus-pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+}
+
+.nexus-pdf-text-layer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+/* 选中高亮必须看得见：文字是透明的，不给选中态上色就等于「选了但没反馈」。 */
+.nexus-pdf-text-layer ::selection {
+  background: rgb(0 100 255 / 25%);
+}
+
+/* 选区非空时才出现（P3-11）。显示生成的 Markdown 原文，让用户在复制之前
+   就能看出格式对不对 —— 粘进笔记之后才发现链接写坏了要难查得多。 */
+.nexus-pdf-citation {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface);
+}
+
+.nexus-pdf-citation-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--nexus-text-secondary);
+}
+
+/* 复制失败要能一眼看出来：剪贴板被占用时用户按了没反应，会以为按钮是摆设。 */
+.nexus-pdf-citation[data-copy-state='failed'] .nexus-pdf-citation-text {
+  color: var(--nexus-status-error-text);
+}
+
+.nexus-pdf-copy-button {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 4px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nexus-pdf-copy-button:hover {
+  background-color: var(--nexus-bg-surface-hover);
 }
 
 /* 加载态浮在 stage 上，不占布局 —— 否则 canvas 会在 spinner 出现/消失时上下跳。 */
@@ -1155,12 +1235,35 @@ body.nexus-resizing {
   background-color: var(--nexus-bg-surface-hover);
 }
 
+/* 名字行：文件名 + 类型徽标。徽标很短，不参与压缩；名字吃掉剩下的宽度 */
+.nexus-search-hit-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .nexus-search-hit-name {
+  /* 作为 flex 子项，`min-width: auto` 会让省略号失效（撑破容器而不是被截断） */
+  min-width: 0;
   font-size: 13px;
   color: var(--nexus-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 类型徽标（PDF / DOCX）：标明这个命中来自**提取出来的正文**，
+   而不是文件名。Markdown 命中不带徽标 —— 那是默认情形。 */
+.nexus-search-hit-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 15px;
+  letter-spacing: 0.02em;
+  color: var(--nexus-text-secondary);
+  background-color: var(--nexus-bg-surface-hover);
 }
 
 .nexus-search-hit-path {
@@ -1426,6 +1529,100 @@ body.nexus-resizing {
 
 .nexus-tree-chevron-open {
   transform: rotate(90deg);
+}
+
+/* 侧栏两段（P3-09）：笔记树 / 附件区。段标题比条目更弱，段间用一条细线分开 ——
+   两段都是「同一种东西的列表」，靠标题区分比靠背景色块更省视觉预算。 */
+.nexus-sidebar-section + .nexus-sidebar-section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-sidebar-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* 左内边距与 .nexus-sidebar-header 对齐，让段标题和根目录名在同一条竖线上 */
+  padding: 2px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-sidebar-section-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 附件分组标题。它复用 .nexus-tree-dir（同一种「可折叠的一层」），
+   但计数要顶到右边，所以让名字吃掉剩余宽度。 */
+.nexus-attachment-group .nexus-tree-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nexus-attachment-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 附件行：名称（可省略）+ 同名目录提示 + 大小。
+   三者都是 flex 子项，名称必须 min-width: 0 才能真的省略 ——
+   flex 项的自动最小尺寸默认是内容宽度，不归零就只会把整行撑破。
+   名称沿用 `.nexus-tree-name`（附件行和笔记行一样都是「树里的一行」），
+   这里只补它在本行需要的伸缩行为。 */
+.nexus-attachment-item {
+  gap: 6px;
+}
+
+.nexus-attachment-item .nexus-tree-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 只在同名时才出现的目录提示，比名称更弱；上限 40% 是为了不让它挤掉名称 */
+.nexus-attachment-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+/* 大小右对齐：等宽数字让一列文件的大小能竖着对齐 */
+.nexus-attachment-size {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 文本提取提示（P3-10）。只有 `empty` 与 `failed` 会出现 —— 见
+   `extractionNoteOf()`：`extracted` 是成功不必说话，`none` 是
+   「这个类型没有处理器 / 这一轮它没被引用」，也不该提示。 */
+.nexus-attachment-note {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  /* 默认灰字：「没提取到文本」是一份**事实**（扫描版 PDF），不是故障 */
+  color: var(--nexus-text-muted);
+}
+
+/* 提取失败是**故障**，不是事实 —— 它值得比旁边的大小数字更醒目一点。
+   用 error 而不是 warning：这一格出现就意味着有东西坏了，而它本该罕见。 */
+.nexus-attachment-note-failed {
+  color: var(--nexus-status-error-text);
 }
 
 /* 多标签页栏（P2-04）：只渲染「打开了几个文档」，不持有任何文档状态 */
