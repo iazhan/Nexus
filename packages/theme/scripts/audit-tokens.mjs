@@ -1,33 +1,20 @@
 #!/usr/bin/env node
-// Token governance gate for the Nexus theme system (plan §4.8, M6).
+// 主题系统的 token 门禁 —— 三条规则，只在「改坏了东西」时失败：
 //
-//   node packages/theme/scripts/audit-tokens.mjs [--root <dir>] [--quiet]
+//   1. 每个自定义属性引用都有定义（任意前缀：运行时 var 的拼写错误与 token 拼错是同一类 bug）
+//   2. 每个定义出的 `--nexus-*` token 都被引用，或标了 `@reserved`
+//   3. 定义文件之外没有颜色字面量，除非标了 `@constant`
 //
-// Three rules, all "fail only when you change something":
+// 用法：node packages/theme/scripts/audit-tokens.mjs [--root <dir>] [--quiet]
 //
-//   1. every custom-property reference has a definition (any prefix — a typo in a runtime
-//      var is the same class of bug as a typo in a token)
-//   2. every defined `--nexus-*` token is referenced, or marked `@reserved`
-//   3. no colour literal outside the token-definition source, unless marked `@constant`
+// 规则 1 必须先过才能剥掉消费侧的兜底色 —— 兜底还在时，断掉的引用只退化成近似色而不是可见的
+// 失败，反过来做会留下一个「看着像主题系统坏了」的中间态。
 //
-// Rule 1 has to pass BEFORE the Tailwind fallbacks in `theme.ts` are removed. Those fallbacks
-// are currently the only backstop: with them gone, a reference to an undefined token loses its
-// colour outright instead of falling back to a near-miss. The other order produces a mid-state
-// that looks like the theme system is broken.
+// 豁免是行级的、必须显式（`@reserved` 有意但暂无调用点；`@constant` 有意与主题无关，如阴影、
+// 平台红）—— 「没被测到」绝不能看起来像「通过了」。
 //
-// Exemptions are line-level and must be explicit — "not tested" must never look like "passed":
-//
-//   `@reserved`  the token is intentional and has no call site yet
-//   `@constant`  this colour is deliberately theme-independent (elevation shadow, platform red)
-//
-// Colour literals in the definition file (`packages/theme/src/index.ts`) are the single legal
-// hardcoding site and are not reported.
-//
-// Rule 3 reads CODE, not prose: a doc comment explaining what `rgb()` accepts, or citing
-// `rgba(27,31,35,0.05)` as an example, is documentation — not a hardcoded colour. Without this,
-// writing a comment about colour syntax fails the gate, and the fix people reach for is to stop
-// documenting. Only whole-line comments and trailing `//` are stripped; `@constant` is read from
-// the raw line, since that marker lives inside a comment itself.
+// 规则 3 读代码不读散文：解释 `rgb()` 语法或举例颜色的注释是文档，不是硬编码颜色 —— 否则写
+// 一句关于颜色语法的注释就会让门禁失败，而人们会选择不再写注释。
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -37,13 +24,17 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return i === -1 ? d : 
 const ROOT = arg('root', '.');
 const QUIET = argv.includes('--quiet');
 
-const DEFS_FILE = 'packages/theme/src/index.ts';
+// 色值定义文件：token 值与 16 色种子在这里按定义就是字面量，规则 3 不扫它们。
+const DEFS_FILES = new Set([
+  'packages/theme/src/index.ts',
+  'packages/theme/src/seeds.ts',
+]);
+const DEFS_LABEL = [...DEFS_FILES].join(', ');
 const THEME_PREFIX = '--nexus-';
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'out', 'build', '.git', '.workbuddy-ai', '.serena', 'coverage']);
 const SCAN_EXT = /\.(ts|tsx|css)$/;
 
-// test/ and fixtures/ are excluded: they assert on colours on purpose, and counting them turns
-// rule 3 into noise that gets muted.
+// test/ 与 fixtures/ 排除：它们本来就断言颜色，算进来只会让规则 3 变成会被静音的噪声。
 const isSkipped = (rel) => {
   const parts = rel.split('/');
   return parts.some((p) => SKIP_DIRS.has(p)) || parts.includes('test') || parts.includes('fixtures');
@@ -60,25 +51,23 @@ const files = [];
   }
 })(ROOT);
 
-// ---- extraction -------------------------------------------------------------
-// `var(--x)` — the terminator is required, or a doc comment containing `var(--nexus-*)`
-// yields a phantom token named `--nexus-`. Tokens never end in `-`, which also rejects `---`.
+// ---- 提取 ----------------------------------------------------------------
+// 终结符是必需的，否则含 `var(--nexus-*)` 的文档注释会产出名为 `--nexus-` 的幽灵 token；
+// token 不以 `-` 结尾，这同时排掉了 `---`。
 const VAR_REF_RE = /var\(\s*(--[a-z0-9]+(?:-[a-z0-9]+)*)\s*[,)]/g;
-// Quoted custom properties: JS reads them through helpers, and `GraphPanel`'s broken
-// `'--nexus-accent'` is only visible in this form. Three guards, each earned:
-//   * a quoted token that is a `+` concatenation is a fragment (`'--nexus-' + key`) — skip
-//   * Chromium CLI switches (`'--user-data-dir'`) look identical to custom properties, so a
-//     quoted token only counts if it carries the theme prefix or sits on a CSS-var helper line
-//   * an object key or `setProperty` argument is a WRITE, not a reference
+// 带引号的自定义属性：JS 通过 helper 读它们，字符串里的 token 只有这种形式才看得见。三条守卫：
+//   * 后面跟 `+` 的是拼接片段（`'--nexus-' + key`），跳过
+//   * Chromium 命令行开关（`'--user-data-dir'`）与自定义属性同形，所以只有带主题前缀、
+//     或落在 CSS-var helper 行上的才算引用
+//   * 对象键与 `setProperty` 参数是写入，不是引用
 const QUOTED_RE = /(['"])(--[a-z0-9]+(?:-[a-z0-9]+)*)\1/g;
 const VAR_HELPER_RE = /getPropertyValue|setProperty|getComputedStyle|readColor|readVar|cssVar/;
 const DEF_RE = /^\s*(--[a-z0-9]+(?:-[a-z0-9]+)*)\s*:/;
 const TOKEN_KEY_RE = /^\s*'([a-z0-9-]+)'\s*:\s*'([^']+)'/;
 const COLOUR_RE = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\([^)]*\)/g;
 
-// Whole-line comments and trailing `//` only. `(?<!:)` keeps `https://` intact; a `//` inside a
-// string literal would still be cut, but the only cost of that is a missed literal, and no such
-// line exists today.
+// 只剥整行注释与行尾 `//`。`(?<!:)` 保住 `https://`；字符串里的 `//` 也会被切，代价只是漏掉
+// 一个字面量，而目前没有这种行。
 const stripComment = (text) => {
   const head = text.trimStart();
   if (head.startsWith('//') || head.startsWith('/*') || head.startsWith('*')) return '';
@@ -97,7 +86,7 @@ const addRef = (token, file, line, form) => {
 
 for (const { rel, full } of files) {
   const lines = readFileSync(full, 'utf8').split(/\r?\n/);
-  const isDefs = rel === DEFS_FILE;
+  const isDefs = DEFS_FILES.has(rel);
 
   lines.forEach((text, i) => {
     const line = i + 1;
@@ -108,7 +97,7 @@ for (const { rel, full } of files) {
     const hasHelper = VAR_HELPER_RE.test(text);
     for (const m of text.matchAll(QUOTED_RE)) {
       const after = text.slice(m.index + m[0].length).trimStart();
-      if (after.startsWith('+')) continue;                      // `'--nexus-' + key` fragment
+      if (after.startsWith('+')) continue;                      // `'--nexus-' + key` 片段
       const isKey = after.startsWith(':');
       if (isKey || isWrite) {
         if (!defined.has(m[2])) defined.set(m[2], { file: rel, line, reserved: false });
@@ -131,12 +120,14 @@ for (const { rel, full } of files) {
     if (/@constant/.test(text)) return;
     const code = stripComment(text);
     if (!code) return;
-    const values = [...code.matchAll(COLOUR_RE)].map((m) => m[0]);
+    // 拼出颜色的模板字符串（`rgba(${r}, ${g}, ...)`）不是字面量：正则会在插值里的第一个 `)`
+    // 处停住。
+    const values = [...code.matchAll(COLOUR_RE)].map((m) => m[0]).filter((v) => !v.includes('${'));
     if (values.length) literals.push({ file: rel, line, values, text: text.trim() });
   });
 }
 
-// ---- rules ------------------------------------------------------------------
+// ---- 规则 ------------------------------------------------------------------
 const rule1 = [...refs.entries()]
   .filter(([token]) => !defined.has(token))
   .map(([token, sites]) => ({ token, sites }))
@@ -154,22 +145,22 @@ const out = [];
 const say = (s = '') => out.push(s);
 const short = (p) => p.split('/').slice(-3).join('/');
 
-say(`scan root : ${ROOT}`);
-say(`files     : ${files.length}`);
-say(`defined   : ${defined.size}   referenced: ${refs.size}`);
+say(`扫描根目录 : ${ROOT}`);
+say(`文件数     : ${files.length}`);
+say(`已定义     : ${defined.size}   被引用: ${refs.size}`);
 
-say(`\n=== [1] referenced but NOT defined (${rule1.length}) ===`);
+say(`\n=== [1] 被引用但未定义 (${rule1.length}) ===`);
 for (const { token, sites } of rule1) {
   const forms = [...new Set(sites.map((s) => s.form))].join('+');
   say(`  ${token}  x${sites.length} [${forms}]  ${[...new Set(sites.map((s) => short(s.file)))].join(', ')}`);
 }
-if (!rule1.length) say('  (none)');
+if (!rule1.length) say('  （无）');
 
-say(`\n=== [2] defined but NEVER referenced (${rule2.length}) ===`);
+say(`\n=== [2] 已定义但从未被引用 (${rule2.length}) ===`);
 for (const { token, info } of rule2) say(`  ${token}   ${short(info.file)}:${info.line}`);
-if (!rule2.length) say('  (none)');
+if (!rule2.length) say('  （无）');
 
-say(`\n=== [3] colour literals outside ${DEFS_FILE} (${literalCount} on ${rule3.length} lines) ===`);
+say(`\n=== [3] ${DEFS_LABEL} 之外的颜色字面量 (${literalCount} 个 / ${rule3.length} 行) ===`);
 const byFile = new Map();
 for (const l of rule3) {
   if (!byFile.has(l.file)) byFile.set(l.file, []);
@@ -179,10 +170,10 @@ for (const [file, items] of [...byFile.entries()].sort((a, b) => b[1].length - a
   say(`  ${String(items.length).padStart(4)}  ${file}`);
   if (!QUIET) for (const it of items) say(`          ${it.line}: ${it.text}`);
 }
-if (!rule3.length) say('  (none)');
+if (!rule3.length) say('  （无）');
 
 const failed = rule1.length + rule2.length + literalCount;
-say(`\n${failed === 0 ? 'PASS' : 'FAIL'} — ${rule1.length} undefined refs, ${rule2.length} unused tokens, ${literalCount} colour literals`);
+say(`\n${failed === 0 ? 'PASS' : 'FAIL'} —— ${rule1.length} 个未定义引用, ${rule2.length} 个未使用 token, ${literalCount} 个颜色字面量`);
 
 console.log(out.join('\n'));
 process.exit(failed === 0 ? 0 : 1);

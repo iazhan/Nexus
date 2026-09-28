@@ -28,13 +28,10 @@ describe('Theme Syntax Tokens', () => {
       expect(nexusLight.tokens[token].length).toBeGreaterThan(0);
     }
 
-    // High-contrast check for light theme:
-    // function should not be dark-theme pale yellow (#dcdcaa)
-    expect(nexusLight.tokens['syntax-function']).not.toBe('#dcdcaa');
-    // variable should not be dark-theme light cyan (#9cdcfe)
-    expect(nexusLight.tokens['syntax-variable']).not.toBe('#9cdcfe');
-    // number should not be dark-theme light green (#b5cea8)
-    expect(nexusLight.tokens['syntax-number']).not.toBe('#b5cea8');
+    // 浅色主题的高对比检查：不得沿用暗色主题的同名色
+    expect(nexusLight.tokens['syntax-function']).not.toBe('#dcdcaa'); // 暗色主题的淡黄
+    expect(nexusLight.tokens['syntax-variable']).not.toBe('#9cdcfe'); // 暗色主题的浅青
+    expect(nexusLight.tokens['syntax-number']).not.toBe('#b5cea8');   // 暗色主题的浅绿
   });
 
   it('nexusDark defines all required syntax tokens', () => {

@@ -114,14 +114,14 @@ type Listener = (theme: ThemeDefinition) => void;
     private activeTheme: ThemeDefinition = nexusLight;
     private listeners: Set<Listener> = new Set();
     
-    // Available presets
+    // 可用的预设主题
     private presets: Map<string, ThemeDefinition> = new Map([
       [nexusLight.id, nexusLight],
       [nexusDark.id, nexusDark]
     ]);
   
     constructor() {
-      // Apply initial theme on load
+      // 载入时先应用初始主题
       this.applyToDOM(this.activeTheme);
     }
   
@@ -129,7 +129,7 @@ type Listener = (theme: ThemeDefinition) => void;
     return this.activeTheme;
   }
   
-  // For backwards compatibility in short term
+  // 短期内的向后兼容
   get type(): 'light' | 'dark' {
     return this.activeTheme.type;
   }
@@ -147,7 +147,7 @@ type Listener = (theme: ThemeDefinition) => void;
     }
   }
 
-  // Backwards compat
+  // 向后兼容
   setThemeByType(type: 'light' | 'dark'): void {
     this.setTheme(type === 'dark' ? 'nexus-dark' : 'nexus-light');
   }
