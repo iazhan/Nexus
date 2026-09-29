@@ -6,6 +6,9 @@ import { SettingsStore } from './settings/store.js';
 export const commandRegistry = new CommandRegistry();
 export const localeManager = new LocaleManager();
 
+/** 语言偏好的磁盘键。跨窗口同步与写盘两处都要它。 */
+const LOCALE_STORAGE_KEY = 'nexus-locale';
+
 /**
  * 全部本机偏好的唯一入口。必须先于 `themeManager` 建 —— 主题的选择从这里读，「读存档」因此
  * 只有一处（preload 读的是同一份磁盘，规则共用 `normalizeThemeChoice`）。
@@ -31,12 +34,15 @@ if (typeof window !== 'undefined') {
   (window as unknown as { nexusLocale?: LocaleManager }).nexusLocale = localeManager;
 }
 
-if (typeof localStorage !== 'undefined') {
-  const savedLocale = localStorage.getItem('nexus-locale');
-  if (savedLocale === 'zh-CN' || savedLocale === 'en-US') {
-    localeManager.setLocale(savedLocale);
-  }
+/** 读存档里的语言。读不到（或值不认识）时返回 `null`，交给调用方决定要不要动。 */
+function readStoredLocale(): 'zh-CN' | 'en-US' | null {
+  if (typeof localStorage === 'undefined') return null;
+  const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
+  return saved === 'zh-CN' || saved === 'en-US' ? saved : null;
 }
+
+const initialLocale = readStoredLocale();
+if (initialLocale) localeManager.setLocale(initialLocale);
 
 /**
  * 切换主题：**选择**落进 store（落盘 + 广播），解析仍归 `ThemeManager`。
@@ -99,7 +105,7 @@ export function applySchemePatch(patch: {
 
 localeManager.subscribe((locale) => {
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('nexus-locale', locale);
+    localStorage.setItem(LOCALE_STORAGE_KEY, locale);
   }
 });
 
@@ -113,10 +119,12 @@ localeManager.subscribe((locale) => {
 const MERMAID_CLICK_TO_REVEAL_KEY = 'nexus-mermaid-click-to-reveal';
 const mermaidPreviewListeners = new Set<(value: boolean) => void>();
 
-let mermaidClickToReveal = false;
-if (typeof localStorage !== 'undefined') {
-  mermaidClickToReveal = localStorage.getItem(MERMAID_CLICK_TO_REVEAL_KEY) === 'true';
+function readStoredMermaidPreference(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(MERMAID_CLICK_TO_REVEAL_KEY) === 'true';
 }
+
+let mermaidClickToReveal = readStoredMermaidPreference();
 
 export const mermaidPreviewPreference = {
   get(): boolean {
@@ -128,6 +136,16 @@ export const mermaidPreviewPreference = {
       localStorage.setItem(MERMAID_CLICK_TO_REVEAL_KEY, String(value));
     }
     mermaidPreviewListeners.forEach((listener) => listener(value));
+    // 与 `SettingsStore.set()` 同一个理由：谁改的谁广播。少了这一句，将来 Editor 分组接上
+    // 这个偏好时，只有改它的那个窗口会变。
+    announceLocalChange();
+  },
+  /** 另一个窗口改过之后追上磁盘。**不写盘** —— 写盘会让两个窗口互相触发。 */
+  reload(): void {
+    const next = readStoredMermaidPreference();
+    if (next === mermaidClickToReveal) return;
+    mermaidClickToReveal = next;
+    mermaidPreviewListeners.forEach((listener) => listener(next));
   },
   subscribe(listener: (value: boolean) => void): () => void {
     mermaidPreviewListeners.add(listener);
@@ -136,3 +154,47 @@ export const mermaidPreviewPreference = {
     };
   }
 };
+
+/**
+ * 把「另一个窗口改了存档」同步过来。
+ *
+ * 上游是主进程的中转（见 `ipc/channels.ts` 的 `notifySettingsChanged`），不是 `storage` 事件 ——
+ * dev 是 http、打包是 `file://`，后者下 `storage` 事件是否跨窗口派发不能赌。
+ *
+ * 这条路径**只读不写**：`settings.reload()` 只重读，`themeManager.setTheme()` 只改内存与 DOM。
+ * 顺手写一次存档的话两个窗口就会互相触发，转成死循环。
+ *
+ * 顺序上**先注册用户主题再选主题**：主题被改过（覆盖项 / 种子）时 `setTheme()` 的 `changed`
+ * 判据比的是 token 值，注册在前新值才参与比较；反过来 id 没变、比较的是旧 preset，
+ * 主窗口就不会重绘 —— 表现是「在设置窗口拖了滑块，主窗口纹丝不动」。
+ */
+export function resyncFromStorage(): void {
+  settings.reload();
+
+  const savedTheme = settings.get('appearance.userTheme');
+  if (savedTheme) themeManager.registerUserTheme(savedTheme);
+  themeManager.setTheme(settings.get('appearance.theme'));
+
+  const savedLocale = readStoredLocale();
+  if (savedLocale) localeManager.setLocale(savedLocale);
+
+  mermaidPreviewPreference.reload();
+}
+
+/**
+ * 本窗口刚改了本机偏好：让主进程广播给别的窗口。
+ *
+ * 三个写入口（`SettingsStore.set` / 语言 / mermaid 偏好）都要调它 —— 漏一个的症状是
+ * 「在这个窗口改了，另一个窗口不动」，而且只在那个特定偏好上出现，很难联想到广播。
+ */
+function announceLocalChange(): void {
+  if (typeof window === 'undefined') return;
+  window.nexus?.notifySettingsChanged?.();
+}
+
+settings.onWrite(announceLocalChange);
+localeManager.subscribe(announceLocalChange);
+
+if (typeof window !== 'undefined') {
+  window.nexus?.onSettingsChanged?.(() => resyncFromStorage());
+}

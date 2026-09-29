@@ -98,12 +98,24 @@ export class SettingsStore {
   private readonly storage: Storage | null;
 
   /**
-   * 构造时快照。之后 store 就是权威，不再看外部对 `localStorage` 的改动 —— 单窗口应用没有
-   * 外部改动，而「每次 get 都读磁盘」会让读路径带上 IO 与 try/catch。
+   * 构造时快照。之后 store 就是权威，**读路径不再碰 `localStorage`** —— 每次 `get` 都读磁盘
+   * 会让读路径带上 IO 与 try/catch。
+   *
+   * 设置是独立窗口之后，「外部改动」确实存在了（另一个窗口写的）。它不是靠每次读盘解决的，
+   * 而是靠 `storage` 事件驱动的 `reload()`：写入口仍然只有 `set()`，读入口仍然只有内存。
    */
   private readonly values = new Map<SettingPath, unknown>();
 
   private readonly listeners = new Map<SettingPath, Set<Listener>>();
+
+  /**
+   * 本地写盘之后的钩子。跨窗口广播挂这里。
+   *
+   * **不能挂在 `subscribe` 上**：`subscribe` 在 `reload()`（同步进来的变化）时也会触发，
+   * 那样每个窗口一收到变化就再广播一次，两个窗口来回一轮就是死循环。写入口只有 `set()`，
+   * 钩子也只从 `set()` 发 —— 「谁改的谁广播」。
+   */
+  private writeListener: (() => void) | null = null;
 
   constructor(storage: Storage | null = defaultStorage()) {
     this.storage = storage;
@@ -138,6 +150,21 @@ export class SettingsStore {
     }
 
     if (changed) this.notify(path);
+    // 值没变也通知：磁盘可能被绕过 store 改过，而写盘是幂等的。多广播一次的代价是
+    // 另一个窗口做一轮「重读 + 比对」，比对出来没变就不会重渲染。
+    this.writeListener?.();
+  }
+
+  /** 挂本地写盘钩子。传 `null` 摘掉。见 `writeListener` 的注释。 */
+  onWrite(listener: (() => void) | null): void {
+    this.writeListener = listener;
+  }
+
+  private notify(path: SettingPath): void {
+    const bucket = this.listeners.get(path);
+    if (!bucket) return;
+    // 复制再遍历：监听器里退订是常见写法，边遍历边改 Set 会漏掉后面的监听器。
+    for (const listener of [...bucket]) listener();
   }
 
   /** 订阅某个 path。**回调不收值** —— 收到通知后自己 `get`，免得拿到的值已经过期。 */
@@ -153,10 +180,24 @@ export class SettingsStore {
     };
   }
 
-  private notify(path: SettingPath): void {
-    const bucket = this.listeners.get(path);
-    if (!bucket) return;
-    // 复制再遍历：监听器里退订是常见写法，边遍历边改 Set 会漏掉后面的监听器。
-    for (const listener of [...bucket]) listener();
+  /**
+   * 磁盘被**别的窗口**改了：重读全部项，把变了的广播出去。
+   *
+   * 设置是独立窗口之后，同一份存档有两个写入方 —— 主窗口改了主题，设置窗口里那个单选态
+   * 得跟着动；反之设置窗口拖了滑块，主窗口得立刻重绘。`storage` 事件是这条链路的上游
+   * （见 `platform.ts` 的 `resyncFromStorage`）。
+   *
+   * **「变没变」比的是序列化后的字符串，不是 `!==`。** `appearance.userTheme` 是对象，
+   * 每次 `parse` 都造一个新对象，`!==` 恒真 —— 那样每次同步都会广播一遍，而广播会触发
+   * 重渲染，两个窗口来回一次就成了循环。字符串比较同时把「深相等」这件事一并解决。
+   */
+  reload(): void {
+    for (const path of Object.keys(SETTING_DEFS) as SettingPath[]) {
+      const def = SETTING_DEFS[path] as SettingDef<unknown>;
+      const next = readSetting(path, this.storage);
+      if (def.serialize(next) === def.serialize(this.values.get(path))) continue;
+      this.values.set(path, next);
+      this.notify(path);
+    }
   }
 }

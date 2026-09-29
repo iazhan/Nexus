@@ -2,7 +2,12 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import { launchElectronApp, createTempDir, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  SETTINGS_WINDOW_URL_MARKER,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * base16 导入的真机接线（P4-07 / P4-08）。
@@ -13,6 +18,8 @@ import { launchElectronApp, createTempDir, type ElectronAppInstance } from './sm
  *
  * 导入用 `DOM.setFileInputFiles` 走**真文件**，不是往 React 状态里塞字符串：「按钮接了、但
  * `<input type="file">` 的 change 没接」这类问题只有真链路能发现。
+ *
+ * 设置是**独立窗口**，所以驱动之前要先 `attachToWindow()` 切过去。
  *
  * **一个文件只启动一次 Electron** —— 同文件第二次启动会卡在 `Runtime.enable` 不返回
  * （见 `.workbuddy-ai/memory/MEMORY.md`）。所以整条链塞进同一个用例。
@@ -77,6 +84,7 @@ describe('主题导入', () => {
 
     await app.waitForSelector('.nexus-activity-bar', 20000);
     await app.click('.nexus-activity-icon[data-activity="settings"]');
+    await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
     await app.waitForSelector('.nexus-theme-transfer', 10000);
 
     const before = await app.evaluate<string>(`document.documentElement.dataset.theme ?? ''`);

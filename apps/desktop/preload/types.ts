@@ -83,4 +83,23 @@ export interface NexusBridge {
   maximizeWindow: () => void;
   getWindowState: () => Promise<WindowState>;
   onWindowStateChanged: (callback: (state: WindowState) => void) => Unsubscribe;
+  /**
+   * 打开设置窗口。**单例** —— 已经开着就还原并聚焦，不会开出第二个。
+   *
+   * 只从主窗口调用：设置界面自己不再提供「打开设置」的入口。
+   */
+  openSettingsWindow: () => Promise<void>;
+  /**
+   * 「本窗口刚改了本机偏好」。主进程收到后广播给**其他**窗口，让它们重读存档。
+   *
+   * 单向 `send` 而不是 `invoke`：广播没有返回值，也不该让写盘路径去等一个 IPC 往返。
+   */
+  notifySettingsChanged: () => void;
+  /**
+   * 别的窗口改了本机偏好，该重读了。
+   *
+   * 只带「变了」这个事实、不带新值：新值在存档里，收方自己重读 —— 传值就得定义一份
+   * 载荷格式，而两份格式迟早对不上。
+   */
+  onSettingsChanged: (callback: () => void) => Unsubscribe;
 }

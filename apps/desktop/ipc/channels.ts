@@ -35,7 +35,24 @@ export const IPC_CHANNELS = {
   minimizeWindow: 'nexus:minimize-window',
   maximizeWindow: 'nexus:maximize-window',
   getWindowState: 'nexus:get-window-state',
-  windowStateChanged: 'nexus:window-state-changed'
+  windowStateChanged: 'nexus:window-state-changed',
+  /**
+   * 打开设置窗口（单例）。
+   *
+   * 设置是**独立窗口**而不是主窗口内的一个视图 —— 界面上靠 `?window=settings` 查询串区分角色，
+   * 不走这里（角色必须在首帧前确定，见主进程的 `WINDOW_ROLE_QUERY`）。这条通道只负责「开窗」。
+   */
+  openSettingsWindow: 'nexus:open-settings-window',
+  /**
+   * 「本窗口刚改了本机偏好」。渲染进程 → 主进程，主进程再广播给**其他**窗口。
+   *
+   * 为什么不用 `window` 的 `storage` 事件（那是原生的跨窗口机制）：dev 下页面来自
+   * `http://localhost:6200`、打包后是 `file://`，两种 origin 的 storage 分区语义不同，
+   * `storage` 事件在 `file://` 下是否跨窗口派发不能赌。主进程中转是确定的，且两种形态一致。
+   */
+  notifySettingsChanged: 'nexus:notify-settings-changed',
+  /** 上面那条的中转结果。主进程 → 其他窗口。 */
+  settingsChanged: 'nexus:settings-changed'
 } as const;
 
 /**

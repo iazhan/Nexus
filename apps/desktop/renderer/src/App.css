@@ -2033,22 +2033,6 @@ body.nexus-resizing {
   color: var(--nexus-text-muted);
 }
 
-.nexus-settings-back {
-  margin-top: auto;
-  padding: 6px 10px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  text-align: left;
-  font-size: 13px;
-  color: var(--nexus-text-secondary);
-  cursor: pointer;
-}
-
-.nexus-settings-back:hover {
-  background-color: var(--nexus-selection-bg);
-}
-
 .nexus-settings-content {
   flex: 1;
   min-width: 0;

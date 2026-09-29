@@ -126,6 +126,15 @@ export interface CDPTarget {
 }
 
 /**
+ * 页面 URL 里的窗口角色标记，与主进程的 `WINDOW_ROLE_PARAM` 同源。
+ *
+ * 判据取 **URL** 而不是 `<title>`：两个窗口的标题都会被渲染进程按语言写成同一个值，
+ * 拿标题区分不开。主窗口也**显式**带 `window=main`，所以两条子串互不包含、不会误配。
+ */
+export const MAIN_WINDOW_URL_MARKER = 'window=main';
+export const SETTINGS_WINDOW_URL_MARKER = 'window=settings';
+
+/**
  * 测试用的临时目录登记表。
  *
  * 直接 `fs.mkdtempSync` 的话很容易忘了删 —— 实测有 14 个测试文件从没清理过，
@@ -201,7 +210,8 @@ export const INDEXED_TEST_TIMEOUT_MS = INDEX_WAIT_MS + 60_000;
 export class ElectronAppInstance {
   public readonly proc: ChildProcess;
   public readonly port: number;
-  public readonly target: CDPTarget;
+  /** 当前附着的那一页。多窗口时由 `attachToWindow()` 换掉 —— 所以不是 `readonly`。 */
+  public target: CDPTarget;
   /** 本实例专属的 userData 目录；`close()` 时删掉，避免临时目录无限累积。 */
   public readonly userDataDir: string;
   private ws: WebSocket;
@@ -220,8 +230,17 @@ export class ElectronAppInstance {
     this.target = target;
     this.ws = ws;
     this.userDataDir = userDataDir;
+    this.bindSocket(ws);
+  }
 
-    this.ws.onmessage = (event) => {
+  /**
+   * 把消息/错误处理挂到一条 WebSocket 上。
+   *
+   * 抽出来是因为 `attachToWindow()` 会换一条连接 —— 换连接时忘了重新绑定，
+   * 症状是「切过去之后每个命令都超时」，而 WebSocket 本身是通的。
+   */
+  private bindSocket(ws: WebSocket): void {
+    ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data.toString());
         if (data.method === 'Runtime.consoleAPICalled') {
@@ -244,9 +263,139 @@ export class ElectronAppInstance {
       }
     };
 
-    this.ws.onerror = (err) => {
+    ws.onerror = (err) => {
       console.error('[CDP] WebSocket error:', err);
     };
+  }
+
+  /** 当前所有可调试的页面。多窗口时用它数窗口、找目标。 */
+  public async pageTargets(): Promise<CDPTarget[]> {
+    const resp = await fetch(`http://127.0.0.1:${this.port}/json/list`);
+    if (!resp.ok) return [];
+    const list = (await resp.json()) as CDPTarget[];
+    return list.filter((t) => t.type === 'page' && Boolean(t.webSocketDebuggerUrl));
+  }
+
+  /**
+   * 等 URL 里含 `match` 的页面数量到达 `expected`。
+   *
+   * 判据取 **URL 片段**而不是标题：两个窗口的 `<title>` 都会被渲染进程按语言写成同一个值，
+   * 拿标题区分不开。设置窗口靠 `?window=settings` 认（主进程 `WINDOW_ROLE_QUERY`）。
+   */
+  public async waitForPageCount(match: string, expected: number, timeoutMs = 10_000): Promise<void> {
+    const start = Date.now();
+    let last = -1;
+    while (Date.now() - start < timeoutMs) {
+      try {
+        last = (await this.pageTargets()).filter((t) => t.url.includes(match)).length;
+        if (last === expected) return;
+      } catch {
+        // 端口偶尔抽风，继续等
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    throw new Error(
+      `Timeout (${timeoutMs}ms) waiting for ${expected} page(s) matching ${JSON.stringify(match)}; saw ${last}`
+    );
+  }
+
+  /**
+   * 向页面派发一次 `keydown`，**不走 CDP 的输入管线**。
+   *
+   * `pressKey()` 用 `Input.dispatchKeyEvent`，它依赖窗口真实持有系统焦点 —— 无头 / 后台运行时
+   * 不可靠：实测**命令不返回**，15s 后以 `CDP command timed out after 15000ms: Input.dispatchKeyEvent`
+   * 失败（`quick-open.test.ts` 的文件头也记过同一件事）。设置窗口建出来时会抢焦点，
+   * 之后主窗口上的按键就再也派不出去了。
+   *
+   * 这里直接构造 `KeyboardEvent` 派发到 `window`：测的是**同一段 keydown 处理逻辑**，
+   * 只是绕开了操作系统的焦点条件。差别是拿不到浏览器原生默认行为（Ctrl+P 不会真的触发打印），
+   * 而我们测的是应用自己挂的监听器，所以不影响。
+   *
+   * 需要真实按键路径的用例（lightweight 模式下那几个）继续用 `pressKey()`。
+   */
+  public async dispatchKey(
+    key: string,
+    modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean }
+  ): Promise<void> {
+    await this.evaluate(`(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: ${JSON.stringify(key)},
+        ctrlKey: ${Boolean(modifiers?.ctrl)},
+        shiftKey: ${Boolean(modifiers?.shift)},
+        altKey: ${Boolean(modifiers?.alt)},
+        metaKey: ${Boolean(modifiers?.meta)},
+        bubbles: true,
+        cancelable: true
+      }));
+      return true;
+    })()`);
+  }
+
+  /**
+   * 切到另一个页面（多窗口）。
+   *
+   * 握手步骤与 `launchElectronApp` 里那段**必须一致**，`Emulation.setFocusEmulationEnabled`
+   * 尤其不能省：无边框窗口不保证拿到系统焦点，未激活时 `Input.dispatchKeyEvent` 会被丢弃
+   * （症状是「切过去之后按键没反应」，而点击正常）。
+   *
+   * ## 多窗口下的一条硬约束（2026-09-29 实测）
+   *
+   * **只有「持有操作系统焦点」的那个窗口能收到 CDP 输入事件。** 设置窗口建出来时会
+   * `win.focus()`，此后主窗口的 `Input.dispatchKeyEvent` / `Input.dispatchMouseEvent`
+   * 都会**不返回**，15s 后以 CDP 超时失败。（`evaluate` 不受影响：它走 JS 执行，不经过输入管线。）
+   *
+   * 所以多窗口用例：需要键盘时用 `dispatchKey()`（DOM 派发），需要点击时只对当前聚焦的
+   * 那个窗口点，或者干脆用 `evaluate` 直接调桥。
+   */
+  public async attachToWindow(match: string, timeoutMs = CDP_CONNECT_TIMEOUT_MS): Promise<void> {
+    const start = Date.now();
+    let found: CDPTarget | null = null;
+    while (Date.now() - start < timeoutMs) {
+      try {
+        found = (await this.pageTargets()).find((t) => t.url.includes(match)) ?? null;
+        if (found) break;
+      } catch {
+        // 还在起
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (!found) {
+      throw new Error(
+        `No CDP page target matching ${JSON.stringify(match)} within ${timeoutMs}ms`
+      );
+    }
+
+    try {
+      this.ws.close();
+    } catch {
+      // 旧连接关不掉不影响新连接
+    }
+    // 旧连接上的未决请求永远不会回来了，留着只会让它们各自超时。
+    this.pendingRequests.clear();
+
+    const ws = new WebSocket(found.webSocketDebuggerUrl);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`WebSocket connection timeout (${WS_CONNECT_TIMEOUT_MS / 1000}s)`)),
+        WS_CONNECT_TIMEOUT_MS
+      );
+      ws.onopen = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      ws.onerror = (e) => {
+        clearTimeout(timer);
+        reject(e);
+      };
+    });
+
+    this.ws = ws;
+    this.target = found;
+    this.bindSocket(ws);
+
+    await this.sendCommand('Runtime.enable');
+    await this.sendCommand('Page.enable');
+    await this.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
   }
 
   public sendCommand<T = any>(

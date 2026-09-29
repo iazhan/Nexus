@@ -5,15 +5,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BUILT_IN_THEMES, SYSTEM_THEME } from '@nexus/theme';
 import { SettingsView } from '../src/settings/SettingsView.js';
 import { FIELDS, SECTIONS, THEME_FIELD, optionLabel, projectMenuItems } from '../src/settings/registry.js';
-import { useSettingsView, type SettingsViewState } from '../src/settings/use-settings-view.js';
+import { useSettingsSection, type SettingsSectionState } from '../src/settings/use-settings-section.js';
 import { settings, themeManager } from '../src/platform.js';
 
 /**
- * 设置页外壳与 Appearance 分组的渲染（P4-03 / P4-04）。
+ * 设置本体与 Appearance 分组的渲染（P4-03 / P4-04）。
  *
  * 为什么这一层要有用例：真机用例一个文件只能启动一次 Electron、只跑一种形状，覆盖不到
  * 「空态 / 键盘 / 三态选中」这些分支。这里用组件自己的状态属性做判据（`data-*`、`aria-checked`），
  * **不用文案节点** —— 加载态与空态常共用同一个类名，文案还会随 locale 变。
+ *
+ * 设置是独立窗口之后，**「关窗」「Escape」不在这里测** —— 那是 `SettingsWindow` 的事，
+ * 见 `settings-window.test.tsx`。本文件只管 `SettingsView` 自己（导航 + 内容区）。
  *
  * 注意 `renderer/test/**` 不进 typecheck，类型只靠 esbuild 转译。
  */
@@ -25,9 +28,7 @@ let root: Root;
 
 function renderSettings(section = 'appearance'): void {
   act(() => {
-    root.render(
-      <SettingsView section={section} onSelectSection={() => {}} onClose={() => {}} />
-    );
+    root.render(<SettingsView section={section} onSelectSection={() => {}} />);
   });
 }
 
@@ -148,8 +149,11 @@ describe('设置视图 · Appearance', () => {
 
   /**
    * 「无保存 / 无恢复默认」的判据用**按钮的种类**而不是文案：页面里每个按钮都必须落进一份
-   * 已知清单（导航项 / 主题选项 / 返回键 / 档位页签 / 预览区）。文案会随语言变，多一个按钮
+   * 已知清单（导航项 / 主题选项 / 档位页签 / 导入导出 / 预览区）。文案会随语言变，多一个按钮
    * 却是结构性的 —— 出现 `other` 就意味着有人往设置页里塞了提交类控件，必须显式解释。
+   *
+   * 「返回工作区」那一类**已随独立窗口一并删掉**：窗口自己有标题栏关闭键，Escape 也能关，
+   * 再留一个页内返回键就是第三个关闭入口。
    */
   it('页面里没有保存 / 提交 / 恢复默认控件', () => {
     renderSettings();
@@ -157,7 +161,6 @@ describe('设置视图 · Appearance', () => {
     const kinds = Array.from(container.querySelectorAll('button')).map((button) => {
       if (button.dataset.section) return 'nav';
       if (button.dataset.themeOption) return 'option';
-      if (button.dataset.settingsBack !== undefined) return 'back';
       if (button.dataset.themeTier) return 'tier';
       if (button.dataset.themeImportButton !== undefined || button.dataset.themeExport) {
         return 'transfer';
@@ -168,7 +171,6 @@ describe('设置视图 · Appearance', () => {
 
     expect(kinds).not.toContain('other');
     expect(kinds.filter((kind) => kind === 'nav')).toHaveLength(SECTIONS.length);
-    expect(kinds.filter((kind) => kind === 'back')).toHaveLength(1);
     expect(kinds.filter((kind) => kind === 'tier')).toHaveLength(2);
   });
 });
@@ -183,21 +185,6 @@ describe('设置视图 · 键盘', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-  });
-
-  it('Escape 关闭设置视图', () => {
-    let closed = 0;
-    act(() => {
-      root.render(
-        <SettingsView section="appearance" onSelectSection={() => {}} onClose={() => { closed += 1; }} />
-      );
-    });
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    });
-
-    expect(closed).toBe(1);
   });
 
   it('上下键在七项之间移动焦点', () => {
@@ -215,11 +202,11 @@ describe('设置视图 · 键盘', () => {
   });
 });
 
-describe('设置视图的会话状态', () => {
-  let latest: SettingsViewState | null = null;
+describe('设置分组状态', () => {
+  let latest: SettingsSectionState | null = null;
 
   const Probe: React.FC = () => {
-    latest = useSettingsView();
+    latest = useSettingsSection();
     return null;
   };
 
@@ -238,15 +225,6 @@ describe('设置视图的会话状态', () => {
     act(() => root.unmount());
     container.remove();
     settings.set('settings.lastSection', 'appearance');
-  });
-
-  it('默认落在工作区 —— 视图本身不持久化', () => {
-    expect(latest?.view).toBe('workspace');
-  });
-
-  it('打开后进入设置页', () => {
-    act(() => latest?.open());
-    expect(latest?.view).toBe('settings');
   });
 
   it('切分组写进 settings.lastSection', () => {

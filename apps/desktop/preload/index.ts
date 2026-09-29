@@ -221,6 +221,28 @@ const bridge: NexusBridge = {
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.windowStateChanged, handler);
     };
+  },
+
+  openSettingsWindow: (): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openSettingsWindow);
+  },
+
+  notifySettingsChanged: (): void => {
+    ipcRenderer.send(IPC_CHANNELS.notifySettingsChanged);
+  },
+
+  onSettingsChanged: (callback: () => void): Unsubscribe => {
+    const handler = () => {
+      try {
+        callback();
+      } catch (err) {
+        console.error('[Nexus Preload] Settings sync listener error:', err);
+      }
+    };
+    ipcRenderer.on(IPC_CHANNELS.settingsChanged, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.settingsChanged, handler);
+    };
   }
 };
 

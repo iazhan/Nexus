@@ -59,9 +59,7 @@ import {
   toggleActivity,
   type ActivityId
 } from './shell/activity-bar-state.js';
-import { SettingsView } from './settings/SettingsView.js';
 import { projectMenuItems } from './settings/registry.js';
-import { useSettingsView } from './settings/use-settings-view.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
 
@@ -151,10 +149,15 @@ export const App: React.FC = () => {
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   /**
-   * 设置视图的会话状态。视图分派只替换**中间三栏**，标题栏与状态栏保留 ——
-   * 桌面应用不能没有窗口控制按钮。详见 `settings/SettingsView.tsx`。
+   * 打开设置。设置是**独立窗口**（主进程按 `?window=settings` 建），不是主窗口里的一个视图 ——
+   * 主进程侧是单例，重复点只会把已开着的那个还原并聚焦，不会开出第二个。
+   *
+   * 三个入口（命令面板 `Mod-,` / 菜单「首选项」/ 活动栏齿轮）共用这一个回调，
+   * 免得「有的入口开窗口、有的入口还在切视图」。
    */
-  const settingsView = useSettingsView();
+  const openSettingsWindow = useCallback(() => {
+    void window.nexus?.openSettingsWindow?.();
+  }, []);
 
   // Mermaid「点击图表显示源码」偏好。菜单的勾选状态必须与实际一致，
   // 所以订阅偏好变化 —— 别的入口改了也能同步过来。
@@ -1155,7 +1158,7 @@ export const App: React.FC = () => {
         id: 'settings.open',
         titleKey: 'cmd.openSettings',
         shortcut: 'Mod-,',
-        execute: settingsView.open
+        execute: openSettingsWindow
       })
     ];
 
@@ -1196,7 +1199,7 @@ export const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       unsubs.forEach(u => u());
     };
-  }, [handleOpenFile, saveAs, saveFile, resolvedTheme, setTheme, locale, setLocale, settingsView.open]);
+  }, [handleOpenFile, saveAs, saveFile, resolvedTheme, setTheme, locale, setLocale, openSettingsWindow]);
 
   // Conflict resolution actions
   const handleReloadExternal = useCallback(async () => {
@@ -1414,7 +1417,7 @@ export const App: React.FC = () => {
         // 菜单由注册表投影，装的是**所有** `menu: true` 的字段（跨 Appearance / General /
         // Editor 三个分组）。按分组过滤会让语言与 mermaid 从菜单里消失 —— 那是功能回退，
         // 所以标题也跟着从「外观」改成「首选项」。
-        items: projectMenuItems({ t, onOpenSettings: settingsView.open })
+        items: projectMenuItems({ t, onOpenSettings: openSettingsWindow })
       }
     ],
     [
@@ -1437,7 +1440,7 @@ export const App: React.FC = () => {
       locale,
       setLocale,
       mermaidClickToReveal,
-      settingsView.open
+      openSettingsWindow
     ]
   );
 
@@ -1624,227 +1627,214 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="nexus-body">
-        {/* 视图分派：设置页替换的是**中间三栏**（活动栏 / 侧栏 / 编辑区），标题栏与状态栏留在外面。
-            包裹用的 fragment 刻意不重排中间那 200 行的缩进 —— 缩进变化会把 diff 撑成整段重写，
-            而验收第 8 条要求 App.tsx 的净增行数是**个位数**。 */}
-        {settingsView.view === 'settings' ? (
-          <SettingsView
-            section={settingsView.section}
-            onSelectSection={settingsView.selectSection}
-            onClose={settingsView.close}
-          />
-        ) : (
-          <>
-        {/* 活动栏与面板只在工作区模式下出现；lightweight 保持原来的单栏布局 */}
-        {status === 'ready' && workspaceRoot && (
-          <ActivityBar
-            activeId={activity.activeId}
-            panelOpen={activity.panelOpen}
-            onSelect={handleActivitySelect}
-            onOpenSettings={settingsView.open}
-          />
-        )}
-
-        {status === 'ready' && workspaceRoot && (
-          <div
-            className={`nexus-activity-panel${
-              activity.panelOpen ? ' nexus-activity-panel-open' : ''
-            }`}
-            style={{ '--nx-panel-width': `${panelWidth}px` } as React.CSSProperties}
-          >
-            {/* 拖拽把手：只在展开时挂载，收起状态下没有可拖的东西 */}
-            {activity.panelOpen && (
-              <div
-                className={`nexus-panel-resizer${
-                  isResizing ? ' nexus-panel-resizer-active' : ''
-                }`}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label={t('panel.resize')}
-                title={t('panel.resizeHint')}
-                onMouseDown={handleResizeStart}
-                onDoubleClick={handleResizeReset}
-              />
-            )}
-            {/* 面板内容保留挂载、只切换可见性：WorkspaceSidebar 挂载时会跑一次索引，
-                卸载重建就意味着每次切回来都重新索引一遍。用 hidden 属性不行 ——
-                它会被 CSS 里的 display 覆盖。 */}
-            <div
-              className={`nexus-panel-slot${
-                activity.activeId === 'workspace' ? '' : ' nexus-panel-slot-hidden'
-              }`}
-            >
-              <WorkspaceSidebar
-                rootPath={workspaceRoot}
-                activeFilePath={filePath}
-                onOpenFile={handleOpenWorkspaceFile}
-                onIndexed={handleIndexed}
-              />
-            </div>
-            <div
-              className={`nexus-panel-slot${
-                activity.activeId === 'outline' ? '' : ' nexus-panel-slot-hidden'
-              }`}
-            >
-              {/* 大纲是「当前文档」的视图：没有活动文档时它没有意义 */}
-              {activeDocument ? (
-                <OutlinePanel
-                  session={session}
-                  onJump={handleOutlineJump}
-                  filePath={filePath}
-                  onOpenFile={handleOpenWorkspaceFile}
-                />
-              ) : (
-                <p className="nexus-panel-placeholder">{t('workspace.pickFile')}</p>
-              )}
-            </div>
-            <div
-              className={`nexus-panel-slot${
-                activity.activeId === 'search' ? '' : ' nexus-panel-slot-hidden'
-              }`}
-            >
-              {/* 搜索覆盖整个工作区，不依赖当前文档 */}
-              <SearchPanel onOpenFile={handleOpenWorkspaceFile} />
-            </div>
-            <div
-              className={`nexus-panel-slot${
-                activity.activeId === 'tags' ? '' : ' nexus-panel-slot-hidden'
-              }`}
-            >
-              {/* 标签来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
-              <TagsPanel
-                onOpenFile={handleOpenWorkspaceFile}
-                revision={documentRevision}
-              />
-            </div>
-            <div
-              className={`nexus-panel-slot${
-                activity.activeId === 'graph' ? '' : ' nexus-panel-slot-hidden'
-              }`}
-            >
-              {/* 图谱来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
-              <GraphPanel
-                activeFilePath={filePath}
-                onOpenFile={handleOpenWorkspaceFile}
-                revision={documentRevision}
-              />
-            </div>
-            <div
-              className={`nexus-panel-slot${
-                activity.activeId === 'history' ? '' : ' nexus-panel-slot-hidden'
-              }`}
-            >
-              {/* 历史面板要拿当前内容做对比，所以把 session 也传进去 */}
-              <HistoryPanel
-                filePath={filePath}
-                session={activeDocument ? session : null}
-                onRestored={handleIndexed}
-                revision={documentRevision}
-              />
-            </div>
-            <div
-              className={`nexus-panel-slot${
-                activity.activeId === 'extensions' ? '' : ' nexus-panel-slot-hidden'
-              }`}
-            >
-              <PluginsPanel
-                host={extensionHostRef.current ?? undefined}
-                revision={documentRevision}
-              />
-            </div>
-          </div>
-        )}
-
-        <main className="nexus-main-content">
-        {/* 标签栏挂在编辑区容器**内部**：它只该横跨编辑区，不该延伸到活动栏和侧栏上方。
-            放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。 */}
-        <TabBar
-          documents={workspaceSnapshot.documents}
-          activeId={workspaceSnapshot.activeId}
-          onActivate={store.activate}
-          onClose={handleCloseTab}
+      {/* 活动栏与面板只在工作区模式下出现；lightweight 保持原来的单栏布局 */}
+      {status === 'ready' && workspaceRoot && (
+        <ActivityBar
+          activeId={activity.activeId}
+          panelOpen={activity.panelOpen}
+          onSelect={handleActivitySelect}
+          onOpenSettings={openSettingsWindow}
         />
-        {status === 'loading' && (
-          <div className="nexus-state-container">
-            <div className="nexus-loading-spinner" />
-            <p className="nexus-state-text">{t('status.loadingDocument')}</p>
-          </div>
-        )}
+      )}
 
-        {status === 'error' && (
-          <div className="nexus-state-container">
-            <div className="nexus-error-card" role="alert">
-              <span className="error-title">{t('error.unableToOpen')}</span>
-              <p className="error-description">{errorMessage}</p>
-              <button
-                type="button"
-                className="nexus-retry-btn"
-                onClick={loadDocument}
-              >
-                {t('editor.retry')}
-              </button>
-            </div>
-          </div>
-        )}
-        {/* 只读文档：交给 Viewer 外壳按类型查表。
-            这里**不认识任何格式** —— 「png 用什么渲染」由登记表回答，
-            所以 P3-06/07/08 各自注册一个渲染器即可，这一段不用再改。 */}
-        {status === 'ready' && activeDocument?.kind === 'viewer' && (
-          <ViewerSurface
-            document={{
-              path: activeDocument.filePath,
-              name: getFileName(activeDocument.filePath),
-              type: activeDocument.type,
-              page: activeDocument.viewerPage,
-              // 有工作区时引用相对工作区根（蓝图 §11.4），轻量模式下退回文档所在目录 ——
-              // 那时没有工作区可言，相对同目录是唯一能点开的写法。
-              citationBase:
-                workspaceRoot ??
-                getDocumentDirectory(activeDocument.filePath) ??
-                activeDocument.filePath
-            }}
-            registry={viewerRegistryRef.current}
-          />
-        )}
-        {/* 没有活动文档时的空态。workspace 模式下这是正常起点（从左侧挑一个文件），
-            lightweight 模式下只会在启动的一瞬间出现。 */}
-        {status === 'ready' && !activeDocument && (
-          <div className="nexus-workspace-empty">
-            <span className="nexus-workspace-empty-title">{t('workspace.title')}</span>
-            {workspaceRoot && (
-              <code className="nexus-workspace-empty-path">{workspaceRoot}</code>
-            )}
-            <p className="nexus-workspace-empty-note">
-              {workspaceRoot ? t('workspace.pickFile') : t('workspace.pending')}
-            </p>
-          </div>
-        )}
-        {status === 'ready' && activeDocument?.kind === 'editor' && (
-          // 只包编辑区：投影抛错时保留顶栏、菜单栏和状态栏，
-          // 让 Mod-M 切换 surface 成为一条真实可用的恢复路径。
-          // resetKey 绑 surfaceKind，切回 Source 会自动清除错误状态。
-          <ErrorBoundary resetKey={surfaceKind} titleKey="error.surfaceTitle">
-            <EditorSurface
-              session={session}
-              surfaceId="main-editor"
-              surfaceKind={surfaceKind}
-              saveState={saveState}
-              saveError={saveError}
-              readOnly={saveState === 'readonly'}
-              documentDirectory={getDocumentDirectory(filePath)}
-              linkNavigator={handleLinkNavigation}
-              extensionHost={extensionHostRef.current ?? undefined}
-              theme={resolvedTheme.type}
-              locale={locale}
-              onChange={handleContentChange}
-              onSelectionChange={handleSelectionChange}
-              className="nexus-editor-full"
+      {status === 'ready' && workspaceRoot && (
+        <div
+          className={`nexus-activity-panel${
+            activity.panelOpen ? ' nexus-activity-panel-open' : ''
+          }`}
+          style={{ '--nx-panel-width': `${panelWidth}px` } as React.CSSProperties}
+        >
+          {/* 拖拽把手：只在展开时挂载，收起状态下没有可拖的东西 */}
+          {activity.panelOpen && (
+            <div
+              className={`nexus-panel-resizer${
+                isResizing ? ' nexus-panel-resizer-active' : ''
+              }`}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t('panel.resize')}
+              title={t('panel.resizeHint')}
+              onMouseDown={handleResizeStart}
+              onDoubleClick={handleResizeReset}
             />
-          </ErrorBoundary>
-        )}
-        </main>
-          </>
-        )}
+          )}
+          {/* 面板内容保留挂载、只切换可见性：WorkspaceSidebar 挂载时会跑一次索引，
+              卸载重建就意味着每次切回来都重新索引一遍。用 hidden 属性不行 ——
+              它会被 CSS 里的 display 覆盖。 */}
+          <div
+            className={`nexus-panel-slot${
+              activity.activeId === 'workspace' ? '' : ' nexus-panel-slot-hidden'
+            }`}
+          >
+            <WorkspaceSidebar
+              rootPath={workspaceRoot}
+              activeFilePath={filePath}
+              onOpenFile={handleOpenWorkspaceFile}
+              onIndexed={handleIndexed}
+            />
+          </div>
+          <div
+            className={`nexus-panel-slot${
+              activity.activeId === 'outline' ? '' : ' nexus-panel-slot-hidden'
+            }`}
+          >
+            {/* 大纲是「当前文档」的视图：没有活动文档时它没有意义 */}
+            {activeDocument ? (
+              <OutlinePanel
+                session={session}
+                onJump={handleOutlineJump}
+                filePath={filePath}
+                onOpenFile={handleOpenWorkspaceFile}
+              />
+            ) : (
+              <p className="nexus-panel-placeholder">{t('workspace.pickFile')}</p>
+            )}
+          </div>
+          <div
+            className={`nexus-panel-slot${
+              activity.activeId === 'search' ? '' : ' nexus-panel-slot-hidden'
+            }`}
+          >
+            {/* 搜索覆盖整个工作区，不依赖当前文档 */}
+            <SearchPanel onOpenFile={handleOpenWorkspaceFile} />
+          </div>
+          <div
+            className={`nexus-panel-slot${
+              activity.activeId === 'tags' ? '' : ' nexus-panel-slot-hidden'
+            }`}
+          >
+            {/* 标签来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
+            <TagsPanel
+              onOpenFile={handleOpenWorkspaceFile}
+              revision={documentRevision}
+            />
+          </div>
+          <div
+            className={`nexus-panel-slot${
+              activity.activeId === 'graph' ? '' : ' nexus-panel-slot-hidden'
+            }`}
+          >
+            {/* 图谱来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
+            <GraphPanel
+              activeFilePath={filePath}
+              onOpenFile={handleOpenWorkspaceFile}
+              revision={documentRevision}
+            />
+          </div>
+          <div
+            className={`nexus-panel-slot${
+              activity.activeId === 'history' ? '' : ' nexus-panel-slot-hidden'
+            }`}
+          >
+            {/* 历史面板要拿当前内容做对比，所以把 session 也传进去 */}
+            <HistoryPanel
+              filePath={filePath}
+              session={activeDocument ? session : null}
+              onRestored={handleIndexed}
+              revision={documentRevision}
+            />
+          </div>
+          <div
+            className={`nexus-panel-slot${
+              activity.activeId === 'extensions' ? '' : ' nexus-panel-slot-hidden'
+            }`}
+          >
+            <PluginsPanel
+              host={extensionHostRef.current ?? undefined}
+              revision={documentRevision}
+            />
+          </div>
+        </div>
+      )}
+
+      <main className="nexus-main-content">
+      {/* 标签栏挂在编辑区容器**内部**：它只该横跨编辑区，不该延伸到活动栏和侧栏上方。
+          放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。 */}
+      <TabBar
+        documents={workspaceSnapshot.documents}
+        activeId={workspaceSnapshot.activeId}
+        onActivate={store.activate}
+        onClose={handleCloseTab}
+      />
+      {status === 'loading' && (
+        <div className="nexus-state-container">
+          <div className="nexus-loading-spinner" />
+          <p className="nexus-state-text">{t('status.loadingDocument')}</p>
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="nexus-state-container">
+          <div className="nexus-error-card" role="alert">
+            <span className="error-title">{t('error.unableToOpen')}</span>
+            <p className="error-description">{errorMessage}</p>
+            <button
+              type="button"
+              className="nexus-retry-btn"
+              onClick={loadDocument}
+            >
+              {t('editor.retry')}
+            </button>
+          </div>
+        </div>
+      )}
+      {/* 只读文档：交给 Viewer 外壳按类型查表。
+          这里**不认识任何格式** —— 「png 用什么渲染」由登记表回答，
+          所以 P3-06/07/08 各自注册一个渲染器即可，这一段不用再改。 */}
+      {status === 'ready' && activeDocument?.kind === 'viewer' && (
+        <ViewerSurface
+          document={{
+            path: activeDocument.filePath,
+            name: getFileName(activeDocument.filePath),
+            type: activeDocument.type,
+            page: activeDocument.viewerPage,
+            // 有工作区时引用相对工作区根（蓝图 §11.4），轻量模式下退回文档所在目录 ——
+            // 那时没有工作区可言，相对同目录是唯一能点开的写法。
+            citationBase:
+              workspaceRoot ??
+              getDocumentDirectory(activeDocument.filePath) ??
+              activeDocument.filePath
+          }}
+          registry={viewerRegistryRef.current}
+        />
+      )}
+      {/* 没有活动文档时的空态。workspace 模式下这是正常起点（从左侧挑一个文件），
+          lightweight 模式下只会在启动的一瞬间出现。 */}
+      {status === 'ready' && !activeDocument && (
+        <div className="nexus-workspace-empty">
+          <span className="nexus-workspace-empty-title">{t('workspace.title')}</span>
+          {workspaceRoot && (
+            <code className="nexus-workspace-empty-path">{workspaceRoot}</code>
+          )}
+          <p className="nexus-workspace-empty-note">
+            {workspaceRoot ? t('workspace.pickFile') : t('workspace.pending')}
+          </p>
+        </div>
+      )}
+      {status === 'ready' && activeDocument?.kind === 'editor' && (
+        // 只包编辑区：投影抛错时保留顶栏、菜单栏和状态栏，
+        // 让 Mod-M 切换 surface 成为一条真实可用的恢复路径。
+        // resetKey 绑 surfaceKind，切回 Source 会自动清除错误状态。
+        <ErrorBoundary resetKey={surfaceKind} titleKey="error.surfaceTitle">
+          <EditorSurface
+            session={session}
+            surfaceId="main-editor"
+            surfaceKind={surfaceKind}
+            saveState={saveState}
+            saveError={saveError}
+            readOnly={saveState === 'readonly'}
+            documentDirectory={getDocumentDirectory(filePath)}
+            linkNavigator={handleLinkNavigation}
+            extensionHost={extensionHostRef.current ?? undefined}
+            theme={resolvedTheme.type}
+            locale={locale}
+            onChange={handleContentChange}
+            onSelectionChange={handleSelectionChange}
+            className="nexus-editor-full"
+          />
+        </ErrorBoundary>
+      )}
+      </main>
       </div>
 
       {/* Status Bar Footer */}

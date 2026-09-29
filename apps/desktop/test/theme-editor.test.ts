@@ -2,7 +2,13 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
-import { launchElectronApp, createTempDir, type ElectronAppInstance } from './smoke-harness.js';
+import {
+  launchElectronApp,
+  createTempDir,
+  MAIN_WINDOW_URL_MARKER,
+  SETTINGS_WINDOW_URL_MARKER,
+  type ElectronAppInstance
+} from './smoke-harness.js';
 
 /**
  * 两档主题编辑器的真机接线（P4-05 / P4-06）。
@@ -10,6 +16,9 @@ import { launchElectronApp, createTempDir, type ElectronAppInstance } from './sm
  * renderer 层的分支（高级档才有提示条、不达标才标对比度）在
  * `renderer/test/theme-editor.test.tsx` 里；这里只证明**真实链路喂进来也是那个结果** ——
  * 改种子会 fork 出用户主题并落盘、覆盖项真的写进 CSS 变量、预览里的 CodeMirror 真的建起来了。
+ *
+ * 设置是**独立窗口**，所以驱动之前要先 `attachToWindow()` 切过去；改完主题的跨窗口同步
+ * 由 `settings-window.test.ts` 专门守，这里只管编辑器自己的链路。
  *
  * **一个文件只启动一次 Electron** —— 同文件第二次启动会卡在 `Runtime.enable` 不返回
  * （见 `.workbuddy-ai/memory/MEMORY.md`）。所以整条交互链塞进同一个用例。
@@ -59,6 +68,7 @@ describe('主题编辑器', () => {
 
     await app.waitForSelector('.nexus-activity-bar', 20000);
     await app.click('.nexus-activity-icon[data-activity="settings"]');
+    await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
     await app.waitForSelector('.nexus-theme-editor', 10000);
 
     // ① 基础档：16 个取色器 + 5 个滑块，预览里的 CodeMirror 是真视图
@@ -141,9 +151,14 @@ describe('主题编辑器', () => {
       await app.evaluate<string>(`localStorage.getItem('nexus-user-theme') ?? ''`)
     ).not.toBe('');
 
-    // ⑧ Escape 回到工作区
-    await app.pressKey('Escape');
-    await app.waitForFunction(`() => !document.querySelector('.nexus-settings-view')`, 10000);
+    // ⑧ Escape 关掉设置窗口，主窗口不受影响（主题也同步过来了 —— 关窗前的最后一次改动是切回内置主题）
+    await app.dispatchKey('Escape');
+    await app.waitForPageCount(SETTINGS_WINDOW_URL_MARKER, 0, 10000);
+    await app.attachToWindow(MAIN_WINDOW_URL_MARKER);
     expect(await app.evaluate<boolean>(`!!document.querySelector('.nexus-activity-bar')`)).toBe(true);
+    await app.waitForFunction(
+      `() => document.documentElement.dataset.theme === ${JSON.stringify(builtInId)}`,
+      10000
+    );
   }, 120000);
 });

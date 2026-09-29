@@ -150,6 +150,77 @@ function toAllowedExternalUrl(rawUrl: unknown): string | null {
   }
 }
 
+/**
+ * 渲染进程靠这个查询串判断「我该渲染主界面还是设置界面」。
+ *
+ * 走 URL 而不是 IPC：角色必须在**首帧之前**就确定。`getLaunchContext` 是异步 invoke，
+ * 等它回来再决定渲染什么，用户会先看到主界面闪一下再变成设置页。查询串在
+ * `main.tsx` 里是同步可读的，零闪烁、零往返。
+ *
+ * 两个窗口都**显式**带角色（主窗口也带 `window=main`），不靠「没带参数就是主窗口」：
+ * 那样两个 URL 无法互相区分，测试里按 URL 找目标就得写「含 index.html 且不含 settings」
+ * 这种反向条件，改一个窗口的加载方式就会悄悄失配。
+ */
+const WINDOW_ROLE_PARAM = 'window';
+const MAIN_WINDOW_QUERY = { [WINDOW_ROLE_PARAM]: 'main' };
+const SETTINGS_WINDOW_QUERY = { [WINDOW_ROLE_PARAM]: 'settings' };
+
+/**
+ * 把渲染产物装进窗口。两个窗口跑**同一份产物**，只有角色参数不同 ——
+ * 另开一个构建目标意味着主题、i18n、设置存档、样式全都要么抽公共包要么抄一遍。
+ */
+function loadRenderer(win: BrowserWindowType, role: 'main' | 'settings'): void {
+  const query = role === 'settings' ? SETTINGS_WINDOW_QUERY : MAIN_WINDOW_QUERY;
+  const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
+  if (devServerUrl) {
+    win.loadURL(`${devServerUrl}?${WINDOW_ROLE_PARAM}=${role}`);
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'), { query });
+  }
+}
+
+/**
+ * 无边框窗口的「显示时机」。
+ *
+ * `ready-to-show` 在隐藏窗口下并不保证触发（冷启动 dev 时首次绘制可能不发生），
+ * 因此同时监听 `did-finish-load` 并加超时兜底，保证窗口一定可见。
+ *
+ * 两个窗口都要这一段，所以抽出来 —— 抄两遍的话，将来只给其中一个补了兜底定时器的清理，
+ * 另一个就会在窗口销毁后留下一个还在跑的 timer。
+ */
+function showWhenReady(win: BrowserWindowType): void {
+  let shown = false;
+  const show = () => {
+    if (shown || win.isDestroyed()) return;
+    shown = true;
+    win.show();
+    // 无边框窗口不会自动取得键盘焦点，未聚焦时用户输入与自动化按键都会被丢弃。
+    win.focus();
+  };
+
+  win.once('ready-to-show', show);
+  win.webContents.once('did-finish-load', show);
+  const fallbackTimer = setTimeout(show, 3000);
+  win.once('closed', () => clearTimeout(fallbackTimer));
+}
+
+/**
+ * 把「最大化状态变了」推给**该窗口自己**。
+ *
+ * 不能只推给主窗口：自绘的还原图标是每个窗口各自维护的状态，漏推的那个窗口会在最大化之后
+ * 一直显示「最大化」图标。同理也不能广播给所有窗口 —— 每个窗口问的是自己的状态。
+ */
+function broadcastWindowState(win: BrowserWindowType): void {
+  const notify = () => {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send(IPC_CHANNELS.windowStateChanged, {
+      maximized: win.isMaximized()
+    } satisfies WindowState);
+  };
+  win.on('maximize', notify);
+  win.on('unmaximize', notify);
+}
+
 function createWindow(): BrowserWindowType {
   const mainWindow = new BrowserWindow({
     width: 960,
@@ -186,31 +257,11 @@ function createWindow(): BrowserWindowType {
    */
   getOrCreateSession(mainWindow.webContents);
 
-  // ready-to-show 在隐藏窗口下并不保证触发（冷启动 dev 时首次绘制可能不发生），
-  // 因此同时监听 did-finish-load 并加超时兜底，保证窗口一定可见。
-  let windowShown = false;
-  const showWindow = () => {
-    if (windowShown || mainWindow.isDestroyed()) return;
-    windowShown = true;
-    mainWindow.show();
-    // 无边框窗口不会自动取得键盘焦点，未聚焦时用户输入与自动化按键都会被丢弃。
-    mainWindow.focus();
-  };
+  // ready-to-show / did-finish-load / 超时兜底三路兜住「窗口一定可见」，见 showWhenReady。
+  showWhenReady(mainWindow);
 
   // 最大化/还原状态回传，保证自绘按钮图标与窗口实际状态一致。
-  const notifyWindowState = () => {
-    if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send(IPC_CHANNELS.windowStateChanged, {
-      maximized: mainWindow.isMaximized()
-    } satisfies WindowState);
-  };
-  mainWindow.on('maximize', notifyWindowState);
-  mainWindow.on('unmaximize', notifyWindowState);
-
-  mainWindow.once('ready-to-show', showWindow);
-  mainWindow.webContents.once('did-finish-load', showWindow);
-  const showFallbackTimer = setTimeout(showWindow, 3000);
-  mainWindow.once('closed', () => clearTimeout(showFallbackTimer));
+  broadcastWindowState(mainWindow);
 
   mainWindow.on('close', async (event) => {
     const isDirty = windowDirtyMap.get(mainWindow.id) ?? false;
@@ -255,14 +306,69 @@ function createWindow(): BrowserWindowType {
   });
 
   // Load renderer
-  const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
-  if (devServerUrl) {
-    mainWindow.loadURL(devServerUrl);
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
-  }
+  loadRenderer(mainWindow, 'main');
+
+  // 主窗口没了，设置窗口跟着走。不这么做的话关掉主窗口会留下一个孤立的设置窗口
+  // （`window-all-closed` 也就永远不触发，进程不退出）。
+  mainWindow.once('closed', () => closeSettingsWindow());
 
   return mainWindow;
+}
+
+/** 设置窗口的尺寸。比主窗口小一圈 —— 它没有编辑区要装。 */
+const SETTINGS_WINDOW_SIZE = { width: 880, height: 640, minWidth: 560, minHeight: 420 };
+
+/** 当前开着的设置窗口。`null` = 没开。 */
+let settingsWindow: BrowserWindowType | null = null;
+
+/**
+ * 打开设置窗口，**单例**：已经开着就还原 + 聚焦，不新建。
+ *
+ * 三条刻意的决定：
+ *
+ * 1. **不调 `getOrCreateSession()`** —— 设置窗口没有工作区，不读文档、不建索引。
+ *    `nexus-asset://` 也不需要单独挂：它与主窗口共用 `defaultSession`，主窗口已经挂过了。
+ * 2. **无边框自绘**，与主窗口一致。窗口控制 IPC（最小化 / 最大化 / 关闭）本来就按
+ *    `BrowserWindow.fromWebContents(event.sender)` 定位窗口，所以这里不需要任何改动。
+ * 3. **关闭即销毁**，不做「隐藏起来复用」。设置窗口没有需要保活的状态 —— 分组停在哪儿
+ *    存在 `settings.lastSection` 里，重建一次就能恢复。
+ */
+function createSettingsWindow(): BrowserWindowType {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore();
+    settingsWindow.focus();
+    return settingsWindow;
+  }
+
+  const win = new BrowserWindow({
+    ...SETTINGS_WINDOW_SIZE,
+    show: false,
+    // 中性初值，与主窗口同理：真正的标题由渲染进程按语言设置。
+    title: 'Nexus',
+    titleBarStyle: 'hidden',
+    webPreferences: {
+      preload: getPreloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  settingsWindow = win;
+
+  showWhenReady(win);
+  broadcastWindowState(win);
+  win.once('closed', () => {
+    settingsWindow = null;
+  });
+
+  loadRenderer(win, 'settings');
+
+  return win;
+}
+
+function closeSettingsWindow(): void {
+  if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
+  settingsWindow = null;
 }
 
 const windowDirtyMap = new Map<number, boolean>();
@@ -748,6 +854,26 @@ ipcMain.on(IPC_CHANNELS.maximizeWindow, (event) => {
 ipcMain.handle(IPC_CHANNELS.getWindowState, (event): WindowState => {
   const win = BrowserWindow.fromWebContents(event.sender);
   return { maximized: Boolean(win && !win.isDestroyed() && win.isMaximized()) };
+});
+
+// 设置窗口的入口。**只从主窗口触发** —— 设置窗口里没有「再开一个设置窗口」的入口，
+// 单例判定因此只需挡「重复点主窗口的齿轮」这一种情况。
+ipcMain.handle(IPC_CHANNELS.openSettingsWindow, () => {
+  createSettingsWindow();
+});
+
+/**
+ * 本机偏好变了：广播给**其他**窗口，让它们重读存档。
+ *
+ * 排除发起方 —— 它自己已经更新过内存了，回推一次只会让它白做一轮重读。载荷为空也是刻意的：
+ * 新值在 localStorage 里，收方自己读；传值就要定义一份载荷格式，而两份格式迟早对不上。
+ */
+ipcMain.on(IPC_CHANNELS.notifySettingsChanged, (event) => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
+    if (win.webContents.id === event.sender.id) continue;
+    win.webContents.send(IPC_CHANNELS.settingsChanged);
+  }
 });
 
 // App lifecycle
