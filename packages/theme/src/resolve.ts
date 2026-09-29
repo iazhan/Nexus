@@ -22,8 +22,8 @@ const MODE_SEPARATOR = '@';
 
 export type ThemeMode = 'light' | 'auto' | 'dark';
 
-/** 模式轴的顺序就是界面上的顺序。 */
-export const THEME_MODES: readonly ThemeMode[] = ['light', 'auto', 'dark'];
+/** 模式轴的顺序就是界面上的顺序：跟随系统 → 浅色 → 深色。设置页的卡片与菜单投影都读它。 */
+export const THEME_MODES: readonly ThemeMode[] = ['auto', 'light', 'dark'];
 
 /** 旧存档里的「跟随系统」哨兵值。新格式里它等价于「默认预设 + 自动」。 */
 export const SYSTEM_THEME = 'system';

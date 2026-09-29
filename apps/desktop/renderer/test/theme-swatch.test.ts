@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { BUILT_IN_PRESETS, BUILT_IN_SCHEMES, type NexusThemeScheme } from '@nexus/theme';
-import { builtInScheme, schemesForPreset, swatchForSchemes } from '../src/settings/theme-swatch.js';
+import {
+  builtInScheme,
+  modePreviewSchemes,
+  schemesForPreset,
+  swatchForSchemes
+} from '../src/settings/theme-swatch.js';
 
 /**
- * 预设卡片的取色。
+ * 外观分组的取色：预设卡片的圆点与配色条，以及模式卡片的小窗缩略图该取哪几套种子。
  *
  * 这一层的价值在于**「只读种子、不读 token」这条约束能被证伪** —— 卡片要在任何主题生效之前
  * 就画得出来：五十多个预设同时显示，而 `--nexus-*` 只有当前那套在 DOM 里。所以判据全部对着
@@ -123,5 +128,49 @@ describe('预设卡片的取色', () => {
   it('认不出的预设返回空数组 —— 不画一个猜出来的色块', () => {
     expect(schemesForPreset('no-such-preset', 'auto')).toEqual([]);
     expect(swatchForSchemes(schemesForPreset('no-such-preset', 'auto'))).toBeNull();
+  });
+});
+
+describe('模式卡片的缩略图取色', () => {
+  /**
+   * **这条是本组存在的理由。** 缩略图要画「左暗右浅」，而配色条要「先亮后暗」—— 同一份数据
+   * 两个相反的读法，所以 `modePreviewSchemes` 显式翻一次。谁要是为了「统一」把两处合并成一条
+   * 顺序，三张模式卡片里就有一张左右画反，而画反的正是「跟随系统」那张。
+   */
+  it('自动模式先暗后亮（与配色条相反），显式模式只给那一边', () => {
+    const variants = BUILT_IN_PRESETS.find((preset) => preset.id === 'nord')?.variants;
+    if (!variants?.light || !variants.dark) throw new Error('nord 应当明暗两边都有');
+
+    expect(modePreviewSchemes('nord', 'auto')).toEqual([
+      schemeOf(variants.dark),
+      schemeOf(variants.light)
+    ]);
+    expect(modePreviewSchemes('nord', 'light')).toEqual([schemeOf(variants.light)]);
+    expect(modePreviewSchemes('nord', 'dark')).toEqual([schemeOf(variants.dark)]);
+
+    // 与配色条的顺序确实是反的 —— 上面两条断言各说各话时这里会红。
+    expect(schemesForPreset('nord', 'auto').map((scheme) => scheme.palette.base00)).toEqual([
+      schemeOf(variants.light).palette.base00,
+      schemeOf(variants.dark).palette.base00
+    ]);
+  });
+
+  /** 单变体预设只有一套种子，自动模式也就只有一扇窗 —— 「没得切」不用另画一个灰掉的占位。 */
+  it('单变体预设的自动模式只有一扇窗', () => {
+    expect(modePreviewSchemes('dracula', 'auto')).toEqual([schemeOf('dracula')]);
+  });
+
+  /** 用户主题只有一版，三个模式画的是同一套 —— 卡片本来就是禁用的。 */
+  it('用户主题三个模式都是同一套种子；不给种子就画不出来', () => {
+    const scheme = schemeOf('nord');
+
+    for (const mode of ['auto', 'light', 'dark'] as const) {
+      expect(modePreviewSchemes('user:abc', mode, scheme)).toEqual([scheme]);
+    }
+    expect(modePreviewSchemes('user:abc', 'auto')).toEqual([]);
+  });
+
+  it('认不出的预设给空数组 —— 不画一扇猜出来的窗', () => {
+    expect(modePreviewSchemes('no-such-preset', 'auto')).toEqual([]);
   });
 });

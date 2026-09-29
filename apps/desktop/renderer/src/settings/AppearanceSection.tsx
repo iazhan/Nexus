@@ -4,12 +4,14 @@ import {
   parseSelection,
   presetOfScheme,
   presetVariantsOf,
+  type NexusThemeScheme,
   type ThemeMode,
 } from '@nexus/theme';
+import { AutoIcon, DarkIcon, LightIcon } from '../components/theme-icons.js';
 import { themeManager } from '../platform.js';
 import { useLocale, useTheme } from '../hooks.js';
 import { optionLabel, optionsOf, THEME_MODE_FIELD, THEME_PRESET_FIELD } from './registry.js';
-import { schemesForPreset, swatchForSchemes } from './theme-swatch.js';
+import { modePreviewSchemes, schemesForPreset, swatchForSchemes } from './theme-swatch.js';
 import { ThemeEditor } from './ThemeEditor.js';
 
 /**
@@ -17,6 +19,9 @@ import { ThemeEditor } from './ThemeEditor.js';
  *
  * 选中态取**选择**（`themeChoice`）而不是解析结果 —— 自动模式下系统是浅色时解析结果是
  * `nexus-light`，按解析结果判据会让「浅色」与「自动」同时点亮。
+ *
+ * 模式三张卡片画的是**当前预设的真实配色**（缩略图直接取种子，不是画一张示意图）：换预设时
+ * 缩略图跟着换，于是「这套主题的浅色长什么样」是看得见的。自动模式画两扇各半，左暗右浅。
  *
  * 预设列表走 `optionsOf()`：编辑种子会 fork 出一个用户主题，它必须出现在列表里，否则一个预设
  * 都不勾选。
@@ -29,6 +34,90 @@ import { ThemeEditor } from './ThemeEditor.js';
 
 /** 单变体预设（上游只有一版）没有模式可换，控件禁用并把原因说出来。 */
 const MODE_LOCKED_KEY = 'theme.modeUnavailable';
+
+/** 模式 → 标签前的图标。三个一起定义：它们是同一根轴上的三个位置，缺一个就读不出「这是一组」。 */
+const MODE_ICON: Record<ThemeMode, React.ReactNode> = {
+  light: LightIcon,
+  auto: AutoIcon,
+  dark: DarkIcon
+};
+
+/**
+ * 选中勾。只有这一处画它，所以留在本文件 —— 见 `components/theme-icons.tsx` 的边界说明。
+ * 线宽 3 而不是 2：12px 显示时 24 的 viewBox 缩了一半，线宽 2 只剩 1px，勾会糊。
+ */
+const CheckIcon = (
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="3"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+/** 小窗里各画三条线，长短由 CSS 按 `nth-child` 错开（排版细节，不是数据）。 */
+const PREVIEW_LINES = [0, 1, 2];
+
+/**
+ * 缩略图里的一扇小窗：窄栏 + 内容区，两边的底色与线色都取自传入的那套种子。
+ *
+ * `half` 有值时这扇窗画成**两倍宽**、再由外层裁掉一半（见 CSS 的 `[data-half]`）—— 两扇拼起来
+ * 才是完整的一扇窗，左扇是它的左半、右扇是它的右半。把一扇窗压扁来充数会让线宽与留白一起变形，
+ * 看起来像另一个控件。
+ */
+const MiniWindow: React.FC<{ scheme: NexusThemeScheme; half?: 'left' | 'right' }> = ({
+  scheme,
+  half
+}) => {
+  const { palette } = scheme;
+  return (
+    <span
+      className="nexus-theme-mini"
+      data-half={half}
+      style={{ backgroundColor: palette.base00 }}
+    >
+      <span className="nexus-theme-mini-side" style={{ backgroundColor: palette.base01 }}>
+        {PREVIEW_LINES.map((line) => (
+          <span
+            key={line}
+            className="nexus-theme-mini-line"
+            style={{ backgroundColor: palette.base03 }}
+          />
+        ))}
+      </span>
+      <span className="nexus-theme-mini-body">
+        {PREVIEW_LINES.map((line) => (
+          <span
+            key={line}
+            className="nexus-theme-mini-line"
+            style={{ backgroundColor: palette.base04 }}
+          />
+        ))}
+      </span>
+    </span>
+  );
+};
+
+/** 一张模式卡片的缩略图。两套种子就是左右两扇各半，一套就是整幅一扇。 */
+const ModePreview: React.FC<{ schemes: readonly NexusThemeScheme[] }> = ({ schemes }) => (
+  <span className="nexus-theme-mode-preview" aria-hidden="true">
+    {schemes.map((scheme, index) => (
+      <span key={index} className="nexus-theme-mode-pane">
+        <MiniWindow
+          scheme={scheme}
+          half={schemes.length > 1 ? (index === 0 ? 'left' : 'right') : undefined}
+        />
+      </span>
+    ))}
+  </span>
+);
 
 export const AppearanceSection: React.FC = () => {
   const { t, has } = useLocale();
@@ -72,19 +161,35 @@ export const AppearanceSection: React.FC = () => {
         <span className="nexus-settings-field-label">{modeLabel}</span>
         <div className="nexus-theme-modes" role="radiogroup" aria-label={modeLabel}>
           {(THEME_MODE_FIELD.options ?? []).map((option) => {
-            const checked = mode === option.value;
+            const value = option.value as ThemeMode;
+            const checked = mode === value;
+            // 缩略图取**当前预设**这套主题的真实种子：换预设时它跟着换，「这套主题的浅色长什么样」
+            // 于是是看得见的，而不是一张画给所有主题共用的示意图。
+            const previews = modePreviewSchemes(activePreset, value, activeUserScheme);
             return (
               <button
-                key={option.value}
+                key={value}
                 type="button"
                 role="radio"
                 aria-checked={checked}
                 disabled={!modeSwitchable}
                 className={`nexus-theme-mode${checked ? ' nexus-theme-mode-active' : ''}`}
-                data-theme-mode={option.value}
-                onClick={() => THEME_MODE_FIELD.accessor.write(option.value)}
+                data-theme-mode={value}
+                onClick={() => THEME_MODE_FIELD.accessor.write(value)}
               >
-                {optionLabel(option, t)}
+                {previews.length > 0 && <ModePreview schemes={previews} />}
+                <span className="nexus-theme-mode-label">
+                  <span className="nexus-theme-mode-icon" aria-hidden="true">
+                    {MODE_ICON[value]}
+                  </span>
+                  {optionLabel(option, t)}
+                </span>
+                {/* 勾是「选中」的第二条通道 —— 只靠边框颜色区分的话，色觉障碍用户看不出选了哪一个。 */}
+                {checked && (
+                  <span className="nexus-theme-mode-check" aria-hidden="true">
+                    {CheckIcon}
+                  </span>
+                )}
               </button>
             );
           })}

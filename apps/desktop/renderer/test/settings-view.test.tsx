@@ -59,6 +59,18 @@ function modeOption(value: string): HTMLElement | null {
   return container.querySelector<HTMLElement>(`[data-theme-mode="${value}"]`);
 }
 
+/** 模式卡片缩略图里的小窗，一扇一个。自动模式两扇（左暗右浅），显式模式一扇。 */
+function modeThumbnails(value: string): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(`[data-theme-mode="${value}"] .nexus-theme-mini`)
+  );
+}
+
+/** 缩略图第一扇窗的底色。判「缩略图是不是这套预设的真实配色」靠它 —— 比断言具体色值稳。 */
+function thumbnailBackground(value: string): string {
+  return modeThumbnails(value)[0]?.style.backgroundColor ?? '';
+}
+
 /** React 的 `onChange` 挂在原生 `input` 事件上；直接改 `.value` 不触发它。 */
 function setInputValue(input: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -224,6 +236,78 @@ describe('设置视图 · Appearance', () => {
   });
 
   /**
+   * 顺序是「跟随系统 / 浅色 / 深色」。**判据是 DOM 里的顺序**，不是注册表里的数组 ——
+   * 顺序一旦被某处手抄一遍，菜单与卡片就会各说各话。
+   */
+  it('模式卡片按「跟随系统 / 浅色 / 深色」排列，每张都有图标', () => {
+    renderSettings();
+
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>('[data-theme-mode]')).map(
+        (el) => el.dataset.themeMode
+      )
+    ).toEqual(['auto', 'light', 'dark']);
+
+    // 三个模式是一根轴上的三个位置，没有图标就只剩三个词，读不出它们同属一组。
+    for (const value of ['auto', 'light', 'dark']) {
+      expect(modeOption(value)?.querySelector('.nexus-theme-mode-icon svg'), value).not.toBeNull();
+    }
+  });
+
+  /**
+   * 缩略图画的是**当前预设的真实种子**，不是一张给所有主题共用的示意图。
+   *
+   * 两条判据都不碰具体色值：亮卡与暗卡的底色必须不同（否则说明画的是一张共用图），换预设之后
+   * 同一张卡的底色必须跟着变（否则说明种子没走到 DOM）。具体取哪几个槽位由
+   * `theme-swatch.test.ts` 守着。
+   */
+  it('缩略图取当前预设的种子，换预设跟着换', () => {
+    renderSettings();
+
+    const nexusLight = thumbnailBackground('light');
+    expect(nexusLight).not.toBe('');
+    expect(nexusLight).not.toBe(thumbnailBackground('dark'));
+
+    act(() => {
+      presetOption('nord')?.click();
+    });
+
+    expect(thumbnailBackground('light')).not.toBe(nexusLight);
+  });
+
+  /** 自动模式两扇各半、左暗右浅 —— 那正是「跟随系统会给你深色的栏、浅色的正文」。 */
+  it('自动模式的缩略图是左暗右浅两扇，显式模式各一扇', () => {
+    renderSettings();
+
+    expect(modeThumbnails('auto')).toHaveLength(2);
+    expect(modeThumbnails('auto')[0]?.dataset.half).toBe('left');
+    expect(modeThumbnails('auto')[1]?.dataset.half).toBe('right');
+    expect(modeThumbnails('light')).toHaveLength(1);
+    expect(modeThumbnails('dark')).toHaveLength(1);
+  });
+
+  /** 单变体预设只有一套种子，自动模式也就只画一扇 —— 这正好是「没得切」的样子。 */
+  it('单变体预设的自动卡片只有一扇窗', () => {
+    settings.set('appearance.theme', 'dracula@dark');
+    renderSettings();
+
+    expect(modeThumbnails('auto')).toHaveLength(1);
+  });
+
+  /**
+   * 选中勾是「选中」的第二条通道。只靠边框颜色区分的话，色觉障碍用户看不出选了哪一个 ——
+   * 所以「有几枚勾」也是结构判据，不是装饰细节。
+   */
+  it('选中勾只画在选中的那张卡上', () => {
+    settings.set('appearance.theme', 'nexus@dark');
+    renderSettings();
+
+    expect(modeOption('dark')?.querySelector('.nexus-theme-mode-check')).not.toBeNull();
+    expect(modeOption('light')?.querySelector('.nexus-theme-mode-check')).toBeNull();
+    expect(modeOption('auto')?.querySelector('.nexus-theme-mode-check')).toBeNull();
+  });
+
+  /**
    * 卡片上要能**扫视着选**：圆点是这套主题的主色，配色条是它的背景 → 正文 → 主色跨度。
    * 自动模式下每套预设没有单一配色，圆点两半、条八段；单变体预设只有一套，一半、四段。
    * 这两个数字是刻意的，不是实现细节（改成一个实心圆点等于说它有确定的主色）。
@@ -385,6 +469,8 @@ describe('菜单投影', () => {
   /**
    * 菜单里只有**模式轴**（三项，是「现在想亮一点」这种即时动作）。五十多个预设列进去等于把
    * 菜单变成浏览器 —— 它的入口是设置窗口里那条可搜索的列表，菜单里留一条「设置…」就够。
+   *
+   * 顺序与设置页同一份（`THEME_MODES`）：跟随系统在最前。菜单与卡片各抄一遍顺序必然漂移。
    */
   it('装所有 menu: true 的字段：模式三项 + 语言两项 + mermaid', () => {
     const labels = projectMenuItems({ t, onOpenSettings: () => {} })
@@ -392,8 +478,8 @@ describe('菜单投影', () => {
       .map((item) => item.label);
 
     expect(labels).toEqual([
-      'theme.mode.light',
       'theme.mode.auto',
+      'theme.mode.light',
       'theme.mode.dark',
       'lang.zhCN',
       'lang.enUS',

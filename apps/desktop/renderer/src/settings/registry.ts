@@ -10,6 +10,7 @@
 
 import {
   BUILT_IN_PRESETS,
+  THEME_MODES,
   choiceWithMode,
   formatSelection,
   isThemeMode,
@@ -140,17 +141,20 @@ function clampMode(presetId: string, mode: ThemeMode): ThemeMode {
   return variants[mode] ? mode : variants.light ? 'light' : 'dark';
 }
 
+/** 模式轴的标签。**顺序不在这里** —— 它由 `THEME_MODES` 定（跟随系统在最左），与界面一致。 */
+const MODE_LABEL_KEYS: Record<ThemeMode, string> = {
+  light: 'theme.mode.light',
+  auto: 'theme.mode.auto',
+  dark: 'theme.mode.dark'
+};
+
 /** 模式轴。**进菜单**：只有三项，是「现在想亮一点」这种即时动作。 */
 export const THEME_MODE_FIELD: FieldDef = {
   id: 'appearance.themeMode',
   section: 'appearance',
   labelKey: 'settings.appearance.themeMode',
   control: 'radio',
-  options: [
-    { value: 'light', labelKey: 'theme.mode.light' },
-    { value: 'auto', labelKey: 'theme.mode.auto' },
-    { value: 'dark', labelKey: 'theme.mode.dark' }
-  ],
+  options: THEME_MODES.map((mode): FieldOption => ({ value: mode, labelKey: MODE_LABEL_KEYS[mode] })),
   accessor: {
     read: currentMode,
     write: (value) => {

@@ -1,5 +1,6 @@
 /**
- * 预设卡片上的「主色圆点 + 配色条」。
+ * 外观分组里「主题数据 → 像素」的两件事：预设卡片的**主色圆点 + 配色条**，以及模式卡片的
+ * **小窗缩略图**该取哪几套种子。两件事共用下面那份按 id 查种子的索引。
  *
  * 取色**只读种子，不读 43 个 token**：列表里几十套主题同时显示，而只有当前那套的 token 在 DOM 里
  * （`--nexus-*` 是单值变量，画不出别的主题）。种子则每套都有，16 个槽位也不受当前主题影响。
@@ -91,4 +92,23 @@ export function schemesForPreset(
   const one =
     builtInScheme(variants[mode]) ?? builtInScheme(variants.light) ?? builtInScheme(variants.dark);
   return one ? [one] : [];
+}
+
+/**
+ * 模式卡片里那扇（或两扇）小窗该用哪几套种子。
+ *
+ * 与 `schemesForPreset` 只差**自动模式的顺序**：卡片要「左暗右浅」（照截图），而配色条要
+ * 「先亮后暗」（见上）。两个顺序都是有意的 —— 配色条的读法是「这套主题从背景到正文到主色」，
+ * 明暗拼接时先说亮色那套更顺；小窗画的是「跟随系统会给你深色的栏、浅色的正文」，暗的在左。
+ *
+ * 单变体预设与用户主题只有一套种子，自动模式也就只有**一扇**窗 —— 这正好是「没得切」的样子，
+ * 不用另画一个灰掉的占位。
+ */
+export function modePreviewSchemes(
+  presetId: string,
+  mode: ThemeMode,
+  userScheme: NexusThemeScheme | null = null
+): NexusThemeScheme[] {
+  const schemes = schemesForPreset(presetId, mode, userScheme);
+  return mode === 'auto' ? [...schemes].reverse() : schemes;
 }

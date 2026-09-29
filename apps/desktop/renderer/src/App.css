@@ -2198,45 +2198,179 @@ body.nexus-resizing {
   font-weight: 500;
 }
 
-/* 模式段控（浅色 / 自动 / 深色）。**分段而非独立按钮** —— 三项互斥、且是一根轴上的三个位置，
-   分开摆会看起来像三个能各自开关的开关。用 `inline-flex` + 外层边框，内层只画分隔线。 */
+/* 模式卡片（跟随系统 / 浅色 / 深色）。**三张卡片而不是一段三格段控** —— 每格要画一张缩略图，
+   而「自动」那张是非对称的（左暗右浅），等宽分格的段控装不下。三张卡片同时与下面那片预设卡片
+   共用同一套视觉语言（`.nexus-theme-card`），「先选模式、再选主题」是一条流水线这件事一眼能看出。
+   互斥性仍由 `role="radiogroup"` + `aria-checked` 表达，不靠外形。
+
+   **不要写 `align-self: flex-start`**（`.nexus-theme-search` 有，这里不能照抄）：那会让这个
+   换行 flex 容器收缩到「单个子项那么宽」，于是三张卡各占一行竖着排（真机实测 3 行 × 220px）。
+   撑满整行、由卡片自己 `flex` 平分才是对的。 */
 .nexus-theme-modes {
-  display: inline-flex;
-  align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-top: 4px;
-  border: 1px solid var(--nexus-border-subtle);
-  border-radius: 6px;
-  overflow: hidden;
 }
 
+/* `position: relative` 给右上角那枚选中勾当定位容器。
+   `align-items: stretch` 不能省：`<button>` 的 UA 样式把它设成 `flex-start`，缩略图会塌成 0 高。
+   **宽度是弹性的、不写死** —— 设置窗口默认宽度下内容区只有 ~600px，三张 200px 的卡加间距是
+   624px，正好换行（真机截图实测）。`flex: 1 1 176px` 让它们按 192px 平分并排；窗口再宽时
+   被 `max-width` 挡住，三张仍然并排、右边留白 —— 与参考图一致。 */
 .nexus-theme-mode {
-  padding: 6px 16px;
-  border: none;
+  position: relative;
+  display: flex;
+  flex: 1 1 176px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  max-width: 220px;
+  padding: 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
   background-color: var(--nexus-bg-surface);
   font: inherit;
-  font-size: 13px;
-  color: var(--nexus-text-secondary);
+  text-align: left;
   cursor: pointer;
 }
 
-.nexus-theme-mode + .nexus-theme-mode {
-  border-left: 1px solid var(--nexus-border-subtle);
-}
-
 .nexus-theme-mode:hover:not(:disabled) {
-  background-color: var(--nexus-bg-surface-hover);
-  color: var(--nexus-text-primary);
+  border-color: var(--nexus-border-strong);
 }
 
+/* 选中态由**三处**表达：边框取图形级强调色、底纹取选区色、右上角一枚对勾。
+   标签**不变色**（与截图一致）—— 三处信号已经够了，再变色就成了第四处噪音，而下面那排预设卡片
+   的选中态已经用掉了「标签变强调色」这个写法，两处都用会让「标签变色」不再指向任何一件事。 */
 .nexus-theme-mode-active {
+  border-color: var(--nexus-accent-indicator);
   background-color: var(--nexus-selection-bg);
-  color: var(--nexus-accent-text);
+}
+
+.nexus-theme-mode-active .nexus-theme-mode-label {
   font-weight: 500;
 }
 
 .nexus-theme-mode:disabled {
   cursor: not-allowed;
+}
+
+.nexus-theme-mode:disabled .nexus-theme-mode-label {
   color: var(--nexus-text-muted);
+}
+
+/* 缩略图。高度定死，不按内容撑 —— 自动模式两扇、显式模式一扇，靠 flex 平分宽度，高度不一致
+   的话三张卡会差几个像素，横排看起来像没对齐。 */
+.nexus-theme-mode-preview {
+  display: flex;
+  height: 84px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.nexus-theme-mode-pane {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 小窗：窄栏 + 内容区，两边底色与线色由组件按种子内联给出（`--nexus-*` 只有当前主题那套，
+   画不出别的主题）。栏与内容区都贴到窗口边缘，不留外边距 —— 缩略图要像一扇窗，不像一张卡。 */
+.nexus-theme-mini {
+  display: flex;
+  flex: none;
+  width: 100%;
+}
+
+/* 两扇时每扇画成**两倍宽**再由外层裁一半：两扇拼起来才是完整的一扇窗，左扇是它的左半、
+   右扇是它的右半。压扁一扇窗来充数会让线宽与留白一起变形，看起来像另一个控件。 */
+.nexus-theme-mini[data-half] {
+  width: 200%;
+}
+
+.nexus-theme-mini[data-half='right'] {
+  margin-left: -100%;
+}
+
+.nexus-theme-mini-side {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 5px;
+  width: 38%;
+  padding: 8px 7px;
+}
+
+.nexus-theme-mini-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px 8px 8px 9px;
+}
+
+.nexus-theme-mini-line {
+  height: 4px;
+  border-radius: 2px;
+}
+
+/* 线的长短错开才像文字。写在这里而不是组件里 —— 这是排版细节，不是数据。 */
+.nexus-theme-mini-side .nexus-theme-mini-line:nth-child(1) {
+  width: 100%;
+}
+
+.nexus-theme-mini-side .nexus-theme-mini-line:nth-child(2) {
+  width: 62%;
+}
+
+.nexus-theme-mini-side .nexus-theme-mini-line:nth-child(3) {
+  width: 80%;
+}
+
+.nexus-theme-mini-body .nexus-theme-mini-line:nth-child(1) {
+  width: 100%;
+}
+
+.nexus-theme-mini-body .nexus-theme-mini-line:nth-child(2) {
+  width: 88%;
+}
+
+.nexus-theme-mini-body .nexus-theme-mini-line:nth-child(3) {
+  width: 54%;
+}
+
+/* 选中勾压在缩略图右上角。底色取主色实心（`accent-solid`）、勾取 `accent-contrast` —— 这一对在
+   对比度契约里登记过（4.5:1）。**不跟着缩略图的配色走**：缩略图画的是当前预设的种子，而勾是当前
+   界面的控件，必须对当前主题可读。 */
+.nexus-theme-mode-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: var(--nexus-accent-solid);
+  color: var(--nexus-accent-contrast);
+}
+
+.nexus-theme-mode-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+}
+
+/* 图标走 `currentColor`，跟着标签一起变色。`flex: none` 防止长标签（英文的 "System"）把它压扁。 */
+.nexus-theme-mode-icon {
+  display: flex;
+  flex: none;
 }
 
 /* 预设搜索框。五十多个预设，不搜就只能滚。宽度跟着卡片网格走，不铺满整行 ——
