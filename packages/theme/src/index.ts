@@ -1,6 +1,6 @@
 import { applyOverrides, seedsToTokens } from './derive.js';
 import { normalizeThemeChoice, resolveKnownThemeId, SYSTEM_THEME } from './resolve.js';
-import { nexusDarkSeeds, nexusLightSeeds, type NexusThemeScheme } from './seeds.js';
+import { nexusDarkSeeds, nexusLightSeeds, type Base16Slot, type NexusThemeScheme, type Tuning } from './seeds.js';
 import { isUserThemeId, newUserThemeId, type UserTheme } from './user-theme.js';
 
 export {
@@ -13,6 +13,16 @@ export {
   themeIdForType
 } from './resolve.js';
 export { themesToCss } from './static-css.js';
+export {
+  applyOverrides,
+  defaultTuning,
+  seedsToTokens,
+  seedsToTokensWithReport,
+  type Correction,
+  type DeriveReport
+} from './derive.js';
+export { measureTheme, type ContrastFailure, type ContrastReport } from './contrast.js';
+export { BASE16_SLOTS, type Base16Slot, type NexusThemeScheme, type Tuning } from './seeds.js';
 export {
   isUserThemeId,
   newUserThemeId,
@@ -74,10 +84,11 @@ type Listener = (theme: ThemeDefinition) => void;
 
 const NO_OVERRIDES: Readonly<Record<string, string>> = {};
 
-function sameOverrides(
-  a: Readonly<Record<string, string>>,
-  b: Readonly<Record<string, string>>
-): boolean {
+/**
+ * 逐值比两套 token。**不能用对象引用比** —— `definitionOf()` 每次重算都造新对象，值没变也会
+ * 判成「变了」；而只比 `theme.id` 又会漏掉「id 不变但种子/覆盖项改了」这一整类。
+ */
+function sameTokens(a: Record<string, string>, b: Record<string, string>): boolean {
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) return false;
   return keys.every((key) => a[key] === b[key]);
@@ -115,9 +126,6 @@ export class ThemeManager {
   private schemes: Map<string, NexusThemeScheme> = new Map(builtInSchemes);
 
   private userThemes: Map<string, UserTheme> = new Map();
-
-  /** 上次广播出去的覆盖项快照 —— `applyResolved()` 的 `changed` 判据要连它一起比。 */
-  private appliedOverrides: Readonly<Record<string, string>> = NO_OVERRIDES;
 
   // 存档里该存的值：`system` 或主题 id。与 `activeTheme.id` 不同 —— 后者是解析结果。
   private choice: string;
@@ -172,6 +180,16 @@ export class ThemeManager {
   /** 当前主题对应的用户主题；落在内置主题上时为 `null`。 */
   get activeUserTheme(): UserTheme | null {
     return this.userThemes.get(this.activeTheme.id) ?? null;
+  }
+
+  /**
+   * 当前主题的种子（16 色 + 系数）。基础档编辑器要它 —— 它改的是种子，不是 43 个 token。
+   *
+   * `presets` 与 `schemes` 在 `registerUserTheme()` / `replaceScheme()` 里成对写入，构造时也成对
+   * 初始化，所以解析出的 id 一定在 `schemes` 里；返回 `null` 只可能是两处不同步的 bug。
+   */
+  get activeScheme(): NexusThemeScheme | null {
+    return this.schemes.get(this.activeTheme.id) ?? null;
   }
 
   /**
@@ -244,14 +262,36 @@ export class ThemeManager {
     return this.writeOverrides(current, next);
   }
 
-  private writeOverrides(theme: UserTheme, overrides: Record<string, string>): boolean {
-    const scheme: NexusThemeScheme = { ...theme.scheme, overrides };
+  /**
+   * 改当前用户主题的**种子**。基础档走这条路 —— 它改 16 色与系数，让派生重新跑一遍；而
+   * `patchOverrides()` 改的是派生结果之上的 43 个 token。两条路都只对用户主题生效。
+   */
+  patchScheme(patch: {
+    palette?: Partial<Record<Base16Slot, string>>;
+    tuning?: Partial<Tuning>;
+  }): boolean {
+    const current = this.activeUserTheme;
+    if (!current) return false;
+
+    const scheme: NexusThemeScheme = {
+      ...current.scheme,
+      palette: { ...current.scheme.palette, ...patch.palette },
+      ...(patch.tuning ? { tuning: { ...current.scheme.tuning, ...patch.tuning } } : {})
+    };
+    return this.replaceScheme(current, scheme);
+  }
+
+  private replaceScheme(theme: UserTheme, scheme: NexusThemeScheme): boolean {
     const updated: UserTheme = { ...theme, scheme };
     this.userThemes.set(updated.id, updated);
     this.schemes.set(updated.id, scheme);
     this.presets.set(updated.id, definitionOf(updated.id, scheme));
     this.applyResolved();
     return true;
+  }
+
+  private writeOverrides(theme: UserTheme, overrides: Record<string, string>): boolean {
+    return this.replaceScheme(theme, { ...theme.scheme, overrides });
   }
 
   subscribe(listener: Listener): () => void {
@@ -279,19 +319,13 @@ export class ThemeManager {
     return this.presets.get(id) ?? nexusLight;
   }
 
-  private overridesOf(id: string): Readonly<Record<string, string>> {
-    return this.userThemes.get(id)?.scheme.overrides ?? NO_OVERRIDES;
-  }
-
   private applyResolved(): void {
     const theme = this.resolveChoice();
-    const overrides = this.overridesOf(theme.id);
-    // 只比 id 的话覆盖项改了不广播 —— id 没变，UI 不重渲染，滑块拖了没反应。
+    // 比 id **和** token 值：只比 id 的话，覆盖项或种子改了不广播 —— 编辑器里拖了滑块没反应。
     const changed =
-      this.activeTheme.id !== theme.id || !sameOverrides(this.appliedOverrides, overrides);
+      this.activeTheme.id !== theme.id || !sameTokens(this.activeTheme.tokens, theme.tokens);
 
     this.activeTheme = theme;
-    this.appliedOverrides = overrides;
     this.applyToDOM(theme);
     if (changed) this.notify();
   }

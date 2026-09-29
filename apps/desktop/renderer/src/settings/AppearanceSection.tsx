@@ -1,12 +1,15 @@
 import React from 'react';
 import { useLocale, useSettingValue } from '../hooks.js';
-import { THEME_FIELD } from './registry.js';
+import { optionLabel, optionsOf, THEME_FIELD } from './registry.js';
+import { ThemeEditor } from './ThemeEditor.js';
 
 /**
- * Appearance 分组：本期唯一有内容的分组。
+ * Appearance 分组：主题三态 + 两档主题编辑器。
  *
  * 选中态取**选择**（`themeChoice`）而不是解析结果 —— 系统浅色时选「跟随系统」，解析结果仍是
  * `nexus-light`，若按解析结果判据，「跟随系统」与「Nexus Light」会同时点亮。
+ *
+ * 选项表走 `optionsOf()`：编辑种子会 fork 出一个用户主题，它必须在选项里出现，否则四项全不勾选。
  *
  * 没有保存按钮（设置项即时生效），也没有「恢复默认」（2026-09-28 定）。
  */
@@ -14,6 +17,7 @@ export const AppearanceSection: React.FC = () => {
   const { t } = useLocale();
   const themeChoice = useSettingValue('appearance.theme');
   const label = t(THEME_FIELD.labelKey);
+  const options = optionsOf(THEME_FIELD, t);
 
   return (
     <section className="nexus-settings-section" data-section="appearance">
@@ -26,7 +30,7 @@ export const AppearanceSection: React.FC = () => {
         )}
 
         <div className="nexus-settings-options" role="radiogroup" aria-label={label}>
-          {(THEME_FIELD.options ?? []).map((option) => {
+          {options.map((option) => {
             const checked = themeChoice === option.value;
             return (
               <button
@@ -38,12 +42,14 @@ export const AppearanceSection: React.FC = () => {
                 data-theme-option={option.value}
                 onClick={() => THEME_FIELD.accessor.write(option.value)}
               >
-                {t(option.labelKey)}
+                {optionLabel(option, t)}
               </button>
             );
           })}
         </div>
       </div>
+
+      <ThemeEditor />
     </section>
   );
 };

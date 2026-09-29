@@ -9,7 +9,7 @@
  */
 
 import { SYSTEM_THEME } from '@nexus/theme';
-import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings } from '../platform.js';
+import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
 import type { MenuBarItem } from '../MenuBar.js';
 
 export type SectionId =
@@ -60,7 +60,16 @@ export type FieldControl = 'radio' | 'select' | 'toggle' | 'number' | 'text' | '
 
 export interface FieldOption {
   value: string;
-  labelKey: string;
+  /** 字典键。与 `label` 二选一。 */
+  labelKey?: string;
+  /** 直接给出的文案 —— 用户主题名这类**运行期才知道**的值没有字典键。 */
+  label?: string;
+}
+
+/** 选项文案。两者都缺时回落到 `value`，不会渲染出空白。 */
+export function optionLabel(option: FieldOption, t: (key: string) => string): string {
+  if (option.label !== undefined) return option.label;
+  return option.labelKey ? t(option.labelKey) : option.value;
 }
 
 /** 字段的值访问器。设置页与菜单只认这三个动作，不关心值存在哪里。 */
@@ -78,9 +87,19 @@ export interface FieldDef {
   descriptionKey?: string;
   control: FieldControl;
   options?: readonly FieldOption[];
+  /**
+   * 运行期才定的选项。有它时**优先于** `options` —— 用户主题是编辑出来的，静态表列不出来；
+   * 两者都写会让「静态表是唯一真相」这句话失效。
+   */
+  optionsOf?: (t: (key: string) => string) => readonly FieldOption[];
   accessor: FieldAccessor;
   /** 是否投影进菜单。投影的是**所有** `menu: true` 的字段，不按分组过滤。 */
   menu?: boolean;
+}
+
+/** 字段当前的选项表。渲染与菜单投影都走它，避免两处各判一次。 */
+export function optionsOf(field: FieldDef, t: (key: string) => string): readonly FieldOption[] {
+  return field.optionsOf?.(t) ?? field.options ?? [];
 }
 
 /**
@@ -98,6 +117,18 @@ export const THEME_FIELD: FieldDef = {
     { value: 'nexus-light', labelKey: 'theme.option.light' },
     { value: 'nexus-dark', labelKey: 'theme.option.dark' }
   ],
+  /**
+   * 当前用户主题要**出现在选项里**，否则编辑完种子之后（编辑会 fork 出一个用户主题）四项全不
+   * 勾选，用户看到的是「一个主题都没选」。文案带一个「自定义」后缀，与同名的内置主题区分开。
+   */
+  optionsOf: (t) => {
+    const userTheme = themeManager.activeUserTheme;
+    if (!userTheme) return THEME_FIELD.options ?? [];
+    return [
+      ...(THEME_FIELD.options ?? []),
+      { value: userTheme.id, label: `${userTheme.scheme.name} · ${t('theme.custom')}` }
+    ];
+  },
   accessor: {
     read: () => settings.get('appearance.theme'),
     write: (value) => applyThemeChoice(value),
@@ -178,9 +209,9 @@ export function projectMenuItems({ t, onOpenSettings }: MenuProjectionOptions): 
       continue;
     }
 
-    for (const option of field.options ?? []) {
+    for (const option of optionsOf(field, t)) {
       items.push({
-        label: t(option.labelKey),
+        label: optionLabel(option, t),
         active: current === option.value,
         onSelect: () => field.accessor.write(option.value)
       });

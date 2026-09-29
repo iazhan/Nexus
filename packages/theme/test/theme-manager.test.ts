@@ -297,3 +297,62 @@ describe('ThemeManager 的用户主题与覆盖项', () => {
     expect(manager.themeChoice).toBe('user:a');
   });
 });
+
+describe('ThemeManager 的种子编辑（基础档的写入口）', () => {
+  it('内置主题上改种子被拒 —— 与覆盖项同一条纪律', () => {
+    const manager = managerWith(fakeSystem(false), 'nexus-light');
+
+    expect(manager.patchScheme({ palette: { base00: '#101010' } })).toBe(false);
+    expect(manager.theme.tokens['bg-canvas']).toBe(nexusLight.tokens['bg-canvas']);
+  });
+
+  it('改一个槽位：派生重跑、其余槽位不动、activeScheme 反映的是改过的种子', () => {
+    const manager = forked();
+    const beforeSurface = manager.theme.tokens['bg-surface'];
+
+    expect(manager.patchScheme({ palette: { base00: '#101010' } })).toBe(true);
+
+    expect(manager.activeScheme?.palette.base00).toBe('#101010');
+    expect(manager.activeScheme?.palette.base01).toBe(nexusLightSeeds.palette.base01);
+    expect(manager.theme.tokens['bg-canvas']).toBe('#101010');
+    expect(manager.theme.tokens['bg-surface']).toBe(beforeSurface);
+  });
+
+  /** 合并而不是替换：只给一个系数，其余四个必须留着缺省值。 */
+  it('改系数是合并：只给一个键，其余仍是缺省', () => {
+    const manager = forked();
+
+    manager.patchScheme({ tuning: { surfaceHover: 0.4 } });
+
+    expect(manager.activeScheme?.tuning?.surfaceHover).toBe(0.4);
+    expect(manager.activeScheme?.tuning?.surfaceActive).toBeUndefined();
+    expect(manager.theme.tokens['bg-surface-hover']).not.toBe(nexusLight.tokens['bg-surface-hover']);
+  });
+
+  it('改种子会广播 —— 只比 id 的判据在这里会漏（id 没变）', () => {
+    const manager = forked();
+    const listener = vi.fn();
+    manager.subscribe(listener);
+    const idBefore = manager.theme.id;
+
+    manager.patchScheme({ palette: { base00: '#101010' } });
+
+    expect(manager.theme.id).toBe(idBefore);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('种子与覆盖项互不覆盖 —— 覆盖项盖在派生结果之上', () => {
+    const manager = forked();
+    manager.overrideToken('bg-canvas', '#abcdef');
+
+    manager.patchScheme({ palette: { base00: '#101010' } });
+
+    expect(manager.theme.tokens['bg-canvas']).toBe('#abcdef');
+    expect(manager.activeScheme?.palette.base00).toBe('#101010');
+  });
+
+  it('内置主题的 activeScheme 就是内置种子本身', () => {
+    const manager = managerWith(fakeSystem(false), 'nexus-dark');
+    expect(manager.activeScheme?.palette).toEqual(nexusDarkSeeds.palette);
+  });
+});

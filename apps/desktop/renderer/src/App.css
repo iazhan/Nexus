@@ -1909,21 +1909,7 @@ body.nexus-resizing {
 
 
 
-/* Command Palette */
-.nexus-command-palette-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.4); /* @constant 命令面板遮罩，全窗口 */
-  z-index: 10000;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 100px;
-}
-
+/* Command Palette —— 遮罩归 Dialog 原语，这里只剩面板本身。 */
 .nexus-command-palette {
   background-color: var(--nexus-bg-surface);
   border: 1px solid var(--nexus-border-subtle);
@@ -2147,4 +2133,348 @@ body.nexus-resizing {
   margin: 0;
   font-size: 13px;
   color: var(--nexus-text-muted);
+}
+
+/* 主题编辑器（阶段 C）：两档编辑器 + 实时预览。
+   预览里的按钮 / 输入框复用的是真组件的类名，所以这里只给容器与网格上样式。 */
+.nexus-settings-section[data-section='appearance'] {
+  max-width: 1080px;
+}
+
+.nexus-theme-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .nexus-theme-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.nexus-theme-editor-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.nexus-theme-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nexus-theme-tier {
+  display: flex;
+  gap: 8px;
+}
+
+.nexus-theme-override-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--nexus-status-warning-border);
+  background-color: var(--nexus-status-warning-bg);
+  color: var(--nexus-status-warning-text);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.nexus-theme-override-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.nexus-theme-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--nexus-accent-text);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.nexus-theme-link:hover {
+  color: var(--nexus-accent-indicator);
+}
+
+.nexus-theme-group-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-theme-seeds,
+.nexus-theme-tuning,
+.nexus-theme-tokens,
+.nexus-theme-corrections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nexus-theme-seed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.nexus-theme-seed {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.nexus-theme-seed:hover {
+  border-color: var(--nexus-border-strong);
+}
+
+.nexus-theme-seed-input {
+  grid-row: 1 / span 2;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.nexus-theme-seed-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-theme-seed-role {
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-theme-tuning-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-theme-tuning-input {
+  width: 100%;
+  accent-color: var(--nexus-accent-solid);
+}
+
+.nexus-theme-tuning-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-theme-corrections-list,
+.nexus-theme-overrides-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.nexus-theme-corrections-list li,
+.nexus-theme-overrides-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-theme-token {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.nexus-theme-token-input {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.nexus-theme-token-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-theme-token-contrast {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--nexus-status-error-text);
+}
+
+.nexus-theme-override-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.nexus-theme-override-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+  margin-left: auto;
+}
+
+.nexus-theme-overrides-dialog {
+  width: 100%;
+  max-width: 520px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: var(--nexus-bg-surface);
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); /* @constant 抬升阴影，与主题无关 */
+}
+
+/* 弹层原语的公共外壳。命令面板与编辑器弹窗都挂在它上面 —— 具体背景与尺寸由各自的类决定。 */
+.nexus-dialog-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.4); /* @constant 弹层遮罩，全窗口 */
+  z-index: 10000;
+  display: flex;
+}
+
+.nexus-dialog-backdrop-top {
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 100px;
+}
+
+.nexus-dialog-backdrop-center {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.nexus-dialog {
+  outline: none;
+}
+
+/* 实时预览：只用真组件与真类名，这里只负责容器与尺寸。 */
+.nexus-theme-preview {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  background-color: var(--nexus-bg-canvas);
+  min-width: 0;
+}
+
+.nexus-theme-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-theme-preview-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nexus-theme-preview-input {
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.nexus-theme-preview-status {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border-left: 3px solid;
+  font-size: 12px;
+}
+
+.nexus-theme-preview-status[data-status='warning'] {
+  background-color: var(--nexus-status-warning-bg);
+  color: var(--nexus-status-warning-text);
+  border-left-color: var(--nexus-status-warning-border);
+}
+
+.nexus-theme-preview-status[data-status='error'] {
+  background-color: var(--nexus-status-error-bg);
+  color: var(--nexus-status-error-text);
+  border-left-color: var(--nexus-status-error-border);
+}
+
+.nexus-theme-preview-paragraph {
+  margin: 0;
+  font-size: 12px;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-theme-preview-selection {
+  background-color: var(--nexus-selection-bg);
+  color: var(--nexus-text-primary);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.nexus-theme-preview-code {
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+  max-height: 260px;
+}
+
+.nexus-theme-preview-code .cm-editor {
+  max-height: 260px;
+}
+
+.nexus-theme-preview-code .cm-scroller {
+  overflow: auto;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { definitionOf, nexusDark, nexusLight } from '../src/index.js';
 import { GENERAL_SURFACES, contrastRatio, measureTheme, parseColour } from '../src/contrast.js';
-import { applyOverrides, seedsToTokens } from '../src/derive.js';
+import { applyOverrides, defaultTuning, seedsToTokens, seedsToTokensWithReport } from '../src/derive.js';
 import { rgbToOklch } from '../src/oklch.js';
 import { nexusDarkSeeds, nexusLightSeeds, type NexusThemeScheme } from '../src/seeds.js';
 
@@ -189,5 +189,109 @@ describe('覆盖项盖在派生结果上', () => {
 
   it('内置主题没有覆盖项，definitionOf 与 seedsToTokens 一致', () => {
     expect(definitionOf('nexus-dark', nexusDarkSeeds).tokens).toEqual(seedsToTokens(nexusDarkSeeds));
+  });
+});
+
+describe('seedsToTokensWithReport', () => {
+  it('tokens 与 seedsToTokens() 完全一致 —— 同一条管线，不是两条', () => {
+    for (const scheme of [nexusLightSeeds, nexusDarkSeeds, DRACULA, SOLARIZED_LIGHT]) {
+      expect(seedsToTokensWithReport(scheme).tokens).toEqual(seedsToTokens(scheme));
+    }
+  });
+
+  it('不改动传入的 scheme', () => {
+    const scheme: NexusThemeScheme = {
+      ...nexusDarkSeeds,
+      palette: { ...nexusDarkSeeds.palette },
+      tuning: { surfaceHover: 0.2 },
+    };
+    const snapshot = JSON.stringify(scheme);
+
+    seedsToTokensWithReport(scheme);
+
+    expect(JSON.stringify(scheme)).toBe(snapshot);
+  });
+
+  /**
+   * 修正清单的语义：**只在 `atRatio()` 真的挪了值时才记**。所以每一条都必须满足
+   * 「原来确实不达标」+「确实往达标的方向走了」。反过来若有人改成「无条件记一条」，
+   * 这两条断言会同时炸。
+   */
+  it('每一条修正都是「原本不达标、且确实改善」', () => {
+    for (const scheme of [nexusLightSeeds, nexusDarkSeeds, DRACULA, SOLARIZED_LIGHT]) {
+      for (const correction of seedsToTokensWithReport(scheme).corrections) {
+        expect(correction.from).toBeLessThan(correction.target);
+        expect(correction.to).toBeGreaterThan(correction.from);
+      }
+    }
+  });
+
+  /**
+   * 目标值不恒等于档位阈值：`text-muted` 取 `4.5 × 1.02`（留出三级可分所需的余量），
+   * `text-secondary` 取与正文色的几何中点。能断言的是**下界**，以及「走 3:1 的只有图形类」。
+   */
+  it('target 不低于该 token 的档位：图形类 3:1，其余 4.5:1', () => {
+    const GRAPHICAL = new Set([
+      'accent-indicator',
+      'status-success-border',
+      'status-warning-border',
+      'status-error-border',
+    ]);
+    const seen = new Set<string>();
+
+    for (const scheme of [nexusLightSeeds, nexusDarkSeeds, DRACULA, SOLARIZED_LIGHT]) {
+      for (const correction of seedsToTokensWithReport(scheme).corrections) {
+        const graphical = GRAPHICAL.has(correction.token);
+        expect(correction.target).toBeGreaterThanOrEqual(graphical ? 3 : 4.5);
+        if (correction.target === 3) expect(graphical).toBe(true);
+        seen.add(correction.token);
+      }
+    }
+    // 至少得真跑出过修正 —— 全是空清单的话上面那句等于没测。
+    expect(seen.size).toBeGreaterThan(0);
+  });
+
+  /** 一个 token 只被修正一次（`fixed()` 每 token 只调一次），重复项意味着管线里绕了圈。 */
+  it('同一个 token 不会在清单里出现两次', () => {
+    for (const scheme of [nexusLightSeeds, nexusDarkSeeds, DRACULA, SOLARIZED_LIGHT]) {
+      const tokens = seedsToTokensWithReport(scheme).corrections.map((c) => c.token);
+      expect(new Set(tokens).size).toBe(tokens.length);
+    }
+  });
+
+  it('覆盖项不产生修正记录 —— 覆盖是用户手写的值，不在自动修正的范围内', () => {
+    const scheme: NexusThemeScheme = {
+      ...nexusLightSeeds,
+      palette: { ...nexusLightSeeds.palette },
+      overrides: { 'text-primary': '#fefefe' },
+    };
+
+    const report = seedsToTokensWithReport(scheme);
+    expect(report.corrections.some((c) => c.token === 'text-primary')).toBe(false);
+    // 覆盖项也不在这个出口上生效 —— 它是 `applyOverrides()` 那一层的事。
+    expect(report.tokens['text-primary']).not.toBe('#fefefe');
+  });
+});
+
+describe('defaultTuning', () => {
+  it('返回副本 —— 调用方改了它不该影响下一次调用', () => {
+    const first = defaultTuning('light');
+    first.surfaceHover = 0.9;
+
+    expect(defaultTuning('light').surfaceHover).not.toBe(0.9);
+  });
+
+  it('两套 variant 的缺省系数不同 —— 暗色的层级间距本来就要小', () => {
+    expect(defaultTuning('light')).not.toEqual(defaultTuning('dark'));
+  });
+
+  it('键就是滑块的键，五个', () => {
+    expect(Object.keys(defaultTuning('light')).sort()).toEqual([
+      'borderStrong',
+      'borderSubtle',
+      'quote',
+      'surfaceActive',
+      'surfaceHover',
+    ]);
   });
 });

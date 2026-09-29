@@ -147,8 +147,9 @@ describe('设置视图 · Appearance', () => {
   });
 
   /**
-   * 「无保存 / 无恢复默认」的判据用**按钮的种类**而不是文案：页面里每个按钮都必须是
-   * 导航项、主题选项或返回键之一。文案会随语言变，多一个按钮却是结构性的。
+   * 「无保存 / 无恢复默认」的判据用**按钮的种类**而不是文案：页面里每个按钮都必须落进一份
+   * 已知清单（导航项 / 主题选项 / 返回键 / 档位页签 / 预览区）。文案会随语言变，多一个按钮
+   * 却是结构性的 —— 出现 `other` 就意味着有人往设置页里塞了提交类控件，必须显式解释。
    */
   it('页面里没有保存 / 提交 / 恢复默认控件', () => {
     renderSettings();
@@ -157,12 +158,15 @@ describe('设置视图 · Appearance', () => {
       if (button.dataset.section) return 'nav';
       if (button.dataset.themeOption) return 'option';
       if (button.dataset.settingsBack !== undefined) return 'back';
+      if (button.dataset.themeTier) return 'tier';
+      if (button.closest('[data-theme-preview]')) return 'preview';
       return 'other';
     });
 
     expect(kinds).not.toContain('other');
     expect(kinds.filter((kind) => kind === 'nav')).toHaveLength(SECTIONS.length);
     expect(kinds.filter((kind) => kind === 'back')).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === 'tier')).toHaveLength(2);
   });
 });
 

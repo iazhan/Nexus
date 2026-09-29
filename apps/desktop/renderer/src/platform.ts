@@ -1,6 +1,6 @@
 import { CommandRegistry } from '@nexus/command';
 import { LocaleManager } from '@nexus/i18n';
-import { ThemeManager, type UserTheme } from '@nexus/theme';
+import { ThemeManager, type Base16Slot, type Tuning, type UserTheme } from '@nexus/theme';
 import { SettingsStore } from './settings/store.js';
 
 export const commandRegistry = new CommandRegistry();
@@ -79,6 +79,21 @@ export function applyUserTheme(theme: UserTheme): void {
 export function applyOverrides(patch: Readonly<Record<string, string | null>>): void {
   if (!themeManager.isEditable && !themeManager.forkActiveToUserTheme()) return;
   if (!themeManager.patchOverrides(patch)) return;
+  persistActiveUserTheme();
+}
+
+/**
+ * 批量改当前主题的**种子**（16 色 / 系数）。基础档走这条路 —— 它改完让派生重跑一遍，而
+ * `applyOverrides()` 改的是派生结果之上的单个 token。
+ *
+ * 与 `applyOverrides()` 同一条纪律：内置主题上先 fork。
+ */
+export function applySchemePatch(patch: {
+  palette?: Partial<Record<Base16Slot, string>>;
+  tuning?: Partial<Tuning>;
+}): void {
+  if (!themeManager.isEditable && !themeManager.forkActiveToUserTheme()) return;
+  if (!themeManager.patchScheme(patch)) return;
   persistActiveUserTheme();
 }
 

@@ -1,6 +1,6 @@
 /**
- * `seedsToTokens()` —— 16 色种子 → 43 个语义 token 的纯计算；`applyOverrides()` 是它之后的
- * 可选一层。
+ * `seedsToTokens()` —— 16 色种子 → 43 个语义 token 的纯计算。另外两个出口：`applyOverrides()`
+ * 是它之后的可选一层，`seedsToTokensWithReport()` 多带一份「哪些 token 被对比度修正动过」。
  *
  * 六段顺序有依赖，不能重排：背景梯度 → 边框 → 中性文字 → accent → 语法与状态 → 半透明。
  * 中性三级走配额分配（相对 `binding`：离正文色最近的通用背景），而非逐 token 最小修正 ——
@@ -35,6 +35,11 @@ const DEFAULT_TUNING: Record<Variant, Required<Tuning>> = {
 };
 
 const directionFor = (variant: Variant): Direction => (variant === 'light' ? 'darker' : 'lighter');
+
+/** 该 variant 的缺省系数。编辑器要拿它当滑块的初值与「重置」目标，所以不能只留在内部。 */
+export function defaultTuning(variant: 'light' | 'dark'): Required<Tuning> {
+  return { ...DEFAULT_TUNING[variant] };
+}
 
 const WHITE_TEXT: Rgba = { r: 255, g: 255, b: 255, a: 1 };
 
@@ -141,7 +146,33 @@ const STATUS_BG_SLOT: Record<string, Base16Slot> = {
   'status-error-bg': 'base08',
 };
 
+export interface Correction {
+  token: string;
+  /** 修正前 / 修正后在该承载面上的**实际**对比度。 */
+  from: number;
+  to: number;
+  /** 该 token 的目标比值。 */
+  target: number;
+}
+
+export interface DeriveReport {
+  tokens: Record<string, string>;
+  /** 被对比度修正改过值的 token。顺序即修正发生的顺序。 */
+  corrections: readonly Correction[];
+}
+
 export function seedsToTokens(scheme: NexusThemeScheme): Record<string, string> {
+  return seedsToTokensWithReport(scheme).tokens;
+}
+
+/**
+ * 与 `seedsToTokens()` 同一条管线，另外把「哪些 token 被对比度修正动过」带出来。
+ *
+ * 编辑器要把隐含的修正说给用户听（「已从 3.1:1 修正到 4.5:1」），否则用户看不出自己的种子
+ * 被改过；而只提示不修正会让人存下一个不可读的主题。**判据是「`atRatio()` 的返回值与入参
+ * 是不是同一个对象」** —— 未修正时它原样返回 `fg`，修正时 `withLightness()` 必然造新对象。
+ */
+export function seedsToTokensWithReport(scheme: NexusThemeScheme): DeriveReport {
   const variant = scheme.variant;
   const tuning = { ...DEFAULT_TUNING[variant], ...scheme.tuning };
   const dir = directionFor(variant);
@@ -152,6 +183,19 @@ export function seedsToTokens(scheme: NexusThemeScheme): Record<string, string> 
   }
   const seed = (slot: Base16Slot): Rgba => raw[slot] as Rgba;
   const tokens: Record<string, Rgba> = {};
+  const corrections: Correction[] = [];
+
+  const fixed = (token: string, before: Rgba, after: Rgba, ground: Rgba, target: number): Rgba => {
+    if (after !== before) {
+      corrections.push({
+        token,
+        from: contrastRatio(before, ground),
+        to: contrastRatio(after, ground),
+        target
+      });
+    }
+    return after;
+  };
 
   // ---- 1. 背景梯度 ----
   const canvas = seed('base00');
@@ -186,32 +230,60 @@ export function seedsToTokens(scheme: NexusThemeScheme): Record<string, string> 
   const primary = atRatio(seed('base05'), binding, TEXT_MIN, dir);
   const primaryRatio = contrastRatio(primary, binding);
   const guardOk = primaryRatio >= TEXT_MIN * 1.1 ** 2;
-  tokens['text-primary'] = primary;
+  tokens['text-primary'] = fixed('text-primary', seed('base05'), primary, binding, TEXT_MIN);
 
   const reference = rgbToOklch(primary);
-  const neutral = (colour: Rgba, target: number): Rgba => {
+  const neutral = (token: string, colour: Rgba, target: number): Rgba => {
     const corrected = atRatio(colour, binding, target, dir);
-    return oklchToRgb({ l: rgbToOklch(corrected).l, c: reference.c, h: reference.h });
+    // `oklchToRgb()` 总会造新对象，所以「有没有修正」只能看 `atRatio` 那一步。
+    const out = oklchToRgb({ l: rgbToOklch(corrected).l, c: reference.c, h: reference.h });
+    if (corrected !== colour) {
+      corrections.push({
+        token,
+        from: contrastRatio(colour, binding),
+        to: contrastRatio(out, binding),
+        target
+      });
+    }
+    return out;
   };
 
   if (guardOk) {
-    tokens['text-muted'] = neutral(seed('base03'), TEXT_MIN * 1.02);
-    tokens['text-secondary'] = neutral(seed('base04'), Math.sqrt(TEXT_MIN * primaryRatio));
+    tokens['text-muted'] = neutral('text-muted', seed('base03'), TEXT_MIN * 1.02);
+    tokens['text-secondary'] = neutral('text-secondary', seed('base04'), Math.sqrt(TEXT_MIN * primaryRatio));
   } else {
-    tokens['text-muted'] = neutral(seed('base03'), TEXT_MIN);
-    tokens['text-secondary'] = neutral(seed('base04'), TEXT_MIN);
+    tokens['text-muted'] = neutral('text-muted', seed('base03'), TEXT_MIN);
+    tokens['text-secondary'] = neutral('text-secondary', seed('base04'), TEXT_MIN);
   }
 
   // ---- 4. accent 家族 ----
   // 图形与实心底必须分开：图形要亮才看得见（3:1），实心底要暗才承得住白字（4.5:1）。
   // 暗色主题的 base0D 是「链接色」（偏亮），两个约束在它身上数学互斥。
   const accentSeed = seed('base0D');
-  tokens['accent-indicator'] = atRatio(accentSeed, binding, GRAPHICAL_MIN, dir);
-  const solid = darkenForText(accentSeed, WHITE_TEXT, TEXT_MIN);
+  tokens['accent-indicator'] = fixed(
+    'accent-indicator',
+    accentSeed,
+    atRatio(accentSeed, binding, GRAPHICAL_MIN, dir),
+    binding,
+    GRAPHICAL_MIN
+  );
+  const solid = fixed(
+    'accent-solid',
+    accentSeed,
+    darkenForText(accentSeed, WHITE_TEXT, TEXT_MIN),
+    WHITE_TEXT,
+    TEXT_MIN
+  );
   tokens['accent-solid'] = solid;
   tokens['accent-contrast'] = WHITE_TEXT;
   tokens['accent-solid-hover'] = shiftLightness(solid, -0.1);
-  tokens['accent-text'] = atRatio(accentSeed, binding, TEXT_MIN, dir);
+  tokens['accent-text'] = fixed(
+    'accent-text',
+    accentSeed,
+    atRatio(accentSeed, binding, TEXT_MIN, dir),
+    binding,
+    TEXT_MIN
+  );
 
   // ---- 5. 语法与状态 ----
   const rules = RULES[variant];
@@ -221,7 +293,7 @@ export function seedsToTokens(scheme: NexusThemeScheme): Record<string, string> 
     // 这里没有 alpha 分支：半透明会抵消修正 —— 先修到 3:1 再叠 alpha 等于没修。
     // 暗色的 status-*-border 曾带 alpha 0.4，实测在深底上只剩 1.5:1，1px 细线等于不可见。
     const target = token.endsWith('-border') ? GRAPHICAL_MIN : TEXT_MIN;
-    tokens[token] = atRatio(base, binding, target, dir);
+    tokens[token] = fixed(token, base, atRatio(base, binding, target, dir), binding, target);
   }
   for (const [token, slot] of Object.entries(STATUS_BG_SLOT)) {
     tokens[token] = mix(seed(slot), canvas, STATUS_BG_TOWARD_CANVAS);
@@ -233,7 +305,7 @@ export function seedsToTokens(scheme: NexusThemeScheme): Record<string, string> 
 
   const out: Record<string, string> = {};
   for (const [token, colour] of Object.entries(tokens)) out[token] = rgbaString(colour);
-  return out;
+  return { tokens: out, corrections };
 }
 
 /**
