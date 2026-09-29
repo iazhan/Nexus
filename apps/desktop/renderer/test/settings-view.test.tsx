@@ -59,11 +59,15 @@ function modeOption(value: string): HTMLElement | null {
   return container.querySelector<HTMLElement>(`[data-theme-mode="${value}"]`);
 }
 
-/** 模式卡片缩略图里的小窗，一扇一个。自动模式两扇（先暗后亮），显式模式一扇。 */
+/** 缩略图里的小窗，一扇一个。自动模式两扇（先暗后亮），显式模式一扇。 */
+function thumbnails(root: ParentNode): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>('.nexus-theme-mini'));
+}
+
+/** 某张模式卡片里的窗。 */
 function modeThumbnails(value: string): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(`[data-theme-mode="${value}"] .nexus-theme-mini`)
-  );
+  const card = modeOption(value);
+  return card ? thumbnails(card) : [];
 }
 
 /** 一扇小窗的底色（`bg-canvas` = `base00`）。判「是不是这套预设的真实配色」靠它，比断言色值稳。 */
@@ -264,7 +268,7 @@ describe('设置视图 · Appearance', () => {
    *
    * 两条判据都不碰具体色值：亮卡与暗卡的底色必须不同（否则说明画的是一张共用图），换预设之后
    * 同一张卡的底色必须跟着变（否则说明种子没走到 DOM）。具体取哪几个槽位由
-   * `theme-swatch.test.ts` 守着。
+   * `theme-preview-schemes.test.ts` 守着。
    */
   it('缩略图取当前预设的种子，换预设跟着换', () => {
     renderSettings();
@@ -348,11 +352,13 @@ describe('设置视图 · Appearance', () => {
   });
 
   /**
-   * 卡片上要能**扫视着选**：圆点是这套主题的主色，配色条是它的背景 → 正文 → 主色跨度。
-   * 自动模式下每套预设没有单一配色，圆点两半、条八段；单变体预设只有一套，一半、四段。
-   * 这两个数字是刻意的，不是实现细节（改成一个实心圆点等于说它有确定的主色）。
+   * 预设卡片与模式卡片**画同一种缩略图**：这张预设的主窗口长什么样。扫视着选靠的就是它 ——
+   * 圆点加配色条只说得清「主色是什么」，说不清「打开一篇文档是什么感觉」。
+   *
+   * 扇数由变体数决定：自动模式下每套预设没有单一配色，画两扇（先暗后亮）；单变体预设只有
+   * 一套，画一扇。判据同时要求每扇都是**完整的主窗口**，否则退化成一块色块也能过。
    */
-  it('每张预设卡都有圆点与配色条，段数由变体数决定', () => {
+  it('每张预设卡都画主窗口缩略图，扇数由变体数决定', () => {
     renderSettings();
 
     const cards = presetOptions();
@@ -362,9 +368,27 @@ describe('设置视图 · Appearance', () => {
       const id = card.dataset.themeOption ?? '';
       const preset = BUILT_IN_PRESETS.find((candidate) => candidate.id === id);
       const both = Boolean(preset?.variants.light && preset?.variants.dark);
-      expect(card.querySelectorAll('.nexus-theme-card-half').length, id).toBe(both ? 2 : 1);
-      expect(card.querySelectorAll('.nexus-theme-card-segment').length, id).toBe(both ? 8 : 4);
+      const windows = thumbnails(card);
+
+      expect(windows.length, id).toBe(both ? 2 : 1);
+      for (const window of windows) {
+        expect(window.querySelector('.nexus-theme-mini-titlebar'), id).not.toBeNull();
+        expect(window.querySelector('.nexus-theme-mini-status'), id).not.toBeNull();
+      }
     }
+  });
+
+  /**
+   * 同一套预设的「自动」在模式那一排与在预设网格里各画一次，**两处必须是同一张画**。
+   * 顺序相反（一边先暗、一边先亮）在肉眼看来就是画错了，而各自单独断言都是绿的。
+   */
+  it('模式卡片与预设卡片画同一张缩略图', () => {
+    renderSettings();
+
+    const inGrid = thumbnails(presetOption('nexus')!);
+    const inModes = modeThumbnails('auto');
+
+    expect(inGrid.map(windowBackground)).toEqual(inModes.map(windowBackground));
   });
 
   /**

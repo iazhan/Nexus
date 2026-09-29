@@ -4,14 +4,14 @@ import {
   parseSelection,
   presetOfScheme,
   presetVariantsOf,
-  type NexusThemeScheme,
   type ThemeMode,
 } from '@nexus/theme';
 import { AutoIcon, DarkIcon, LightIcon } from '../components/theme-icons.js';
 import { themeManager } from '../platform.js';
 import { useLocale, useTheme } from '../hooks.js';
 import { optionLabel, optionsOf, THEME_MODE_FIELD, THEME_PRESET_FIELD } from './registry.js';
-import { modePreviewSchemes, schemesForPreset, swatchForSchemes } from './theme-swatch.js';
+import { schemesForPreset } from './theme-preview-schemes.js';
+import { ThemeThumbnail } from './ThemeThumbnail.js';
 import { ThemeEditor } from './ThemeEditor.js';
 
 /**
@@ -20,15 +20,15 @@ import { ThemeEditor } from './ThemeEditor.js';
  * 选中态取**选择**（`themeChoice`）而不是解析结果 —— 自动模式下系统是浅色时解析结果是
  * `nexus-light`，按解析结果判据会让「浅色」与「自动」同时点亮。
  *
- * 模式三张卡片画的是**当前预设的真实配色**（缩略图直接取种子，不是画一张示意图）：换预设时
- * 缩略图跟着换，于是「这套主题的浅色长什么样」是看得见的。缩略图本身是**一扇完整的主窗口**
- * （标题栏 / 活动栏 / 侧栏 / 编辑区 / 状态栏），自动模式并排画两扇，先暗后亮。
+ * 两轴的卡片都画**当前预设的真实配色**（缩略图直接取种子，不是画一张示意图）：换预设时缩略图
+ * 跟着换，于是「这套主题长什么样」是看得见的。缩略图本身是**一扇完整的主窗口**（标题栏 /
+ * 活动栏 / 侧栏 / 编辑区 / 状态栏），自动模式并排画两扇，先暗后亮 —— 画法见 `ThemeThumbnail.tsx`。
  *
  * 预设列表走 `optionsOf()`：编辑种子会 fork 出一个用户主题，它必须出现在列表里，否则一个预设
  * 都不勾选。
  *
  * 描述只画**当前预设**那一条，不画在每张卡上：五十多个预设里只有少数写了描述，逐卡画会让网格
- * 高度参差。卡片本身只用名字与配色说话。
+ * 高度参差。卡片本身只用名字与缩略图说话。
  *
  * 没有保存按钮（设置项即时生效），也没有「恢复默认」（2026-09-28 定）。
  */
@@ -63,102 +63,10 @@ const CheckIcon = (
   </svg>
 );
 
-/** 活动栏里的图标点、侧栏的列表项、编辑区的正文行。长短由 CSS 按 `nth-child` 错开。 */
-const RAIL_ICONS = [0, 1, 2, 3];
-const SIDE_LINES = [0, 1, 2, 3];
-const EDITOR_LINES = [0, 1, 2, 3, 4];
-
-/**
- * 缩略图里的一扇**主窗口**。
- *
- * 分区照真窗口来：标题栏 / 活动栏 + 侧栏 + 编辑区 / 状态栏（对应 `.nexus-header-bar`、
- * `.nexus-activity-bar`、`.nexus-activity-panel`、`.nexus-main-content`、`.nexus-status-bar`）。
- * 底色也照它们的 token 语义取种子：`bg-surface` = `base01`（标题栏、侧栏、状态栏），
- * `bg-canvas` = `base00`（活动栏、编辑区），内部分隔线 = `base02`（base16 的「默认边框」槽位）。
- *
- * 所以缩略图是「**这套主题下主窗口长什么样**」，不是一张通用的示意图。活动栏与编辑区同色
- * （真窗口里就是如此），靠中间那条侧栏隔开才分得出来 —— 给它换个颜色反而与真窗口不符。
- *
- * 分隔线用种子而不是 `--nexus-border-*`：那是**被画的窗口**内部的东西，换个主题就得跟着换。
- * 外框与两扇之间的分隔线才用当前主题的 token —— 那些属于这个控件本身。
- */
-const MiniWindow: React.FC<{ scheme: NexusThemeScheme }> = ({ scheme }) => {
-  const { palette } = scheme;
-  const edge = { borderColor: palette.base02 };
-  return (
-    <span className="nexus-theme-mini" style={{ backgroundColor: palette.base00 }}>
-      <span
-        className="nexus-theme-mini-titlebar"
-        style={{ backgroundColor: palette.base01, ...edge }}
-      >
-        <span className="nexus-theme-mini-chip" style={{ backgroundColor: palette.base04 }} />
-        <span className="nexus-theme-mini-chip" style={{ backgroundColor: palette.base04 }} />
-      </span>
-
-      <span className="nexus-theme-mini-body">
-        <span className="nexus-theme-mini-rail">
-          {RAIL_ICONS.map((icon) => (
-            <span
-              key={icon}
-              className="nexus-theme-mini-icon"
-              style={{ backgroundColor: palette.base04 }}
-            />
-          ))}
-        </span>
-        <span className="nexus-theme-mini-side" style={{ backgroundColor: palette.base01 }}>
-          {SIDE_LINES.map((line) => (
-            <span
-              key={line}
-              className="nexus-theme-mini-line"
-              style={{ backgroundColor: palette.base03 }}
-            />
-          ))}
-        </span>
-        <span className="nexus-theme-mini-editor">
-          {/* 第一行画成 Markdown 标题（更亮更宽）：编辑区里全是一样的细线，看起来像任何一款
-              编辑器；有一行标题才像「打开着一篇文档」。 */}
-          <span className="nexus-theme-mini-heading" style={{ backgroundColor: palette.base05 }} />
-          {EDITOR_LINES.map((line) => (
-            <span
-              key={line}
-              className="nexus-theme-mini-line"
-              style={{ backgroundColor: palette.base04 }}
-            />
-          ))}
-        </span>
-      </span>
-
-      <span
-        className="nexus-theme-mini-status"
-        style={{ backgroundColor: palette.base01, ...edge }}
-      >
-        <span className="nexus-theme-mini-chip" style={{ backgroundColor: palette.base04 }} />
-        <span className="nexus-theme-mini-chip" style={{ backgroundColor: palette.base04 }} />
-      </span>
-    </span>
-  );
-};
-
-/**
- * 一张模式卡片的缩略图：一套种子画一扇完整主窗口，两套（自动模式）就是**两扇并排**。
- *
- * 不把一扇切成两半：那会读成「深色的壳配浅色的内容」—— 那是混搭，不是跟随系统。
- * 两扇并排才是「系统亮给你左边这扇，暗给你右边这扇」。
- */
-const ModePreview: React.FC<{ schemes: readonly NexusThemeScheme[] }> = ({ schemes }) => (
-  <span className="nexus-theme-mode-preview" aria-hidden="true">
-    {schemes.map((scheme, index) => (
-      <span key={index} className="nexus-theme-mode-pane">
-        <MiniWindow scheme={scheme} />
-      </span>
-    ))}
-  </span>
-);
-
 export const AppearanceSection: React.FC = () => {
   const { t, has } = useLocale();
   // 用 `useTheme` 而不是 `useSettingValue`：它除了给「选择」（选中态的判据），还订阅了
-  // `themeManager` —— 用户主题的种子在下面的编辑器里被拖色时，卡片上的圆点与色阶要跟着变。
+  // `themeManager` —— 用户主题的种子在下面的编辑器里被拖色时，卡片上的缩略图要跟着变。
   const { themeChoice } = useTheme();
   const [query, setQuery] = useState('');
 
@@ -201,7 +109,7 @@ export const AppearanceSection: React.FC = () => {
             const checked = mode === value;
             // 缩略图取**当前预设**这套主题的真实种子：换预设时它跟着换，「这套主题的浅色长什么样」
             // 于是是看得见的，而不是一张画给所有主题共用的示意图。
-            const previews = modePreviewSchemes(activePreset, value, activeUserScheme);
+            const previews = schemesForPreset(activePreset, value, activeUserScheme);
             return (
               <button
                 key={value}
@@ -213,7 +121,7 @@ export const AppearanceSection: React.FC = () => {
                 data-theme-mode={value}
                 onClick={() => THEME_MODE_FIELD.accessor.write(value)}
               >
-                {previews.length > 0 && <ModePreview schemes={previews} />}
+                {previews.length > 0 && <ThemeThumbnail schemes={previews} size="mode" />}
                 <span className="nexus-theme-mode-label">
                   <span className="nexus-theme-mode-icon" aria-hidden="true">
                     {MODE_ICON[value]}
@@ -259,13 +167,11 @@ export const AppearanceSection: React.FC = () => {
         <div className="nexus-theme-cards" role="radiogroup" aria-label={t(THEME_PRESET_FIELD.labelKey)}>
           {shown.map((option) => {
             const checked = activePreset === option.value;
-            // 自动模式下这套预设没有单一配色，圆点画两半、条画八段 —— 见 `theme-swatch.ts`。
-            const swatch = swatchForSchemes(
-              schemesForPreset(
-                option.value,
-                mode,
-                isUserThemeId(option.value) ? activeUserScheme : null
-              )
+            // 自动模式下这套预设没有单一配色，缩略图画两扇窗（先暗后亮）—— 见 `theme-preview-schemes.ts`。
+            const schemes = schemesForPreset(
+              option.value,
+              mode,
+              isUserThemeId(option.value) ? activeUserScheme : null
             );
             return (
               <button
@@ -277,28 +183,9 @@ export const AppearanceSection: React.FC = () => {
                 data-theme-option={option.value}
                 onClick={() => THEME_PRESET_FIELD.accessor.write(option.value)}
               >
-                {swatch && (
-                  // 色块纯装饰：颜色是主题数据，读屏读不出信息，名字才是。
-                  <span className="nexus-theme-card-head" aria-hidden="true">
-                    <span className="nexus-theme-card-dot">
-                      {swatch.dot.map((color, index) => (
-                        <span
-                          key={index}
-                          className="nexus-theme-card-half"
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
-                    </span>
-                    <span className="nexus-theme-card-strip">
-                      {swatch.strip.map((color, index) => (
-                        <span
-                          key={index}
-                          className="nexus-theme-card-segment"
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
-                    </span>
-                  </span>
+                {schemes.length > 0 && (
+                  // 缩略图纯装饰：颜色是主题数据，读屏读不出信息，名字才是。
+                  <ThemeThumbnail schemes={schemes} size="card" />
                 )}
                 <span className="nexus-theme-card-name">{optionLabel(option, t)}</span>
               </button>
