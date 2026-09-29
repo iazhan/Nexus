@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { parseBase16, SYSTEM_THEME } from '@nexus/theme';
+import { DEFAULT_THEME_CHOICE, parseBase16 } from '@nexus/theme';
 import { ThemeTransfer } from '../src/settings/ThemeTransfer.js';
 import { exportActiveTheme, importBase16Text } from '../src/settings/theme-transfer.js';
 import { applyThemeChoice, settings, themeManager } from '../src/platform.js';
@@ -49,7 +49,7 @@ let root: Root;
 
 function resetTheme(): void {
   settings.set('appearance.userTheme', null);
-  applyThemeChoice(SYSTEM_THEME);
+  applyThemeChoice(DEFAULT_THEME_CHOICE);
 }
 
 function renderTransfer(): void {
@@ -203,7 +203,7 @@ describe('ThemeTransfer 组件', () => {
   });
 
   it('选文件导入：切过去、状态行给撤销入口，撤销回到原主题', async () => {
-    applyThemeChoice('nexus-light');
+    applyThemeChoice('nexus@light');
     renderTransfer();
 
     const input = el<HTMLInputElement>('[data-theme-import]')!;
@@ -222,7 +222,8 @@ describe('ThemeTransfer 组件', () => {
     });
 
     expect(themeManager.theme.id).toBe('nexus-light');
-    expect(themeManager.themeChoice).toBe('nexus-light');
+    // 撤销恢复的是**选择**（`<预设>@<模式>`），不是解析出来的方案 id。
+    expect(themeManager.themeChoice).toBe('nexus@light');
     expect(el('[data-theme-transfer-status]')).toBeNull();
   });
 

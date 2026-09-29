@@ -49,10 +49,11 @@ if (newestMtime(SRC) > distStamp) {
   process.exit(1);
 }
 
-const { BUILT_IN_THEMES } = await import(pathToFileURL(DIST).href);
+const { builtInThemes } = await import(pathToFileURL(DIST).href);
 
+const builtIns = builtInThemes();
 const themes = {};
-for (const theme of BUILT_IN_THEMES) themes[theme.id] = theme.tokens;
+for (const theme of builtIns) themes[theme.id] = theme.tokens;
 
 // 外部对比度工具的兼容键。基线主题不在表里就直接报错 —— 静默少两个键比报错更难查。
 for (const [alias, id] of [
@@ -61,13 +62,13 @@ for (const [alias, id] of [
 ]) {
   const baseline = themes[id];
   if (!baseline) {
-    console.error(`基线主题 ${id} 不在 BUILT_IN_THEMES 里 —— light / dark 兼容键无法生成`);
+    console.error(`基线主题 ${id} 不在内置主题表里 —— light / dark 兼容键无法生成`);
     process.exit(1);
   }
   themes[alias] = baseline;
 }
 
-const names = BUILT_IN_THEMES.map((theme) => theme.id);
+const names = builtIns.map((theme) => theme.id);
 const counts = new Set(names.map((id) => Object.keys(themes[id]).length));
 if (counts.size !== 1) {
   console.error(

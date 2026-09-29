@@ -11,7 +11,7 @@ import { SYSTEM_DEFAULTS } from './resolve.js';
 import type { ThemeDefinition } from './index.js';
 
 const HEADER = `/* 生成物，不要手改 —— 由 packages/theme/scripts/generate-css.mjs
-   从 packages/theme/src/index.ts 的 BUILT_IN_THEMES 写出。 */
+   从内置主题表（\`builtInThemes()\`）写出。 */
 
 `;
 

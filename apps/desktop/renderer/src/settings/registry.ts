@@ -8,7 +8,17 @@
  * 它们的内容区是空态，但仍是菜单项。按分组过滤菜单会让语言与 mermaid 消失，那是功能回退。
  */
 
-import { BUILT_IN_THEMES, SYSTEM_THEME } from '@nexus/theme';
+import {
+  BUILT_IN_PRESETS,
+  choiceWithMode,
+  formatSelection,
+  isThemeMode,
+  isUserThemeId,
+  parseSelection,
+  presetOfScheme,
+  presetVariantsOf,
+  type ThemeMode
+} from '@nexus/theme';
 import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
 import type { MenuBarItem } from '../MenuBar.js';
 
@@ -56,7 +66,7 @@ export function isSectionId(id: string): id is SectionId {
   return SECTIONS.some((section) => section.id === id);
 }
 
-export type FieldControl = 'radio' | 'select' | 'toggle' | 'number' | 'text' | 'action';
+export type FieldControl = 'radio' | 'select' | 'toggle' | 'number' | 'text' | 'action' | 'preset';
 
 export interface FieldOption {
   value: string;
@@ -105,40 +115,94 @@ export function optionsOf(field: FieldDef, t: (key: string) => string): readonly
 /**
  * 主题的写入口是 `applyThemeChoice` 而**不是** `settings.set`：后者只改存档，`ThemeManager` 不动，
  * 表现是「点了主题没反应、重启后才生效」。选择落 store、解析归 `ThemeManager`，两件事都要发生。
+ *
+ * 选择是两轴的，所以这里是**两个字段**：模式与预设各自可读可写，合成一个字段的话菜单投影与
+ * 设置页都得各自解析一遍那个复合字符串。
  */
-export const THEME_FIELD: FieldDef = {
-  id: 'appearance.theme',
+
+/** 当前选择的模式。裸方案 id（用户主题）没有模式轴，显示它自己的明暗即可 —— 控件是禁用的。 */
+function currentMode(): ThemeMode {
+  const selection = parseSelection(settings.get('appearance.theme'));
+  if ('preset' in selection) return selection.mode;
+  return presetOfScheme(selection.id)?.mode ?? themeManager.theme.type;
+}
+
+/**
+ * 把模式夹到预设支持的范围。单变体预设上停在一个它没有的模式会让人看不懂：控件显示「浅色」、
+ * 主题实际是深色。
+ */
+function clampMode(presetId: string, mode: ThemeMode): ThemeMode {
+  const variants = presetVariantsOf(presetId);
+  if (!variants) return mode;
+  if (mode === 'auto') {
+    return variants.light && variants.dark ? 'auto' : variants.dark ? 'dark' : 'light';
+  }
+  return variants[mode] ? mode : variants.light ? 'light' : 'dark';
+}
+
+/** 模式轴。**进菜单**：只有三项，是「现在想亮一点」这种即时动作。 */
+export const THEME_MODE_FIELD: FieldDef = {
+  id: 'appearance.themeMode',
   section: 'appearance',
-  labelKey: 'settings.appearance.theme',
-  descriptionKey: 'settings.appearance.themeDescription',
+  labelKey: 'settings.appearance.themeMode',
   control: 'radio',
-  /**
-   * 出厂主题从 `BUILT_IN_THEMES` 派生，**不在这里列第二份** —— 列第二份时加一套主题要么忘了改
-   * 这里（设置页少一项）、要么改了这里忘了改种子（多一项点了没反应）。名字直接用主题自己的
-   * `name`，不进字典：主题名是数据，翻译它会让「Dracula」在中文界面变成别的东西。
-   */
   options: [
-    { value: SYSTEM_THEME, labelKey: 'theme.option.system' },
-    ...BUILT_IN_THEMES.map((theme) => ({ value: theme.id, label: theme.name }))
+    { value: 'light', labelKey: 'theme.mode.light' },
+    { value: 'auto', labelKey: 'theme.mode.auto' },
+    { value: 'dark', labelKey: 'theme.mode.dark' }
   ],
-  /**
-   * 当前用户主题要**出现在选项里**，否则编辑完种子之后（编辑会 fork 出一个用户主题）四项全不
-   * 勾选，用户看到的是「一个主题都没选」。文案带一个「自定义」后缀，与同名的内置主题区分开。
-   */
-  optionsOf: (t) => {
-    const userTheme = themeManager.activeUserTheme;
-    if (!userTheme) return THEME_FIELD.options ?? [];
-    return [
-      ...(THEME_FIELD.options ?? []),
-      { value: userTheme.id, label: `${userTheme.scheme.name} · ${t('theme.custom')}` }
-    ];
-  },
   accessor: {
-    read: () => settings.get('appearance.theme'),
-    write: (value) => applyThemeChoice(value),
+    read: currentMode,
+    write: (value) => {
+      if (!isThemeMode(value)) return;
+      applyThemeChoice(choiceWithMode(settings.get('appearance.theme'), value));
+    },
     subscribe: (listener) => settings.subscribe('appearance.theme', listener)
   },
   menu: true
+};
+
+/**
+ * 预设轴。**不进菜单**：五十多个预设列进去等于把菜单变成浏览器，而菜单一次只装得下一屏。
+ * 设置窗口里那条可搜索的列表才是它的入口，菜单里留一条「设置…」就够。
+ *
+ * 预设名直接用出厂表里的 `name`，不进字典 —— 主题名是数据，翻译它会让「Dracula」在中文界面
+ * 变成别的东西。
+ */
+export const THEME_PRESET_FIELD: FieldDef = {
+  id: 'appearance.themePreset',
+  section: 'appearance',
+  labelKey: 'settings.appearance.themePreset',
+  control: 'preset',
+  /**
+   * 当前用户主题要**出现在列表里**，否则编辑完种子之后（编辑会 fork 出一个用户主题）一个预设
+   * 都不勾选，用户看到的是「一个主题都没选」。文案带一个「自定义」后缀与同名的出厂预设区分开。
+   */
+  optionsOf: (t) => {
+    const userTheme = themeManager.activeUserTheme;
+    return [
+      ...BUILT_IN_PRESETS.map((preset) => ({ value: preset.id, label: preset.name })),
+      ...(userTheme
+        ? [{ value: userTheme.id, label: `${userTheme.scheme.name} · ${t('theme.custom')}` }]
+        : [])
+    ];
+  },
+  accessor: {
+    read: () => {
+      const selection = parseSelection(settings.get('appearance.theme'));
+      return 'preset' in selection ? selection.preset : selection.id;
+    },
+    write: (value) => {
+      // 用户主题是一条**具体方案**，没有预设轴 —— 写成 `<id>@<模式>` 会让它绕一圈再回来。
+      if (isUserThemeId(value)) {
+        applyThemeChoice(value);
+        return;
+      }
+      applyThemeChoice(formatSelection({ preset: value, mode: clampMode(value, currentMode()) }));
+    },
+    subscribe: (listener) => settings.subscribe('appearance.theme', listener)
+  },
+  menu: false
 };
 
 /**
@@ -176,7 +240,12 @@ export const MERMAID_FIELD: FieldDef = {
 };
 
 /** 全部字段。**加一项只改这里** —— 菜单投影与设置页内容区都从它派生。 */
-export const FIELDS: readonly FieldDef[] = [THEME_FIELD, LOCALE_FIELD, MERMAID_FIELD];
+export const FIELDS: readonly FieldDef[] = [
+  THEME_MODE_FIELD,
+  THEME_PRESET_FIELD,
+  LOCALE_FIELD,
+  MERMAID_FIELD
+];
 
 export function fieldsOfSection(section: SectionId): readonly FieldDef[] {
   return FIELDS.filter((field) => field.section === section);

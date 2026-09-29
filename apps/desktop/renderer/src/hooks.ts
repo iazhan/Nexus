@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
-import { themeIdForType } from '@nexus/theme';
+import { canChangeMode, choiceWithMode, type ThemeMode } from '@nexus/theme';
 import { applyThemeChoice, localeManager, settings, themeManager } from './platform.js';
 import type { SettingPath, SettingValue } from './settings/store.js';
 
@@ -7,7 +7,7 @@ import type { SettingPath, SettingValue } from './settings/store.js';
  * 读一个设置项并订阅它的变化。
  *
  * **写值不走这里** —— 主题改值要同时驱动 `ThemeManager`，所以写入口是 `applyThemeChoice` 这类
- * 具名函数，而不是裸的 `settings.set`。见 `settings/registry.ts` 的 `THEME_FIELD`。
+ * 具名函数，而不是裸的 `settings.set`。见 `settings/registry.ts` 的两个主题字段。
  */
 export function useSettingValue<P extends SettingPath>(path: P): SettingValue<P> {
   const subscribe = useCallback(
@@ -34,18 +34,23 @@ export function useTheme() {
     return themeManager.subscribe(setThemeState);
   }, []);
 
-  // `resolvedTheme` 是**解析结果**（具体某套主题），`themeChoice` 是**选择**（可能是 `system`）。
-  // 设置页的选中态与菜单的勾都必须看后者：系统浅色时选「跟随系统」，解析结果不变、
-  // `themeManager` 不发通知 —— 只有 store 那条订阅发得出来（见 `applyThemeChoice`）。
+  // `resolvedTheme` 是**解析结果**（具体某套主题），`themeChoice` 是**选择**（`<预设>@<模式>`
+  // 或裸方案 id）。设置页的选中态与菜单的勾都必须看后者：自动模式下系统偏好变了、解析结果跟着
+  // 变，但「选了自动」这件事没变 —— 只有 store 那条订阅发得出来（见 `applyThemeChoice`）。
   // 两个名字都必须带限定词：都叫「theme」时读代码分不清拿的是哪一个。
   const themeChoice = useSettingValue('appearance.theme');
 
   // 走 `applyThemeChoice` 而不是 `themeManager.setTheme`：前者同时落盘「选择」。
+  // 参数是**模式**（浅色 / 自动 / 深色），预设由 `choiceWithMode` 从当前选择里带过来。
   const setTheme = useCallback(
-    (type: 'light' | 'dark') => applyThemeChoice(themeIdForType(type)),
+    (mode: ThemeMode) => applyThemeChoice(choiceWithMode(settings.get('appearance.theme'), mode)),
     []
   );
-  return { resolvedTheme, themeChoice, setTheme };
+
+  // 用户主题与单变体预设没有另一边可切 —— 调用方据此禁用切换控件，别按下去跳到别的预设。
+  const modeSwitchable = canChangeMode(themeChoice);
+
+  return { resolvedTheme, themeChoice, setTheme, modeSwitchable };
 }
 
 export function useLocale() {

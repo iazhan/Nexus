@@ -1,4 +1,4 @@
-import { BUILT_IN_THEMES, resolveKnownThemeId, THEME_STORAGE_KEY } from '@nexus/theme';
+import { BUILT_IN_PRESETS, resolveKnownThemeId, THEME_STORAGE_KEY } from '@nexus/theme';
 
 /**
  * 首帧前的主题引导。
@@ -15,8 +15,18 @@ import { BUILT_IN_THEMES, resolveKnownThemeId, THEME_STORAGE_KEY } from '@nexus/
  *   - 内联脚本被页面 CSP 拦掉，preload 照常执行 —— 这正是本方案不用碰 CSP 的原因。
  */
 
-/** 静态 CSS 只覆盖内置主题（用户主题靠 renderer 的运行时注入），所以这里只认内置 id。 */
-const builtInIds = new Set(BUILT_IN_THEMES.map((theme) => theme.id));
+/**
+ * 静态 CSS 只覆盖内置主题（用户主题靠 renderer 的运行时注入），所以这里只认内置 id。
+ *
+ * **从预设表推 id，不要引 `builtInThemes()`** —— 那个函数会把每套主题的 43 个 token 全派生
+ * 一遍（一百多套实测 74ms、产物上百 KB），而 preload 只需要知道「哪些 id 有效」。
+ * 这条路径在首帧之前跑，代价直接落在窗口出现的时间上。
+ */
+const builtInIds = new Set(
+  BUILT_IN_PRESETS.flatMap((preset) => [preset.variants.light, preset.variants.dark]).filter(
+    (id): id is string => typeof id === 'string'
+  )
+);
 
 /**
  * 在 `<html>` 出现的瞬间写 `data-theme`，值是**解析后**的主题 id（CSS 选择器只认 id）。

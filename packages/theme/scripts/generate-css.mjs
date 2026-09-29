@@ -9,12 +9,12 @@
 // **名字**（正则可以给出），这里要的是**值**。而 CSS 本身是构建产物，predev / prebuild 已经保证
 // 主题包先建好，dist 过期由顺序保证，不由脚本猜。
 //
-// 输出不进版本库（见 .gitignore）：可以从源码完整重建，而 84 行声明进 diff 只会淹没真正的改动。
+// 输出不进版本库（见 .gitignore）：可以从源码完整重建，而几百行声明进 diff 只会淹没真正的改动。
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUILT_IN_THEMES } from '../dist/index.js';
+import { builtInThemes } from '../dist/index.js';
 import { themesToCss } from '../dist/static-css.js';
 
 const argv = process.argv.slice(2);
@@ -25,9 +25,11 @@ const DEFAULT_OUT = fileURLToPath(
 );
 const out = resolve(arg('out', DEFAULT_OUT));
 
-const css = themesToCss(BUILT_IN_THEMES);
+// 这里可以放心把全部主题派生一遍 —— 它是构建期脚本，不在任何启动路径上。
+const themes = builtInThemes();
+const css = themesToCss(themes);
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, css, 'utf8');
 
-const declarations = BUILT_IN_THEMES.reduce((n, theme) => n + Object.keys(theme.tokens).length, 0);
-console.log(`[theme] ${BUILT_IN_THEMES.length} 套内置主题 / ${declarations} 条声明 → ${out}`);
+const declarations = themes.reduce((n, theme) => n + Object.keys(theme.tokens).length, 0);
+console.log(`[theme] ${themes.length} 套内置主题 / ${declarations} 条声明 → ${out}`);

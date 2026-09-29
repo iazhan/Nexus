@@ -5,7 +5,7 @@
 //   2. 每个定义出的 `--nexus-*` token 都被引用，或标了 `@reserved`
 //   3. 定义文件之外没有颜色字面量，除非标了 `@constant`
 //
-// 定义从哪来：颜色字面量看 `seeds.ts`（16 色种子），token 名看 `derive.ts`（派生函数）。
+// 定义从哪来：颜色字面量看 `seeds.ts` + `presets.ts`（16 色种子），token 名看 `derive.ts`（派生函数）。
 // 接线派生之前 token 名是 `index.ts` 里的字面量，现在是 `seedsToTokens()` 的输出。
 //
 // 用法：node packages/theme/scripts/audit-tokens.mjs [--root <dir>] [--quiet]
@@ -27,8 +27,14 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return i === -1 ? d : 
 const ROOT = arg('root', '.');
 const QUIET = argv.includes('--quiet');
 
-// 色值定义文件：16 色种子在这里按定义就是字面量，规则 3 不扫它。
-const DEFS_FILES = new Set(['packages/theme/src/seeds.ts']);
+// 色值定义文件：色值在这里按定义就是字面量，规则 3 不扫它们。
+// `seeds.ts` 是 Nexus 自己那两族的 16 色种子；`presets.ts` 是从 tinted-theming 逐字抄下来的
+// 一百多套方案（生成物，105 × 16 = 1680 个 hex）。两处都**只进不出** —— 派生的 42 个 token
+// 一个都不在这里出现，所以「别处出现色值」这条规则没有被削弱。
+const DEFS_FILES = new Set([
+  'packages/theme/src/seeds.ts',
+  'packages/theme/src/presets.ts'
+]);
 const DEFS_LABEL = [...DEFS_FILES].join(', ');
 // token 名的定义处。`index.ts` 接线派生后只剩 `seedsToTokens(...)` 调用，43 个字面量全在
 // `derive.ts`：显式赋值目标 `tokens['x'] =` 与规则表键 `'x': { slot:`。新加 token 按这两种
@@ -38,7 +44,7 @@ const TOKEN_ASSIGN_RE = /tokens\['([a-z0-9-]+)'\]/g;
 const RULE_KEY_RE = /^\s*'([a-z0-9-]+)'\s*:\s*\{\s*slot:/;
 const THEME_PREFIX = '--nexus-';
 // `public/` 与 dist / out 同类：里面是构建期复制或生成的东西（pdfjs 的 185 个二进制、
-// 由 BUILT_IN_THEMES 生成的 theme.css），改不了也不该改，扫进来只会让规则 3 恒红。
+// 由 `builtInThemes()` 生成的 theme.css），改不了也不该改，扫进来只会让规则 3 恒红。
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'out', 'build', 'public', '.git', '.workbuddy-ai', '.serena', 'coverage']);
 const SCAN_EXT = /\.(ts|tsx|css)$/;
 

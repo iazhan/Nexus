@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { BUILT_IN_SCHEMES, BUILT_IN_THEMES, definitionOf, nexusDark, nexusLight } from '../src/index.js';
+import {
+  BUILT_IN_PRESETS,
+  BUILT_IN_SCHEMES,
+  builtInThemes,
+  definitionOf,
+  nexusDark,
+  nexusLight,
+} from '../src/index.js';
 import { GENERAL_SURFACES, contrastRatio, measureTheme, parseColour } from '../src/contrast.js';
 import { applyOverrides, defaultTuning, seedsToTokens, seedsToTokensWithReport } from '../src/derive.js';
 import { rgbToOklch } from '../src/oklch.js';
@@ -297,28 +304,47 @@ describe('defaultTuning', () => {
 });
 
 describe('出厂主题表', () => {
-  it('id 唯一，且与 BUILT_IN_THEMES 一一对应 —— 一张表，不两处各写一遍', () => {
+  it('id 唯一，且与内置主题表一一对应 —— 一张表，不两处各写一遍', () => {
     const ids = BUILT_IN_SCHEMES.map((entry) => entry.id);
 
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(BUILT_IN_THEMES.map((theme) => theme.id));
+    expect(ids).toEqual(builtInThemes().map((theme) => theme.id));
   });
 
   it('每套的 name / variant 与种子一致 —— 定义不是另抄一份', () => {
+    const byId = new Map(builtInThemes().map((theme) => [theme.id, theme]));
+
     for (const { id, scheme } of BUILT_IN_SCHEMES) {
-      const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === id);
+      const theme = byId.get(id);
       expect(theme?.name).toBe(scheme.name);
       expect(theme?.type).toBe(scheme.variant);
     }
   });
 
+  it('每个预设的变体都指向真实方案，且 variant 与槽位对得上', () => {
+    const byId = new Map(BUILT_IN_SCHEMES.map((entry) => [entry.id, entry.scheme]));
+
+    for (const preset of BUILT_IN_PRESETS) {
+      const light = preset.variants.light;
+      const dark = preset.variants.dark;
+      // 单变体是合法形状（上游有些方案只有一版），但一个变体都没有就不是预设了。
+      expect({ id: preset.id, hasVariant: Boolean(light ?? dark) }).toEqual({
+        id: preset.id,
+        hasVariant: true,
+      });
+      if (light) expect(byId.get(light)?.variant).toBe('light');
+      if (dark) expect(byId.get(dark)?.variant).toBe('dark');
+    }
+  });
+
   /**
-   * D2 的验收线：**五套出厂主题的 token 全部零不达标**。第三方种子（Dracula / Nord / Tokyo Night）
-   * 不是设计出来的，是社区给的 —— 它们能过是因为派生管线会修正，不是因为种子本来达标。
-   * 这条红了说明修正不够，不是说明种子不好。
+   * **全部出厂主题的 token 零不达标**。第三方种子不是设计出来的，是社区给的 —— 它们能过是因为
+   * 派生管线会修正，不是因为种子本来达标。这条红了说明修正不够，不是说明种子不好。
+   *
+   * 过不了门禁的族根本不进生成物，所以这条同时守着「生成器的过滤没被绕过」。
    */
-  it('五套出厂主题全部零不达标', () => {
-    expect(BUILT_IN_SCHEMES).toHaveLength(5);
+  it('全部出厂主题零不达标', () => {
+    expect(BUILT_IN_SCHEMES.length).toBeGreaterThan(100);
 
     for (const { id, scheme } of BUILT_IN_SCHEMES) {
       const report = measureTheme(seedsToTokens(scheme));

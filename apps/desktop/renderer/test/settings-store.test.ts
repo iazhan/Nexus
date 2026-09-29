@@ -1,17 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SYSTEM_THEME, THEME_STORAGE_KEY, type UserTheme } from '@nexus/theme';
+import { DEFAULT_THEME_CHOICE, THEME_STORAGE_KEY, type UserTheme } from '@nexus/theme';
 import { SETTING_DEFS, SettingsStore } from '../src/settings/store.js';
 import { applyOverrides, applyThemeChoice, applyUserTheme, settings, themeManager } from '../src/platform.js';
 
 const LAST_SECTION_KEY = SETTING_DEFS['settings.lastSection'].storageKey;
 const USER_THEME_KEY = SETTING_DEFS['appearance.userTheme'].storageKey;
 
+/** 默认预设的两个显式模式。存档里一律是 `<预设>@<模式>`。 */
+const LIGHT = 'nexus@light';
+const DARK = 'nexus@dark';
+
 /**
  * 拿一份**真实的**用户主题：在内置主题上写一次覆盖项，`applyOverrides()` 会先 fork 出来。
  * 手写 16 个槽位不如让产线生成 —— 手写的那份一旦与产线脱节，测的就不是真东西。
  */
 function forkedUserTheme(): UserTheme {
-  applyThemeChoice('nexus-light');
+  applyThemeChoice(LIGHT);
   applyOverrides({ 'bg-canvas': '#101010' });
   const saved = settings.get('appearance.userTheme');
   if (!saved) throw new Error('fork 之后没有落盘');
@@ -21,7 +25,7 @@ function forkedUserTheme(): UserTheme {
 /** 主题选择与存档归位 —— `themeManager` 是模块级单例，不还原会渗到同文件后面的用例。 */
 function resetTheme(): void {
   settings.set('appearance.userTheme', null);
-  applyThemeChoice(SYSTEM_THEME);
+  applyThemeChoice(DEFAULT_THEME_CHOICE);
 }
 
 describe('设置存储 · 读初值', () => {
@@ -29,22 +33,53 @@ describe('设置存储 · 读初值', () => {
 
   it('没有存档时用 fallback', () => {
     const store = new SettingsStore();
-    expect(store.get('appearance.theme')).toBe(SYSTEM_THEME);
+    expect(store.get('appearance.theme')).toBe(DEFAULT_THEME_CHOICE);
     expect(store.get('settings.lastSection')).toBe('appearance');
   });
 
   it('有存档时用存档', () => {
-    localStorage.setItem(THEME_STORAGE_KEY, 'nexus-dark');
+    localStorage.setItem(THEME_STORAGE_KEY, DARK);
     localStorage.setItem(LAST_SECTION_KEY, 'editor');
 
     const store = new SettingsStore();
-    expect(store.get('appearance.theme')).toBe('nexus-dark');
+    expect(store.get('appearance.theme')).toBe(DARK);
     expect(store.get('settings.lastSection')).toBe('editor');
   });
 
+  /**
+   * 三种旧值都要接住，它们各自来自一个历史阶段：
+   * - `dark` / `light` 是**主题类型**（最早只有明暗两套）；
+   * - 裸方案 id 是上一版（预设即方案，没有模式轴）；
+   * - `system` 是上一版的「跟随系统」哨兵值。
+   */
   it('旧存档存的是主题类型，迁移在 parse 里', () => {
     localStorage.setItem(THEME_STORAGE_KEY, 'dark');
-    expect(new SettingsStore().get('appearance.theme')).toBe('nexus-dark');
+    expect(new SettingsStore().get('appearance.theme')).toBe(DARK);
+
+    localStorage.setItem(THEME_STORAGE_KEY, 'light');
+    expect(new SettingsStore().get('appearance.theme')).toBe(LIGHT);
+  });
+
+  it('旧存档存的是裸方案 id，反查成它所属预设的那一边', () => {
+    localStorage.setItem(THEME_STORAGE_KEY, 'nexus-dark');
+    expect(new SettingsStore().get('appearance.theme')).toBe(DARK);
+
+    // `dracula` 上游只有暗版，预设 id 与方案 id 同名 —— 反查表要能区分这两件事。
+    localStorage.setItem(THEME_STORAGE_KEY, 'dracula');
+    expect(new SettingsStore().get('appearance.theme')).toBe('dracula@dark');
+
+    localStorage.setItem(THEME_STORAGE_KEY, 'nord-light');
+    expect(new SettingsStore().get('appearance.theme')).toBe('nord@light');
+  });
+
+  it('旧存档的「跟随系统」哨兵值升成「默认预设 + 自动」', () => {
+    localStorage.setItem(THEME_STORAGE_KEY, 'system');
+    expect(new SettingsStore().get('appearance.theme')).toBe(DEFAULT_THEME_CHOICE);
+  });
+
+  it('认不出的值原样留着 —— 静默改掉会让用户以为选择丢了', () => {
+    localStorage.setItem(THEME_STORAGE_KEY, 'no-such-theme');
+    expect(new SettingsStore().get('appearance.theme')).toBe('no-such-theme');
   });
 
   it('空白字符串当作没有值', () => {
@@ -54,8 +89,8 @@ describe('设置存储 · 读初值', () => {
 
   it('构造后不再看外部对磁盘的改动 —— store 是权威', () => {
     const store = new SettingsStore();
-    localStorage.setItem(THEME_STORAGE_KEY, 'nexus-dark');
-    expect(store.get('appearance.theme')).toBe(SYSTEM_THEME);
+    localStorage.setItem(THEME_STORAGE_KEY, DARK);
+    expect(store.get('appearance.theme')).toBe(DEFAULT_THEME_CHOICE);
   });
 });
 
@@ -64,36 +99,36 @@ describe('设置存储 · 写入', () => {
 
   it('落盘并更新内存态', () => {
     const store = new SettingsStore();
-    store.set('appearance.theme', 'nexus-dark');
+    store.set('appearance.theme', DARK);
 
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('nexus-dark');
-    expect(store.get('appearance.theme')).toBe('nexus-dark');
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(DARK);
+    expect(store.get('appearance.theme')).toBe(DARK);
   });
 
   it('落盘的是规范化后的值 —— 传旧格式进去，磁盘上不留旧格式', () => {
     const store = new SettingsStore();
     store.set('appearance.theme', 'dark');
 
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('nexus-dark');
-    expect(store.get('appearance.theme')).toBe('nexus-dark');
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(DARK);
+    expect(store.get('appearance.theme')).toBe(DARK);
   });
 
   it('值没变也照样落盘 —— 磁盘可能被绕过 store 改过', () => {
     const store = new SettingsStore();
-    store.set('appearance.theme', 'nexus-dark');
-    localStorage.setItem(THEME_STORAGE_KEY, SYSTEM_THEME);
+    store.set('appearance.theme', DARK);
+    localStorage.setItem(THEME_STORAGE_KEY, DEFAULT_THEME_CHOICE);
 
-    store.set('appearance.theme', 'nexus-dark');
+    store.set('appearance.theme', DARK);
 
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('nexus-dark');
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(DARK);
   });
 
   it('存储不可用时读 fallback、写不抛错', () => {
     const store = new SettingsStore(null);
 
-    expect(store.get('appearance.theme')).toBe(SYSTEM_THEME);
-    expect(() => store.set('appearance.theme', 'nexus-dark')).not.toThrow();
-    expect(store.get('appearance.theme')).toBe('nexus-dark');
+    expect(store.get('appearance.theme')).toBe(DEFAULT_THEME_CHOICE);
+    expect(() => store.set('appearance.theme', DARK)).not.toThrow();
+    expect(store.get('appearance.theme')).toBe(DARK);
   });
 });
 
@@ -105,22 +140,23 @@ describe('设置存储 · 广播', () => {
     const seen: string[] = [];
     store.subscribe('appearance.theme', () => seen.push(store.get('appearance.theme')));
 
-    store.set('appearance.theme', 'nexus-dark');
-    store.set('appearance.theme', SYSTEM_THEME);
+    store.set('appearance.theme', DARK);
+    store.set('appearance.theme', DEFAULT_THEME_CHOICE);
 
-    expect(seen).toEqual(['nexus-dark', SYSTEM_THEME]);
+    expect(seen).toEqual([DARK, DEFAULT_THEME_CHOICE]);
   });
 
   it('值没变时不通知', () => {
     const store = new SettingsStore();
-    store.set('appearance.theme', 'nexus-dark');
+    store.set('appearance.theme', DARK);
 
     let count = 0;
     store.subscribe('appearance.theme', () => {
       count += 1;
     });
-    store.set('appearance.theme', 'nexus-dark');
-    store.set('appearance.theme', 'dark'); // 规范化之后还是 nexus-dark
+    store.set('appearance.theme', DARK);
+    store.set('appearance.theme', 'nexus-dark'); // 规范化之后还是 nexus@dark
+    store.set('appearance.theme', 'dark'); // 同上
 
     expect(count).toBe(0);
   });
@@ -149,9 +185,9 @@ describe('设置存储 · 广播', () => {
       count += 1;
     });
 
-    store.set('appearance.theme', 'nexus-dark');
+    store.set('appearance.theme', DARK);
     unsubscribe();
-    store.set('appearance.theme', SYSTEM_THEME);
+    store.set('appearance.theme', DEFAULT_THEME_CHOICE);
 
     expect(count).toBe(1);
   });
@@ -166,7 +202,7 @@ describe('设置存储 · 广播', () => {
     });
     store.subscribe('appearance.theme', () => seen.push('second'));
 
-    store.set('appearance.theme', 'nexus-dark');
+    store.set('appearance.theme', DARK);
 
     expect(seen).toEqual(['first', 'second']);
   });
@@ -180,10 +216,14 @@ describe('设置存储 · 与主题的接线', () => {
   /**
    * 这条是「选择」与「解析结果」两条通知分工的回归网 —— 见 `docs/phase-4-plan.md` §7 难点 1。
    * 把 store 的通知删掉、退回「只在 `ThemeManager` 的订阅里落盘」，这里会红。
+   *
+   * 两轴模型下这条最容易漏：`nexus@light` 与 `nexus@auto`（系统恰好是浅色时）解析出**同一个**
+   * id，选择变了、解析结果没变 —— 只有 store 那条订阅发得出来。
    */
   it('选择变了而解析结果没变时，只有 store 发得出通知', () => {
-    applyThemeChoice(SYSTEM_THEME); // 先归位到跟随系统
+    applyThemeChoice(LIGHT);
     const resolved = themeManager.theme.id;
+    expect(resolved).toBe('nexus-light');
 
     const fromStore: string[] = [];
     const fromManager: string[] = [];
@@ -192,15 +232,25 @@ describe('设置存储 · 与主题的接线', () => {
     );
     const offManager = themeManager.subscribe(() => fromManager.push(themeManager.theme.id));
 
-    // 选一个「恰好等于当前解析结果」的主题：选择变了，解析结果没变。
-    applyThemeChoice(resolved);
+    applyThemeChoice(DEFAULT_THEME_CHOICE);
     offStore();
     offManager();
 
     expect(themeManager.theme.id).toBe(resolved);
-    expect(themeManager.themeChoice).toBe(resolved);
-    expect(fromStore).toEqual([resolved]);
+    expect(themeManager.themeChoice).toBe(DEFAULT_THEME_CHOICE);
+    expect(fromStore).toEqual([DEFAULT_THEME_CHOICE]);
     expect(fromManager).toEqual([]);
+  });
+
+  /** 换模式保留预设 —— 两轴模型下「切深色」不该顺手把预设也换掉。 */
+  it('换模式只动模式轴', () => {
+    applyThemeChoice('nord@light');
+    applyThemeChoice('nord@dark');
+
+    expect(themeManager.themeChoice).toBe('nord@dark');
+    expect(themeManager.theme.id).toBe('nord');
+
+    resetTheme();
   });
 });
 
@@ -257,10 +307,21 @@ describe('设置存储 · 注册用户主题', () => {
     resetTheme();
   });
 
+  it('用户主题是裸 id，没有模式轴 —— 存档里不该被写成 `<id>@<模式>`', () => {
+    const theme = { ...forkedUserTheme(), id: 'user:imported' };
+    resetTheme();
+
+    applyUserTheme(theme);
+
+    expect(settings.get('appearance.theme')).not.toContain('@');
+    expect(themeManager.themeChoice).toBe('user:imported');
+    resetTheme();
+  });
+
   it('applyUserTheme 拒绝内置 id —— 不落盘、不切换', () => {
     const { scheme } = forkedUserTheme();
     resetTheme();
-    applyThemeChoice('nexus-light');
+    applyThemeChoice(LIGHT);
 
     applyUserTheme({ id: 'nexus-light', scheme });
 
@@ -275,7 +336,7 @@ describe('设置存储 · 覆盖项的接线', () => {
    * 少任何一件的表现都是「拖了滑块没反应，或者重启后没了」。
    */
   it('在内置主题上写覆盖项会先 fork 成用户主题，并把覆盖项一起落盘', () => {
-    applyThemeChoice('nexus-light');
+    applyThemeChoice(LIGHT);
     const derivedSurface = themeManager.theme.tokens['bg-surface'];
 
     applyOverrides({ 'bg-canvas': '#101010' });
@@ -293,7 +354,7 @@ describe('设置存储 · 覆盖项的接线', () => {
   });
 
   it('已经在用户主题上时不再 fork，覆盖项继续累积', () => {
-    applyThemeChoice('nexus-light');
+    applyThemeChoice(LIGHT);
     applyOverrides({ 'bg-canvas': '#101010' });
     const firstId = settings.get('appearance.userTheme')?.id;
 

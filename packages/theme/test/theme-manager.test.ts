@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  DEFAULT_THEME_CHOICE,
   ThemeManager,
-  SYSTEM_THEME,
   nexusDark,
   nexusLight,
   type SystemThemeSource,
@@ -32,8 +32,10 @@ function fakeSystem(initialDark: boolean) {
   };
 }
 
-const managerWith = (system: ReturnType<typeof fakeSystem>, choice: string = SYSTEM_THEME): ThemeManager =>
-  new ThemeManager(choice, system.source);
+const managerWith = (
+  system: ReturnType<typeof fakeSystem>,
+  choice: string = DEFAULT_THEME_CHOICE
+): ThemeManager => new ThemeManager(choice, system.source);
 
 describe('ThemeManager', () => {
   it('initializes with light theme by default', () => {
@@ -73,23 +75,23 @@ describe('ThemeManager', () => {
   });
 });
 
-describe('ThemeManager 的「跟随系统」', () => {
+describe('ThemeManager 的自动模式', () => {
   it('构造时就按系统偏好解析到位 —— 不等外部再调一次 setTheme', () => {
     const dark = managerWith(fakeSystem(true));
     expect(dark.theme.id).toBe('nexus-dark');
-    expect(dark.themeChoice).toBe(SYSTEM_THEME);
+    expect(dark.themeChoice).toBe(DEFAULT_THEME_CHOICE);
 
     const light = managerWith(fakeSystem(false));
     expect(light.theme.id).toBe('nexus-light');
   });
 
-  it('构造时传入具体主题则直接用它，与系统偏好无关', () => {
-    const manager = managerWith(fakeSystem(true), 'nexus-light');
+  it('构造时传入显式模式则直接用它，与系统偏好无关', () => {
+    const manager = managerWith(fakeSystem(true), 'nexus@light');
     expect(manager.theme.id).toBe('nexus-light');
-    expect(manager.themeChoice).toBe('nexus-light');
+    expect(manager.themeChoice).toBe('nexus@light');
   });
 
-  it('跟随系统时系统偏好一变就跟着换', () => {
+  it('自动模式下系统偏好一变就跟着换', () => {
     const system = fakeSystem(false);
     const manager = managerWith(system);
     const listener = vi.fn();
@@ -99,36 +101,42 @@ describe('ThemeManager 的「跟随系统」', () => {
 
     system.setDark(true);
     expect(manager.theme.id).toBe('nexus-dark');
-    expect(manager.themeChoice).toBe(SYSTEM_THEME);
+    expect(manager.themeChoice).toBe(DEFAULT_THEME_CHOICE);
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it('手选具体主题后系统偏好变化必须被忽略', () => {
+  it('显式模式与裸方案 id 都忽略系统偏好变化', () => {
     const system = fakeSystem(false);
-    const manager = managerWith(system, 'nexus-dark');
+    const manager = managerWith(system, 'nexus@dark');
 
     system.setDark(false);
     expect(manager.theme.id).toBe('nexus-dark');
-    expect(manager.themeChoice).toBe('nexus-dark');
+    expect(manager.themeChoice).toBe('nexus@dark');
+
+    const user = managerWith(system, 'user:a');
+    system.setDark(true);
+    expect(user.themeChoice).toBe('user:a');
   });
 
-  it('认不出的 id 显式回落成「跟随系统」，但选择本身不改', () => {
-    // 用 `user:` 前缀之外、也不在出厂表里的 id —— `dracula` 从阶段 D 起是真实主题了。
-    const manager = managerWith(fakeSystem(true), 'solarized-light');
+  it('认不出的 id 显式回落成默认预设，但选择本身不改', () => {
+    const manager = managerWith(fakeSystem(true), 'nope');
 
     expect(manager.theme.id).toBe('nexus-dark');
-    expect(manager.themeChoice).toBe('solarized-light');
+    expect(manager.themeChoice).toBe('nope');
   });
 
-  it('落盘用的是选择 —— 旧值要先归一成 id', () => {
+  it('落盘用的是选择 —— 旧值要先归一成新格式', () => {
     const manager = managerWith(fakeSystem(false));
 
     manager.setTheme('dark');
-    expect(manager.themeChoice).toBe('nexus-dark');
+    expect(manager.themeChoice).toBe('nexus@dark');
+
+    manager.setTheme('dracula');
+    expect(manager.themeChoice).toBe('dracula@dark');
   });
 
   it('与 resolveThemeId 对旧值的解读一致 —— 两处映射漂移会让迁移半途而废', () => {
-    for (const legacy of ['dark', 'light']) {
+    for (const legacy of ['dark', 'light', 'dracula', 'nord']) {
       const manager = managerWith(fakeSystem(false));
       manager.setTheme(legacy);
       expect(manager.theme.id).toBe(resolveThemeId(legacy, false));

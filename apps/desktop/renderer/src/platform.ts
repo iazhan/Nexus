@@ -13,8 +13,8 @@ const LOCALE_STORAGE_KEY = 'nexus-locale';
  * 全部本机偏好的唯一入口。必须先于 `themeManager` 建 —— 主题的选择从这里读，「读存档」因此
  * 只有一处（preload 读的是同一份磁盘，规则共用 `normalizeThemeChoice`）。
  *
- * 存档里是**选择**：`system` 或主题 id。缺省即「跟随系统」—— 与既有行为一致（没有存档时看
- * 系统偏好），且存档恒可解读，不用区分「跟随」与「从未选过」。
+ * 存档里是**选择**：`<预设>@<模式>`，或一条裸方案 id（用户主题）。缺省即「默认预设 + 自动」
+ * —— 与既有行为一致（没有存档时看系统偏好），且存档恒可解读，不用区分「跟随」与「从未选过」。
  */
 export const settings = new SettingsStore();
 

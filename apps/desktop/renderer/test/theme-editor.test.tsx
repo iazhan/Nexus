@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { defaultTuning, SYSTEM_THEME } from '@nexus/theme';
+import { DEFAULT_THEME_CHOICE, defaultTuning } from '@nexus/theme';
 import { ThemeEditor } from '../src/settings/ThemeEditor.js';
 import {
   ALL_EDITABLE_TOKENS,
@@ -51,11 +51,11 @@ function renderEditor(): void {
 
 /**
  * `themeManager` 与 `settings` 都是模块级单例，不还原会渗到同文件后面的用例。
- * 用户主题留在 `userThemes` 里无害 —— 选择回到 `system` 后 `activeTheme` 就不是它了。
+ * 用户主题留在 `userThemes` 里无害 —— 选择回到默认预设后 `activeTheme` 就不是它了。
  */
 function resetTheme(): void {
   settings.set('appearance.userTheme', null);
-  applyThemeChoice(SYSTEM_THEME);
+  applyThemeChoice(DEFAULT_THEME_CHOICE);
 }
 
 describe('主题编辑器 · 数据表', () => {

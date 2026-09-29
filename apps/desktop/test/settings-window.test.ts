@@ -98,22 +98,33 @@ describe('设置窗口', () => {
       false
     );
 
-    // ④ 在设置窗口改主题：`data-theme` 立刻变并落盘
+    // ④ 在设置窗口改**模式**：`data-theme` 立刻变，存档写的是 `<预设>@<模式>`
     const resolved = await app.evaluate<string>(`document.documentElement.dataset.theme ?? ''`);
     const target = resolved === 'nexus-dark' ? 'nexus-light' : 'nexus-dark';
-    await app.click(`[data-theme-option="${target}"]`);
+    const mode = target === 'nexus-dark' ? 'dark' : 'light';
+    await app.click(`[data-theme-mode="${mode}"]`);
     await app.waitForFunction(
       `() => document.documentElement.dataset.theme === ${JSON.stringify(target)}`,
       10000
     );
-    expect(await app.evaluate<string>(`localStorage.getItem('nexus-theme') ?? ''`)).toBe(target);
+    expect(await app.evaluate<string>(`localStorage.getItem('nexus-theme') ?? ''`)).toBe(
+      `nexus@${mode}`
+    );
+
+    // ④b 换**预设**：主题 id 整个换掉，而模式轴不动。
+    //     挑 `dracula` 是因为它上游只有暗版 —— 不论刚才停在哪个模式，结果都唯一。
+    await app.click('[data-theme-option="dracula"]');
+    await app.waitForFunction(`() => document.documentElement.dataset.theme === 'dracula'`, 10000);
+    expect(await app.evaluate<string>(`localStorage.getItem('nexus-theme') ?? ''`)).toBe(
+      'dracula@dark'
+    );
 
     // ⑤ 跨窗口同步：切回主窗口，它也换过来了。
     //    这条是独立窗口方案最容易漏的地方 —— 两个渲染进程各有一份 `SettingsStore`，
     //    少了主进程中转就是「设置窗口改了、主窗口纹丝不动」。
     await app.attachToWindow(MAIN_WINDOW_URL_MARKER);
     await app.waitForFunction(
-      `() => document.documentElement.dataset.theme === ${JSON.stringify(target)}`,
+      `() => document.documentElement.dataset.theme === 'dracula'`,
       10000
     );
 

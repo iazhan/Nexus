@@ -83,6 +83,9 @@ describe('主题编辑器', () => {
     ).toBe(true);
 
     const builtInId = await app.evaluate<string>(`document.documentElement.dataset.theme ?? ''`);
+    // 预设卡片上挂的是**族名**（`nexus`），`builtInId` 是解析结果（`nexus-light`）—— 两轴模型下
+    // 它们是两个不同的东西，切回去要点前者。
+    const builtInPreset = builtInId.replace(/-(light|dark)$/, '');
 
     // ② 改一个种子：内置主题不可写，所以先 fork 出用户主题；派生重跑，CSS 变量跟着变
     expect(await app.evaluate<string>(SET_COLOUR('[data-theme-seed="base00"]', '#101010'))).toBe(
@@ -142,7 +145,7 @@ describe('主题编辑器', () => {
     expect(await app.evaluate<string>(CSS_VAR('--nexus-bg-surface'))).not.toBe('#202020');
 
     // ⑦ 切回内置主题：用户主题留着，但当前主题与 data-theme 都退回去
-    await app.click(`[data-theme-option="${builtInId}"]`);
+    await app.click(`[data-theme-option="${builtInPreset}"]`);
     await app.waitForFunction(
       `() => document.documentElement.dataset.theme === ${JSON.stringify(builtInId)}`,
       10000

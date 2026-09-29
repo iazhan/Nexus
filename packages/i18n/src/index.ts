@@ -115,15 +115,21 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     // 菜单装的是所有 `menu: true` 的字段，跨 Appearance / General / Editor 三个分组 ——
     // 叫「外观」名不副实。改名「首选项」不是顺手，是「不改名就得把语言与 mermaid 从菜单里砍掉」。
     'menu.preferences': 'Preferences',
-    'theme.option.system': 'Follow system',
-    // 每套主题的一句话描述。**键名里带主题 id** —— 列表本身由 `BUILT_IN_SCHEMES` 派生，
-    // 所以新增一套出厂主题却忘了写描述，只是少一行文案，不会出现第二个要同步的清单。
-    'theme.description.system': 'Follows the system between Nexus Light and Nexus Dark.',
-    'theme.description.nexus-light': 'Neutral greys on white, tuned for daylight reading.',
-    'theme.description.nexus-dark': 'The VS Code dark greys, easy on the eyes at night.',
+    // 模式轴的三项。它不是主题名，是「这套配色取哪一边」。
+    'theme.mode.light': 'Light',
+    'theme.mode.auto': 'Auto',
+    'theme.mode.dark': 'Dark',
+    // 单变体预设（上游只出一版）没有另一边可切，模式控件禁用并说明原因。
+    'theme.modeUnavailable': 'This theme ships in a single variant, so there is no mode to switch.',
+    // 预设列表的搜索框与空态。五十多个预设，不搜就只能滚。
+    'theme.searchPlaceholder': 'Search themes',
+    'theme.searchEmpty': 'No theme matches that search.',
+    // 每套主题的一句话描述。**键名里带预设 id** —— 列表本身由 `BUILT_IN_PRESETS` 派生，
+    // 所以新增一族却忘了写描述，只是少一行文案，不会出现第二个要同步的清单。
+    'theme.description.nexus': 'Neutral greys, tuned for long reading sessions.',
     'theme.description.dracula': 'High-saturation purple and pink over soft charcoal.',
     'theme.description.nord': 'Cool arctic blues and greys, low saturation throughout.',
-    'theme.description.tokyo-night-dark': 'Deep indigo with neon accents, tuned for night coding.',
+    'theme.description.tokyo-night': 'Deep indigo with neon accents, tuned for night coding.',
     'theme.description.custom': 'A palette you edited. Changes apply to this theme only.',
     // 主题名是专有名词，中英都不译。
     'lang.zhCN': 'Chinese',
@@ -138,8 +144,8 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.section.sync': 'Sync',
     'settings.section.data': 'Data',
     'settings.planned': 'This section is not available yet.',
-    'settings.appearance.theme': 'Theme',
-    'settings.appearance.themeDescription': 'Follow the system setting, or pin a theme.',
+    'settings.appearance.themeMode': 'Mode',
+    'settings.appearance.themePreset': 'Theme',
     'cmd.palette': 'Command palette',
     'cmd.empty': 'No matching commands',
     'theme.custom': 'Custom',
@@ -433,13 +439,16 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'menu.file': '文件',
     'menu.edit': '编辑',
     'menu.preferences': '首选项',
-    'theme.option.system': '跟随系统',
-    'theme.description.system': '跟随系统在 Nexus Light 与 Nexus Dark 之间切换。',
-    'theme.description.nexus-light': '白底中性灰，为白天阅读调的。',
-    'theme.description.nexus-dark': 'VS Code 那套深灰，夜里看不刺眼。',
+    'theme.mode.light': '浅色',
+    'theme.mode.auto': '自动',
+    'theme.mode.dark': '深色',
+    'theme.modeUnavailable': '这套主题上游只出了一版，没有可切换的模式。',
+    'theme.searchPlaceholder': '搜索主题',
+    'theme.searchEmpty': '没有匹配的主题。',
+    'theme.description.nexus': '中性灰，为长时间阅读调的。',
     'theme.description.dracula': '炭灰底上的高饱和紫与粉。',
     'theme.description.nord': '北极冷蓝灰，整体低饱和。',
-    'theme.description.tokyo-night-dark': '深靛蓝配霓虹色，为夜间写代码调的。',
+    'theme.description.tokyo-night': '深靛蓝配霓虹色，为夜间写代码调的。',
     'theme.description.custom': '你编辑过的配色，改动只影响这一套。',
     'lang.zhCN': '中文',
     'lang.enUS': 'English',
@@ -453,8 +462,8 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.section.sync': '同步',
     'settings.section.data': '数据',
     'settings.planned': '该分组尚未提供。',
-    'settings.appearance.theme': '主题',
-    'settings.appearance.themeDescription': '跟随系统设置，或固定使用某套主题。',
+    'settings.appearance.themeMode': '模式',
+    'settings.appearance.themePreset': '主题',
     'cmd.palette': '命令面板',
     'cmd.empty': '没有匹配的命令',
     'theme.custom': '自定义',

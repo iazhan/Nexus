@@ -1,7 +1,14 @@
 import { applyOverrides, seedsToTokens } from './derive.js';
-import { normalizeThemeChoice, resolveKnownThemeId, SYSTEM_THEME } from './resolve.js';
+import {
+  DEFAULT_THEME_CHOICE,
+  isAutoChoice,
+  normalizeThemeChoice,
+  resolveKnownThemeId
+} from './resolve.js';
 import {
   BUILT_IN_SCHEMES,
+  nexusDarkSeeds,
+  nexusLightSeeds,
   type Base16Slot,
   type NexusThemeScheme,
   type Tuning
@@ -9,13 +16,25 @@ import {
 import { isUserThemeId, newUserThemeId, type UserTheme } from './user-theme.js';
 
 export {
+  canChangeMode,
+  choiceWithMode,
+  DEFAULT_PRESET,
+  DEFAULT_THEME_CHOICE,
+  formatSelection,
+  isAutoChoice,
+  isThemeMode,
   normalizeThemeChoice,
+  parseSelection,
+  presetOfScheme,
+  presetVariantsOf,
   resolveKnownThemeId,
   resolveThemeId,
   SYSTEM_DEFAULTS,
   SYSTEM_THEME,
+  THEME_MODES,
   THEME_STORAGE_KEY,
-  themeIdForType
+  type ThemeMode,
+  type ThemeSelection
 } from './resolve.js';
 export { themesToCss } from './static-css.js';
 export {
@@ -39,11 +58,10 @@ export {
 export { measureTheme, type ContrastFailure, type ContrastReport } from './contrast.js';
 export {
   BASE16_SLOTS,
+  BUILT_IN_PRESETS,
   BUILT_IN_SCHEMES,
-  draculaSeeds,
-  nordSeeds,
-  tokyoNightSeeds,
   type Base16Slot,
+  type BuiltInPreset,
   type NexusThemeScheme,
   type Tuning
 } from './seeds.js';
@@ -78,28 +96,39 @@ export function definitionOf(id: string, scheme: NexusThemeScheme): ThemeDefinit
   };
 }
 
-/** id 与种子成对登记在 `seeds.ts` —— 在两处各写一遍迟早对不上。 */
-const BUILT_IN = BUILT_IN_SCHEMES;
+/**
+ * 内置主题的种子表：fork 用户主题时要拿**种子**，从 43 个 token 反推不回 16 色。
+ *
+ * **惰性**：这张表引用 `BUILT_IN_SCHEMES`（一百多套 × 16 个色值）。急切建表会让任何一个
+ * 引到本模块的消费者都被迫带上那份调色板 —— preload 只需要 `resolve.ts` 那点逻辑，却因此
+ * 从 ~23KB 涨到 ~97KB（2026-09-29 实测）。惰性之后 rollup 能把它整块摇掉。
+ */
+let builtInSchemes: ReadonlyMap<string, NexusThemeScheme> | null = null;
 
-/** 内置主题的种子表：fork 用户主题时要拿**种子**，从 43 个 token 反推不回 16 色。 */
-const builtInSchemes: ReadonlyMap<string, NexusThemeScheme> = new Map(
-  BUILT_IN.map((entry): [string, NexusThemeScheme] => [entry.id, entry.scheme])
-);
-
-/** 内置主题。静态 CSS 生成器与 `ThemeManager` 的 presets 都读它。 */
-export const BUILT_IN_THEMES: readonly ThemeDefinition[] = BUILT_IN.map((entry) =>
-  definitionOf(entry.id, entry.scheme)
-);
-
-function builtInDefinition(id: string): ThemeDefinition {
-  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === id);
-  if (!theme) throw new Error(`内置主题表里没有 ${id}`);
-  return theme;
+function builtInSchemeMap(): ReadonlyMap<string, NexusThemeScheme> {
+  builtInSchemes ??= new Map(
+    BUILT_IN_SCHEMES.map((entry): [string, NexusThemeScheme] => [entry.id, entry.scheme])
+  );
+  return builtInSchemes;
 }
 
-/** 具名出口：`dump-themes.mjs` 与测试按名字读。 */
-export const nexusLight: ThemeDefinition = builtInDefinition('nexus-light');
-export const nexusDark: ThemeDefinition = builtInDefinition('nexus-dark');
+/** 内置主题。静态 CSS 生成器与 `ThemeManager` 的 presets 都读它。 */
+let derivedBuiltIns: readonly ThemeDefinition[] | null = null;
+
+/**
+ * 出厂主题的派生结果，**惰性记忆化**。
+ *
+ * 一百多套急切派生实测 74ms（单套 0.70ms），而首帧颜色由构建期生成的 `theme.css` 提供、
+ * 不走这里 —— 启动路径上没有理由把没被选中的那 100 多套先算一遍。返回的是同一份数组，不要改。
+ */
+export function builtInThemes(): readonly ThemeDefinition[] {
+  derivedBuiltIns ??= BUILT_IN_SCHEMES.map((entry) => definitionOf(entry.id, entry.scheme));
+  return derivedBuiltIns;
+}
+
+/** 具名出口：`dump-themes.mjs` 与测试按名字读。直接从种子算，不依赖上面那份全量表。 */
+export const nexusLight: ThemeDefinition = definitionOf('nexus-light', nexusLightSeeds);
+export const nexusDark: ThemeDefinition = definitionOf('nexus-dark', nexusDarkSeeds);
 
 type Listener = (theme: ThemeDefinition) => void;
 
@@ -140,15 +169,17 @@ export class ThemeManager {
   private activeTheme: ThemeDefinition = nexusLight;
   private listeners: Set<Listener> = new Set();
 
-  private presets: Map<string, ThemeDefinition> = new Map(
-    BUILT_IN_THEMES.map((theme): [string, ThemeDefinition] => [theme.id, theme])
-  );
+  private readonly schemes: Map<string, NexusThemeScheme> = new Map(builtInSchemeMap());
 
-  private schemes: Map<string, NexusThemeScheme> = new Map(builtInSchemes);
+  /**
+   * 派生结果按 id 记忆化。**改种子或覆盖项时必须删掉对应项**，否则界面改了没反应 ——
+   * 这也是它不能和 `schemes` 合成一个 Map 的原因（那份存的是输入，这份存的是输出）。
+   */
+  private readonly derived = new Map<string, ThemeDefinition>();
 
   private userThemes: Map<string, UserTheme> = new Map();
 
-  // 存档里该存的值：`system` 或主题 id。与 `activeTheme.id` 不同 —— 后者是解析结果。
+  // 存档里该存的值：`<预设>@<模式>`，或一条裸方案 id。与 `activeTheme.id` 不同 —— 后者是解析结果。
   private choice: string;
 
   private readonly system: SystemThemeSource;
@@ -159,7 +190,7 @@ export class ThemeManager {
    * 主题再改，就多出一次 DOM 写入 —— 只要这两次落在不同任务里就会闪一帧。
    */
   constructor(
-    choice: string = SYSTEM_THEME,
+    choice: string = DEFAULT_THEME_CHOICE,
     system: SystemThemeSource = matchMediaSystemTheme,
     userThemes: readonly UserTheme[] = []
   ) {
@@ -167,10 +198,10 @@ export class ThemeManager {
     this.system = system;
     for (const theme of userThemes) this.registerUserTheme(theme);
     this.applyResolved();
-    // 跟随系统时系统偏好一变就要重解析。监听常驻（只在选择是 system 时生效）——
+    // 模式是「自动」时系统偏好一变就要重解析。监听常驻（只在自动模式下生效）——
     // 装上再拆会引入「什么时候装」的第二个状态。
     system.subscribe(() => {
-      if (this.choice === SYSTEM_THEME) this.applyResolved();
+      if (isAutoChoice(this.choice)) this.applyResolved();
     });
   }
 
@@ -206,8 +237,8 @@ export class ThemeManager {
   /**
    * 当前主题的种子（16 色 + 系数）。基础档编辑器要它 —— 它改的是种子，不是 43 个 token。
    *
-   * `presets` 与 `schemes` 在 `registerUserTheme()` / `replaceScheme()` 里成对写入，构造时也成对
-   * 初始化，所以解析出的 id 一定在 `schemes` 里；返回 `null` 只可能是两处不同步的 bug。
+   * `schemes` 是解析与派生的**唯一输入**（`derived` 只是它的缓存），所以解析出的 id 一定在
+   * `schemes` 里；返回 `null` 只可能是两处不同步的 bug。
    */
   get activeScheme(): NexusThemeScheme | null {
     return this.schemes.get(this.activeTheme.id) ?? null;
@@ -224,7 +255,7 @@ export class ThemeManager {
     if (!isUserThemeId(theme.id)) return false;
     this.userThemes.set(theme.id, theme);
     this.schemes.set(theme.id, theme.scheme);
-    this.presets.set(theme.id, definitionOf(theme.id, theme.scheme));
+    this.derived.delete(theme.id);
     return true;
   }
 
@@ -306,7 +337,7 @@ export class ThemeManager {
     const updated: UserTheme = { ...theme, scheme };
     this.userThemes.set(updated.id, updated);
     this.schemes.set(updated.id, scheme);
-    this.presets.set(updated.id, definitionOf(updated.id, scheme));
+    this.derived.delete(updated.id);
     this.applyResolved();
     return true;
   }
@@ -329,15 +360,27 @@ export class ThemeManager {
   }
 
   /**
-   * 认不出的 id 显式回落成「跟随系统」，而不是静默保持原主题 —— 静默会让用户以为主题没保存。
-   * `choice` 本身不动：主题文件回来了就自动恢复。回落规则与 preload 共用（`resolveKnownThemeId`），
-   * 否则 preload 会写一个 renderer 不认的 id，静态 CSS 匹配不上，先按基线画一帧再跳。
+   * 认不出的 id 显式回落成默认预设（按系统偏好取一边），而不是静默保持原主题 —— 静默会让用户
+   * 以为主题没保存。`choice` 本身不动：主题文件回来了就自动恢复。回落规则与 preload 共用
+   * （`resolveKnownThemeId`），否则 preload 会写一个 renderer 不认的 id，静态 CSS 匹配不上，
+   * 先按基线画一帧再跳。
    */
   private resolveChoice(): ThemeDefinition {
     const id = resolveKnownThemeId(this.choice, this.system.prefersDark(), (candidate) =>
-      this.presets.has(candidate)
+      this.schemes.has(candidate)
     );
-    return this.presets.get(id) ?? nexusLight;
+    return this.definitionFor(id) ?? nexusLight;
+  }
+
+  /** 按 id 派生并记忆化。认不出的 id 回 `null`，回落由调用方决定。 */
+  private definitionFor(id: string): ThemeDefinition | null {
+    const cached = this.derived.get(id);
+    if (cached) return cached;
+    const scheme = this.schemes.get(id);
+    if (!scheme) return null;
+    const theme = definitionOf(id, scheme);
+    this.derived.set(id, theme);
+    return theme;
   }
 
   private applyResolved(): void {

@@ -1,12 +1,20 @@
 /**
- * 16 色种子。值不是设计出来的，是从既有手写值反推的：每个槽位取该色相簇里承担最多 token
- * 的值，`palette` 每行的尾注就是依据。
+ * 16 色种子。Nexus 自己那两套的值不是设计出来的，是从既有手写值反推的：每个槽位取该色相簇里
+ * 承担最多 token 的值，`palette` 每行的尾注就是依据。
  *
  * 既有配色是三套色板拼装，共用 9–10 个色相而 base16 只给 7 个槽位，必然有 token 被折到
  * 邻近色相。灰阶方向随 variant 反转：light 是 base00 最亮 → base07 最暗，dark 相反。
  *
  * `tuning` 的五个系数都是「朝某个槽位混合的比例」，留空表示用缺省值。
+ *
+ * 第三方方案与预设表都是生成物（`presets.ts`），本文件只补 Nexus 自己那一族 —— 手抄一百多套
+ * 的色值必错，而「逐字取自上游」正是用户要这些主题的理由。生成规则见
+ * `packages/theme/scripts/import-schemes.mjs`。
  */
+
+import { BASE16_PRESETS, BASE16_SCHEMES, type BuiltInPreset } from './presets.js';
+
+export type { BuiltInPreset };
 
 export type Base16Slot =
   | 'base00' | 'base01' | 'base02' | 'base03'
@@ -92,60 +100,32 @@ export const nexusDarkSeeds: NexusThemeScheme = {
 };
 
 /**
- * 三套第三方预设。**值逐字取自 tinted-theming 的 `spec-0.11` 方案文件，不手调** ——
- * 手调过的预设既不是上游的、也不是我们的，而「上游那套长什么样」正是用户导入它的理由。
- * 槽位语义与 base16 规范一致（base00 背景 → base07 最亮/最暗的前景），所以派生管线的
- * 灰阶方向判断直接可用。
- *
- * 唯一保留的差异是**大小写**：上游写 `#2E3440`，这里落成小写 —— 与既有两套同形，
- * 也让 `base16.ts` 的往返测试能逐字符比对。
+ * Nexus 自己这一族。它是出厂默认，所以排在预设表最前 —— 预设轴的顺序就是出厂表的顺序，
+ * 默认项在最上面才不用滚。
  */
-export const draculaSeeds: NexusThemeScheme = {
-  name: 'Dracula',
-  author: 'clach04',
-  variant: 'dark',
-  palette: {
-    base00: '#282a36', base01: '#21222c', base02: '#44475a', base03: '#6272a4',
-    base04: '#9ea8c7', base05: '#f8f8f2', base06: '#f8f8f2', base07: '#ffffff',
-    base08: '#ff5555', base09: '#ffb86c', base0A: '#f1fa8c', base0B: '#50fa7b',
-    base0C: '#8be9fd', base0D: '#bd93f9', base0E: '#ff79c6', base0F: '#993333',
-  },
-};
-
-export const nordSeeds: NexusThemeScheme = {
-  name: 'Nord',
-  author: 'arcticicestudio',
-  variant: 'dark',
-  palette: {
-    base00: '#2e3440', base01: '#3b4252', base02: '#434c5e', base03: '#4c566a',
-    base04: '#d8dee9', base05: '#e5e9f0', base06: '#eceff4', base07: '#8fbcbb',
-    base08: '#bf616a', base09: '#d08770', base0A: '#ebcb8b', base0B: '#a3be8c',
-    base0C: '#88c0d0', base0D: '#81a1c1', base0E: '#b48ead', base0F: '#5e81ac',
-  },
-};
-
-export const tokyoNightSeeds: NexusThemeScheme = {
-  name: 'Tokyo Night Dark',
-  author: 'Michaël Ball',
-  variant: 'dark',
-  palette: {
-    base00: '#1a1b26', base01: '#16161e', base02: '#2f3549', base03: '#444b6a',
-    base04: '#787c99', base05: '#a9b1d6', base06: '#cbccd1', base07: '#d5d6db',
-    base08: '#c0caf5', base09: '#a9b1d6', base0A: '#0db9d7', base0B: '#9ece6a',
-    base0C: '#b4f9f8', base0D: '#2ac3de', base0E: '#bb9af7', base0F: '#f7768e',
-  },
+const NEXUS_PRESET: BuiltInPreset = {
+  id: 'nexus',
+  name: 'Nexus',
+  variants: { light: 'nexus-light', dark: 'nexus-dark' }
 };
 
 /**
- * 出厂主题表：**id 与种子成对写在这里**，`index.ts` 直接消费。
+ * 出厂主题表：**id 与种子成对**，`index.ts` 直接消费。用户主题不走这张表（id 由 `user-theme.ts` 生成）。
  *
- * id 放在种子旁边而不是 `index.ts` 里 —— id 在两处各写一遍迟早对不上，而「哪几套随产品出厂」
- * 是种子层的事实。用户主题不走这张表（它们的 id 由 `user-theme.ts` 生成）。
+ * 槽位语义与 base16 规范一致（base00 背景 → base07 最亮/最暗的前景），所以派生管线的灰阶方向
+ * 判断对上游方案直接可用。上游写大写十六进制，生成物统一落成小写 —— 与 Nexus 两套同形，也让
+ * `base16.ts` 的往返测试能逐字符比对。
  */
 export const BUILT_IN_SCHEMES: readonly { id: string; scheme: NexusThemeScheme }[] = [
   { id: 'nexus-light', scheme: nexusLightSeeds },
   { id: 'nexus-dark', scheme: nexusDarkSeeds },
-  { id: 'dracula', scheme: draculaSeeds },
-  { id: 'nord', scheme: nordSeeds },
-  { id: 'tokyo-night-dark', scheme: tokyoNightSeeds },
+  ...BASE16_SCHEMES
 ];
+
+/**
+ * 出厂预设表：预设轴选一族，模式轴再决定取哪一边。
+ *
+ * **单变体是合法形状** —— 上游有些方案只有一版（`dracula` 就是），而它是既有出厂主题，
+ * 丢掉等于把老用户的选择抹掉。单变体预设下模式轴只剩一边可选。
+ */
+export const BUILT_IN_PRESETS: readonly BuiltInPreset[] = [NEXUS_PRESET, ...BASE16_PRESETS];

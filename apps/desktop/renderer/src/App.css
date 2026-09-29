@@ -105,6 +105,18 @@ body {
   color: var(--nexus-text-primary);
 }
 
+/* 用户主题与单变体预设上「切换明暗」没有另一边可去 —— 禁用比按下去没反应清楚。
+   `not-allowed` 而不是 `default`：光标是这一条唯一还能说话的通道（原生 tooltip 会照旧弹出）。 */
+.nexus-header-button:disabled {
+  cursor: not-allowed;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-header-button:disabled:hover {
+  background-color: transparent;
+  color: var(--nexus-text-muted);
+}
+
 /* 标题栏菜单栏 */
 .nexus-menu-bar {
   display: flex;
@@ -2186,10 +2198,71 @@ body.nexus-resizing {
   font-weight: 500;
 }
 
-.nexus-theme-card-description {
-  font-size: 12px;
-  line-height: 1.5;
+/* 模式段控（浅色 / 自动 / 深色）。**分段而非独立按钮** —— 三项互斥、且是一根轴上的三个位置，
+   分开摆会看起来像三个能各自开关的开关。用 `inline-flex` + 外层边框，内层只画分隔线。 */
+.nexus-theme-modes {
+  display: inline-flex;
+  align-self: flex-start;
+  margin-top: 4px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.nexus-theme-mode {
+  padding: 6px 16px;
+  border: none;
+  background-color: var(--nexus-bg-surface);
+  font: inherit;
+  font-size: 13px;
+  color: var(--nexus-text-secondary);
+  cursor: pointer;
+}
+
+.nexus-theme-mode + .nexus-theme-mode {
+  border-left: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-theme-mode:hover:not(:disabled) {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-theme-mode-active {
+  background-color: var(--nexus-selection-bg);
+  color: var(--nexus-accent-text);
+  font-weight: 500;
+}
+
+.nexus-theme-mode:disabled {
+  cursor: not-allowed;
   color: var(--nexus-text-muted);
+}
+
+/* 预设搜索框。五十多个预设，不搜就只能滚。宽度跟着卡片网格走，不铺满整行 ——
+   铺满时输入框比它过滤的那片网格还宽，看起来像在搜别的东西。 */
+.nexus-theme-search {
+  align-self: flex-start;
+  width: 260px;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  font: inherit;
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-theme-search:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 1px;
+}
+
+/* 搜索框里的清除按钮是 UA 画的，跟随 `color-scheme` 而不是 token —— 清掉它，
+   免得在派生出的第三方配色里出现一个不属于任何 token 的灰。 */
+.nexus-theme-search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
 }
 
 .nexus-settings-empty {

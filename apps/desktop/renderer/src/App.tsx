@@ -144,7 +144,7 @@ function getFileName(filePath: string | null): string {
 }
 
 export const App: React.FC = () => {
-  const { resolvedTheme, themeChoice, setTheme } = useTheme();
+  const { resolvedTheme, themeChoice, setTheme, modeSwitchable } = useTheme();
   const { locale, setLocale, t } = useLocale();
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
@@ -1115,7 +1115,12 @@ export const App: React.FC = () => {
       commandRegistry.registerCommand({
         id: 'toggle-theme',
         titleKey: 'cmd.toggleTheme',
-        execute: () => setTheme(resolvedTheme.type === 'light' ? 'dark' : 'light')
+        // 保留预设，只翻模式 —— 当前渲染出浅色就切深色。`choiceWithMode` 在切不动时是恒等，
+        // 这里先挡一道是为了让命令面板里那条不再是个「点了没反应」的项。
+        execute: () => {
+          if (!modeSwitchable) return;
+          setTheme(resolvedTheme.type === 'light' ? 'dark' : 'light');
+        }
       }),
       commandRegistry.registerCommand({
         id: 'toggle-locale',
@@ -1199,7 +1204,7 @@ export const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       unsubs.forEach(u => u());
     };
-  }, [handleOpenFile, saveAs, saveFile, resolvedTheme, setTheme, locale, setLocale, openSettingsWindow]);
+  }, [handleOpenFile, saveAs, saveFile, resolvedTheme, setTheme, modeSwitchable, locale, setLocale, openSettingsWindow]);
 
   // Conflict resolution actions
   const handleReloadExternal = useCallback(async () => {
@@ -1509,6 +1514,8 @@ export const App: React.FC = () => {
             type="button"
             className="nexus-header-button nexus-theme-toggle"
             onClick={() => setTheme(resolvedTheme.type === 'light' ? 'dark' : 'light')}
+            // 用户主题与单变体预设没有另一边可切 —— 禁用比按下去没反应清楚。
+            disabled={!modeSwitchable}
             aria-label={t('cmd.toggleTheme')}
             title={t('cmd.toggleTheme')}
           >

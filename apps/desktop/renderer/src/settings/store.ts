@@ -2,16 +2,16 @@
  * 设置存储：把四种各写一遍的偏好形状收敛成一个入口 —— 读值渲染选中态、写值、订阅变化。
  *
  * 三条硬约束：① `storageKey` 与磁盘格式**冻结**（preload 的 `theme-boot.ts` 自己读 `nexus-theme`
- * 定首帧主题，改格式会让首屏闪烁回归）；② 值是「**选择**」不是解析结果（主题存 `system` 或
- * 主题 id，`<html data-theme>` 仍是解析结果、归 `ThemeManager`）；③ `parse` 是值域的唯一权威
+ * 定首帧主题，改格式会让首屏闪烁回归）；② 值是「**选择**」不是解析结果（主题存 `<preset>@<mode>`
+ * 或裸方案 id，`<html data-theme>` 仍是解析结果、归 `ThemeManager`）；③ `parse` 是值域的唯一权威
  * —— 读初值与写入都过它一遍，内存态与磁盘不会分裂。
  */
 
 import {
+  DEFAULT_THEME_CHOICE,
   normalizeThemeChoice,
   parseUserTheme,
   serializeUserTheme,
-  SYSTEM_THEME,
   THEME_STORAGE_KEY,
   type UserTheme
 } from '@nexus/theme';
@@ -46,9 +46,9 @@ const DEFAULT_SECTION = 'appearance';
 export const SETTING_DEFS = {
   'appearance.theme': defineSetting<string>({
     storageKey: THEME_STORAGE_KEY,
-    fallback: SYSTEM_THEME,
-    // 旧存档存的是主题**类型**（`dark` / `light`），`normalizeThemeChoice` 接住它。迁移必须留在
-    // 这里：preload 与 renderer 共用同一份规则，各写一遍就会「先按 A 画一帧、起来再跳 B」。
+    fallback: DEFAULT_THEME_CHOICE,
+    // 旧存档存的是主题**类型**（`dark` / `light`）或裸方案 id，`normalizeThemeChoice` 接住它们。
+    // 迁移必须留在这里：preload 与 renderer 共用同一份规则，各写一遍就会「先按 A 画一帧、起来再跳 B」。
     parse: normalizeThemeChoice,
     serialize: (value) => value
   }),
