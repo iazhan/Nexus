@@ -2259,62 +2259,133 @@ body.nexus-resizing {
   color: var(--nexus-text-muted);
 }
 
-/* 缩略图。高度定死，不按内容撑 —— 自动模式两扇、显式模式一扇，靠 flex 平分宽度，高度不一致
-   的话三张卡会差几个像素，横排看起来像没对齐。 */
+/* 缩略图。高度定死，不按内容撑 —— 自动模式两扇、显式模式一扇，高度不一致的话三张卡会差
+   几个像素，横排看起来像没对齐。 */
 .nexus-theme-mode-preview {
   display: flex;
-  height: 84px;
+  height: 92px;
   border: 1px solid var(--nexus-border-subtle);
   border-radius: 5px;
   overflow: hidden;
 }
 
 .nexus-theme-mode-pane {
-  display: flex;
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 
-/* 小窗：窄栏 + 内容区，两边底色与线色由组件按种子内联给出（`--nexus-*` 只有当前主题那套，
-   画不出别的主题）。栏与内容区都贴到窗口边缘，不留外边距 —— 缩略图要像一扇窗，不像一张卡。 */
+/* 自动模式两扇之间的分隔线用**当前主题**的边框色：它是这个控件的框，不是被画的窗口的一部分。
+   被画的那扇窗口内部的分隔线走种子（见 `MiniWindow`）。 */
+.nexus-theme-mode-pane + .nexus-theme-mode-pane {
+  border-left: 1px solid var(--nexus-border-subtle);
+}
+
+/* 被画出来的那扇主窗口。纵向五块：标题栏 / 主体 / 状态栏，主体里再横向三块：
+   活动栏 / 侧栏 / 编辑区。底色与内部线色全部由组件按种子内联给出 —— `--nexus-*` 只有当前
+   主题那套，画不出别的主题。 */
 .nexus-theme-mini {
   display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.nexus-theme-mini-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex: none;
-  width: 100%;
+  height: 9px;
+  padding: 0 4px;
+  border-bottom: 1px solid;
 }
 
-/* 两扇时每扇画成**两倍宽**再由外层裁一半：两扇拼起来才是完整的一扇窗，左扇是它的左半、
-   右扇是它的右半。压扁一扇窗来充数会让线宽与留白一起变形，看起来像另一个控件。 */
-.nexus-theme-mini[data-half] {
-  width: 200%;
+.nexus-theme-mini-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  height: 7px;
+  padding: 0 4px;
+  border-top: 1px solid;
 }
 
-.nexus-theme-mini[data-half='right'] {
-  margin-left: -100%;
+/* 标题栏 / 状态栏里的文字块。真窗口那边左边是标题、右边是窗口按钮（状态栏是左边的保存态、
+   右边的行列号），两块长度不同才像文字而不是两根横杠。 */
+.nexus-theme-mini-chip {
+  height: 3px;
+  border-radius: 1px;
+}
+
+.nexus-theme-mini-titlebar .nexus-theme-mini-chip:first-child {
+  width: 24%;
+}
+
+.nexus-theme-mini-titlebar .nexus-theme-mini-chip:last-child {
+  width: 16%;
+}
+
+.nexus-theme-mini-status .nexus-theme-mini-chip:first-child {
+  width: 20%;
+}
+
+.nexus-theme-mini-status .nexus-theme-mini-chip:last-child {
+  width: 30%;
+}
+
+.nexus-theme-mini-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 活动栏：真窗口里它和编辑区**同色**（都是 `bg-canvas`），靠中间那条侧栏隔开才分得出来。
+   这里照做 —— 给它换个颜色反而与真窗口不符。 */
+.nexus-theme-mini-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 8px;
+  padding-top: 4px;
+}
+
+.nexus-theme-mini-icon {
+  width: 3px;
+  height: 3px;
+  border-radius: 1px;
 }
 
 .nexus-theme-mini-side {
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: 5px;
-  width: 38%;
-  padding: 8px 7px;
+  gap: 4px;
+  width: 26%;
+  padding: 5px 4px;
 }
 
-.nexus-theme-mini-body {
+.nexus-theme-mini-editor {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
-  padding: 8px 8px 8px 9px;
+  padding: 5px 5px 0 6px;
 }
 
 .nexus-theme-mini-line {
+  height: 3px;
+  border-radius: 1px;
+}
+
+/* 编辑区第一行 = Markdown 标题：比正文行更高、更宽、更亮（`base05` 是正文色，`base04` 是次级）。
+   全是等宽细线的话，缩略图看起来像任何一款编辑器。 */
+.nexus-theme-mini-heading {
+  width: 50%;
   height: 4px;
-  border-radius: 2px;
+  border-radius: 1px;
 }
 
 /* 线的长短错开才像文字。写在这里而不是组件里 —— 这是排版细节，不是数据。 */
@@ -2323,23 +2394,35 @@ body.nexus-resizing {
 }
 
 .nexus-theme-mini-side .nexus-theme-mini-line:nth-child(2) {
-  width: 62%;
+  width: 70%;
 }
 
 .nexus-theme-mini-side .nexus-theme-mini-line:nth-child(3) {
-  width: 80%;
-}
-
-.nexus-theme-mini-body .nexus-theme-mini-line:nth-child(1) {
-  width: 100%;
-}
-
-.nexus-theme-mini-body .nexus-theme-mini-line:nth-child(2) {
   width: 88%;
 }
 
-.nexus-theme-mini-body .nexus-theme-mini-line:nth-child(3) {
-  width: 54%;
+.nexus-theme-mini-side .nexus-theme-mini-line:nth-child(4) {
+  width: 58%;
+}
+
+.nexus-theme-mini-editor .nexus-theme-mini-line:nth-child(1) {
+  width: 100%;
+}
+
+.nexus-theme-mini-editor .nexus-theme-mini-line:nth-child(2) {
+  width: 92%;
+}
+
+.nexus-theme-mini-editor .nexus-theme-mini-line:nth-child(3) {
+  width: 68%;
+}
+
+.nexus-theme-mini-editor .nexus-theme-mini-line:nth-child(4) {
+  width: 96%;
+}
+
+.nexus-theme-mini-editor .nexus-theme-mini-line:nth-child(5) {
+  width: 52%;
 }
 
 /* 选中勾压在缩略图右上角。底色取主色实心（`accent-solid`）、勾取 `accent-contrast` —— 这一对在

@@ -21,7 +21,8 @@ import { ThemeEditor } from './ThemeEditor.js';
  * `nexus-light`，按解析结果判据会让「浅色」与「自动」同时点亮。
  *
  * 模式三张卡片画的是**当前预设的真实配色**（缩略图直接取种子，不是画一张示意图）：换预设时
- * 缩略图跟着换，于是「这套主题的浅色长什么样」是看得见的。自动模式画两扇各半，左暗右浅。
+ * 缩略图跟着换，于是「这套主题的浅色长什么样」是看得见的。缩略图本身是**一扇完整的主窗口**
+ * （标题栏 / 活动栏 / 侧栏 / 编辑区 / 状态栏），自动模式并排画两扇，先暗后亮。
  *
  * 预设列表走 `optionsOf()`：编辑种子会 fork 出一个用户主题，它必须出现在列表里，否则一个预设
  * 都不勾选。
@@ -62,58 +63,93 @@ const CheckIcon = (
   </svg>
 );
 
-/** 小窗里各画三条线，长短由 CSS 按 `nth-child` 错开（排版细节，不是数据）。 */
-const PREVIEW_LINES = [0, 1, 2];
+/** 活动栏里的图标点、侧栏的列表项、编辑区的正文行。长短由 CSS 按 `nth-child` 错开。 */
+const RAIL_ICONS = [0, 1, 2, 3];
+const SIDE_LINES = [0, 1, 2, 3];
+const EDITOR_LINES = [0, 1, 2, 3, 4];
 
 /**
- * 缩略图里的一扇小窗：窄栏 + 内容区，两边的底色与线色都取自传入的那套种子。
+ * 缩略图里的一扇**主窗口**。
  *
- * `half` 有值时这扇窗画成**两倍宽**、再由外层裁掉一半（见 CSS 的 `[data-half]`）—— 两扇拼起来
- * 才是完整的一扇窗，左扇是它的左半、右扇是它的右半。把一扇窗压扁来充数会让线宽与留白一起变形，
- * 看起来像另一个控件。
+ * 分区照真窗口来：标题栏 / 活动栏 + 侧栏 + 编辑区 / 状态栏（对应 `.nexus-header-bar`、
+ * `.nexus-activity-bar`、`.nexus-activity-panel`、`.nexus-main-content`、`.nexus-status-bar`）。
+ * 底色也照它们的 token 语义取种子：`bg-surface` = `base01`（标题栏、侧栏、状态栏），
+ * `bg-canvas` = `base00`（活动栏、编辑区），内部分隔线 = `base02`（base16 的「默认边框」槽位）。
+ *
+ * 所以缩略图是「**这套主题下主窗口长什么样**」，不是一张通用的示意图。活动栏与编辑区同色
+ * （真窗口里就是如此），靠中间那条侧栏隔开才分得出来 —— 给它换个颜色反而与真窗口不符。
+ *
+ * 分隔线用种子而不是 `--nexus-border-*`：那是**被画的窗口**内部的东西，换个主题就得跟着换。
+ * 外框与两扇之间的分隔线才用当前主题的 token —— 那些属于这个控件本身。
  */
-const MiniWindow: React.FC<{ scheme: NexusThemeScheme; half?: 'left' | 'right' }> = ({
-  scheme,
-  half
-}) => {
+const MiniWindow: React.FC<{ scheme: NexusThemeScheme }> = ({ scheme }) => {
   const { palette } = scheme;
+  const edge = { borderColor: palette.base02 };
   return (
-    <span
-      className="nexus-theme-mini"
-      data-half={half}
-      style={{ backgroundColor: palette.base00 }}
-    >
-      <span className="nexus-theme-mini-side" style={{ backgroundColor: palette.base01 }}>
-        {PREVIEW_LINES.map((line) => (
-          <span
-            key={line}
-            className="nexus-theme-mini-line"
-            style={{ backgroundColor: palette.base03 }}
-          />
-        ))}
+    <span className="nexus-theme-mini" style={{ backgroundColor: palette.base00 }}>
+      <span
+        className="nexus-theme-mini-titlebar"
+        style={{ backgroundColor: palette.base01, ...edge }}
+      >
+        <span className="nexus-theme-mini-chip" style={{ backgroundColor: palette.base04 }} />
+        <span className="nexus-theme-mini-chip" style={{ backgroundColor: palette.base04 }} />
       </span>
+
       <span className="nexus-theme-mini-body">
-        {PREVIEW_LINES.map((line) => (
-          <span
-            key={line}
-            className="nexus-theme-mini-line"
-            style={{ backgroundColor: palette.base04 }}
-          />
-        ))}
+        <span className="nexus-theme-mini-rail">
+          {RAIL_ICONS.map((icon) => (
+            <span
+              key={icon}
+              className="nexus-theme-mini-icon"
+              style={{ backgroundColor: palette.base04 }}
+            />
+          ))}
+        </span>
+        <span className="nexus-theme-mini-side" style={{ backgroundColor: palette.base01 }}>
+          {SIDE_LINES.map((line) => (
+            <span
+              key={line}
+              className="nexus-theme-mini-line"
+              style={{ backgroundColor: palette.base03 }}
+            />
+          ))}
+        </span>
+        <span className="nexus-theme-mini-editor">
+          {/* 第一行画成 Markdown 标题（更亮更宽）：编辑区里全是一样的细线，看起来像任何一款
+              编辑器；有一行标题才像「打开着一篇文档」。 */}
+          <span className="nexus-theme-mini-heading" style={{ backgroundColor: palette.base05 }} />
+          {EDITOR_LINES.map((line) => (
+            <span
+              key={line}
+              className="nexus-theme-mini-line"
+              style={{ backgroundColor: palette.base04 }}
+            />
+          ))}
+        </span>
+      </span>
+
+      <span
+        className="nexus-theme-mini-status"
+        style={{ backgroundColor: palette.base01, ...edge }}
+      >
+        <span className="nexus-theme-mini-chip" style={{ backgroundColor: palette.base04 }} />
+        <span className="nexus-theme-mini-chip" style={{ backgroundColor: palette.base04 }} />
       </span>
     </span>
   );
 };
 
-/** 一张模式卡片的缩略图。两套种子就是左右两扇各半，一套就是整幅一扇。 */
+/**
+ * 一张模式卡片的缩略图：一套种子画一扇完整主窗口，两套（自动模式）就是**两扇并排**。
+ *
+ * 不把一扇切成两半：那会读成「深色的壳配浅色的内容」—— 那是混搭，不是跟随系统。
+ * 两扇并排才是「系统亮给你左边这扇，暗给你右边这扇」。
+ */
 const ModePreview: React.FC<{ schemes: readonly NexusThemeScheme[] }> = ({ schemes }) => (
   <span className="nexus-theme-mode-preview" aria-hidden="true">
     {schemes.map((scheme, index) => (
       <span key={index} className="nexus-theme-mode-pane">
-        <MiniWindow
-          scheme={scheme}
-          half={schemes.length > 1 ? (index === 0 ? 'left' : 'right') : undefined}
-        />
+        <MiniWindow scheme={scheme} />
       </span>
     ))}
   </span>

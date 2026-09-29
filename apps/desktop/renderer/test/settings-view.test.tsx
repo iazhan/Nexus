@@ -59,16 +59,21 @@ function modeOption(value: string): HTMLElement | null {
   return container.querySelector<HTMLElement>(`[data-theme-mode="${value}"]`);
 }
 
-/** 模式卡片缩略图里的小窗，一扇一个。自动模式两扇（左暗右浅），显式模式一扇。 */
+/** 模式卡片缩略图里的小窗，一扇一个。自动模式两扇（先暗后亮），显式模式一扇。 */
 function modeThumbnails(value: string): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(`[data-theme-mode="${value}"] .nexus-theme-mini`)
   );
 }
 
-/** 缩略图第一扇窗的底色。判「缩略图是不是这套预设的真实配色」靠它 —— 比断言具体色值稳。 */
+/** 一扇小窗的底色（`bg-canvas` = `base00`）。判「是不是这套预设的真实配色」靠它，比断言色值稳。 */
+function windowBackground(window: HTMLElement | undefined): string {
+  return window?.style.backgroundColor ?? '';
+}
+
+/** 缩略图第一扇窗的底色。 */
 function thumbnailBackground(value: string): string {
-  return modeThumbnails(value)[0]?.style.backgroundColor ?? '';
+  return windowBackground(modeThumbnails(value)[0]);
 }
 
 /** React 的 `onChange` 挂在原生 `input` 事件上；直接改 `.value` 不触发它。 */
@@ -275,18 +280,53 @@ describe('设置视图 · Appearance', () => {
     expect(thumbnailBackground('light')).not.toBe(nexusLight);
   });
 
-  /** 自动模式两扇各半、左暗右浅 —— 那正是「跟随系统会给你深色的栏、浅色的正文」。 */
-  it('自动模式的缩略图是左暗右浅两扇，显式模式各一扇', () => {
+  /**
+   * 自动模式两扇 = 两扇**完整**的主窗口并排，先暗后亮。不把一扇切成两半：那会读成「深色的壳
+   * 配浅色的内容」—— 那是混搭，不是跟随系统。判据直接拿显式模式那两张卡的小窗底色来比，
+   * 于是「自动 = 暗那扇 + 亮那扇」这件事被钉死，而不是只看扇数。
+   */
+  it('自动模式是两扇完整主窗口并排（先暗后亮），显式模式各一扇', () => {
     renderSettings();
 
     expect(modeThumbnails('auto')).toHaveLength(2);
-    expect(modeThumbnails('auto')[0]?.dataset.half).toBe('left');
-    expect(modeThumbnails('auto')[1]?.dataset.half).toBe('right');
     expect(modeThumbnails('light')).toHaveLength(1);
     expect(modeThumbnails('dark')).toHaveLength(1);
+
+    const [first, second] = modeThumbnails('auto');
+    expect(windowBackground(first)).toBe(windowBackground(modeThumbnails('dark')[0]));
+    expect(windowBackground(second)).toBe(windowBackground(modeThumbnails('light')[0]));
+    // 两扇底色必须真的不同，否则「先暗后亮」是空话。
+    expect(windowBackground(first)).not.toBe(windowBackground(second));
   });
 
-  /** 单变体预设只有一套种子，自动模式也就只画一扇 —— 这正好是「没得切」的样子。 */
+  /**
+   * 缩略图要**像主窗口**，不是一块抽象的色块：标题栏 / 活动栏 / 侧栏 / 编辑区 / 状态栏五块
+   * 缺一不可。真窗口那边对应 `.nexus-header-bar`、`.nexus-activity-bar`、`.nexus-activity-panel`、
+   * `.nexus-main-content`、`.nexus-status-bar`。
+   */
+  it('每扇缩略图都是完整的主窗口：标题栏 / 活动栏 / 侧栏 / 编辑区 / 状态栏', () => {
+    renderSettings();
+
+    const parts = [
+      'nexus-theme-mini-titlebar',
+      'nexus-theme-mini-rail',
+      'nexus-theme-mini-side',
+      'nexus-theme-mini-editor',
+      'nexus-theme-mini-status'
+    ];
+
+    for (const value of ['auto', 'light', 'dark']) {
+      const windows = modeThumbnails(value);
+      expect(windows.length, value).toBeGreaterThan(0);
+      for (const window of windows) {
+        for (const part of parts) {
+          expect(window.querySelector(`.${part}`), `${value} / ${part}`).not.toBeNull();
+        }
+      }
+    }
+  });
+
+  /** 单变体预设只有一套种子，自动模式也就只有一扇窗 —— 「没得切」不用另画一个灰掉的占位。 */
   it('单变体预设的自动卡片只有一扇窗', () => {
     settings.set('appearance.theme', 'dracula@dark');
     renderSettings();
