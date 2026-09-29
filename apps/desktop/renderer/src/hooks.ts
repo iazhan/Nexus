@@ -57,10 +57,14 @@ export function useLocale() {
 
   const setLocale = useCallback((l: string) => localeManager.setLocale(l), []);
   const t = useCallback((key: string, vars?: Record<string, string>) => localeManager.t(key, vars), []);
+  // 「这个键有译文吗」。缺键时 `t()` 会把键名原样返回，可选文案要靠它决定画不画。
+  // 不把 `locale` 放进依赖：`t` / `has` 都在调用时读当前语言，而组件本来就因语言变化重渲染。
+  const has = useCallback((key: string) => localeManager.has(key), []);
 
   return { 
     locale, 
     setLocale,
-    t
+    t,
+    has
   };
 }

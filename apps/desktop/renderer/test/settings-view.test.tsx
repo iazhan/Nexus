@@ -148,6 +148,40 @@ describe('设置视图 · Appearance', () => {
   });
 
   /**
+   * 卡片上要能**扫视着选**：圆点是这套主题的主色，配色条是它的背景 → 正文 → 主色跨度。
+   * 「跟随系统」没有单一主色，所以圆点两半、配色条八段 —— 这两个数字是刻意的，
+   * 不是实现细节（改成一个实心圆点等于说它有确定的主色）。
+   */
+  it('每张主题卡都有圆点与配色条，跟随系统是两半 + 八段', () => {
+    renderSettings();
+
+    const cards = Array.from(container.querySelectorAll<HTMLElement>('[data-theme-option]'));
+    expect(cards).toHaveLength(1 + BUILT_IN_THEMES.length);
+
+    for (const card of cards) {
+      const id = card.dataset.themeOption ?? '';
+      const system = id === SYSTEM_THEME;
+      expect(card.querySelectorAll('.nexus-theme-card-segment').length, id).toBe(system ? 8 : 4);
+      expect(card.querySelectorAll('.nexus-theme-card-half').length, id).toBe(system ? 2 : 1);
+    }
+  });
+
+  /**
+   * 描述是**可选**的（缺字典键就不画这一行），所以「出厂主题一张都不缺」这件事得有用例守着 ——
+   * 新增一套出厂主题却忘了写描述时，这里会红，而不是静默少一行文案。
+   */
+  it('每张主题卡都有非空的一句话描述', () => {
+    renderSettings();
+
+    const described = Array.from(
+      container.querySelectorAll('[data-theme-option] .nexus-theme-card-description')
+    ).map((el) => (el.textContent ?? '').trim());
+
+    expect(described).toHaveLength(1 + BUILT_IN_THEMES.length);
+    expect(described.every((text) => text.length > 0)).toBe(true);
+  });
+
+  /**
    * 「无保存 / 无恢复默认」的判据用**按钮的种类**而不是文案：页面里每个按钮都必须落进一份
    * 已知清单（导航项 / 主题选项 / 档位页签 / 导入导出 / 预览区）。文案会随语言变，多一个按钮
    * 却是结构性的 —— 出现 `other` 就意味着有人往设置页里塞了提交类控件，必须显式解释。

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DICTIONARIES, translate } from '../src/index.js';
+import { DICTIONARIES, hasMessage, translate } from '../src/index.js';
 
 const EN = DICTIONARIES['en-US'] ?? {};
 const ZH = DICTIONARIES['zh-CN'] ?? {};
@@ -37,5 +37,16 @@ describe('i18n 字典一致性', () => {
   it('未知语言回落到 en-US，未知键回落到键名本身', () => {
     expect(translate('fr-FR', 'menu.file')).toBe(EN['menu.file']);
     expect(translate('en-US', 'no.such.key')).toBe('no.such.key');
+  });
+
+  /**
+   * 缺键时 `t()` 把键名原样返回，所以**可选文案不能靠 `t()` 自己判存在** ——
+   * 每套主题的一句话描述就是这么用的（用户主题与将来新增的出厂主题都可能没有），
+   * 少了这道判断，界面上会漏出 `theme.description.user:xxx` 这种噪音。
+   */
+  it('hasMessage 能分辨缺键', () => {
+    expect(hasMessage('zh-CN', 'theme.description.dracula')).toBe(true);
+    expect(hasMessage('en-US', 'theme.description.dracula')).toBe(true);
+    expect(hasMessage('zh-CN', 'theme.description.user:abc')).toBe(false);
   });
 });

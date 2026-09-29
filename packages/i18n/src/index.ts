@@ -116,6 +116,15 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     // 叫「外观」名不副实。改名「首选项」不是顺手，是「不改名就得把语言与 mermaid 从菜单里砍掉」。
     'menu.preferences': 'Preferences',
     'theme.option.system': 'Follow system',
+    // 每套主题的一句话描述。**键名里带主题 id** —— 列表本身由 `BUILT_IN_SCHEMES` 派生，
+    // 所以新增一套出厂主题却忘了写描述，只是少一行文案，不会出现第二个要同步的清单。
+    'theme.description.system': 'Follows the system between Nexus Light and Nexus Dark.',
+    'theme.description.nexus-light': 'Neutral greys on white, tuned for daylight reading.',
+    'theme.description.nexus-dark': 'The VS Code dark greys, easy on the eyes at night.',
+    'theme.description.dracula': 'High-saturation purple and pink over soft charcoal.',
+    'theme.description.nord': 'Cool arctic blues and greys, low saturation throughout.',
+    'theme.description.tokyo-night-dark': 'Deep indigo with neon accents, tuned for night coding.',
+    'theme.description.custom': 'A palette you edited. Changes apply to this theme only.',
     // 主题名是专有名词，中英都不译。
     'lang.zhCN': 'Chinese',
     'lang.enUS': 'English',
@@ -425,6 +434,13 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'menu.edit': '编辑',
     'menu.preferences': '首选项',
     'theme.option.system': '跟随系统',
+    'theme.description.system': '跟随系统在 Nexus Light 与 Nexus Dark 之间切换。',
+    'theme.description.nexus-light': '白底中性灰，为白天阅读调的。',
+    'theme.description.nexus-dark': 'VS Code 那套深灰，夜里看不刺眼。',
+    'theme.description.dracula': '炭灰底上的高饱和紫与粉。',
+    'theme.description.nord': '北极冷蓝灰，整体低饱和。',
+    'theme.description.tokyo-night-dark': '深靛蓝配霓虹色，为夜间写代码调的。',
+    'theme.description.custom': '你编辑过的配色，改动只影响这一套。',
     'lang.zhCN': '中文',
     'lang.enUS': 'English',
     'settings.title': '设置',
@@ -641,6 +657,16 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
 
 type Listener = (locale: string) => void;
 
+/**
+ * 该键在**指定语言**下是否有译文。
+ *
+ * `translate()` 对缺键会原样返回键名 —— 直接拿它渲染「可选」文案会漏出 `theme.description.x`
+ * 这种噪音。每套主题的一句话描述就靠它决定画不画那一行。
+ */
+export function hasMessage(locale: string, key: string): boolean {
+  return (DICTIONARIES[locale] ?? DICTIONARIES['en-US'])?.[key] !== undefined;
+}
+
 export function translate(locale: string, key: string, variables?: Record<string, string>): string {
   const dict = DICTIONARIES[locale] || DICTIONARIES['en-US'];
   let str = dict?.[key];
@@ -666,6 +692,11 @@ export class LocaleManager {
 
   get locale(): string {
     return this.currentLocale;
+  }
+
+  /** 该键在当前语言下是否有译文。见 `hasMessage()`。 */
+  has(key: string): boolean {
+    return hasMessage(this.currentLocale, key);
   }
 
   setLocale(locale: string): void {

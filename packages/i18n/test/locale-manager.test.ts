@@ -39,4 +39,13 @@ describe('LocaleManager', () => {
     const manager = new LocaleManager();
     expect(manager.t('missing.key')).toBe('missing.key');
   });
+
+  it('has() 跟 t() 的回落规则一致：缺键返回 false，而不是键名', () => {
+    const manager = new LocaleManager();
+    expect(manager.has('missing.key')).toBe(false);
+    expect(manager.has('theme.description.dracula')).toBe(true);
+
+    manager.setLocale('zh-CN');
+    expect(manager.has('theme.description.dracula')).toBe(true);
+  });
 });
