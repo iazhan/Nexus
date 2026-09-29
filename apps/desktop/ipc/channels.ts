@@ -44,6 +44,12 @@ export const IPC_CHANNELS = {
    */
   openSettingsWindow: 'nexus:open-settings-window',
   /**
+   * 打开主题窗口（单例）。与设置窗口同理 —— 角色靠 `?window=theme` 查询串区分，这条通道只负责开窗。
+   *
+   * 入口在**设置窗口的外观分组**里，不在主窗口：主题编辑器是外观设置的下钻，主窗口不该再多一个齿轮。
+   */
+  openThemeWindow: 'nexus:open-theme-window',
+  /**
    * 「本窗口刚改了本机偏好」。渲染进程 → 主进程，主进程再广播给**其他**窗口。
    *
    * 为什么不用 `window` 的 `storage` 事件（那是原生的跨窗口机制）：dev 下页面来自
@@ -54,6 +60,15 @@ export const IPC_CHANNELS = {
   /** 上面那条的中转结果。主进程 → 其他窗口。 */
   settingsChanged: 'nexus:settings-changed'
 } as const;
+
+/**
+ * 这个渲染进程是哪个窗口。
+ *
+ * 定义在这里而不是渲染进程里：主进程的 `loadRenderer()` 与渲染进程的 `readWindowRole()` 必须
+ * 是**同一份**联合类型，两边各写一遍的话，加一个角色时漏改一边不会有任何东西报错 ——
+ * 主进程照常按新角色加载，渲染进程把它当主窗口渲染。
+ */
+export type WindowRole = 'main' | 'settings' | 'theme';
 
 /**
  * 自绘窗口按钮需要同步的最小状态集合。

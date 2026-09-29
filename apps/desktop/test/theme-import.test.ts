@@ -107,10 +107,13 @@ describe('主题导入', () => {
 
     const saved = JSON.parse(
       (await app.evaluate<string>(`localStorage.getItem('nexus-user-theme') ?? ''`)) || '{}'
-    ) as { scheme?: { name?: string; palette?: Record<string, string> } };
-    expect(saved.scheme?.name).toBe('Nord');
-    expect(saved.scheme?.palette?.base00).toBe('#2e3440');
-    expect(saved.scheme?.palette?.base0D).toBe('#81a1c1');
+    ) as { themes?: { variants?: { dark?: { name?: string; palette?: Record<string, string> } } }[] };
+    // Nord 上游只有暗版，所以导入出来的用户主题只有 dark 一边；存档是列表，这里只有一套。
+    const theme = saved.themes?.[0];
+    expect(saved.themes).toHaveLength(1);
+    expect(theme?.variants?.dark?.name).toBe('Nord');
+    expect(theme?.variants?.dark?.palette?.base00).toBe('#2e3440');
+    expect(theme?.variants?.dark?.palette?.base0D).toBe('#81a1c1');
 
     // 状态行报的是「已导入」，并且给了撤销入口
     expect(

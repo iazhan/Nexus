@@ -1,6 +1,18 @@
 import { CommandRegistry } from '@nexus/command';
 import { LocaleManager } from '@nexus/i18n';
-import { ThemeManager, type Base16Slot, type Tuning, type UserTheme } from '@nexus/theme';
+import {
+  DEFAULT_THEME_CHOICE,
+  ThemeManager,
+  formatSelection,
+  mergeUserThemes,
+  parseSelection,
+  userThemeName,
+  userThemeVariants,
+  type Base16Slot,
+  type NexusThemeScheme,
+  type Tuning,
+  type UserTheme
+} from '@nexus/theme';
 import { SettingsStore } from './settings/store.js';
 
 export const commandRegistry = new CommandRegistry();
@@ -18,7 +30,7 @@ const LOCALE_STORAGE_KEY = 'nexus-locale';
  */
 export const settings = new SettingsStore();
 
-const savedUserTheme = settings.get('appearance.userTheme');
+const savedUserThemes = settings.get('appearance.userThemes');
 
 // 选择与用户主题都必须在**构造时**交进去，不能构造完再 setTheme / registerUserTheme：preload
 // 已按同一规则写过 `data-theme`，多一次写入就多一次「先画一帧再跳」的机会（见 `ThemeManager`
@@ -26,7 +38,7 @@ const savedUserTheme = settings.get('appearance.userTheme');
 export const themeManager = new ThemeManager(
   settings.get('appearance.theme'),
   undefined,
-  savedUserTheme ? [savedUserTheme] : []
+  savedUserThemes
 );
 
 // 暴露给冒烟测试与调试（与 App 里的 `window.nexusSession` 同一套接缝）
@@ -59,12 +71,24 @@ export function applyThemeChoice(choice: string): void {
 }
 
 /**
- * 把当前用户主题落盘。覆盖项属于用户主题的一部分，与它一起序列化 —— 另开一个键存覆盖项会让
- * 两个键描述同一份状态，迟早对不上。落在内置主题上时无事可做。
+ * 把一份用户主题写回列表：**同 id 替换，否则追加**。
+ *
+ * 其余条目原样保留 —— 用户可以同时拥有多套自定义主题，覆盖写会让「切走一套就丢一套」。
  */
+function upsertUserTheme(theme: UserTheme): void {
+  const list = settings.get('appearance.userThemes');
+  settings.set(
+    'appearance.userThemes',
+    list.some((item) => item.id === theme.id)
+      ? list.map((item) => (item.id === theme.id ? theme : item))
+      : [...list, theme]
+  );
+}
+
+/** 把当前用户主题落盘。落在内置主题上时无事可做。 */
 function persistActiveUserTheme(): void {
   const theme = themeManager.activeUserTheme;
-  if (theme) settings.set('appearance.userTheme', theme);
+  if (theme) upsertUserTheme(theme);
 }
 
 /** 注册并切到一个用户主题。导入 / fork 之后的统一入口 —— 注册与选择都落盘。 */
@@ -72,8 +96,108 @@ export function applyUserTheme(theme: UserTheme): void {
   // id 不合法（内置 id）时 `registerUserTheme` 回 false：不落盘、不切换，免得存档里出现一个
   // 「看着像用户主题、实际是内置主题」的条目。
   if (!themeManager.registerUserTheme(theme)) return;
-  settings.set('appearance.userTheme', theme);
-  applyThemeChoice(theme.id);
+  upsertUserTheme(theme);
+
+  // 用户主题是一条**预设**（明暗两版共用 id），所以选择要带模式轴。不带的话设置页的模式卡片
+  // 对它恒等 —— 裸 id 没有预设轴，按下去没反应。
+  //
+  // 已经切到它身上了（`forkSchemeToUserTheme` 刚落点）就沿用那条选择，别推回第一版：
+  // 从深色那套复制出来的副本该停在深色，而它的第一版是浅色。
+  const current = parseSelection(settings.get('appearance.theme'));
+  const landed = 'preset' in current && current.preset === theme.id ? current.mode : undefined;
+  applyThemeChoice(
+    formatSelection({ preset: theme.id, mode: landed ?? userThemeVariants(theme)[0] ?? 'light' })
+  );
+}
+
+/** 从列表里移除一套用户主题。正落在它身上时先切回默认预设 —— 否则选择会指向一个不存在的预设。 */
+export function removeUserTheme(id: string): void {
+  const list = settings.get('appearance.userThemes');
+  if (!list.some((item) => item.id === id)) return;
+
+  if (themeManager.theme.id === id) applyThemeChoice(DEFAULT_THEME_CHOICE);
+  const next = list.filter((item) => item.id !== id);
+  settings.set('appearance.userThemes', next);
+  // 注册表跟着换一份：留着的话它的 id 还能被选择引用，「删了却还能切回去」。
+  themeManager.setUserThemes(next);
+}
+
+/**
+ * 把 `sourceId` 并进 `targetId`，并移除被并掉的那套。返回合并后的主题，没有可并的就回 `null`。
+ *
+ * 这是个**不可逆**的动作（被并掉的那套从列表消失），调用方负责先问过用户。
+ */
+export function mergeUserThemeInto(targetId: string, sourceId: string): UserTheme | null {
+  const list = settings.get('appearance.userThemes');
+  const target = list.find((item) => item.id === targetId);
+  const source = list.find((item) => item.id === sourceId);
+  if (!target || !source || targetId === sourceId) return null;
+
+  const merged = mergeUserThemes(target, source);
+  const next = list
+    .filter((item) => item.id !== sourceId)
+    .map((item) => (item.id === targetId ? merged : item));
+
+  // 被并掉的那套如果正是当前选择，改指到合并后的那套 —— 否则选择悬空。
+  const selection = parseSelection(settings.get('appearance.theme'));
+  const selected = 'preset' in selection ? selection.preset : selection.id;
+  if (selected === sourceId) {
+    const mode = 'preset' in selection ? selection.mode : 'auto';
+    settings.set('appearance.userThemes', next);
+    themeManager.setUserThemes(next);
+    applyThemeChoice(formatSelection({ preset: targetId, mode }));
+    return merged;
+  }
+
+  settings.set('appearance.userThemes', next);
+  themeManager.setUserThemes(next);
+  return merged;
+}
+
+/**
+ * 把一版方案写进当前主题的**对应变体**（没有就补一版），并切到那一版。
+ *
+ * 落点是**方案自己的 `variant`**，不是「当前正在编辑的那一版」。浅色配色写进深色那一版会让
+ * 派生方向与配色相反（`base00` 是浅色、却按深色去算），对比度当场崩掉 —— 而派生方向只由
+ * `scheme.variant` 决定，改不了。
+ *
+ * 缺哪一版就**补哪一版**：这就是「导入一份浅色 + 一份深色 = 一套双色主题」的机制，也是单边
+ * 主题唯一的出路（否则切到另一边是死路，见 `docs/theme-window-closeout.md` §5.10）。
+ *
+ * 名字沿用主题**已有的**那个 —— 粘贴改的是配色，不是标签。
+ */
+export function applyVariantScheme(scheme: NexusThemeScheme): { id: string; added: boolean } | null {
+  if (!themeManager.isEditable && !themeManager.forkActiveToUserTheme()) return null;
+  const theme = themeManager.activeUserTheme;
+  if (!theme) return null;
+
+  const name = userThemeName(theme);
+  const added = !theme.variants[scheme.variant];
+  const next: UserTheme = {
+    id: theme.id,
+    variants: { ...theme.variants, [scheme.variant]: name ? { ...scheme, name } : scheme }
+  };
+
+  themeManager.registerUserTheme(next);
+  upsertUserTheme(next);
+  applyThemeChoice(formatSelection({ preset: theme.id, mode: scheme.variant }));
+  return { id: theme.id, added };
+}
+
+/**
+ * 「新建主题」与「复制」共用的动作：以 `sourceSchemeId` 那套为起点造一份用户主题并切过去。
+ *
+ * 源是**方案 id**（`dracula` / `nexus-light` / `user:<uuid>`），不是预设 id —— 预设的明暗两版
+ * 是两套方案，用户主题只装得下一版。调用方负责把族解析成具体那一版。
+ *
+ * 复制出来立刻切过去：编辑器跟着展开（它的显隐判据就是「当前主题是用户主题」），用户看到的是
+ * 一份可以马上改的副本。落盘复用 `applyUserTheme`，与导入走同一条路。
+ */
+export function duplicateTheme(sourceSchemeId: string): boolean {
+  const theme = themeManager.forkSchemeToUserTheme(sourceSchemeId);
+  if (!theme) return false;
+  applyUserTheme(theme);
+  return true;
 }
 
 /**
@@ -89,12 +213,16 @@ export function applyOverrides(patch: Readonly<Record<string, string | null>>): 
 }
 
 /**
- * 批量改当前主题的**种子**（16 色 / 系数）。基础档走这条路 —— 它改完让派生重跑一遍，而
- * `applyOverrides()` 改的是派生结果之上的单个 token。
+ * 批量改当前主题的**名字与种子**（16 色 / 系数）。基础档走这条路 —— 它改完让派生重跑一遍，
+ * 而 `applyOverrides()` 改的是派生结果之上的单个 token。
+ *
+ * 名字也走这里：它同样是「方案自身的一部分」，另开一条 `renameActiveTheme()` 只会让「哪些字段
+ * 属于方案」这件事多一个入口。空名由 `patchScheme` 挡下，调用方不必自己校验。
  *
  * 与 `applyOverrides()` 同一条纪律：内置主题上先 fork。
  */
 export function applySchemePatch(patch: {
+  name?: string;
   palette?: Partial<Record<Base16Slot, string>>;
   tuning?: Partial<Tuning>;
 }): void {
@@ -171,8 +299,8 @@ export const mermaidPreviewPreference = {
 export function resyncFromStorage(): void {
   settings.reload();
 
-  const savedTheme = settings.get('appearance.userTheme');
-  if (savedTheme) themeManager.registerUserTheme(savedTheme);
+  // 整表替换：另一个窗口删掉一套主题时，合并会让它继续留在内存里，「删了却还能切回去」。
+  themeManager.setUserThemes(settings.get('appearance.userThemes'));
   themeManager.setTheme(settings.get('appearance.theme'));
 
   const savedLocale = readStoredLocale();

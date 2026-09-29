@@ -48,7 +48,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 function resetTheme(): void {
-  settings.set('appearance.userTheme', null);
+  settings.set('appearance.userThemes', []);
   applyThemeChoice(DEFAULT_THEME_CHOICE);
 }
 
@@ -73,9 +73,12 @@ describe('主题导入 · 纯逻辑', () => {
     if (!outcome.ok) return;
 
     expect(themeManager.theme.id).toBe(outcome.themeId);
-    expect(themeManager.themeChoice).toBe(outcome.themeId);
-    expect(settings.get('appearance.theme')).toBe(outcome.themeId);
-    expect(settings.get('appearance.userTheme')?.id).toBe(outcome.themeId);
+    // 一个 base16 文件就是一版配色，所以导入出来的用户主题只有一边，落在它自己的那一版上。
+    expect(themeManager.themeChoice).toBe(`${outcome.themeId}@dark`);
+    expect(settings.get('appearance.theme')).toBe(`${outcome.themeId}@dark`);
+    expect(settings.get('appearance.userThemes').map((theme) => theme.id)).toEqual([
+      outcome.themeId
+    ]);
     // Dracula 的种子对比度不可控，派生必须真修正过一部分 —— 报 0 说明修正没跑。
     expect(outcome.corrections).toBeGreaterThan(0);
   });
@@ -100,7 +103,7 @@ describe('主题导入 · 纯逻辑', () => {
 
     expect(outcome).toMatchObject({ ok: false, error: { code: 'missing-slots' } });
     expect(themeManager.theme.id).toBe('nexus-light');
-    expect(settings.get('appearance.userTheme')).toBeNull();
+    expect(settings.get('appearance.userThemes')).toEqual([]);
   });
 
   it('缺槽位时报出具体槽位名', () => {
@@ -115,14 +118,15 @@ describe('主题导出 · 纯逻辑', () => {
   afterEach(() => resetTheme());
 
   it('导出的 YAML 能被自己读回来，文件名带 slug', () => {
-    applyThemeChoice('tokyo-night-dark');
+    // `nord` 是不带后缀的那一版方案（暗版），所以文件名就是 `nord.yaml`。
+    applyThemeChoice('nord');
     const result = exportActiveTheme('yaml');
 
-    expect(result?.fileName).toBe('tokyo-night-dark.yaml');
+    expect(result?.fileName).toBe('nord.yaml');
     const reparsed = parseBase16(result?.text ?? '');
     expect(reparsed.ok).toBe(true);
     if (reparsed.ok) {
-      expect(reparsed.scheme.name).toBe('Tokyo Night Dark');
+      expect(reparsed.scheme.name).toBe('Nord');
       expect(reparsed.scheme.variant).toBe('dark');
     }
   });
@@ -190,15 +194,15 @@ describe('ThemeTransfer 组件', () => {
   });
 
   it('点导出：触发一次下载，状态行报出文件名', async () => {
-    applyThemeChoice('dracula');
+    applyThemeChoice('nord');
     renderTransfer();
 
     await act(async () => {
       el<HTMLButtonElement>('[data-theme-export="yaml"]')!.click();
     });
 
-    expect(downloads).toEqual(['dracula.yaml']);
-    expect(await created[0]?.blob.text()).toContain('name: "Dracula"');
+    expect(downloads).toEqual(['nord.yaml']);
+    expect(await created[0]?.blob.text()).toContain('name: "Nord"');
     expect(el('[data-theme-transfer-status]')?.getAttribute('data-status')).toBe('ok');
   });
 
@@ -241,7 +245,7 @@ describe('ThemeTransfer 组件', () => {
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
 
-    expect(themeManager.activeUserTheme?.scheme.name).toBe('my-cool-theme');
+    expect(themeManager.activeScheme?.name).toBe('my-cool-theme');
   });
 
   it('坏文件给出错误状态，且不切主题', async () => {
@@ -271,7 +275,7 @@ describe('ThemeTransfer 组件', () => {
       el('[data-theme-transfer]')!.dispatchEvent(event);
     });
 
-    expect(themeManager.activeUserTheme?.scheme.name).toBe('Dracula');
+    expect(themeManager.activeScheme?.name).toBe('Dracula');
   });
 
   it('拖入时整块标记成投放态，拖离后复原', () => {

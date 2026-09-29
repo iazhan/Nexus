@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { BUILT_IN_PRESETS } from '../src/seeds.js';
 import {
   canChangeMode,
   choiceWithMode,
@@ -10,6 +11,7 @@ import {
   presetOfScheme,
   presetVariantsOf,
   resolveThemeId,
+  THEME_MODES,
   SYSTEM_DEFAULTS,
   SYSTEM_THEME,
 } from '../src/resolve.js';
@@ -29,9 +31,11 @@ describe('normalizeThemeChoice：旧存档升成新格式', () => {
 
   it('裸方案 id 反查它属于哪个预设的哪一边', () => {
     expect(normalizeThemeChoice('nexus-dark')).toBe('nexus@dark');
-    expect(normalizeThemeChoice('dracula')).toBe('dracula@dark');
+    expect(normalizeThemeChoice('atelier-cave-light')).toBe('atelier-cave@light');
+    // 不带后缀的那一版：方案 id 与预设 id 同名（`nord` 是暗版、`github` 是浅版），
+    // 反查表要能区分「这是方案」与「这是预设」两件事。
     expect(normalizeThemeChoice('nord')).toBe('nord@dark');
-    expect(normalizeThemeChoice('tokyo-night-light')).toBe('tokyo-night@light');
+    expect(normalizeThemeChoice('github')).toBe('github@light');
   });
 
   it('已经是新格式的透传；认不出的一律原样透传，回落交给 ThemeManager', () => {
@@ -79,10 +83,20 @@ describe('resolveThemeId', () => {
     expect(resolveThemeId('gruvbox@dark', false)).toBe('gruvbox-dark');
   });
 
-  it('单变体预设三种模式都落在它有的那一版 —— 不掉到别的预设去', () => {
-    expect(resolveThemeId('dracula@dark', false)).toBe('dracula');
-    expect(resolveThemeId('dracula@light', false)).toBe('dracula');
-    expect(resolveThemeId('dracula@auto', false)).toBe('dracula');
+  /**
+   * 每种模式都必须落在**这个预设自己的**两版之一上，不掉到别的预设去。
+   *
+   * 出厂预设现在恒为两版齐全（生成器的白名单要求），所以「单变体退到它有的那一边」那条回落在
+   * 内置表上已经走不到了 —— 它只为 `BuiltInPreset` 这个形状保留（用户主题可以只有一边）。
+   */
+  it('每个出厂预设的每种模式都落在它自己的两版之一上', () => {
+    for (const preset of BUILT_IN_PRESETS) {
+      const own = [preset.variants.light, preset.variants.dark];
+      for (const mode of THEME_MODES) {
+        const id = resolveThemeId(`${preset.id}@${mode}`, false);
+        expect(own, `${preset.id}@${mode}`).toContain(id);
+      }
+    }
   });
 
   it('裸方案 id 直接用，不看系统偏好', () => {
@@ -97,7 +111,8 @@ describe('resolveThemeId', () => {
   it('旧值在解析这一步就迁掉 —— preload 写进 data-theme 的必须是方案 id', () => {
     expect(resolveThemeId('dark', false)).toBe('nexus-dark');
     expect(resolveThemeId('light', true)).toBe('nexus-light');
-    expect(resolveThemeId('dracula', false)).toBe('dracula');
+    // 裸方案 id：先归一成 `<预设>@<它那一版>` 再解析回它自己 —— 关键是**不掉到默认预设**。
+    expect(resolveThemeId('atelier-cave-light', false)).toBe('atelier-cave-light');
   });
 });
 
@@ -129,10 +144,11 @@ describe('canChangeMode', () => {
     expect(canChangeMode('nexus@auto')).toBe(true);
   });
 
-  it('单变体预设换不动 —— 换到另一边只会被 resolveThemeId 退回来', () => {
-    // `dracula` 上游只有暗版，这是「单变体是合法形状」的样本。
-    expect(presetVariantsOf('dracula')?.light).toBeUndefined();
-    expect(canChangeMode('dracula@dark')).toBe(false);
+  /** 出厂预设恒为两版齐全 —— 白名单要求，缺一边生成器就不让过。所以它们都换得动。 */
+  it('出厂预设都换得动', () => {
+    for (const preset of BUILT_IN_PRESETS) {
+      expect(canChangeMode(`${preset.id}@dark`), preset.id).toBe(true);
+    }
   });
 
   it('裸方案 id 与认不出的预设都换不动', () => {
@@ -155,6 +171,16 @@ describe('预设表与方案表的一致性', () => {
         expect(presetOfScheme(schemeId), schemeId).toEqual({ preset: preset.id, mode });
         expect(presetVariantsOf(preset.id)?.[mode]).toBe(schemeId);
       }
+    }
+  });
+
+  /**
+   * 白名单不变量：出厂预设**明暗两版齐全**。生成器那边缺一边就直接报错，这条守着「有人手改过
+   * 生成物」或「白名单被放进了单边族」。
+   */
+  it('每个出厂预设明暗两版齐全', () => {
+    for (const preset of BUILT_IN_PRESETS) {
+      expect(Boolean(preset.variants.light && preset.variants.dark), preset.id).toBe(true);
     }
   });
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ActivityId } from './activity-bar-state.js';
 import { useLocale } from '../hooks.js';
+import { railIcon, type RailIconName } from '../components/rail-icons.js';
 
 export interface ActivityBarProps {
   activeId: ActivityId;
@@ -9,91 +10,20 @@ export interface ActivityBarProps {
   onOpenSettings: () => void;
 }
 
-/** 图标统一 20×20、`currentColor`，颜色交给 CSS 控制。 */
-const ICON_PROPS = {
-  width: 20,
-  height: 20,
-  viewBox: '0 0 24 24',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.6,
-  strokeLinecap: 'round' as const,
-  strokeLinejoin: 'round' as const,
-  'aria-hidden': true
-};
-
-const WorkspaceIcon = (
-  <svg {...ICON_PROPS}>
-    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-  </svg>
-);
-
-const OutlineIcon = (
-  <svg {...ICON_PROPS}>
-    <line x1="9" y1="6" x2="21" y2="6" />
-    <line x1="9" y1="12" x2="21" y2="12" />
-    <line x1="9" y1="18" x2="15" y2="18" />
-    <line x1="4" y1="6" x2="4" y2="6" />
-    <line x1="4" y1="12" x2="4" y2="12" />
-    <line x1="4" y1="18" x2="4" y2="18" />
-  </svg>
-);
-
-const SearchIcon = (
-  <svg {...ICON_PROPS}>
-    <circle cx="11" cy="11" r="7" />
-    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-  </svg>
-);
-
-const TagsIcon = (
-  <svg {...ICON_PROPS}>
-    <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 3 12V5a2 2 0 0 1 2-2h7a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.6z" />
-    <circle cx="8" cy="8" r="1.4" />
-  </svg>
-);
-
-const GraphIcon = (
-  <svg {...ICON_PROPS}>
-    <circle cx="6" cy="6" r="2.4" />
-    <circle cx="18" cy="8" r="2.4" />
-    <circle cx="11" cy="18" r="2.4" />
-    <path d="M8.1 7 15.9 7.7M7.2 8.2l2.7 7.6M16.6 10.2l-4.1 5.6" />
-  </svg>
-);
-
-const HistoryIcon = (
-  <svg {...ICON_PROPS}>
-    <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" />
-    <path d="M3 4.5V9h4.5" />
-    <path d="M12 7.5V12l3 2" />
-  </svg>
-);
-
-const ExtensionsIcon = (
-  <svg {...ICON_PROPS}>
-    <rect x="3" y="3" width="7" height="7" rx="1" />
-    <rect x="14" y="3" width="7" height="7" rx="1" />
-    <rect x="3" y="14" width="7" height="7" rx="1" />
-    <rect x="14" y="14" width="7" height="7" rx="1" />
-  </svg>
-);
-
-const SettingsIcon = (
-  <svg {...ICON_PROPS}>
-    <circle cx="12" cy="12" r="3" />
-    <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.2 2.2M16.9 16.9l2.2 2.2M19.1 4.9l-2.2 2.2M7.1 16.9l-2.2 2.2" />
-  </svg>
-);
+/**
+ * 活动栏图标统一 20×20，图形来自 `components/rail-icons.tsx` —— 预览外壳用同一份图形，
+ * 只是包成 18×18。**不要在这里另画一份**：两处各写一遍必然漂移（已经漂过一次）。
+ */
+const icon = (name: RailIconName): React.ReactNode => railIcon(name, 20);
 
 const ACTIVITY_ITEMS: ReadonlyArray<{ id: ActivityId; labelKey: string; icon: React.ReactNode }> = [
-  { id: 'workspace', labelKey: 'activity.workspace', icon: WorkspaceIcon },
-  { id: 'outline', labelKey: 'activity.outline', icon: OutlineIcon },
-  { id: 'search', labelKey: 'activity.search', icon: SearchIcon },
-  { id: 'tags', labelKey: 'activity.tags', icon: TagsIcon },
-  { id: 'graph', labelKey: 'activity.graph', icon: GraphIcon },
-  { id: 'history', labelKey: 'activity.history', icon: HistoryIcon },
-  { id: 'extensions', labelKey: 'activity.extensions', icon: ExtensionsIcon }
+  { id: 'workspace', labelKey: 'activity.workspace', icon: icon('workspace') },
+  { id: 'outline', labelKey: 'activity.outline', icon: icon('outline') },
+  { id: 'search', labelKey: 'activity.search', icon: icon('search') },
+  { id: 'tags', labelKey: 'activity.tags', icon: icon('tags') },
+  { id: 'graph', labelKey: 'activity.graph', icon: icon('graph') },
+  { id: 'history', labelKey: 'activity.history', icon: icon('history') },
+  { id: 'extensions', labelKey: 'activity.extensions', icon: icon('extensions') }
 ];
 
 /**
@@ -141,7 +71,7 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
         data-activity="settings"
         onClick={onOpenSettings}
       >
-        {SettingsIcon}
+        {icon('settings')}
       </button>
     </nav>
   );

@@ -112,11 +112,14 @@ describe('设置窗口', () => {
     );
 
     // ④b 换**预设**：主题 id 整个换掉，而模式轴不动。
-    //     挑 `dracula` 是因为它上游只有暗版 —— 不论刚才停在哪个模式，结果都唯一。
-    await app.click('[data-theme-option="dracula"]');
-    await app.waitForFunction(`() => document.documentElement.dataset.theme === 'dracula'`, 10000);
+    //     出厂预设现在恒为明暗两版齐全，所以结果跟着上一步选定的模式走 —— 用 `${mode}` 拼。
+    await app.click('[data-theme-option="gruvbox"]');
+    await app.waitForFunction(
+      `() => document.documentElement.dataset.theme === 'gruvbox-${mode}'`,
+      10000
+    );
     expect(await app.evaluate<string>(`localStorage.getItem('nexus-theme') ?? ''`)).toBe(
-      'dracula@dark'
+      `gruvbox@${mode}`
     );
 
     // ⑤ 跨窗口同步：切回主窗口，它也换过来了。
@@ -124,7 +127,7 @@ describe('设置窗口', () => {
     //    少了主进程中转就是「设置窗口改了、主窗口纹丝不动」。
     await app.attachToWindow(MAIN_WINDOW_URL_MARKER);
     await app.waitForFunction(
-      `() => document.documentElement.dataset.theme === 'dracula'`,
+      `() => document.documentElement.dataset.theme === 'gruvbox-${mode}'`,
       10000
     );
 

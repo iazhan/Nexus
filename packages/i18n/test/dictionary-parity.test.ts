@@ -45,8 +45,8 @@ describe('i18n 字典一致性', () => {
    * 少了这道判断，界面上会漏出 `theme.description.user:xxx` 这种噪音。
    */
   it('hasMessage 能分辨缺键', () => {
-    expect(hasMessage('zh-CN', 'theme.description.dracula')).toBe(true);
-    expect(hasMessage('en-US', 'theme.description.dracula')).toBe(true);
+    expect(hasMessage('zh-CN', 'theme.description.gruvbox')).toBe(true);
+    expect(hasMessage('en-US', 'theme.description.gruvbox')).toBe(true);
     expect(hasMessage('zh-CN', 'theme.description.user:abc')).toBe(false);
   });
 });

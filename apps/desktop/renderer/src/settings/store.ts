@@ -10,8 +10,8 @@
 import {
   DEFAULT_THEME_CHOICE,
   normalizeThemeChoice,
-  parseUserTheme,
-  serializeUserTheme,
+  parseUserThemes,
+  serializeUserThemes,
   THEME_STORAGE_KEY,
   type UserTheme
 } from '@nexus/theme';
@@ -60,15 +60,20 @@ export const SETTING_DEFS = {
     serialize: (value) => value
   }),
   /**
-   * 用户主题（含它的覆盖项）。**不给覆盖项单开一个键** —— 覆盖项是用户主题的一部分，两个键存
-   * 同一份状态迟早对不上。清空时写空串而不是 `removeItem`：`set` 的落盘路径只有一条。
+   * 全部用户主题（各自含它的覆盖项）。**不给覆盖项单开一个键** —— 覆盖项是用户主题的一部分，
+   * 两个键存同一份状态迟早对不上。清空时写空串而不是 `removeItem`：`set` 的落盘路径只有一条。
+   *
+   * 值是**列表**：用户可以同时拥有多套自定义主题。磁盘键仍是单数的 `nexus-user-theme`
+   * （冻结，见文件头约束 ①）—— 迁移靠 `parseUserThemes` 同时接受单个对象与数组两种形状，
+   * 改键名会让老存档读不回来。
    */
-  'appearance.userTheme': defineSetting<UserTheme | null>({
+  'appearance.userThemes': defineSetting<UserTheme[]>({
     storageKey: 'nexus-user-theme',
-    fallback: null,
-    // 坏 JSON / 内置 id / 槽位不全一律回落 `null`，不抛 —— 存档是用户能改的，读初值抛错会白屏。
-    parse: parseUserTheme,
-    serialize: (value) => (value === null ? '' : serializeUserTheme(value))
+    fallback: [],
+    // 坏 JSON / 内置 id / 槽位不全一律回落，不抛 —— 存档是用户能改的，读初值抛错会白屏。
+    // 坏**项**丢掉而不是拒整份：一份里坏了一条不该让其余几套主题一起消失。
+    parse: parseUserThemes,
+    serialize: (value) => (value.length === 0 ? '' : serializeUserThemes(value))
   })
 };
 

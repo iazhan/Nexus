@@ -74,6 +74,13 @@ export function presetVariantsOf(presetId: string): { light?: string; dark?: str
   return presetVariants.get(presetId);
 }
 
+/** 预设 id → 族名。fork 用户主题时用它给副本起名。用户主题不在表里，回 `null`。 */
+const presetNames = new Map<string, string>(BUILT_IN_PRESETS.map((preset) => [preset.id, preset.name]));
+
+export function presetNameOf(presetId: string): string | null {
+  return presetNames.get(presetId) ?? null;
+}
+
 /** 这套方案属于哪个预设的哪一边。用户主题与认不出的 id 回 `null`。 */
 export function presetOfScheme(schemeId: string): { preset: string; mode: 'light' | 'dark' } | null {
   return schemeToPreset.get(schemeId) ?? null;
@@ -150,15 +157,22 @@ export function resolveKnownThemeId(
 }
 
 /**
- * 这条选择能不能换模式。**裸方案 id（用户主题、认不出的存档）换不动** —— 它只有一版；单变体预设
- * （上游只出一版，如 `dracula`）同样换不动，换到另一边只会被 `resolveThemeId` 退回原处。
+ * 查一个预设有哪些变体。内置预设在 `presetVariants` 里有；**用户主题只有运行时才知道**，
+ * 所以由调用方注入（`ThemeManager.userVariantsOf`）。
+ */
+export type VariantLookup = (presetId: string) => { light?: unknown; dark?: unknown } | null;
+
+/**
+ * 这条选择能不能换模式。**两边都有方案才换得动** —— 单变体预设（上游只出一版，如 `dracula`）
+ * 与单边用户主题都换不动，换到另一边只会被 `resolveThemeId` 退回原处。
  *
  * 界面据此**禁用**模式控件，而不是让它按下去跳到别的预设 —— 那等于把用户正在编辑的主题丢掉。
  */
-export function canChangeMode(choice: string | null): boolean {
+export function canChangeMode(choice: string | null, userVariants?: VariantLookup): boolean {
   const selection = parseSelection(choice);
   if (!('preset' in selection)) return false;
-  const variants = presetVariants.get(selection.preset);
+  const variants =
+    presetVariants.get(selection.preset) ?? userVariants?.(selection.preset) ?? undefined;
   return Boolean(variants?.light && variants?.dark);
 }
 

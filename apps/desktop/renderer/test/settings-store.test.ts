@@ -4,7 +4,7 @@ import { SETTING_DEFS, SettingsStore } from '../src/settings/store.js';
 import { applyOverrides, applyThemeChoice, applyUserTheme, settings, themeManager } from '../src/platform.js';
 
 const LAST_SECTION_KEY = SETTING_DEFS['settings.lastSection'].storageKey;
-const USER_THEME_KEY = SETTING_DEFS['appearance.userTheme'].storageKey;
+const USER_THEME_KEY = SETTING_DEFS['appearance.userThemes'].storageKey;
 
 /** 默认预设的两个显式模式。存档里一律是 `<预设>@<模式>`。 */
 const LIGHT = 'nexus@light';
@@ -17,14 +17,20 @@ const DARK = 'nexus@dark';
 function forkedUserTheme(): UserTheme {
   applyThemeChoice(LIGHT);
   applyOverrides({ 'bg-canvas': '#101010' });
-  const saved = settings.get('appearance.userTheme');
+  const list = settings.get('appearance.userThemes');
+  const saved = list[list.length - 1];
   if (!saved) throw new Error('fork 之后没有落盘');
   return saved;
 }
 
+/** 存档里**当前正在编辑**的那份用户主题。列表里可能有好几套，按 id 取而不是取第一份。 */
+function activeSaved(): UserTheme | undefined {
+  return settings.get('appearance.userThemes').find((item) => item.id === themeManager.theme.id);
+}
+
 /** 主题选择与存档归位 —— `themeManager` 是模块级单例，不还原会渗到同文件后面的用例。 */
 function resetTheme(): void {
-  settings.set('appearance.userTheme', null);
+  settings.set('appearance.userThemes', []);
   applyThemeChoice(DEFAULT_THEME_CHOICE);
 }
 
@@ -64,9 +70,9 @@ describe('设置存储 · 读初值', () => {
     localStorage.setItem(THEME_STORAGE_KEY, 'nexus-dark');
     expect(new SettingsStore().get('appearance.theme')).toBe(DARK);
 
-    // `dracula` 上游只有暗版，预设 id 与方案 id 同名 —— 反查表要能区分这两件事。
-    localStorage.setItem(THEME_STORAGE_KEY, 'dracula');
-    expect(new SettingsStore().get('appearance.theme')).toBe('dracula@dark');
+    // `nord` 既是不带后缀的那一版方案，也是预设 id —— 反查表要能区分这两件事。
+    localStorage.setItem(THEME_STORAGE_KEY, 'nord');
+    expect(new SettingsStore().get('appearance.theme')).toBe('nord@dark');
 
     localStorage.setItem(THEME_STORAGE_KEY, 'nord-light');
     expect(new SettingsStore().get('appearance.theme')).toBe('nord@light');
@@ -257,39 +263,60 @@ describe('设置存储 · 与主题的接线', () => {
 describe('设置存储 · 用户主题', () => {
   beforeEach(() => localStorage.clear());
 
-  it('没有存档时是 null', () => {
-    expect(new SettingsStore().get('appearance.userTheme')).toBeNull();
+  it('没有存档时是空列表', () => {
+    expect(new SettingsStore().get('appearance.userThemes')).toEqual([]);
   });
 
-  it('坏 JSON 回落 null，不抛 —— 存档是用户能改的', () => {
+  it('坏 JSON 回落空列表，不抛 —— 存档是用户能改的', () => {
     localStorage.setItem(USER_THEME_KEY, '{ not json');
-    expect(new SettingsStore().get('appearance.userTheme')).toBeNull();
+    expect(new SettingsStore().get('appearance.userThemes')).toEqual([]);
   });
 
   it('往返一致', () => {
     const theme = forkedUserTheme();
     const store = new SettingsStore();
-    store.set('appearance.userTheme', theme);
+    store.set('appearance.userThemes', [theme]);
 
-    expect(new SettingsStore().get('appearance.userTheme')).toEqual(theme);
+    expect(new SettingsStore().get('appearance.userThemes')).toEqual([theme]);
+    resetTheme();
+  });
+
+  /** 旧存档里只有一套（单个对象，v1 / v2）。**读得回来**是迁移的全部意义。 */
+  it('旧存档的单个对象读成单元素列表', () => {
+    const theme = forkedUserTheme();
+    localStorage.setItem(USER_THEME_KEY, JSON.stringify(theme));
+
+    expect(new SettingsStore().get('appearance.userThemes')).toEqual([theme]);
     resetTheme();
   });
 
   it('内置 id 被拒 —— 切回 Nexus Light 必须拿到没被改过的 Nexus Light', () => {
-    const { scheme } = forkedUserTheme();
-    localStorage.setItem(USER_THEME_KEY, JSON.stringify({ id: 'nexus-light', scheme }));
+    const { variants } = forkedUserTheme();
+    localStorage.setItem(USER_THEME_KEY, JSON.stringify({ id: 'nexus-light', variants }));
 
-    expect(new SettingsStore().get('appearance.userTheme')).toBeNull();
+    expect(new SettingsStore().get('appearance.userThemes')).toEqual([]);
     resetTheme();
   });
 
   it('清空时落空串而不是删键 —— 落盘路径只有一条', () => {
     const store = new SettingsStore();
-    store.set('appearance.userTheme', forkedUserTheme());
-    store.set('appearance.userTheme', null);
+    store.set('appearance.userThemes', [forkedUserTheme()]);
+    store.set('appearance.userThemes', []);
 
     expect(localStorage.getItem(USER_THEME_KEY)).toBe('');
-    expect(store.get('appearance.userTheme')).toBeNull();
+    expect(store.get('appearance.userThemes')).toEqual([]);
+    resetTheme();
+  });
+
+  /**
+   * 列表里坏了一条不该让其余几套一起消失 —— 与「单份坏掉就整份拒收」是两条不同的口径：
+   * 那里一份就是一套主题，丢掉它等于没读；这里是读一份存档，剩下的还该在。
+   */
+  it('列表里坏掉的那条丢掉，好的留下', () => {
+    const good = forkedUserTheme();
+    localStorage.setItem(USER_THEME_KEY, JSON.stringify({ version: 3, themes: [{ id: 'bad' }, good] }));
+
+    expect(new SettingsStore().get('appearance.userThemes')).toEqual([good]);
     resetTheme();
   });
 });
@@ -302,30 +329,34 @@ describe('设置存储 · 注册用户主题', () => {
     applyUserTheme(theme);
 
     expect(themeManager.theme.id).toBe('user:imported');
-    expect(settings.get('appearance.theme')).toBe('user:imported');
-    expect(settings.get('appearance.userTheme')).toEqual(theme);
+    expect(settings.get('appearance.theme')).toBe('user:imported@light');
+    expect(settings.get('appearance.userThemes')).toEqual([theme]);
     resetTheme();
   });
 
-  it('用户主题是裸 id，没有模式轴 —— 存档里不该被写成 `<id>@<模式>`', () => {
+  /**
+   * 用户主题是**一条预设**（明暗两版共用 id），所以存档里带模式轴。不带的话设置页的模式卡片
+   * 对它恒等 —— 裸 id 没有预设轴，按下去没反应；切走再切回来也会丢掉「我在编辑自定义主题」。
+   */
+  it('用户主题也是预设 —— 存档里带模式轴', () => {
     const theme = { ...forkedUserTheme(), id: 'user:imported' };
     resetTheme();
 
     applyUserTheme(theme);
 
-    expect(settings.get('appearance.theme')).not.toContain('@');
-    expect(themeManager.themeChoice).toBe('user:imported');
+    expect(settings.get('appearance.theme')).toContain('user:imported@');
+    expect(themeManager.themeChoice).toBe('user:imported@light');
     resetTheme();
   });
 
   it('applyUserTheme 拒绝内置 id —— 不落盘、不切换', () => {
-    const { scheme } = forkedUserTheme();
+    const { variants } = forkedUserTheme();
     resetTheme();
     applyThemeChoice(LIGHT);
 
-    applyUserTheme({ id: 'nexus-light', scheme });
+    applyUserTheme({ id: 'nexus-light', variants });
 
-    expect(settings.get('appearance.userTheme')).toBeNull();
+    expect(settings.get('appearance.userThemes')).toEqual([]);
     expect(themeManager.theme.id).toBe('nexus-light');
   });
 });
@@ -341,11 +372,11 @@ describe('设置存储 · 覆盖项的接线', () => {
 
     applyOverrides({ 'bg-canvas': '#101010' });
 
-    const saved = settings.get('appearance.userTheme');
+    const saved = activeSaved();
     expect(saved?.id.startsWith('user:')).toBe(true);
-    expect(saved?.scheme.overrides).toEqual({ 'bg-canvas': '#101010' });
+    expect(saved?.variants.light?.overrides).toEqual({ 'bg-canvas': '#101010' });
     expect(themeManager.theme.id).toBe(saved?.id);
-    expect(themeManager.themeChoice).toBe(saved?.id);
+    expect(themeManager.themeChoice).toBe(`${saved?.id}@light`);
     expect(themeManager.theme.tokens['bg-canvas']).toBe('#101010');
     // 只盖了给定的一项，其余仍是派生值。
     expect(themeManager.theme.tokens['bg-surface']).toBe(derivedSurface);
@@ -356,12 +387,12 @@ describe('设置存储 · 覆盖项的接线', () => {
   it('已经在用户主题上时不再 fork，覆盖项继续累积', () => {
     applyThemeChoice(LIGHT);
     applyOverrides({ 'bg-canvas': '#101010' });
-    const firstId = settings.get('appearance.userTheme')?.id;
+    const firstId = activeSaved()?.id;
 
     applyOverrides({ 'bg-surface': '#202020' });
 
-    expect(settings.get('appearance.userTheme')?.id).toBe(firstId);
-    expect(settings.get('appearance.userTheme')?.scheme.overrides).toEqual({
+    expect(activeSaved()?.id).toBe(firstId);
+    expect(activeSaved()?.variants.light?.overrides).toEqual({
       'bg-canvas': '#101010',
       'bg-surface': '#202020',
     });

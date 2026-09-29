@@ -19,13 +19,13 @@
 
 import {
   BUILT_IN_SCHEMES,
-  isUserThemeId,
   presetVariantsOf,
   type NexusThemeScheme,
   type ThemeMode,
+  type UserTheme
 } from '@nexus/theme';
 
-/** 出厂方案按 id 查种子。用户主题不在表里，由调用方自己给。 */
+/** 出厂方案按 id 查种子。用户主题不在表里，由调用方把整份 `UserTheme` 传进来。 */
 const BUILT_IN_BY_ID: ReadonlyMap<string, NexusThemeScheme> = new Map(
   BUILT_IN_SCHEMES.map((entry): [string, NexusThemeScheme] => [entry.id, entry.scheme])
 );
@@ -34,30 +34,40 @@ export function builtInScheme(id: string | undefined): NexusThemeScheme | undefi
   return id ? BUILT_IN_BY_ID.get(id) : undefined;
 }
 
+/** 内置预设的变体表存的是**方案 id**，要过一层查表才拿得到种子。 */
+function builtInVariantsOf(presetId: string): UserTheme['variants'] | undefined {
+  const ids = presetVariantsOf(presetId);
+  if (!ids) return undefined;
+  const light = builtInScheme(ids.light);
+  const dark = builtInScheme(ids.dark);
+  if (!light && !dark) return undefined;
+  return { ...(light ? { light } : {}), ...(dark ? { dark } : {}) };
+}
+
 /**
  * 一个预设当前该显示哪几套种子：自动模式且明暗两边都有就是两套（先暗后亮），否则就是当前模式
  * 那一套。一套都没有时返回空数组 —— 调用方据此不画缩略图，而不是画一个猜出来的色块。
  *
- * 模式在新预设上没有对应变体时（单变体预设）退回它有的那一边 —— 与 `resolveThemeId` 同一条
- * 规则，否则卡片画的是 A、点下去生效的是 B。
+ * 模式在新预设上没有对应变体时（单变体预设、单边用户主题）退回它有的那一边 —— 与
+ * `resolveThemeId` 同一条规则，否则卡片画的是 A、点下去生效的是 B。
+ *
+ * `userTheme` 只在该预设是用户主题时传：用户主题的两版存在 `ThemeManager` 里（不在静态表里），
+ * 拿不到就只能画空。
  */
 export function schemesForPreset(
   presetId: string,
   mode: ThemeMode,
-  userScheme: NexusThemeScheme | null = null
+  userTheme: UserTheme | null = null
 ): NexusThemeScheme[] {
-  if (isUserThemeId(presetId)) return userScheme ? [userScheme] : [];
-
-  const variants = presetVariantsOf(presetId);
+  const variants = userTheme ? userTheme.variants : builtInVariantsOf(presetId);
   if (!variants) return [];
 
   if (mode === 'auto') {
-    return [variants.dark, variants.light]
-      .map(builtInScheme)
-      .filter((scheme): scheme is NexusThemeScheme => Boolean(scheme));
+    return [variants.dark, variants.light].filter(
+      (scheme): scheme is NexusThemeScheme => Boolean(scheme)
+    );
   }
 
-  const one =
-    builtInScheme(variants[mode]) ?? builtInScheme(variants.light) ?? builtInScheme(variants.dark);
+  const one = variants[mode] ?? variants.light ?? variants.dark;
   return one ? [one] : [];
 }

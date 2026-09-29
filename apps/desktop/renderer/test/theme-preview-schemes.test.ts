@@ -31,8 +31,12 @@ const nordVariants = (): { light: string; dark: string } => {
 };
 
 describe('预设的缩略图取色', () => {
-  it('单变体预设只有一套种子 —— 自动模式也就只画一扇窗', () => {
-    expect(schemesForPreset('dracula', 'auto')).toEqual([schemeOf('dracula')]);
+  /** 单边主题只有一套种子 —— 自动模式也就只画一扇窗。出厂预设恒为两版，所以只能用用户主题造。 */
+  it('单边主题只有一套种子，自动模式只画一扇窗', () => {
+    const dark = schemeOf('nord');
+    expect(schemesForPreset('user:single', 'auto', { id: 'user:single', variants: { dark } })).toEqual([
+      dark
+    ]);
   });
 
   /**
@@ -53,11 +57,14 @@ describe('预设的缩略图取色', () => {
   });
 
   /**
-   * 单变体预设停在它没有的那一边时，退回它有的那一边 —— 与 `resolveThemeId` 同一条规则。
+   * 单边主题停在它没有的那一边时，退回它有的那一边 —— 与 `resolveThemeId` 同一条规则。
    * 不然卡片画的是 A、点下去生效的是 B。
    */
-  it('单变体预设遇到它没有的模式时退回有的那一边', () => {
-    expect(schemesForPreset('dracula', 'light')).toEqual([schemeOf('dracula')]);
+  it('单边主题遇到它没有的模式时退回有的那一边', () => {
+    const dark = schemeOf('nord');
+    expect(schemesForPreset('user:single', 'light', { id: 'user:single', variants: { dark } })).toEqual([
+      dark
+    ]);
   });
 
   it('每一个出厂预设都画得出来', () => {
@@ -66,11 +73,28 @@ describe('预设的缩略图取色', () => {
     }
   });
 
-  it('用户主题用调用方传进来的种子；不传就画不出来（宁可退化成纯文字）', () => {
-    const scheme = schemeOf('nord');
+  /**
+   * 用户主题的两版存在 `ThemeManager` 里（不在静态表里），所以要把**整份** `UserTheme` 传进来。
+   * 不传就画不出来 —— 宁可退化成纯文字，也不画一个猜出来的色块。
+   */
+  it('用户主题用调用方传进来的两版；不传就画不出来', () => {
+    const dark = schemeOf('nord');
+    const light = schemeOf('nord-light');
 
-    expect(schemesForPreset('user:abc', 'auto', scheme)).toEqual([scheme]);
+    expect(schemesForPreset('user:abc', 'dark', { id: 'user:abc', variants: { dark } })).toEqual([
+      dark
+    ]);
+    expect(
+      schemesForPreset('user:abc', 'auto', { id: 'user:abc', variants: { light, dark } })
+    ).toEqual([dark, light]);
     expect(schemesForPreset('user:abc', 'auto')).toEqual([]);
+  });
+
+  it('单边用户主题遇到它没有的模式时退回有的那一边', () => {
+    const dark = schemeOf('nord');
+    expect(
+      schemesForPreset('user:abc', 'light', { id: 'user:abc', variants: { dark } })
+    ).toEqual([dark]);
   });
 
   it('认不出的预设返回空数组 —— 不画一个猜出来的色块', () => {

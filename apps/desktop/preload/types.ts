@@ -90,6 +90,12 @@ export interface NexusBridge {
    */
   openSettingsWindow: () => Promise<void>;
   /**
+   * 打开主题窗口。**单例** —— 已经开着就还原并聚焦，不会开出第二个。
+   *
+   * 只从**设置窗口**的外观分组调用：主题编辑器是外观设置的下钻，主窗口里不再另开一个入口。
+   */
+  openThemeWindow: () => Promise<void>;
+  /**
    * 「本窗口刚改了本机偏好」。主进程收到后广播给**其他**窗口，让它们重读存档。
    *
    * 单向 `send` 而不是 `invoke`：广播没有返回值，也不该让写盘路径去等一个 IPC 往返。

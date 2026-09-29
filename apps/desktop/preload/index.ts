@@ -227,6 +227,10 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.openSettingsWindow);
   },
 
+  openThemeWindow: (): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openThemeWindow);
+  },
+
   notifySettingsChanged: (): void => {
     ipcRenderer.send(IPC_CHANNELS.notifySettingsChanged);
   },

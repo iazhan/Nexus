@@ -22,6 +22,7 @@ import { createProcessorRegistry } from './processor/index.js';
 import {
   IPC_CHANNELS,
   type FileWatchIpcPayload,
+  type WindowRole,
   type WindowState
 } from '../ipc/channels.js';
 
@@ -162,20 +163,23 @@ function toAllowedExternalUrl(rawUrl: unknown): string | null {
  * 这种反向条件，改一个窗口的加载方式就会悄悄失配。
  */
 const WINDOW_ROLE_PARAM = 'window';
-const MAIN_WINDOW_QUERY = { [WINDOW_ROLE_PARAM]: 'main' };
-const SETTINGS_WINDOW_QUERY = { [WINDOW_ROLE_PARAM]: 'settings' };
+/** 角色 → `loadFile` 的查询串。三个窗口一张表，加角色只动这里与 `window-role.ts`。 */
+const WINDOW_QUERY: Record<WindowRole, Record<string, string>> = {
+  main: { [WINDOW_ROLE_PARAM]: 'main' },
+  settings: { [WINDOW_ROLE_PARAM]: 'settings' },
+  theme: { [WINDOW_ROLE_PARAM]: 'theme' }
+};
 
 /**
- * 把渲染产物装进窗口。两个窗口跑**同一份产物**，只有角色参数不同 ——
+ * 把渲染产物装进窗口。三个窗口跑**同一份产物**，只有角色参数不同 ——
  * 另开一个构建目标意味着主题、i18n、设置存档、样式全都要么抽公共包要么抄一遍。
  */
-function loadRenderer(win: BrowserWindowType, role: 'main' | 'settings'): void {
-  const query = role === 'settings' ? SETTINGS_WINDOW_QUERY : MAIN_WINDOW_QUERY;
+function loadRenderer(win: BrowserWindowType, role: WindowRole): void {
   const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
   if (devServerUrl) {
     win.loadURL(`${devServerUrl}?${WINDOW_ROLE_PARAM}=${role}`);
   } else {
-    win.loadFile(path.join(__dirname, '../renderer/index.html'), { query });
+    win.loadFile(path.join(__dirname, '../renderer/index.html'), { query: WINDOW_QUERY[role] });
   }
 }
 
@@ -310,7 +314,10 @@ function createWindow(): BrowserWindowType {
 
   // 主窗口没了，设置窗口跟着走。不这么做的话关掉主窗口会留下一个孤立的设置窗口
   // （`window-all-closed` 也就永远不触发，进程不退出）。
-  mainWindow.once('closed', () => closeSettingsWindow());
+  mainWindow.once('closed', () => {
+    closeSettingsWindow();
+    closeThemeWindow();
+  });
 
   return mainWindow;
 }
@@ -369,6 +376,64 @@ function createSettingsWindow(): BrowserWindowType {
 function closeSettingsWindow(): void {
   if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
   settingsWindow = null;
+}
+
+/**
+ * 主题窗口的尺寸。比设置窗口宽一倍 —— 它是**左调右看**的两栏工作台，一栏放控件、一栏放结果，
+ * 挤在一栏里就得上下滚（那正是它从设置页里搬出来的原因）。
+ *
+ * 最小宽度按两栏各自的下限之和留：左栏控件最窄 ~520px（16 个取色器两列），右栏预览 ~380px。
+ */
+const THEME_WINDOW_SIZE = { width: 1340, height: 840, minWidth: 1040, minHeight: 620 };
+
+/** 当前开着的主题窗口。`null` = 没开。 */
+let themeWindow: BrowserWindowType | null = null;
+
+/**
+ * 打开主题窗口，**单例**：已经开着就还原 + 聚焦。
+ *
+ * 与设置窗口同构（不调 `getOrCreateSession()`、无边框自绘、关闭即销毁），只有两点不同：
+ *
+ * 1. **入口在设置窗口里**，所以「重复点」这一种情况要从设置窗口挡 —— 单例判定是唯一手段。
+ * 2. **不跟着设置窗口一起关**。主题窗口是完整的工作台（有自己的标题栏与关闭键），用户完全可能
+ *    关掉设置、留着它继续调色。它只跟**主窗口**走（见 `createWindow()` 的 `closed`）——
+ *    那才是进程生命周期的那一档。
+ */
+function createThemeWindow(): BrowserWindowType {
+  if (themeWindow && !themeWindow.isDestroyed()) {
+    if (themeWindow.isMinimized()) themeWindow.restore();
+    themeWindow.focus();
+    return themeWindow;
+  }
+
+  const win = new BrowserWindow({
+    ...THEME_WINDOW_SIZE,
+    show: false,
+    title: 'Nexus',
+    titleBarStyle: 'hidden',
+    webPreferences: {
+      preload: getPreloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  themeWindow = win;
+
+  showWhenReady(win);
+  broadcastWindowState(win);
+  win.once('closed', () => {
+    themeWindow = null;
+  });
+
+  loadRenderer(win, 'theme');
+
+  return win;
+}
+
+function closeThemeWindow(): void {
+  if (themeWindow && !themeWindow.isDestroyed()) themeWindow.close();
+  themeWindow = null;
 }
 
 const windowDirtyMap = new Map<number, boolean>();
@@ -860,6 +925,11 @@ ipcMain.handle(IPC_CHANNELS.getWindowState, (event): WindowState => {
 // 单例判定因此只需挡「重复点主窗口的齿轮」这一种情况。
 ipcMain.handle(IPC_CHANNELS.openSettingsWindow, () => {
   createSettingsWindow();
+});
+
+// 主题窗口的入口。**只从设置窗口触发** —— 主窗口里没有直达主题编辑器的入口。
+ipcMain.handle(IPC_CHANNELS.openThemeWindow, () => {
+  createThemeWindow();
 });
 
 /**

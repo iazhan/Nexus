@@ -14,12 +14,22 @@ import {
   choiceWithMode,
   formatSelection,
   isThemeMode,
-  isUserThemeId,
   parseSelection,
   presetOfScheme,
   presetVariantsOf,
+  userThemeName,
   type ThemeMode
 } from '@nexus/theme';
+import type React from 'react';
+import {
+  AppearanceIcon,
+  DataIcon,
+  EditorIcon,
+  GeneralIcon,
+  KeybindingsIcon,
+  PluginsIcon,
+  SyncIcon
+} from '../components/section-icons.js';
 import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
 import type { MenuBarItem } from '../MenuBar.js';
 
@@ -35,6 +45,8 @@ export type SectionId =
 export interface SectionDef {
   id: SectionId;
   titleKey: string;
+  /** 左栏图标。**图形在 `components/section-icons.tsx`** —— 颜色由左栏按三态给，图标不持色。 */
+  icon: React.ReactNode;
   /** 左栏排序，从 1 起。 */
   order: number;
   /** `planned` = 出现在左栏、进得去但内容区只有空态。 */
@@ -46,13 +58,55 @@ export interface SectionDef {
  * **不要把未做的分组从数组里删掉** —— 左栏是导航结构，缺项应该是空态而不是消失。
  */
 export const SECTIONS: readonly SectionDef[] = [
-  { id: 'general', titleKey: 'settings.section.general', order: 1, availability: 'planned' },
-  { id: 'editor', titleKey: 'settings.section.editor', order: 2, availability: 'planned' },
-  { id: 'appearance', titleKey: 'settings.section.appearance', order: 3, availability: 'available' },
-  { id: 'keybindings', titleKey: 'settings.section.keybindings', order: 4, availability: 'planned' },
-  { id: 'plugins', titleKey: 'settings.section.plugins', order: 5, availability: 'planned' },
-  { id: 'sync', titleKey: 'settings.section.sync', order: 6, availability: 'planned' },
-  { id: 'data', titleKey: 'settings.section.data', order: 7, availability: 'planned' }
+  {
+    id: 'general',
+    titleKey: 'settings.section.general',
+    icon: GeneralIcon,
+    order: 1,
+    availability: 'planned'
+  },
+  {
+    id: 'editor',
+    titleKey: 'settings.section.editor',
+    icon: EditorIcon,
+    order: 2,
+    availability: 'planned'
+  },
+  {
+    id: 'appearance',
+    titleKey: 'settings.section.appearance',
+    icon: AppearanceIcon,
+    order: 3,
+    availability: 'available'
+  },
+  {
+    id: 'keybindings',
+    titleKey: 'settings.section.keybindings',
+    icon: KeybindingsIcon,
+    order: 4,
+    availability: 'planned'
+  },
+  {
+    id: 'plugins',
+    titleKey: 'settings.section.plugins',
+    icon: PluginsIcon,
+    order: 5,
+    availability: 'planned'
+  },
+  {
+    id: 'sync',
+    titleKey: 'settings.section.sync',
+    icon: SyncIcon,
+    order: 6,
+    availability: 'planned'
+  },
+  {
+    id: 'data',
+    titleKey: 'settings.section.data',
+    icon: DataIcon,
+    order: 7,
+    availability: 'planned'
+  }
 ];
 
 /** 默认落点，也是 `settings.lastSection` 存档不可解读时的回落值。 */
@@ -131,9 +185,11 @@ function currentMode(): ThemeMode {
 /**
  * 把模式夹到预设支持的范围。单变体预设上停在一个它没有的模式会让人看不懂：控件显示「浅色」、
  * 主题实际是深色。
+ *
+ * 用户主题也是预设，但它的变体表只有 `ThemeManager` 知道 —— 所以两级查询。
  */
 function clampMode(presetId: string, mode: ThemeMode): ThemeMode {
-  const variants = presetVariantsOf(presetId);
+  const variants = presetVariantsOf(presetId) ?? themeManager.userVariantsOf(presetId);
   if (!variants) return mode;
   if (mode === 'auto') {
     return variants.light && variants.dark ? 'auto' : variants.dark ? 'dark' : 'light';
@@ -181,14 +237,19 @@ export const THEME_PRESET_FIELD: FieldDef = {
   /**
    * 当前用户主题要**出现在列表里**，否则编辑完种子之后（编辑会 fork 出一个用户主题）一个预设
    * 都不勾选，用户看到的是「一个主题都没选」。文案带一个「自定义」后缀与同名的出厂预设区分开。
+   *
+   * 取的是**存档里那一份**，不是「当前解析到的那份」：切到内置预设后 `activeUserTheme` 变成
+   * `null`，按它列会让用户主题从列表里消失 —— 而它还在存档里（`ThemeManager` 构造时照样注册），
+   * 只是没被选中。那等于「切走一次就再也回不来」。
    */
   optionsOf: (t) => {
-    const userTheme = themeManager.activeUserTheme;
+    const userThemes = settings.get('appearance.userThemes');
     return [
       ...BUILT_IN_PRESETS.map((preset) => ({ value: preset.id, label: preset.name })),
-      ...(userTheme
-        ? [{ value: userTheme.id, label: `${userTheme.scheme.name} · ${t('theme.custom')}` }]
-        : [])
+      ...userThemes.map((theme) => ({
+        value: theme.id,
+        label: `${userThemeName(theme)} · ${t('theme.custom')}`
+      }))
     ];
   },
   accessor: {
@@ -197,11 +258,9 @@ export const THEME_PRESET_FIELD: FieldDef = {
       return 'preset' in selection ? selection.preset : selection.id;
     },
     write: (value) => {
-      // 用户主题是一条**具体方案**，没有预设轴 —— 写成 `<id>@<模式>` 会让它绕一圈再回来。
-      if (isUserThemeId(value)) {
-        applyThemeChoice(value);
-        return;
-      }
+      // 用户主题也是**预设**（明暗两版共用它做 id），所以照样带模式轴 —— 切走再切回来时
+      // 「我在编辑自定义主题」这件事不该丢。模式沿用当前那条选择里已有的，并夹到目标预设
+      // 支持的范围内（单变体预设上停在一个它没有的模式，控件与渲染会对不上）。
       applyThemeChoice(formatSelection({ preset: value, mode: clampMode(value, currentMode()) }));
     },
     subscribe: (listener) => settings.subscribe('appearance.theme', listener)

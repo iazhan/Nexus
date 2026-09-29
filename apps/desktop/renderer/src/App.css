@@ -7,6 +7,30 @@
   --nx-header-height: 42px;
 }
 
+/*
+ * 字号阶梯。**界面文字一律取这七档之一，单位一律 `px`。**
+ *
+ *   11px  注解 / 徽标 / 快捷键
+ *   12px  次要正文：菜单项、状态栏、描述
+ *   13px  正文 / 控件标签 / 卡片名
+ *   14px  标题：文件名、主题名、区块小标题
+ *   15px  窗口级标题（应用名）
+ *   16px  页面级标题（设置页分组标题、错误标题、命令面板输入）
+ *
+ * 三条判据：
+ *
+ * 1. **用 `px` 不用 `rem`。** 这里原先混着两套：主窗口 chrome 用 `rem`（0.68–1.1），设置页与
+ *    主题窗口用 `px`。根字号从没设过（浏览器默认 16px），于是那套 `rem` 换算出来**只有 0.75rem
+ *    落在整数上** —— 同一个「13px 正文」在标题栏是 12.8、侧栏是 13、活动栏是 13.3333、文件名是
+ *    13.6。`rem` 的价值是跟随用户改根字号，而桌面端缩放走的是浏览器 zoom，`px` 一样跟；混着用
+ *    只换来四个不同的 13。
+ * 2. **编辑区正文例外**：`packages/editor/src/theme.ts` 用 `em`（基准 14px）。那里是**文档内容**，
+ *    标题、行内代码、行号必须跟着正文字号缩放，`em` 才是对的。
+ * 3. **不设字号 = 掉到 UA 默认值**。`.nexus-activity-icon` 是个 `<button>` 且原先没声明字号，
+ *    实测计算值是 Chromium 的 `font: 400 13.3333px Arial` —— 只装 SVG 所以看不出来，加一个字
+ *    就会露。
+ */
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -64,7 +88,7 @@ body {
 }
 
 .nexus-app-title {
-  font-size: 0.95rem;
+  font-size: 15px;
   font-weight: 700;
   color: var(--nexus-text-primary);
   letter-spacing: 0;
@@ -84,7 +108,7 @@ body {
   border-radius: 4px;
   color: var(--nexus-text-secondary);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
@@ -137,7 +161,7 @@ body {
   background: transparent;
   color: var(--nexus-text-secondary);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
   white-space: nowrap;
@@ -180,7 +204,7 @@ body {
   background: transparent;
   color: var(--nexus-text-primary);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
@@ -207,12 +231,8 @@ body {
 
 .nexus-menu-item-shortcut {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 11px;
   color: var(--nexus-text-secondary);
-}
-
-.nexus-theme-toggle {
-  font-size: 0.8rem;
 }
 
 /*
@@ -296,7 +316,7 @@ body {
 }
 
 .nexus-filename {
-  font-size: 0.85rem;
+  font-size: 14px;
   font-weight: 600;
   color: var(--nexus-text-primary);
   max-width: 100%;
@@ -306,7 +326,7 @@ body {
 
 
 .nexus-filepath-subtitle {
-  font-size: 0.68rem;
+  font-size: 11px;
   color: var(--nexus-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -351,7 +371,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  font-size: 0.8rem;
+  font-size: 13px;
   line-height: 1.4;
   gap: 12px;
   border-bottom: 1px solid var(--nexus-border-subtle);
@@ -391,7 +411,7 @@ body {
 .nexus-save-error-retry,
 .nexus-save-error-saveas {
   padding: 3px 10px;
-  font-size: 0.75rem;
+  font-size: 12px;
   font-weight: 600;
   border-radius: 4px;
   cursor: pointer;
@@ -831,6 +851,8 @@ body {
   color: var(--nexus-text-muted);
   cursor: pointer;
   transition: background-color 120ms ease-out, color 120ms ease-out;
+  /* 显式声明，别让它掉到 UA 给 `<button>` 的 13.3333px（见文件头的字号阶梯）。 */
+  font-size: 13px;
 }
 
 .nexus-activity-icon:hover {
@@ -1118,7 +1140,7 @@ body.nexus-resizing {
 
 .nexus-history-hash {
   font-family: ui-monospace, monospace;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--nexus-text-muted);
 }
 
@@ -1273,7 +1295,7 @@ body.nexus-resizing {
   flex: 0 0 auto;
   padding: 0 5px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
   letter-spacing: 0.02em;
   color: var(--nexus-text-secondary);
@@ -1627,7 +1649,7 @@ body.nexus-resizing {
    「这个类型没有处理器 / 这一轮它没被引用」，也不该提示。 */
 .nexus-attachment-note {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.02em;
   /* 默认灰字：「没提取到文本」是一份**事实**（扫描版 PDF），不是故障 */
   color: var(--nexus-text-muted);
@@ -1788,7 +1810,7 @@ body.nexus-resizing {
 }
 
 .nexus-state-text {
-  font-size: 0.9rem;
+  font-size: 14px;
   color: var(--nexus-text-secondary);
 }
 
@@ -1806,12 +1828,12 @@ body.nexus-resizing {
 
 .error-title {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 16px;
   color: var(--nexus-status-error-text);
 }
 
 .error-description {
-  font-size: 0.85rem;
+  font-size: 14px;
   color: var(--nexus-status-error-text);
   line-height: 1.45;
   word-break: break-word;
@@ -1820,7 +1842,7 @@ body.nexus-resizing {
 .nexus-retry-btn {
   align-self: flex-start;
   padding: 6px 16px;
-  font-size: 0.8rem;
+  font-size: 13px;
   font-weight: 600;
   color: #ffffff; /* @constant 红底白字 */
   background-color: #dc2626; /* @constant 错误按钮实底，status-error 家族只有文字/边框/淡底 */
@@ -1843,7 +1865,7 @@ body.nexus-resizing {
   padding: 0 16px;
   background-color: var(--nexus-bg-surface);
   border-top: 1px solid var(--nexus-border-subtle);
-  font-size: 0.72rem;
+  font-size: 12px;
   color: var(--nexus-text-secondary);
   user-select: none;
   flex-shrink: 0;
@@ -1939,7 +1961,7 @@ body.nexus-resizing {
   border: none;
   border-bottom: 1px solid var(--nexus-border-subtle);
   color: var(--nexus-text-primary);
-  font-size: 1.1rem;
+  font-size: 16px;
   padding: 16px;
   width: 100%;
   outline: none;
@@ -1974,7 +1996,7 @@ body.nexus-resizing {
 }
 
 .nexus-command-shortcut {
-  font-size: 0.8rem;
+  font-size: 13px;
   font-family: var(--font-mono);
   background-color: var(--nexus-border-subtle);
   padding: 2px 6px;
@@ -2018,16 +2040,43 @@ body.nexus-resizing {
 }
 
 .nexus-settings-nav-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   width: 100%;
-  padding: 6px 10px;
+  padding: 7px 10px;
   border: none;
   border-radius: 6px;
   background: none;
   text-align: left;
+  /* 原生 `<button>` 不继承字体，不写会掉回系统 UI 字体（同 `.cm-code-copy-btn` 那条注释）。 */
+  font-family: inherit;
   font-size: 13px;
   color: var(--nexus-text-primary);
   cursor: pointer;
+}
+
+/* 图标三态：默认取 `--nexus-text-muted`（与活动栏的闲置图标同一档），悬停升到 secondary，
+   选中跟文字一起走 `accent-text`。**选中态必须跟着变** —— 只给文字上色、图标还是灰的，
+   那一项看起来像「半选中」。 */
+.nexus-settings-nav-icon {
+  display: flex;
+  flex: none;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-settings-nav-item:hover .nexus-settings-nav-icon {
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-settings-nav-item-active .nexus-settings-nav-icon {
+  color: var(--nexus-accent-text);
+}
+
+.nexus-settings-nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nexus-settings-nav-item:hover {
@@ -2159,6 +2208,91 @@ body.nexus-resizing {
 .nexus-theme-card-active .nexus-theme-card-name {
   color: var(--nexus-accent-text);
   font-weight: 500;
+}
+
+/* 卡片的槽位：网格项 + 复制键的定位容器。
+   复制键必须与卡片按钮**平级** —— 嵌在 `<button>` 里是无效 HTML（React 也会告警），
+   所以卡片外面包一层，由槽位当网格项、卡片撑满它。 */
+.nexus-theme-card-slot {
+  position: relative;
+  display: flex;
+}
+
+.nexus-theme-card-slot > .nexus-theme-card {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 卡片上的动作键（编辑 / 复制 / 删除）。**装在一行容器里，不要各自 `position: absolute`** ——
+   那样几枚键会叠在同一个 `top/right` 上，后面的把前面的整个盖住（实测复制键与删除键坐标完全相同，
+   复制键点不到）。 */
+.nexus-theme-card-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  /* 悬浮或键盘聚焦到这张卡上时才显形 —— 二十多张卡每张常驻三枚会盖住缩略图。
+     `opacity` 而不是 `display`：键盘 Tab 到它们时 `:focus-within` 立刻显出来，
+     用 `display: none` 的话它们根本进不了 Tab 序列，等于键盘用户没有这几个入口。
+     藏着的时候一并关掉 `pointer-events` —— 否则卡片右上角会有一块看不见但点得中的区域，
+     点「选中这张卡」会变成「编辑这张卡」。 */
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nexus-theme-card-slot:hover .nexus-theme-card-actions,
+.nexus-theme-card-slot:focus-within .nexus-theme-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.nexus-theme-card-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-secondary);
+  cursor: pointer;
+}
+
+.nexus-theme-card-action:hover {
+  border-color: var(--nexus-border-strong);
+  color: var(--nexus-text-primary);
+}
+
+/* 「新建主题」动作条：整行，画在预设网格末尾。
+   **它在 radiogroup 之外**（见 `AppearanceSection.tsx` 的文件头），所以不共用 `.nexus-theme-card`
+   的卡片形状 —— 它长得越不像一张主题卡，越不会被误读成「第 54 套主题」。 */
+.nexus-theme-card-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed var(--nexus-border-subtle);
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--nexus-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.nexus-theme-card-new:hover {
+  border-color: var(--nexus-border-strong);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-theme-card-new-icon {
+  display: flex;
+  align-items: center;
 }
 
 /* 模式卡片（跟随系统 / 浅色 / 深色）。**三张卡片而不是一段三格段控** —— 每格要画一张缩略图，
@@ -2468,42 +2602,429 @@ body.nexus-resizing {
   color: var(--nexus-text-muted);
 }
 
-/* 主题编辑器（阶段 C）：两档编辑器 + 实时预览。
-   预览里的按钮 / 输入框复用的是真组件的类名，所以这里只给容器与网格上样式。 */
+/* 主题编辑器：**左栏改参数、右栏看结果**，是主题窗口（`?window=theme`）的根内容。
+   两栏是它从设置页搬出来的原因 —— 单列容器宽 599px，`max-width: 900px` 那个断点必然命中，
+   预览被折到表单下面，拖取色器时它在一屏之外。预览里的按钮 / 输入框复用的是真组件的类名，
+   所以这里只给容器与网格上样式。 */
 .nexus-settings-section[data-section='appearance'] {
   max-width: 1080px;
 }
 
+/* 主题窗口的 body 自己滚：`.nexus-body` 的 `overflow: hidden` 会让编辑器整块被裁掉。 */
+.nexus-theme-window-body {
+  overflow-y: auto;
+}
+
+/* `flex: 1` 不能省：父级 `.nexus-body` 是**行**向 flex，不给伸展的话编辑器按内容宽度排版，
+   两栏工作台只占窗口的一半，右边留一大片空白。 */
 .nexus-theme-editor {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
-  gap: 24px;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .nexus-theme-editor {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.nexus-theme-editor-main {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 14px;
+  padding: 16px 20px 24px;
   min-width: 0;
 }
 
-.nexus-theme-editor-head {
+/* 源条：这套主题叫什么、从哪来，以及「再来一份」。 */
+.nexus-theme-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--nexus-border-subtle);
+}
+
+/* 给名字一个**有限**的宽度：`flex: 1` 会让输入框横跨整条源条，看着像一条搜索栏而不是标题。
+   360px 够放下常见主题名，窗口变窄时还能缩。 */
+.nexus-theme-source-info {
+  display: flex;
+  flex: 0 1 360px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nexus-theme-source-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nexus-text-primary);
+}
+
+/* 名字是可编辑的。边框**常驻**而不是只在悬停时出现 —— 悬停提示只有已经把鼠标放上去的人
+   才看得见，而「这里能改」正是第一次进来的人需要知道的事。底色留空，它仍读起来像标题。 */
+.nexus-theme-source-input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 4px;
+  background-color: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-theme-source-input:hover {
+  border-color: var(--nexus-border-strong);
+}
+
+.nexus-theme-source-input:focus {
+  outline: none;
+  border-color: var(--nexus-accent-solid);
+  background-color: var(--nexus-bg-surface);
+}
+
+/* 名字底下那一行：明暗切换器 + 「自定义」标记。 */
+.nexus-theme-source-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 明暗切换器：与设置页的模式卡片同一套语言（描边容器 + 实心选中块），只是小一号 ——
+   它在源条上，是编辑器的局部控件，不该和整页的模式卡片抢重量。 */
+.nexus-theme-variant {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-canvas);
+}
+
+/* 明暗切换钮。**13px，与同一窗口的档位钮（`.nexus-theme-tier .nexus-settings-option`）同号** ——
+   两个分段控件隔着一行却差 2px，是因为这里借用了「注解档」的 11px，而可点标签不该用注解档。 */
+.nexus-theme-variant-option {
+  padding: 2px 9px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--nexus-text-secondary);
+  cursor: pointer;
+}
+
+.nexus-theme-variant-option:hover {
+  color: var(--nexus-text-primary);
+}
+
+.nexus-theme-variant-option-active {
+  background-color: var(--nexus-accent-solid);
+  color: var(--nexus-accent-contrast);
+}
+
+.nexus-theme-source-tag {
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
+/* base16 粘贴框：编辑器与设置页共用。等宽字体 —— 粘进来的是一段 YAML / JSON，等宽才看得清
+   缩进与槽位对齐。 */
+.nexus-theme-paste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nexus-theme-paste-input {
+  width: 100%;
+  /* 120px ≈ 6 行 —— 一段 base16 的头部（scheme / variant / 前几个槽位）要能一眼看到，
+     92px 只够 5 行，粘贴完还要在框里滚一下才知道贴对没有。 */
+  min-height: 120px;
+  max-height: 240px;
+  padding: 8px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-canvas);
+  color: var(--nexus-text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.nexus-theme-paste-input:focus {
+  outline: none;
+  border-color: var(--nexus-accent-solid);
+  background-color: var(--nexus-bg-surface);
+}
+
+.nexus-theme-paste-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 合并提示：用警告色而不是中性色 —— 它是一次**不可逆**的合并，被并掉的那套会从列表消失。 */
+.nexus-theme-merge {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--nexus-status-warning-border);
+  border-radius: 6px;
+  background-color: var(--nexus-status-warning-bg);
+}
+
+/* 合并提示是**多行**文案，行高跟 `.nexus-settings-field-description` 走（1.6）。
+   不写就落到 `normal`（≈1.2 → 14.4px），两行贴在一起。 */
+.nexus-theme-merge-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-status-warning-text);
+}
+
+.nexus-theme-merge-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 删除键只在用户主题的卡片上出现。与另外两枚同形，但文字色取错误色 —— 它是个破坏性动作。 */
+.nexus-theme-card-delete {
+  color: var(--nexus-status-error-text);
+}
+
+.nexus-theme-source-variant {
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
+/* 两栏工作台。用 flex 而不是 grid：两条轴要的**伸缩方向相反** ——
+   - 窗口变大 → 多出来的宽度**优先给预览**（`flex-grow` 1.6 对 1）；
+   - 窗口变小 → **优先压左栏**（`flex-shrink` 2 对 1），预览靠 `min-width: 420px` 兜底
+     （再窄下去活动栏 + 侧栏就把编辑区挤没了）。
+
+   两个 `flex-basis` 之和**就是主题窗口默认尺寸下的可用宽度**（1340 − 40 内边距 − 24 间距 −
+   15 滚动条 = 1261）。不这么对齐的话，默认尺寸会落在基准之上，「把窗口调小一点」实际是在
+   回吐放大 —— 那时右栏让得比左栏还多，与上面第二条正好相反。 */
+.nexus-theme-workbench {
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+}
+
+.nexus-theme-inputs,
+.nexus-theme-results {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 伸缩权重不同，不能并成一条规则 —— 见 `.nexus-theme-workbench` 的注释。 */
+.nexus-theme-inputs {
+  flex: 1 2 648px;
+  min-width: 420px;
+}
+
+.nexus-theme-results {
+  flex: 1.6 1 613px;
+  min-width: 420px;
+}
+
+.nexus-theme-inputs-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .nexus-theme-tier {
   display: flex;
   gap: 8px;
+}
+
+.nexus-theme-token-search {
+  flex: 1;
+  min-width: 160px;
+  padding: 6px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  font-size: 13px;
+}
+
+.nexus-theme-token-search:focus-visible {
+  outline: 2px solid var(--nexus-accent-indicator);
+  outline-offset: 1px;
+}
+
+/* 只读态（当前是内置主题）。默认主题就是内置的，所以这是**常态**不是异常，空态要立得住。 */
+.nexus-theme-readonly {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px;
+  border: 1px dashed var(--nexus-border-default);
+  border-radius: 8px;
+}
+
+.nexus-theme-readonly .nexus-settings-field-description {
+  margin: 0;
+}
+
+/* 源条与只读态共用的动作按钮。 */
+.nexus-theme-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.nexus-theme-action:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  border-color: var(--nexus-border-strong);
+}
+
+.nexus-theme-action-primary {
+  border-color: transparent;
+  background-color: var(--nexus-accent-solid);
+  color: var(--nexus-accent-contrast);
+}
+
+.nexus-theme-action-primary:hover {
+  border-color: transparent;
+  background-color: var(--nexus-accent-solid-hover);
+}
+
+/* 禁用态要把实心底也压掉 —— 留一个亮色的按钮比留一个灰的更像「能点」，用户会反复点它。
+   写在最后：`:disabled` 与 `:hover` 同特异性，靠源码顺序取胜。 */
+.nexus-theme-action:disabled,
+.nexus-theme-action-primary:disabled {
+  border-color: var(--nexus-border-subtle);
+  background-color: transparent;
+  color: var(--nexus-text-muted);
+  cursor: not-allowed;
+}
+
+/* 设置页里的入口行。 */
+.nexus-theme-open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  background-color: var(--nexus-bg-surface);
+}
+
+.nexus-theme-open-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nexus-theme-open-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-theme-open-desc {
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-theme-open .nexus-settings-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.nexus-theme-open-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* token 行的「派生 / 覆盖」标记。覆盖项左边加一道竖线 —— 扫一眼就知道哪些是手写的。 */
+.nexus-theme-token-state {
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-theme-token[data-overridden='true'] {
+  margin-left: -8px;
+  padding-left: 6px;
+  border-left: 2px solid var(--nexus-accent-indicator);
+}
+
+.nexus-theme-token[data-overridden='true'] .nexus-theme-token-state {
+  color: var(--nexus-accent-text);
+}
+
+/* 对比度体检：右栏的「结论」，与左栏每行的 `data-contrast="fail"` 分工不同 ——
+   那边说「这一项怎么办」，这边说「整套现在怎么样」。 */
+.nexus-theme-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+}
+
+.nexus-theme-verdict-ok,
+.nexus-theme-verdict-bad {
+  margin: 0;
+  font-size: 12px;
+}
+
+.nexus-theme-verdict-ok {
+  color: var(--nexus-status-success-text);
+}
+
+.nexus-theme-verdict-bad {
+  color: var(--nexus-status-error-text);
+}
+
+.nexus-theme-verdict-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.nexus-theme-verdict-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-theme-verdict-on {
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-theme-verdict-ratio {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--nexus-status-error-text);
 }
 
 .nexus-theme-override-banner {
@@ -2537,27 +3058,83 @@ body.nexus-resizing {
   color: var(--nexus-accent-indicator);
 }
 
-.nexus-theme-group-title {
+/* 段落标题。**与 `.nexus-theme-preview-title` 成对改** —— 两栏的卡片标题必须同一号同一色，
+   只动一边会让左右两栏的层级看起来不一样。
+   13px / `--nexus-text-secondary`：原先 12px + `--nexus-text-muted` 是全界面最暗最小的一档，
+   而它承担的恰恰是「这一段是什么」这个最先要读到的东西。
+
+   第二个选择器管粘贴框的标题：在**编辑器**里它是一张同级卡片，标题要跟另外三张同款；在设置页里
+   它是「导入 / 导出」卡内部的子块，标题保持字段标签的样式 —— 那是从属关系，不该跟父级抢层级。 */
+.nexus-theme-group-title,
+.nexus-theme-basic .nexus-theme-paste > .nexus-settings-field-label {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--nexus-text-muted);
+  color: var(--nexus-text-secondary);
+}
+
+/* 基础档的四个段落各自是一张卡 —— 与右栏的预览 / 体检 / 修正记录**同一套容器语言**
+   （1px 描边 + 8px 圆角 + 12/14 内边距）。卡片边界本身就是分隔，所以不再另画分隔线。
+
+   这条规则原先**不存在** —— 四个 section 零间距直接堆叠（实测 bottom 与下一段 top 完全相同），
+   分隔全靠标题行高的半行撑着，于是「LEVELS 紧挨着上面的种子区」，看不出是两段。 */
+.nexus-theme-basic {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nexus-theme-basic > section {
+  padding: 12px 14px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+}
+
+/* 设置页里的粘贴框在「导入 / 导出」那张虚线卡**内部** —— 卡里不再套一张卡，用一条分隔线代替。
+   两者是两条不同的路：一个换一整套主题，一个把配色填进当前这套。 */
+.nexus-theme-transfer .nexus-theme-paste {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--nexus-border-subtle);
 }
 
 .nexus-theme-seeds,
 .nexus-theme-tuning,
-.nexus-theme-tokens,
-.nexus-theme-corrections {
+.nexus-theme-tokens {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
+/* 层级系数的行**自己就有 32px 高**，所以行间距收紧到 4px —— 均匀的 6px 会把「标题 / 说明 /
+   五条滑块」拉成同一种节奏，读起来没有分组。说明之后留 10px，把「这一组是干什么的」和
+   「怎么调」分开。 */
+.nexus-theme-tuning {
+  gap: 4px;
+}
+
+.nexus-theme-tuning > .nexus-settings-field-description {
+  margin-bottom: 6px;
+}
+
+/* 修正记录在右栏，与体检面板并排成两张卡 —— 都是「结果」，视觉上要同构。 */
+.nexus-theme-corrections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+}
+
+/* 150px 是四列的宽度，但那样每格只剩 ~150px，槽位角色全被截成「Reserved (betwee…」。
+   180px 在 639px 的左栏上落成三列，角色文案基本读全 —— 角色是这个取色器唯一说得清「动它会改到
+   哪里」的东西，截断它等于把唯一的说明弄没了。 */
 .nexus-theme-seed-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 8px;
 }
 
@@ -2594,33 +3171,89 @@ body.nexus-resizing {
   color: var(--nexus-text-primary);
 }
 
+/* 种子槽位的角色说明。**12px**：它是说明文本，与设置页的 `.nexus-settings-field-description`
+   同类；11px 是这一族的「注解档」（token 状态、比值、覆盖值），不是给句子用的。 */
 .nexus-theme-seed-role {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--nexus-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 层级系数：一行 = 标签 / 滑块 / 数值。
+   `min-height: 32px` 是**交互区**高度，不是视觉高度 —— 轨道仍是 4px、钮仍是 14px，但可点区域
+   从 18px 提到 32px。18px 连鼠标都不好瞄准，拖起来一直在滑掉。
+
+   标签列是 `auto` + 标签自己的 `max-width: 110px`：**按最宽的那条标签取宽，封顶 110px**。
+   写死 110px 在英文下正好（`Quote background` 约 105px），在中文下只有三个字却照样占 110px，
+   中间空出一大块。
+   **不能用 `minmax(min-content, 110px)`** —— 非 `fr` 轨在「maximize tracks」那一步会一路长到
+   growth limit，实测照样占满 110px；把上限挪到 `max-width` 才真的按内容收。 */
 .nexus-theme-tuning-row {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) 40px;
+  grid-template-columns: auto minmax(0, 1fr) 40px;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-height: 32px;
   font-size: 12px;
   color: var(--nexus-text-secondary);
 }
 
-.nexus-theme-tuning-input {
-  width: 100%;
-  accent-color: var(--nexus-accent-solid);
+.nexus-theme-tuning-label {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* 滑块自己画。默认渲染（只给 `accent-color`）在 Windows 上是一条粗实心蓝轨 + 大圆钮，
+   与全局「1px 描边、小圆角、扁平填充」的控件语言对不上。这里改成：轨道是描边细条，
+   钮是圆角方块 —— 与 `.nexus-settings-option` / `.nexus-window-button` 同一套形状。
+   只在 Chromium 里跑（Electron），不需要 `-moz-` 那一套。 */
+.nexus-theme-tuning-input {
+  width: 100%;
+  height: 32px;
+  /* 上下各 13px 内边距把轨道压回垂直正中（32 − 26 = 6 = 轨道自身高度）。只把 input 撑高、
+     不加内边距的话轨道会贴在顶边，看着和标签、数值不在一条线上。 */
+  padding: 13px 0;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.nexus-theme-tuning-input::-webkit-slider-runnable-track {
+  height: 4px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 2px;
+  background-color: var(--nexus-bg-surface);
+}
+
+/* 轨道外高 4px + 上下各 1px 描边 = 6px，钮 14px ⇒ 上边距 -(14-6)/2 = -4px，
+   再减掉轨道自身的 1px 上描边，实际写 -5px 才居中。 */
+.nexus-theme-tuning-input::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 1px solid var(--nexus-border-strong);
+  border-radius: 4px;
+  background-color: var(--nexus-accent-solid);
+}
+
+.nexus-theme-tuning-input:focus-visible {
+  outline: 2px solid var(--nexus-accent-solid);
+  outline-offset: 2px;
+}
+
+/* `tabular-nums`：拖滑块时数值一直在变，比例数字不等宽的话整列会左右抖。 */
 .nexus-theme-tuning-value {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   text-align: right;
-  color: var(--nexus-text-muted);
+  color: var(--nexus-text-secondary);
 }
 
 .nexus-theme-corrections-list,
@@ -2635,7 +3268,6 @@ body.nexus-resizing {
   overflow-y: auto;
 }
 
-.nexus-theme-corrections-list li,
 .nexus-theme-overrides-list li {
   display: flex;
   align-items: center;
@@ -2644,9 +3276,55 @@ body.nexus-resizing {
   color: var(--nexus-text-secondary);
 }
 
+/* 修正记录**两列对齐**：token 名在左、比值在右。原先挤成一句话（名字 + 从→到 + 目标），
+   12 行连排会读成一整段文字，扫不出「哪几项被挪过、挪到了哪」。分列之后右列天然对齐，
+   眼睛沿一列往下走就够。
+   行高 20px（12px 字 × 1.6）—— 原先的 16px 是 1.33，密到发糊。 */
+.nexus-theme-corrections-list {
+  gap: 2px;
+  max-height: 300px;
+}
+
+.nexus-theme-corrections-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-theme-correction-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--nexus-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-theme-correction-ratio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 没够到目标的那一行才印目标值，并且标成警告色 —— 那是这一屏里唯一需要看的一行。 */
+.nexus-theme-correction-missed {
+  color: var(--nexus-status-warning-text);
+}
+
+/* 列序：色块 · token 名 · **状态**（吃掉余量，把后面两项推到右边）· 对比度 · 重置。
+   状态必须紧挨着名字 —— 放到最右端会与名字隔开半个屏幕，读不出它说的是哪一行。 */
 .nexus-theme-token {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  grid-template-columns: 28px auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   padding: 3px 0;
@@ -2730,10 +3408,11 @@ body.nexus-resizing {
   outline: none;
 }
 
-/* 实时预览：只用真组件与真类名，这里只负责容器与尺寸。 */
+/* 实时预览：只用真组件与真类名，这里只负责容器与尺寸。
+   **不要给它 `position: sticky`。** 右栏里它下面还压着对比度体检与修正记录，而 sticky 会让它
+   在滚动时钉住不动、后两个从它底下穿过去 —— 看上去就是「预览浮在下方组件上面」。窗口本身
+   滚动（`.nexus-theme-window-body` 是滚动容器），跟着滚才是对的。 */
 .nexus-theme-preview {
-  position: sticky;
-  top: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2744,18 +3423,81 @@ body.nexus-resizing {
   min-width: 0;
 }
 
-.nexus-theme-preview-title {
+/* 真外壳预览：用**真类名**搭一扇主窗口，颜色全部来自 `--nexus-*`。
+   外壳必须画全 —— 标题栏 / 活动栏 / 侧栏 / 标签栏 / 编辑区 / 状态栏各吃一批不同的 token，
+   少画哪一段，那一段的 token 就只能靠猜。 */
+.nexus-theme-preview-shell {
+  display: flex;
+  flex-direction: column;
+  height: 380px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: var(--nexus-bg-canvas);
+}
+
+/* 真标题栏整条是拖拽区。`-webkit-app-region` **不会继承**，所以上面那组规则把标题栏的每个
+   子元素（`.nexus-header-left` / `.nexus-filename` / …）都各自声明了一遍 `drag`。那些是全局
+   选择器，预览里的假壳同样命中 —— 只关 `.nexus-header-bar` 挡不住它们，结果是双击预览的标题
+   文字会被系统当成「双击标题栏」，把整个主题窗口最大化。
+   所以预览必须**整棵子树**关掉，一个子元素都不留。 */
+.nexus-theme-preview-shell,
+.nexus-theme-preview-shell * {
+  -webkit-app-region: no-drag;
+}
+
+/* 菜单项在预览里只是标题栏上的一段文字，不展开下拉 —— 真菜单要一整套 MenuBar 状态。 */
+.nexus-theme-preview-menu {
+  padding: 0 6px;
   font-size: 12px;
+  color: var(--nexus-text-secondary);
+}
+
+/* 侧栏按预览宽度等比收窄：真窗口里 `--nx-panel-width` 是 240px，在预览里照搬会占掉三分之一，
+   编辑区就只剩一条。150px 够放下 `changelog.md` 这类文件名，又不至于压住正文。 */
+.nexus-theme-preview-shell .nexus-activity-panel {
+  flex: 0 0 150px;
+  border-right-color: var(--nexus-border-subtle);
+}
+
+.nexus-theme-preview-shell .nexus-tree-item {
+  cursor: default;
+}
+
+/* 编辑区由 CodeMirror 填满，不再是单独的一小块卡片（外壳里它就是「编辑区」本身）。 */
+.nexus-theme-preview-shell .nexus-theme-preview-code {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+}
+
+.nexus-theme-preview-shell .nexus-theme-preview-code .cm-editor {
+  height: 100%;
+  max-height: none;
+}
+
+/* 与 `.nexus-theme-group-title` 成对 —— 两栏的卡片标题同一号同一色。 */
+.nexus-theme-preview-title {
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--nexus-text-muted);
+  color: var(--nexus-text-secondary);
 }
 
 .nexus-theme-preview-row {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* 预览里的「按钮」是 `<span>`（它们不该可点），而 `.nexus-settings-option` 是给 `<button>`
+   写的、没声明 `display` —— 行内元素上 `padding` 的纵向部分不生效，不补这一条按钮会塌成一行字。 */
+.nexus-theme-preview-row .nexus-settings-option {
+  display: inline-flex;
+  align-items: center;
 }
 
 .nexus-theme-preview-input {

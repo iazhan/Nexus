@@ -131,12 +131,12 @@ describe('ThemeManager 的自动模式', () => {
     manager.setTheme('dark');
     expect(manager.themeChoice).toBe('nexus@dark');
 
-    manager.setTheme('dracula');
-    expect(manager.themeChoice).toBe('dracula@dark');
+    manager.setTheme('github');
+    expect(manager.themeChoice).toBe('github@light');
   });
 
   it('与 resolveThemeId 对旧值的解读一致 —— 两处映射漂移会让迁移半途而废', () => {
-    for (const legacy of ['dark', 'light', 'dracula', 'nord']) {
+    for (const legacy of ['dark', 'light', 'github', 'nord']) {
       const manager = managerWith(fakeSystem(false));
       manager.setTheme(legacy);
       expect(manager.theme.id).toBe(resolveThemeId(legacy, false));
@@ -151,7 +151,7 @@ const clone = (scheme: NexusThemeScheme): NexusThemeScheme => ({
 
 const userTheme = (id: string, overrides?: Record<string, string>): UserTheme => ({
   id,
-  scheme: { ...clone(nexusDarkSeeds), ...(overrides ? { overrides } : {}) },
+  variants: { dark: { ...clone(nexusDarkSeeds), ...(overrides ? { overrides } : {}) } }
 });
 
 /** 已 fork 出 `user:a` 的 manager，覆盖项为空。 */
@@ -174,8 +174,9 @@ describe('ThemeManager 的用户主题与覆盖项', () => {
 
   it('拒绝把内置 id 登记成用户主题 —— 否则切回去得到的是改过的 Nexus Light', () => {
     const manager = managerWith(fakeSystem(false));
-    expect(manager.registerUserTheme({ id: 'nexus-light', scheme: clone(nexusLightSeeds) })).toBe(false);
-    expect(manager.registerUserTheme({ id: 'user:', scheme: clone(nexusLightSeeds) })).toBe(false);
+    const variant = { light: clone(nexusLightSeeds) };
+    expect(manager.registerUserTheme({ id: 'nexus-light', variants: variant })).toBe(false);
+    expect(manager.registerUserTheme({ id: 'user:', variants: variant })).toBe(false);
   });
 
   it('fork 出可写副本并切过去，副本的种子与基底一致', () => {
@@ -183,10 +184,33 @@ describe('ThemeManager 的用户主题与覆盖项', () => {
     const theme = manager.forkActiveToUserTheme('user:a');
 
     expect(theme?.id).toBe('user:a');
-    expect(theme?.scheme.palette).toEqual(nexusDarkSeeds.palette);
+    expect(theme?.variants.dark?.palette).toEqual(nexusDarkSeeds.palette);
     expect(manager.theme.id).toBe('user:a');
     expect(manager.isEditable).toBe(true);
     expect(manager.theme.tokens).toEqual(nexusDark.tokens);
+  });
+
+  /** 复制的是**一整个预设**：明暗两版一起拷，「复制 Nexus」才得到一套完整的自定义主题。 */
+  it('fork 内置预设时两版一起拷，落在源那一版上', () => {
+    const manager = managerWith(fakeSystem(false), 'nexus-dark');
+    const theme = manager.forkActiveToUserTheme('user:a')!;
+
+    expect(theme.variants.light?.palette).toEqual(nexusLightSeeds.palette);
+    expect(theme.variants.dark?.palette).toEqual(nexusDarkSeeds.palette);
+    expect(manager.activeScheme?.variant).toBe('dark');
+    expect(manager.themeChoice).toBe('user:a@dark');
+  });
+
+  /**
+   * 名字是**两版共用**的，而且取**族名**而不是变体名 —— 设置页列表读明版、编辑器读当前版，
+   * 不归一的话同一套主题在两处会显示两个不同的名字。
+   */
+  it('fork 出来的两版共用一个名字，取族名', () => {
+    const manager = managerWith(fakeSystem(false), 'nexus-dark');
+    const theme = manager.forkActiveToUserTheme('user:a')!;
+
+    expect(theme.variants.light?.name).toBe('Nexus');
+    expect(theme.variants.dark?.name).toBe('Nexus');
   });
 
   it('已经在自己的用户主题上时 fork 返回它本身，不新建', () => {
@@ -195,6 +219,40 @@ describe('ThemeManager 的用户主题与覆盖项', () => {
 
     expect(second?.id).toBe('user:a');
     expect(manager.theme.id).toBe('user:a');
+  });
+
+  /**
+   * 「复制某一套」的源**不是当前主题** —— 点的是那张卡，不是现在渲染着的那套。用
+   * `forkActiveToUserTheme` 做不到这件事，所以这条独立于上面那条。
+   */
+  it('forkSchemeToUserTheme 以任意方案为源，不必是当前主题', () => {
+    const manager = managerWith(fakeSystem(false), 'nexus-dark');
+    const theme = manager.forkSchemeToUserTheme('nexus-light', 'user:copy');
+
+    expect(theme?.id).toBe('user:copy');
+    expect(theme?.variants.light?.palette).toEqual(nexusLightSeeds.palette);
+    expect(manager.theme.id).toBe('user:copy');
+    expect(manager.theme.tokens).toEqual(nexusLight.tokens);
+  });
+
+  it('forkSchemeToUserTheme 的源不存在时回 null，不切换也不登记', () => {
+    const manager = managerWith(fakeSystem(false), 'nexus-dark');
+
+    expect(manager.forkSchemeToUserTheme('no-such-theme', 'user:x')).toBeNull();
+    expect(manager.theme.id).toBe('nexus-dark');
+    expect(manager.isEditable).toBe(false);
+  });
+
+  /** 副本要能独立改：palette 浅拷不到位的话，改副本会把源那套一起改掉。 */
+  it('fork 出来的副本 palette 是独立对象，改它不动源', () => {
+    const manager = managerWith(fakeSystem(false), 'nexus-dark');
+    const theme = manager.forkSchemeToUserTheme('nexus-dark', 'user:copy');
+
+    manager.patchScheme({ palette: { base00: '#101010' } });
+
+    expect(manager.activeScheme?.palette.base00).toBe('#101010');
+    expect(nexusDarkSeeds.palette.base00).not.toBe('#101010');
+    expect(theme?.variants.dark?.palette).toEqual(nexusDarkSeeds.palette);
   });
 
   it('写覆盖项后 token 立刻变，且广播一次', () => {
@@ -299,7 +357,7 @@ describe('ThemeManager 的用户主题与覆盖项', () => {
 
   it('构造时给的用户主题 id 不合法则忽略，按认不出的 id 回落', () => {
     const manager = new ThemeManager('user:a', fakeSystem(false).source, [
-      { id: 'nexus-light', scheme: clone(nexusLightSeeds) }
+      { id: 'nexus-light', variants: { light: clone(nexusLightSeeds) } }
     ]);
 
     expect(manager.theme.id).toBe('nexus-light');
@@ -363,5 +421,29 @@ describe('ThemeManager 的种子编辑（基础档的写入口）', () => {
   it('内置主题的 activeScheme 就是内置种子本身', () => {
     const manager = managerWith(fakeSystem(false), 'nexus-dark');
     expect(manager.activeScheme?.palette).toEqual(nexusDarkSeeds.palette);
+  });
+
+  it('改名字：只换标签，配色一个字节都不动，首尾空白去掉', () => {
+    const manager = forked();
+    const tokensBefore = { ...manager.theme.tokens };
+
+    expect(manager.patchScheme({ name: '  我的主题  ' })).toBe(true);
+
+    expect(manager.activeScheme?.name).toBe('我的主题');
+    expect(manager.theme.tokens).toEqual(tokensBefore);
+  });
+
+  /**
+   * 空名绝不能写进去：`parseUserTheme` 拒收空名，写进去的存档下次启动会被**整份丢掉** ——
+   * 用户只是删光了输入框，重启后主题连同覆盖项一起消失。
+   */
+  it('空名 / 纯空白一律忽略，保留原名', () => {
+    const manager = forked();
+    const original = manager.activeScheme!.name;
+
+    manager.patchScheme({ name: '' });
+    manager.patchScheme({ name: '   ' });
+
+    expect(manager.activeScheme?.name).toBe(original);
   });
 });

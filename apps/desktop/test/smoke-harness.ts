@@ -133,6 +133,7 @@ export interface CDPTarget {
  */
 export const MAIN_WINDOW_URL_MARKER = 'window=main';
 export const SETTINGS_WINDOW_URL_MARKER = 'window=settings';
+export const THEME_WINDOW_URL_MARKER = 'window=theme';
 
 /**
  * 测试用的临时目录登记表。

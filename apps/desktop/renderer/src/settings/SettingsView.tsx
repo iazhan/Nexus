@@ -74,7 +74,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSec
               data-availability={item.availability}
               onClick={() => onSelectSection(item.id)}
             >
-              {t(item.titleKey)}
+              {/* 图标是 `aria-hidden` 的：`aria-selected` 已经说清选中态，分组名才是可读信息，
+                  读屏再念一遍图标没有意义。 */}
+              <span className="nexus-settings-nav-icon">{item.icon}</span>
+              <span className="nexus-settings-nav-label">{t(item.titleKey)}</span>
             </button>
           );
         })}

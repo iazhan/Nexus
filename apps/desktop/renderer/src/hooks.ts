@@ -47,8 +47,9 @@ export function useTheme() {
     []
   );
 
-  // 用户主题与单变体预设没有另一边可切 —— 调用方据此禁用切换控件，别按下去跳到别的预设。
-  const modeSwitchable = canChangeMode(themeChoice);
+  // 用户主题的两版都在 `ThemeManager` 里（不在静态预设表里），所以要把查询注入进去 ——
+  // 单边主题（如从 dracula fork 出来的）没有另一边可切，控件据此禁用。
+  const modeSwitchable = canChangeMode(themeChoice, themeManager.userVariantsOf);
 
   return { resolvedTheme, themeChoice, setTheme, modeSwitchable };
 }

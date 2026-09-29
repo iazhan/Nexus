@@ -1,7 +1,10 @@
 import React, { useRef, useState } from 'react';
 import type { Base16Error } from '@nexus/theme';
 import { useLocale } from '../hooks.js';
+import { Base16PasteBox } from './Base16PasteBox.js';
+import { ThemeMergePrompt } from './ThemeMergePrompt.js';
 import {
+  base16ErrorText,
   currentChoice,
   exportActiveTheme,
   importBase16Text,
@@ -26,19 +29,6 @@ type Status =
   | { kind: 'ok'; outcome: Extract<ImportOutcome, { ok: true }>; previous: string }
   | { kind: 'error'; error: Base16Error }
   | { kind: 'exported'; fileName: string; droppedOverrides: number };
-
-function errorText(t: (key: string, vars?: Record<string, string>) => string, error: Base16Error): string {
-  switch (error.code) {
-    case 'empty':
-      return t('theme.import.error.empty');
-    case 'not-a-scheme':
-      return t('theme.import.error.format');
-    case 'missing-slots':
-      return t('theme.import.error.missing', { slots: error.slots.join(', ') });
-    case 'invalid-colour':
-      return t('theme.import.error.colour', { slot: error.slot, value: error.value });
-  }
-}
 
 /** Blob + 一个临时 `<a download>`：`file://` 下 `navigator.clipboard` 不保证可用，下载则到处都行。 */
 function download(fileName: string, text: string, mime: string): void {
@@ -165,7 +155,7 @@ export const ThemeTransfer: React.FC = () => {
 
       {status.kind === 'error' && (
         <p className="nexus-theme-transfer-status" data-status="error" data-theme-transfer-status="">
-          {errorText(t, status.error)}
+          {base16ErrorText(t, status.error)}
         </p>
       )}
 
@@ -176,6 +166,11 @@ export const ThemeTransfer: React.FC = () => {
             ` ${t('theme.export.dropped', { count: String(status.droppedOverrides) })}`}
         </p>
       )}
+
+      {/* 文件导入与粘贴是**两条不同的路**：前者换一套主题，后者把这套配色填进当前主题。
+          并列在这里而不是二选一 —— 用户手上是文件还是剪贴板里的文本，只有他自己知道。 */}
+      <Base16PasteBox />
+      <ThemeMergePrompt />
     </section>
   );
 };
