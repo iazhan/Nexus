@@ -19,6 +19,7 @@ import {
   toColorInputValue
 } from './theme-fields.js';
 import { ThemePreview } from './ThemePreview.js';
+import { ThemeTransfer } from './ThemeTransfer.js';
 
 /**
  * 两档主题编辑器。**基础档改 16 个种子 + 5 个系数**（改完派生整条重跑），**高级档改 43 个 token**
@@ -260,6 +261,8 @@ export const ThemeEditor: React.FC = () => {
             ))}
           </div>
         )}
+
+        <ThemeTransfer />
       </div>
 
       <ThemePreview />

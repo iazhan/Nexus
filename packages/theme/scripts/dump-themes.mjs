@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// 把内置主题 dump 成 `{ light: { <token>: <colour> }, dark: { … } }` —— design-token-audit skill 的
-// contrast-pairs.mjs / contrast-target.mjs 的输入格式。
+// 把内置主题 dump 成 `{ light: { <token>: <colour> }, dark: { … }, <theme id>: { … } }` ——
+// design-token-audit skill 的 contrast-pairs.mjs / contrast-target.mjs 的输入格式。
 //
 //   node packages/theme/scripts/dump-themes.mjs [--out <file>]
 //
@@ -8,6 +8,12 @@
 // `seedsToTokens(...)` 调用，正则抽不到东西，而且**会静默 dump 出空对象**（下面两条一致性
 // 校验都会通过）。改成读构建产物后唯一的代价是「产物可能过期」，所以先比 mtime：`src/**` 里
 // 有比 `dist/index.js` 新的文件就拒绝运行 —— 对着过期数字做决策正是本脚本要防的事。
+//
+// 键有两套，**都要留**：
+//   * `<theme id>`（`nexus-light` / `dracula` / …）—— 出厂主题表有几套这里就有几套，随
+//     `BUILT_IN_SCHEMES` 自动跟随。
+//   * `light` / `dark` —— 外部对比度工具按这两个键取配对。删了它们工具会**静默找不到主题**
+//     （而不是报错），所以它们是显式的兼容键，固定指向基线那两套。
 //
 // token 键不带 `--nexus-` 前缀：工具按 `text-*` / `bg-*` / `status-*-bg` 这些裸名做作用域配对。
 
@@ -43,27 +49,51 @@ if (newestMtime(SRC) > distStamp) {
   process.exit(1);
 }
 
-const { nexusDark, nexusLight } = await import(pathToFileURL(DIST).href);
-const themes = { light: nexusLight.tokens, dark: nexusDark.tokens };
+const { BUILT_IN_THEMES } = await import(pathToFileURL(DIST).href);
 
-const lightCount = Object.keys(themes.light).length;
-const darkCount = Object.keys(themes.dark).length;
-if (lightCount !== darkCount) {
-  console.error(`亮暗 token 数不一致：light ${lightCount} / dark ${darkCount} —— 先修源码再 dump`);
+const themes = {};
+for (const theme of BUILT_IN_THEMES) themes[theme.id] = theme.tokens;
+
+// 外部对比度工具的兼容键。基线主题不在表里就直接报错 —— 静默少两个键比报错更难查。
+for (const [alias, id] of [
+  ['light', 'nexus-light'],
+  ['dark', 'nexus-dark'],
+]) {
+  const baseline = themes[id];
+  if (!baseline) {
+    console.error(`基线主题 ${id} 不在 BUILT_IN_THEMES 里 —— light / dark 兼容键无法生成`);
+    process.exit(1);
+  }
+  themes[alias] = baseline;
+}
+
+const names = BUILT_IN_THEMES.map((theme) => theme.id);
+const counts = new Set(names.map((id) => Object.keys(themes[id]).length));
+if (counts.size !== 1) {
+  console.error(
+    `各主题 token 数不一致：${names.map((id) => `${id} ${Object.keys(themes[id]).length}`).join(' / ')} —— 先修源码再 dump`
+  );
   process.exit(1);
 }
-const onlyLight = Object.keys(themes.light).filter((k) => !(k in themes.dark));
-const onlyDark = Object.keys(themes.dark).filter((k) => !(k in themes.light));
-if (onlyLight.length || onlyDark.length) {
-  console.error(`亮暗 token 名不一致：仅 light ${onlyLight} / 仅 dark ${onlyDark}`);
-  process.exit(1);
+
+const reference = Object.keys(themes[names[0]]).sort();
+for (const id of names.slice(1)) {
+  const onlyHere = Object.keys(themes[id]).filter((k) => !reference.includes(k));
+  const missing = reference.filter((k) => !(k in themes[id]));
+  if (onlyHere.length || missing.length) {
+    console.error(`主题 ${id} 的 token 名与 ${names[0]} 不一致：多 ${onlyHere} / 少 ${missing}`);
+    process.exit(1);
+  }
 }
 
 const json = JSON.stringify(themes, null, 2);
 const out = arg('out');
+const tokenCount = counts.values().next().value;
 if (out) {
   writeFileSync(out, json + '\n');
-  console.error(`${DIST} → ${out}（${lightCount} 个 token × 2 套）`);
+  console.error(
+    `${DIST} → ${out}（${tokenCount} 个 token × ${names.length} 套 + light/dark 兼容键）`
+  );
 } else {
   process.stdout.write(json + '\n');
 }

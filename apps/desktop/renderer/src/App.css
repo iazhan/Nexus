@@ -2478,3 +2478,43 @@ body.nexus-resizing {
 .nexus-theme-preview-code .cm-scroller {
   overflow: auto;
 }
+
+/* 主题导入 / 导出（阶段 D）。虚线框本身就是投放区 —— 拖入时整块换色。 */
+.nexus-theme-transfer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--nexus-border-default);
+  border-radius: 8px;
+}
+
+.nexus-theme-transfer[data-drop-active='true'] {
+  border-color: var(--nexus-accent-indicator);
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-theme-transfer-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 文件选择框只作程序化入口，视觉上是上面那个按钮。 */
+.nexus-theme-transfer-file {
+  display: none;
+}
+
+.nexus-theme-transfer-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 12px;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-theme-transfer-status[data-status='error'] {
+  color: var(--nexus-status-error-text);
+}

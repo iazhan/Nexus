@@ -28,7 +28,8 @@ describe('installThemeBoot', () => {
   it('认不出的 id 在 preload 就换成跟随系统的结果 —— 静态 CSS 里没有它，写出去等于没有变量', () => {
     const fakeDoc = { documentElement: { dataset: {} as Record<string, string> } };
     const fakeWin = {
-      localStorage: { getItem: () => 'dracula' },
+      // 用一个不在出厂表里的 id：`dracula` 从阶段 D 起是真实主题，拿它测不出回落。
+      localStorage: { getItem: () => 'solarized-light' },
       matchMedia: () => ({ matches: false })
     };
 

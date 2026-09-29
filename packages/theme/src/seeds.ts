@@ -91,4 +91,61 @@ export const nexusDarkSeeds: NexusThemeScheme = {
   },
 };
 
-export const BUILT_IN_SCHEMES: readonly NexusThemeScheme[] = [nexusLightSeeds, nexusDarkSeeds];
+/**
+ * 三套第三方预设。**值逐字取自 tinted-theming 的 `spec-0.11` 方案文件，不手调** ——
+ * 手调过的预设既不是上游的、也不是我们的，而「上游那套长什么样」正是用户导入它的理由。
+ * 槽位语义与 base16 规范一致（base00 背景 → base07 最亮/最暗的前景），所以派生管线的
+ * 灰阶方向判断直接可用。
+ *
+ * 唯一保留的差异是**大小写**：上游写 `#2E3440`，这里落成小写 —— 与既有两套同形，
+ * 也让 `base16.ts` 的往返测试能逐字符比对。
+ */
+export const draculaSeeds: NexusThemeScheme = {
+  name: 'Dracula',
+  author: 'clach04',
+  variant: 'dark',
+  palette: {
+    base00: '#282a36', base01: '#21222c', base02: '#44475a', base03: '#6272a4',
+    base04: '#9ea8c7', base05: '#f8f8f2', base06: '#f8f8f2', base07: '#ffffff',
+    base08: '#ff5555', base09: '#ffb86c', base0A: '#f1fa8c', base0B: '#50fa7b',
+    base0C: '#8be9fd', base0D: '#bd93f9', base0E: '#ff79c6', base0F: '#993333',
+  },
+};
+
+export const nordSeeds: NexusThemeScheme = {
+  name: 'Nord',
+  author: 'arcticicestudio',
+  variant: 'dark',
+  palette: {
+    base00: '#2e3440', base01: '#3b4252', base02: '#434c5e', base03: '#4c566a',
+    base04: '#d8dee9', base05: '#e5e9f0', base06: '#eceff4', base07: '#8fbcbb',
+    base08: '#bf616a', base09: '#d08770', base0A: '#ebcb8b', base0B: '#a3be8c',
+    base0C: '#88c0d0', base0D: '#81a1c1', base0E: '#b48ead', base0F: '#5e81ac',
+  },
+};
+
+export const tokyoNightSeeds: NexusThemeScheme = {
+  name: 'Tokyo Night Dark',
+  author: 'Michaël Ball',
+  variant: 'dark',
+  palette: {
+    base00: '#1a1b26', base01: '#16161e', base02: '#2f3549', base03: '#444b6a',
+    base04: '#787c99', base05: '#a9b1d6', base06: '#cbccd1', base07: '#d5d6db',
+    base08: '#c0caf5', base09: '#a9b1d6', base0A: '#0db9d7', base0B: '#9ece6a',
+    base0C: '#b4f9f8', base0D: '#2ac3de', base0E: '#bb9af7', base0F: '#f7768e',
+  },
+};
+
+/**
+ * 出厂主题表：**id 与种子成对写在这里**，`index.ts` 直接消费。
+ *
+ * id 放在种子旁边而不是 `index.ts` 里 —— id 在两处各写一遍迟早对不上，而「哪几套随产品出厂」
+ * 是种子层的事实。用户主题不走这张表（它们的 id 由 `user-theme.ts` 生成）。
+ */
+export const BUILT_IN_SCHEMES: readonly { id: string; scheme: NexusThemeScheme }[] = [
+  { id: 'nexus-light', scheme: nexusLightSeeds },
+  { id: 'nexus-dark', scheme: nexusDarkSeeds },
+  { id: 'dracula', scheme: draculaSeeds },
+  { id: 'nord', scheme: nordSeeds },
+  { id: 'tokyo-night-dark', scheme: tokyoNightSeeds },
+];

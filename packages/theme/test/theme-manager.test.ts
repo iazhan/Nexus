@@ -113,10 +113,11 @@ describe('ThemeManager 的「跟随系统」', () => {
   });
 
   it('认不出的 id 显式回落成「跟随系统」，但选择本身不改', () => {
-    const manager = managerWith(fakeSystem(true), 'dracula');
+    // 用 `user:` 前缀之外、也不在出厂表里的 id —— `dracula` 从阶段 D 起是真实主题了。
+    const manager = managerWith(fakeSystem(true), 'solarized-light');
 
     expect(manager.theme.id).toBe('nexus-dark');
-    expect(manager.themeChoice).toBe('dracula');
+    expect(manager.themeChoice).toBe('solarized-light');
   });
 
   it('落盘用的是选择 —— 旧值要先归一成 id', () => {

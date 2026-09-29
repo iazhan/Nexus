@@ -2,9 +2,9 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SYSTEM_THEME } from '@nexus/theme';
+import { BUILT_IN_THEMES, SYSTEM_THEME } from '@nexus/theme';
 import { SettingsView } from '../src/settings/SettingsView.js';
-import { FIELDS, SECTIONS, projectMenuItems } from '../src/settings/registry.js';
+import { FIELDS, SECTIONS, THEME_FIELD, optionLabel, projectMenuItems } from '../src/settings/registry.js';
 import { useSettingsView, type SettingsViewState } from '../src/settings/use-settings-view.js';
 import { settings, themeManager } from '../src/platform.js';
 
@@ -93,14 +93,14 @@ describe('设置视图 · Appearance', () => {
     settings.set('appearance.theme', SYSTEM_THEME);
   });
 
-  it('三个主题选项，含「跟随系统」', () => {
+  it('主题选项 = 跟随系统 + 全部出厂主题，顺序与出厂表一致', () => {
     renderSettings();
 
     expect(
       Array.from(container.querySelectorAll('[data-theme-option]')).map((el) =>
         el.getAttribute('data-theme-option')
       )
-    ).toEqual([SYSTEM_THEME, 'nexus-light', 'nexus-dark']);
+    ).toEqual([SYSTEM_THEME, ...BUILT_IN_THEMES.map((theme) => theme.id)]);
   });
 
   /**
@@ -159,6 +159,9 @@ describe('设置视图 · Appearance', () => {
       if (button.dataset.themeOption) return 'option';
       if (button.dataset.settingsBack !== undefined) return 'back';
       if (button.dataset.themeTier) return 'tier';
+      if (button.dataset.themeImportButton !== undefined || button.dataset.themeExport) {
+        return 'transfer';
+      }
       if (button.closest('[data-theme-preview]')) return 'preview';
       return 'other';
     });
@@ -267,15 +270,14 @@ describe('设置视图的会话状态', () => {
 describe('菜单投影', () => {
   const t = (key: string): string => key;
 
-  it('装所有 menu: true 的字段，主题三态齐备', () => {
+  it('装所有 menu: true 的字段，主题项 = 跟随系统 + 五套出厂主题', () => {
     const labels = projectMenuItems({ t, onOpenSettings: () => {} })
       .filter((item) => !item.separator)
       .map((item) => item.label);
 
     expect(labels).toEqual([
       'theme.option.system',
-      'theme.option.light',
-      'theme.option.dark',
+      ...BUILT_IN_THEMES.map((theme) => theme.name),
       'lang.zhCN',
       'lang.enUS',
       'mermaid.clickToReveal',
@@ -299,15 +301,23 @@ describe('菜单投影', () => {
     expect(actual).toBe(expected);
   });
 
+  /**
+   * 判据不能按 `label.startsWith('theme.option.')` 过滤 —— 阶段 D 之后主题项显示的是主题
+   * 自己的名字（`Dracula`），只有「跟随系统」还挂着字典键。改成按**字段声明的选项**反查。
+   */
   it('主题的 active 取「选择」而不是解析结果', () => {
-    settings.set('appearance.theme', 'nexus-dark');
+    const resolved = themeManager.theme.id;
+    const other = resolved === 'nexus-dark' ? 'nexus-light' : 'nexus-dark';
+    settings.set('appearance.theme', other); // 只改选择，不动 ThemeManager
     try {
-      // 只看主题那一组：语言项也会 active（当前 locale 恰好是 en-US），那是另一件事。
+      const valueOf = new Map(
+        (THEME_FIELD.options ?? []).map((option) => [optionLabel(option, t), option.value])
+      );
       const active = projectMenuItems({ t, onOpenSettings: () => {} })
-        .filter((item) => item.active && item.label.startsWith('theme.option.'))
-        .map((item) => item.label);
+        .filter((item) => item.active && valueOf.has(item.label))
+        .map((item) => valueOf.get(item.label));
 
-      expect(active).toEqual(['theme.option.dark']);
+      expect(active).toEqual([other]);
     } finally {
       settings.set('appearance.theme', SYSTEM_THEME);
     }

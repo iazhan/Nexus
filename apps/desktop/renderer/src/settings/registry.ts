@@ -8,7 +8,7 @@
  * 它们的内容区是空态，但仍是菜单项。按分组过滤菜单会让语言与 mermaid 消失，那是功能回退。
  */
 
-import { SYSTEM_THEME } from '@nexus/theme';
+import { BUILT_IN_THEMES, SYSTEM_THEME } from '@nexus/theme';
 import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
 import type { MenuBarItem } from '../MenuBar.js';
 
@@ -112,10 +112,14 @@ export const THEME_FIELD: FieldDef = {
   labelKey: 'settings.appearance.theme',
   descriptionKey: 'settings.appearance.themeDescription',
   control: 'radio',
+  /**
+   * 出厂主题从 `BUILT_IN_THEMES` 派生，**不在这里列第二份** —— 列第二份时加一套主题要么忘了改
+   * 这里（设置页少一项）、要么改了这里忘了改种子（多一项点了没反应）。名字直接用主题自己的
+   * `name`，不进字典：主题名是数据，翻译它会让「Dracula」在中文界面变成别的东西。
+   */
   options: [
     { value: SYSTEM_THEME, labelKey: 'theme.option.system' },
-    { value: 'nexus-light', labelKey: 'theme.option.light' },
-    { value: 'nexus-dark', labelKey: 'theme.option.dark' }
+    ...BUILT_IN_THEMES.map((theme) => ({ value: theme.id, label: theme.name }))
   ],
   /**
    * 当前用户主题要**出现在选项里**，否则编辑完种子之后（编辑会 fork 出一个用户主题）四项全不

@@ -18,14 +18,16 @@ export default tseslint.config(
     ]
   },
   {
-    // scripts/ 下是 Node ESM 工具脚本，不匹配下面的 TS files 规则，
-    // 会直接吃 js.configs.recommended 的 no-undef —— 而仓库没有装 globals 包，
-    // 不显式声明的话 console / process 会被报成 34 条错误。
-    files: ['scripts/**/*.mjs'],
+    // Node ESM 工具脚本。glob 必须写 `**/scripts/`，不能只写 `scripts/` ——
+    // `packages/theme/scripts/` 下的四个脚本（主题门禁、静态 CSS 生成、dump）同样吃
+    // js.configs.recommended 的 no-undef，而仓库没有装 globals 包，不显式声明的话
+    // console / process 会被报成一堆错误（2026-09-29 修）。
+    files: ['scripts/**/*.mjs', 'packages/*/scripts/**/*.mjs'],
     languageOptions: {
       globals: {
         console: 'readonly',
-        process: 'readonly'
+        process: 'readonly',
+        URL: 'readonly'
       }
     }
   },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { definitionOf, nexusDark, nexusLight } from '../src/index.js';
+import { BUILT_IN_SCHEMES, BUILT_IN_THEMES, definitionOf, nexusDark, nexusLight } from '../src/index.js';
 import { GENERAL_SURFACES, contrastRatio, measureTheme, parseColour } from '../src/contrast.js';
 import { applyOverrides, defaultTuning, seedsToTokens, seedsToTokensWithReport } from '../src/derive.js';
 import { rgbToOklch } from '../src/oklch.js';
@@ -293,5 +293,44 @@ describe('defaultTuning', () => {
       'surfaceActive',
       'surfaceHover',
     ]);
+  });
+});
+
+describe('出厂主题表', () => {
+  it('id 唯一，且与 BUILT_IN_THEMES 一一对应 —— 一张表，不两处各写一遍', () => {
+    const ids = BUILT_IN_SCHEMES.map((entry) => entry.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(BUILT_IN_THEMES.map((theme) => theme.id));
+  });
+
+  it('每套的 name / variant 与种子一致 —— 定义不是另抄一份', () => {
+    for (const { id, scheme } of BUILT_IN_SCHEMES) {
+      const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === id);
+      expect(theme?.name).toBe(scheme.name);
+      expect(theme?.type).toBe(scheme.variant);
+    }
+  });
+
+  /**
+   * D2 的验收线：**五套出厂主题的 token 全部零不达标**。第三方种子（Dracula / Nord / Tokyo Night）
+   * 不是设计出来的，是社区给的 —— 它们能过是因为派生管线会修正，不是因为种子本来达标。
+   * 这条红了说明修正不够，不是说明种子不好。
+   */
+  it('五套出厂主题全部零不达标', () => {
+    expect(BUILT_IN_SCHEMES).toHaveLength(5);
+
+    for (const { id, scheme } of BUILT_IN_SCHEMES) {
+      const report = measureTheme(seedsToTokens(scheme));
+      expect({ id, failures: report.failures }).toEqual({ id, failures: [] });
+    }
+  });
+
+  it('第三方种子确实需要修正 —— 否则上一条测不到修正路径', () => {
+    for (const id of ['dracula', 'nord', 'tokyo-night-dark']) {
+      const entry = BUILT_IN_SCHEMES.find((candidate) => candidate.id === id);
+      if (!entry) throw new Error(`出厂主题表里没有 ${id}`);
+      expect(seedsToTokensWithReport(entry.scheme).corrections.length).toBeGreaterThan(0);
+    }
   });
 });

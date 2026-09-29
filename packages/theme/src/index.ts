@@ -1,6 +1,11 @@
 import { applyOverrides, seedsToTokens } from './derive.js';
 import { normalizeThemeChoice, resolveKnownThemeId, SYSTEM_THEME } from './resolve.js';
-import { nexusDarkSeeds, nexusLightSeeds, type Base16Slot, type NexusThemeScheme, type Tuning } from './seeds.js';
+import {
+  BUILT_IN_SCHEMES,
+  type Base16Slot,
+  type NexusThemeScheme,
+  type Tuning
+} from './seeds.js';
 import { isUserThemeId, newUserThemeId, type UserTheme } from './user-theme.js';
 
 export {
@@ -14,6 +19,16 @@ export {
 } from './resolve.js';
 export { themesToCss } from './static-css.js';
 export {
+  base16Slug,
+  inferVariant,
+  parseBase16,
+  serializeBase16,
+  type Base16Error,
+  type Base16Format,
+  type Base16ParseResult,
+  type Base16Scheme
+} from './base16.js';
+export {
   applyOverrides,
   defaultTuning,
   seedsToTokens,
@@ -22,7 +37,16 @@ export {
   type DeriveReport
 } from './derive.js';
 export { measureTheme, type ContrastFailure, type ContrastReport } from './contrast.js';
-export { BASE16_SLOTS, type Base16Slot, type NexusThemeScheme, type Tuning } from './seeds.js';
+export {
+  BASE16_SLOTS,
+  BUILT_IN_SCHEMES,
+  draculaSeeds,
+  nordSeeds,
+  tokyoNightSeeds,
+  type Base16Slot,
+  type NexusThemeScheme,
+  type Tuning
+} from './seeds.js';
 export {
   isUserThemeId,
   newUserThemeId,
@@ -54,11 +78,8 @@ export function definitionOf(id: string, scheme: NexusThemeScheme): ThemeDefinit
   };
 }
 
-/** id 与种子成对登记 —— id 在两处各写一遍迟早对不上。 */
-const BUILT_IN: readonly { id: string; scheme: NexusThemeScheme }[] = [
-  { id: 'nexus-light', scheme: nexusLightSeeds },
-  { id: 'nexus-dark', scheme: nexusDarkSeeds }
-];
+/** id 与种子成对登记在 `seeds.ts` —— 在两处各写一遍迟早对不上。 */
+const BUILT_IN = BUILT_IN_SCHEMES;
 
 /** 内置主题的种子表：fork 用户主题时要拿**种子**，从 43 个 token 反推不回 16 色。 */
 const builtInSchemes: ReadonlyMap<string, NexusThemeScheme> = new Map(
