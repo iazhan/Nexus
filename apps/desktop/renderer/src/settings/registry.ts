@@ -584,6 +584,30 @@ export const EXTERNAL_CHANGE_FIELD: FieldDef = {
 };
 
 /**
+ * 启动时恢复上次打开的工作区。
+ *
+ * **这一项与设置页里其它任何一项都不同**：它的效果发生在**下一次启动**，而且由主进程执行
+ * （`launchContext` 在主进程模块加载时就定下来了，那时还没有渲染进程）。所以这里的 `write`
+ * 只是把值写进存档，真正让它生效的是那条宿主设置通道 —— 主进程收到后落盘一份快照，
+ * 下次启动读它。见 `electron/recent-workspace.ts`。
+ *
+ * 默认**关** ＝ 与加这一项之前完全一致（空启动就是一个空窗口，什么工作区都不进）。
+ */
+export const RESTORE_LAST_WORKSPACE_FIELD: FieldDef = {
+  id: 'general.restoreLastWorkspace',
+  section: 'general',
+  labelKey: 'settings.general.restoreLastWorkspace',
+  descriptionKey: 'settings.general.restoreLastWorkspaceDescription',
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('general.restoreLastWorkspace')),
+    write: (value) => settings.set('general.restoreLastWorkspace', value === 'true'),
+    subscribe: (listener) => settings.subscribe('general.restoreLastWorkspace', listener)
+  },
+  menu: false
+};
+
+/**
  * 排版四项。**每一项的 `resetValue` 都等于改版前的实际观感** —— 重置不是「回到某个新设计的默认」，
  * 而是「回到我改之前的样子」。
  *
@@ -994,6 +1018,7 @@ export const FIELDS: readonly FieldDef[] = [
   AUTO_SAVE_FIELD,
   AUTO_SAVE_DELAY_FIELD,
   EXTERNAL_CHANGE_FIELD,
+  RESTORE_LAST_WORKSPACE_FIELD,
   FONT_FAMILY_FIELD,
   FONT_SIZE_FIELD,
   LINE_HEIGHT_FIELD,

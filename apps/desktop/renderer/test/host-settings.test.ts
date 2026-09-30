@@ -19,6 +19,7 @@ describe('宿主设置同步', () => {
     // 必须走 `settings.set` 才能把上一轮用例的改动还原。
     settings.set('files.ignoreRules', '');
     settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
+    settings.set('general.restoreLastWorkspace', false);
     syncSpy = vi.fn().mockResolvedValue(undefined);
     (window as unknown as { nexus?: unknown }).nexus = { syncHostSettings: syncSpy };
   });
@@ -29,6 +30,7 @@ describe('宿主设置同步', () => {
     delete (window as unknown as { nexus?: unknown }).nexus;
     settings.set('files.ignoreRules', '');
     settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
+    settings.set('general.restoreLastWorkspace', false);
   });
 
   it('启动时立刻推一次，值已经归一化', async () => {
@@ -39,7 +41,8 @@ describe('宿主设置同步', () => {
 
     expect(syncSpy).toHaveBeenCalledWith({
       ignoreRules: ['Drafts', 'notes/private'],
-      historyRetention: 100
+      historyRetention: 100,
+      restoreLastWorkspace: false
     });
   });
 
@@ -47,7 +50,11 @@ describe('宿主设置同步', () => {
     stop = startHostSettingsSync();
     await hostSettingsSynced();
 
-    expect(syncSpy).toHaveBeenCalledWith({ ignoreRules: [], historyRetention: 100 });
+    expect(syncSpy).toHaveBeenCalledWith({
+      ignoreRules: [],
+      historyRetention: 100,
+      restoreLastWorkspace: false
+    });
   });
 
   it('改设置会再推一次', async () => {
@@ -59,7 +66,11 @@ describe('宿主设置同步', () => {
     await hostSettingsSynced();
 
     expect(syncSpy).toHaveBeenCalledTimes(2);
-    expect(syncSpy).toHaveBeenLastCalledWith({ ignoreRules: ['drafts'], historyRetention: 100 });
+    expect(syncSpy).toHaveBeenLastCalledWith({
+      ignoreRules: ['drafts'],
+      historyRetention: 100,
+      restoreLastWorkspace: false
+    });
   });
 
   /**
@@ -109,7 +120,11 @@ describe('宿主设置同步', () => {
     await hostSettingsSynced();
 
     expect(syncSpy).toHaveBeenCalledTimes(2);
-    expect(syncSpy).toHaveBeenLastCalledWith({ ignoreRules: ['drafts'], historyRetention: 100 });
+    expect(syncSpy).toHaveBeenLastCalledWith({
+      ignoreRules: ['drafts'],
+      historyRetention: 100,
+      restoreLastWorkspace: false
+    });
     consoleError.mockRestore();
   });
 
@@ -160,6 +175,61 @@ describe('宿主设置同步', () => {
       await hostSettingsSynced();
 
       expect(syncSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * 启动时恢复上次工作区。
+   *
+   * 这一项与上面两组有一处结构性的不同：主进程拿到它之后**会落盘**（它是唯一一个
+   * 「要在第一个渲染进程存在之前就被读到」的设置）。但那是主进程自己的事 ——
+   * 这一层只管「值送出去了没有」，落盘与启动回落由 `recent-workspace.test.ts` 与
+   * 真机用例各测一半。
+   */
+  describe('启动时恢复上次工作区', () => {
+    it('默认送 false —— 没打开这一项时，空启动还是空启动', async () => {
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ restoreLastWorkspace: false })
+      );
+    });
+
+    it('打开这一项送 true', async () => {
+      settings.set('general.restoreLastWorkspace', true);
+
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ restoreLastWorkspace: true })
+      );
+    });
+
+    it('**改这一项本身就会触发推送** —— 漏订阅的症状是「打开了设置，下次启动却没恢复」', async () => {
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+
+      settings.set('general.restoreLastWorkspace', true);
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenCalledTimes(2);
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ restoreLastWorkspace: true })
+      );
+    });
+
+    it('推的是布尔值，不是存档里的字符串', async () => {
+      // 存档里是 `'true'` / `'false'`，主进程只该拿到「要不要恢复」这个答案。
+      settings.set('general.restoreLastWorkspace', true);
+
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      const payload = syncSpy.mock.calls.at(-1)?.[0] as { restoreLastWorkspace: unknown };
+      expect(payload.restoreLastWorkspace).toBe(true);
     });
   });
 });

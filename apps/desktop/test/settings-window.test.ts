@@ -236,6 +236,18 @@ describe('设置窗口', () => {
       await app.evaluate<string>(`localStorage.getItem('nexus-status-bar-hidden') ?? ''`)
     ).toBe('format');
 
+    // ④c⁗ 通用分组里的「启动时恢复上次工作区」。这一项**改的是下一次启动的行为**，
+    //      所以它在本窗口里的可见效果就是「控件在那儿」—— 真正的效果在
+    //      `restore-last-workspace.test.ts`（两次启动）里验。这里钉的是
+    //      「注册表里加了它，真窗口里就真的多一个控件」，以及它是个开关而不是别的控件。
+    await app.click('.nexus-settings-nav [data-section="general"]');
+    await app.waitForSelector('[data-field-input="general.restoreLastWorkspace"]', 10000);
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('[data-field-input="general.restoreLastWorkspace"]').getAttribute('role')`
+      )
+    ).toBe('switch');
+
     // ④d 数据分组在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
     //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」
     //     这两件事只有真机验证得到，renderer 用例里那个 `window.nexus` 是打桩的。

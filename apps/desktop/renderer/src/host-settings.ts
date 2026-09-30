@@ -32,7 +32,8 @@ import { settings } from './platform.js';
 function currentHostSettings(): HostSettings {
   return {
     ignoreRules: parseIgnoreRules(settings.get('files.ignoreRules')),
-    historyRetention: parseHistoryRetention(settings.get('data.historyRetention'))
+    historyRetention: parseHistoryRetention(settings.get('data.historyRetention')),
+    restoreLastWorkspace: settings.get('general.restoreLastWorkspace')
   };
 }
 
@@ -42,10 +43,9 @@ function currentHostSettings(): HostSettings {
  *
  * `subscribe` 一次只收一个键，所以这里是数组而不是单个字符串。
  */
-const WATCHED: ReadonlyArray<'files.ignoreRules' | 'data.historyRetention'> = [
-  'files.ignoreRules',
-  'data.historyRetention'
-];
+const WATCHED: ReadonlyArray<
+  'files.ignoreRules' | 'data.historyRetention' | 'general.restoreLastWorkspace'
+> = ['files.ignoreRules', 'data.historyRetention', 'general.restoreLastWorkspace'];
 
 /** 最近一次推送。串起来是为了「改得快」时后一次不会先落地。 */
 let pending: Promise<void> = Promise.resolve();

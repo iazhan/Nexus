@@ -198,6 +198,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       'What to do when something else edits the file you have open.',
     'settings.general.externalChange.smart': 'Reload if I have no unsaved edits',
     'settings.general.externalChange.prompt': 'Always ask me',
+    'settings.general.restoreLastWorkspace': 'Reopen the last workspace on start',
+    'settings.general.restoreLastWorkspaceDescription':
+      'When the app starts with no folder, open the one you used last. Takes effect the next time the app starts.',
     'settings.editor.fontFamily': 'Font',
     'settings.editor.fontFamilyDescription':
       'Typeface for document text. Headings and inline code scale along with it.',
@@ -684,6 +687,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.general.externalChangeDescription': '当前打开的文件被别的程序改动时怎么办。',
     'settings.general.externalChange.smart': '没有未保存改动就自动重载',
     'settings.general.externalChange.prompt': '总是问我',
+    'settings.general.restoreLastWorkspace': '启动时恢复上次的工作区',
+    'settings.general.restoreLastWorkspaceDescription':
+      '应用不带目录启动时，直接打开上次用过的那个工作区。下次启动生效。',
     'settings.editor.fontFamily': '字体',
     'settings.editor.fontFamilyDescription':
       '正文的字体。标题与行内代码会跟着一起缩放。',

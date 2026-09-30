@@ -53,6 +53,20 @@ describe('主进程宿主设置', () => {
       expect(() => sanitizeHostSettings({ historyRetention: NaN })).toThrow(/非负整数/);
     });
 
+    it('restoreLastWorkspace 只收布尔值', () => {
+      expect(sanitizeHostSettings({ restoreLastWorkspace: true })).toEqual({
+        restoreLastWorkspace: true
+      });
+      expect(sanitizeHostSettings({ restoreLastWorkspace: false })).toEqual({
+        restoreLastWorkspace: false
+      });
+      // 「看着像」的一律拒：它决定下一次启动要不要对一个目录做授权，
+      // 猜错的方向是「不该开的开了」。
+      expect(() => sanitizeHostSettings({ restoreLastWorkspace: 'true' })).toThrow(/布尔值/);
+      expect(() => sanitizeHostSettings({ restoreLastWorkspace: 1 })).toThrow(/布尔值/);
+      expect(() => sanitizeHostSettings({ restoreLastWorkspace: null })).toThrow(/布尔值/);
+    });
+
     it('载荷本身不是对象就抛', () => {
       expect(() => sanitizeHostSettings(null)).toThrow(/必须是对象/);
       expect(() => sanitizeHostSettings('drafts')).toThrow(/必须是对象/);
@@ -63,7 +77,11 @@ describe('主进程宿主设置', () => {
     it('初始值等于「加这条通道之前的行为」', () => {
       // `historyRetention: null` 就是那个「之前的行为」：没听到设置之前不删任何历史。
       // 它**不等于**设置项的默认档位（100）—— 前者是「还没听到」，后者是「用户没选过」。
-      expect(hostSettings()).toEqual({ ignoreRules: [], historyRetention: null });
+      expect(hostSettings()).toEqual({
+        ignoreRules: [],
+        historyRetention: null,
+        restoreLastWorkspace: false
+      });
     });
 
     it('未出现的键保持原值', () => {
@@ -84,14 +102,22 @@ describe('主进程宿主设置', () => {
       updateHostSettings({ ignoreRules: ['drafts'] });
       updateHostSettings({ historyRetention: 50 });
 
-      expect(hostSettings()).toEqual({ ignoreRules: ['drafts'], historyRetention: 50 });
+      expect(hostSettings()).toEqual({
+        ignoreRules: ['drafts'],
+        historyRetention: 50,
+        restoreLastWorkspace: false
+      });
     });
 
     it('resetHostSettings 回到初始值', () => {
       updateHostSettings({ ignoreRules: ['drafts'] });
       resetHostSettings();
 
-      expect(hostSettings()).toEqual({ ignoreRules: [], historyRetention: null });
+      expect(hostSettings()).toEqual({
+        ignoreRules: [],
+        historyRetention: null,
+        restoreLastWorkspace: false
+      });
     });
   });
 });

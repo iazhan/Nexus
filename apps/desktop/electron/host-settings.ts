@@ -14,6 +14,11 @@
  * 所以主进程不需要自己持久化 —— 存盘反而会多出「磁盘上那份与渲染进程那份不一致」的
  * 第二个事实源，而症状是「设置页改了、重启后主进程还用着旧的」。
  *
+ * **一处例外：`restoreLastWorkspace`。** 它的消费者是**下一次启动**的 `launchContext`，
+ * 而那个值在主进程模块加载时就定了 —— 那一刻还没有渲染进程，送不过来。所以它由
+ * `recent-workspace.ts` 单独落盘。判据是「这个值在第一个渲染进程存在之前就要被读到」，
+ * 不满足这条的字段一律留在内存里。
+ *
  * ## 为什么不是全局单例的 FileService 字段
  *
  * 主进程确实只有一个实例，但 `FileService` 是**被构造出来的**、可以有多份（测试里就
@@ -57,6 +62,16 @@ export function sanitizeHostSettings(raw: unknown): Partial<HostSettings> {
       throw new Error('syncHostSettings: historyRetention 必须是非负整数或 null');
     }
     patch.historyRetention = retention as number | null;
+  }
+
+  if ('restoreLastWorkspace' in candidate) {
+    const restore = candidate.restoreLastWorkspace;
+    // 严格收 `boolean`：`'true'` / `1` 这类「看着像」的值一律拒。它决定的是
+    // **下一次启动要不要对一个目录做授权**，猜错的方向是「不该开的开了」。
+    if (typeof restore !== 'boolean') {
+      throw new Error('syncHostSettings: restoreLastWorkspace 必须是布尔值');
+    }
+    patch.restoreLastWorkspace = restore;
   }
 
   return patch;

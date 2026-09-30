@@ -64,6 +64,7 @@ import {
   NEW_DOCUMENT_LOCATION_DEFAULT,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   NEW_DOCUMENT_LOCATION_STORAGE_KEY,
+  RESTORE_LAST_WORKSPACE_STORAGE_KEY,
   parseGroupSetting,
   parseNumberSetting,
   serializeNumberSetting,
@@ -121,6 +122,24 @@ function toggleSetting(storageKey: string) {
     storageKey,
     fallback: true,
     parse: (raw) => raw !== 'false',
+    serialize: (value) => String(value)
+  });
+}
+
+/**
+ * 开关项的样板（默认**关**）。与 `toggleSetting` 的差别不只是那个 `false`，
+ * **认不出时的方向也相反**：那个是「读不懂就当开」，这个是「读不懂就当关」。
+ *
+ * 两条判据其实同一条 —— **回落到这项的默认值**。默认开的那几个（自动保存、行号）
+ * 回落到开，因为静默关掉一项已有能力比留着它更糟；这一项默认就是关的，回落到关才自洽。
+ * 而且它的后果更重：打开它意味着**下一次启动会对一个目录做授权**（写权限），
+ * 存档里一个写坏的字符不该把用户送进某个工作区。
+ */
+function toggleSettingOff(storageKey: string) {
+  return defineSetting<boolean>({
+    storageKey,
+    fallback: false,
+    parse: (raw) => raw === 'true',
     serialize: (value) => String(value)
   });
 }
@@ -239,6 +258,14 @@ export const SETTING_DEFS = {
     EXTERNAL_CHANGE_DEFAULT,
     EXTERNAL_CHANGE_OPTIONS.map((option) => option.value)
   ),
+
+  /**
+   * 启动时恢复上次打开的工作区。**默认关** ＝ 与加这一项之前完全一致（空启动就是一个空窗口）。
+   *
+   * 值是这一项的权威，主进程只持有一份给下次启动读的快照 —— 这条链见
+   * `electron/recent-workspace.ts` 的头注释。改动这一项要连主进程一起看。
+   */
+  'general.restoreLastWorkspace': toggleSettingOff(RESTORE_LAST_WORKSPACE_STORAGE_KEY),
 
   'editor.fontSize': numberSetting(EDITOR_FONT_SIZE),
   'editor.lineHeight': numberSetting(EDITOR_LINE_HEIGHT),

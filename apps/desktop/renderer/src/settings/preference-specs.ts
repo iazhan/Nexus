@@ -99,6 +99,15 @@ export const EDITOR_WORD_COUNT_STORAGE_KEY = 'nexus-editor-word-count';
 export const AUTO_SAVE_STORAGE_KEY = 'nexus-auto-save';
 export const EXTERNAL_CHANGE_STORAGE_KEY = 'nexus-external-change';
 
+/**
+ * 启动时恢复上次打开的工作区。
+ *
+ * 磁盘键单独一个（不是别的键的子串），因为主进程会把它**落盘成一份给下次启动读的快照** ——
+ * 见 `electron/recent-workspace.ts`。这一项是唯一一个「值要在第一个渲染进程存在之前
+ * 就被读到」的设置，所以它的存档格式与别的不一样，改它要连主进程一起改。
+ */
+export const RESTORE_LAST_WORKSPACE_STORAGE_KEY = 'nexus-restore-last-workspace';
+
 /** 磁盘字符串 → 数值。空串与非数字**回落到默认值**，不是夹到最小值（`Number('')` 是 0）。 */
 export function parseNumberSetting(spec: NumberSettingSpec, raw: string | null): number {
   if (raw === null || raw.trim() === '') return spec.fallback;

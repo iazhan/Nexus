@@ -115,6 +115,18 @@ export interface LaunchElectronOptions {
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
+  /**
+   * 复用某个 userData 目录，而不是每次新建一个临时目录。
+   *
+   * 默认行为（每个实例一个新目录）是为了隔离：不隔离的话索引库与 Electron 的临时文件会
+   * 无限累积，累积本身又会让后续实例变慢。**只有「要跨两次启动验证同一份落盘状态」的用例
+   * 才该传它** —— 目前只有「启动时恢复上次工作区」这一条：它的效果就是「上一次启动写了什么，
+   * 下一次启动读到什么」，两次启动必须看同一个目录。
+   *
+   * 传进来的目录同样登记进 `createTempDir` 的清理表（用 `createTempDir` 造它即可），
+   * 所以用例不必自己删。
+   */
+  userDataDir?: string;
 }
 
 export interface CDPTarget {
@@ -215,6 +227,12 @@ export class ElectronAppInstance {
   public target: CDPTarget;
   /** 本实例专属的 userData 目录；`close()` 时删掉，避免临时目录无限累积。 */
   public readonly userDataDir: string;
+  /**
+   * 这个目录是本实例建的吗。**`false` 时 `close()` 不删它** —— 调用方传了
+   * `userDataDir` 就说明他要跨启动复用同一份状态，删掉等于把第二次启动的数据抹了。
+   * 复用目录的清理归 `createTempDir` 的退出钩子。
+   */
+  private readonly ownsUserDataDir: boolean;
   private ws: WebSocket;
   private msgId = 0;
   private readonly pendingRequests = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
@@ -224,13 +242,15 @@ export class ElectronAppInstance {
     port: number,
     target: CDPTarget,
     ws: WebSocket,
-    userDataDir: string
+    userDataDir: string,
+    ownsUserDataDir = true
   ) {
     this.proc = proc;
     this.port = port;
     this.target = target;
     this.ws = ws;
     this.userDataDir = userDataDir;
+    this.ownsUserDataDir = ownsUserDataDir;
     this.bindSocket(ws);
   }
 
@@ -754,6 +774,9 @@ export class ElectronAppInstance {
 
   /** 尽力删除本实例的 userData 目录；删不掉、或者太慢，都不阻塞用例。 */
   private async removeUserDataDir(): Promise<void> {
+    // 复用别人给的目录时不删：那份状态是下一个实例要读的（见 `ownsUserDataDir`）。
+    if (!this.ownsUserDataDir) return;
+
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
@@ -817,7 +840,7 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
   // 走 `createTempDir` 登记而不是裸 `mkdtempSync`：裸调用只在 `close()` 里删，
   // 而用例超时被杀、Electron 崩溃这类路径走不到 `close()`，目录就留在 `%TEMP%` 了。
   // 登记之后，进程退出钩子兜住最后一道。
-  const userDataDir = createTempDir('nexus-userdata-');
+  const userDataDir = options.userDataDir ?? createTempDir('nexus-userdata-');
   args.push(`--user-data-dir=${userDataDir}`);
 
   if (options.filePath) {
@@ -896,7 +919,14 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
     };
   });
 
-  const instance = new ElectronAppInstance(proc, port, target, ws, userDataDir);
+  const instance = new ElectronAppInstance(
+    proc,
+    port,
+    target,
+    ws,
+    userDataDir,
+    options.userDataDir === undefined
+  );
   await instance.sendCommand('Runtime.enable');
   await instance.sendCommand('Page.enable');
   // 无边框窗口不保证拿到系统焦点，未激活时 CDP 输入事件会被丢弃；开启焦点模拟保证按键可达。

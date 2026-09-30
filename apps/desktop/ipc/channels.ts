@@ -149,6 +149,15 @@ export interface HostSettings {
    * 解析规则见 `@nexus/core` 的 `parseHistoryRetention` —— 认不出的值一律当不清理。
    */
   historyRetention: number | null;
+  /**
+   * 启动时是否恢复上次打开的工作区。
+   *
+   * **这一项与上面两项有一处结构性的不同**：它的消费者是**下一次启动**的 `launchContext`，
+   * 而那东西在主进程模块加载时就定下来了 —— 那时还没有渲染进程能把它送过来。
+   * 所以主进程会把它**连同上次的工作区一起落盘**（`electron/recent-workspace.ts`），
+   * 这是 `host-settings.ts` 那句「内存而不是落盘」的唯一例外。
+   */
+  restoreLastWorkspace: boolean;
 }
 
 /**
@@ -157,10 +166,13 @@ export interface HostSettings {
  * `historyRetention: null` 就是那个「完全一致」—— 没收到设置之前不删任何历史。
  * 注意它**不等于**设置项的默认档位（100）：默认档位是「用户没选过时界面上显示什么」，
  * 这里是「主进程还没听到用户的选择时该怎么做」，后者必须更保守。
+ *
+ * `restoreLastWorkspace: false` 同理：没听到之前不恢复，空启动还是空启动。
  */
 export const DEFAULT_HOST_SETTINGS: HostSettings = {
   ignoreRules: [],
-  historyRetention: null
+  historyRetention: null,
+  restoreLastWorkspace: false
 };
 
 /**

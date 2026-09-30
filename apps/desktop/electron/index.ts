@@ -17,6 +17,12 @@ import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js
 import { createElectronFileDialog } from './file-dialog.js';
 import { HistoryStore, HISTORY_DIR } from './history-store.js';
 import { hostSettings, sanitizeHostSettings, updateHostSettings } from './host-settings.js';
+import {
+  applyRecentWorkspace,
+  EMPTY_RECENT_WORKSPACE,
+  readRecentWorkspace,
+  writeRecentWorkspace
+} from './recent-workspace.js';
 import { IndexStore } from './index-store.js';
 import { indexWorkspace } from './indexer.js';
 import { createProcessorRegistry } from './processor/index.js';
@@ -111,14 +117,53 @@ function applyWorkspaceEnvOverride(context: LaunchContext): LaunchContext {
   };
 }
 
+/**
+ * `userData` 目录。取不到时**整个「最近工作区」功能静默关闭** ——
+ * 它只影响「下次启动方不方便」，不值得为它让应用起不来。
+ */
+function userDataDirectory(): string | null {
+  try {
+    return app.getPath('userData');
+  } catch (error) {
+    console.warn('[Nexus Shell] 取不到 userData 目录，本次不记录也不恢复工作区:', error);
+    return null;
+  }
+}
+
+/**
+ * 最近工作区落盘的目录。**模块顶层求值**：`launchContext` 要用它，而后者必须在
+ * 任何窗口创建之前定下来（见 `recent-workspace.ts` 的头注释）。
+ */
+const recentWorkspaceDir = userDataDirectory();
+const startupState = recentWorkspaceDir
+  ? readRecentWorkspace(recentWorkspaceDir)
+  : { ...EMPTY_RECENT_WORKSPACE };
+
 // Parse launch arguments upon main process startup
-const launchContext: LaunchContext = applyWorkspaceEnvOverride(
-  parseLaunchArgs(process.argv, {
-    execPath: process.execPath,
-    classifyPath: classifyLaunchPath
-  })
+const launchContext: LaunchContext = applyRecentWorkspace(
+  applyWorkspaceEnvOverride(
+    parseLaunchArgs(process.argv, {
+      execPath: process.execPath,
+      classifyPath: classifyLaunchPath
+    })
+  ),
+  startupState,
+  (targetPath) => classifyLaunchPath(targetPath) === 'directory'
 );
 console.log('[Nexus Shell] Initialized launch context:', JSON.stringify(launchContext));
+
+/**
+ * 记下这次的工作区，供**下一次**启动恢复。
+ *
+ * 与「要不要恢复」分开：设置关着时照样记。这样用户之后打开那一项，上次的工作区立刻能用 ——
+ * 若只在设置开着时才记，用户会看到「打开了设置，但它要等下一次进工作区才有用」。
+ */
+if (recentWorkspaceDir && launchContext.workspaceRoot) {
+  writeRecentWorkspace(recentWorkspaceDir, {
+    ...startupState,
+    workspaceRoot: launchContext.workspaceRoot
+  });
+}
 
 function getPreloadPath(): string {
   const cjsPath = path.join(__dirname, '../preload/index.cjs');
@@ -1060,7 +1105,18 @@ ipcMain.on(IPC_CHANNELS.notifySettingsChanged, (event) => {
  * 三个窗口都会推（它们共用同一份存储，值一样），后到的覆盖先到的，结果相同。
  */
 ipcMain.handle(IPC_CHANNELS.syncHostSettings, async (_event, payload: unknown) => {
-  updateHostSettings(sanitizeHostSettings(payload));
+  const patch = sanitizeHostSettings(payload);
+  updateHostSettings(patch);
+
+  // 「启动时恢复上次工作区」是这一份里唯一**要落盘**的字段：它的消费者是**下一次启动**
+  // 的 `launchContext`，而那一刻还没有渲染进程能把它送过来。别的字段存内存就够 ——
+  // 理由见 `host-settings.ts` 与 `recent-workspace.ts` 两处的头注释。
+  if (recentWorkspaceDir && 'restoreLastWorkspace' in patch) {
+    writeRecentWorkspace(recentWorkspaceDir, {
+      restoreLastWorkspace: patch.restoreLastWorkspace === true,
+      workspaceRoot: readRecentWorkspace(recentWorkspaceDir).workspaceRoot
+    });
+  }
 });
 
 // App lifecycle
