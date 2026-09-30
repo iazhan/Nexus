@@ -3,21 +3,32 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 
 // Nexus Unified Theme using CSS Variables (Design Tokens)
+//
+// 排版三项（字号 / 字体 / 行高）与段落间距走 `--nx-editor-*` 而不是主题 token：它们是**用户偏好**，
+// 不是主题的一部分 —— 换主题不该把字号重置回去。变量由宿主（App.css 的 `:root` 给默认值、
+// 渲染进程按设置覆盖）提供，包内只引用。
+//
+// 字号是**基准**：标题与行内元素一律用 `em`，所以改这一个值整篇一起缩放。
 export const nexusBaseTheme = EditorView.theme({
   "&": {
     height: "100%",
     color: "var(--nexus-text-primary)",
     backgroundColor: "var(--nexus-bg-canvas)",
-    fontSize: "14px",
-    fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace"
+    fontSize: "var(--nx-editor-font-size, 14px)",
+    fontFamily: "var(--nx-editor-font-family, monospace)"
   },
   ".cm-content": {
     caretColor: "var(--nexus-accent-indicator)",
     padding: "12px 16px 12px 36px",
-    lineHeight: "1.6"
+    lineHeight: "var(--nx-editor-line-height, 1.6)"
   },
   ".cm-line": {
     position: "relative"
+  },
+  // 块与块之间的空行。间距用 `padding-bottom` 而不是 `margin`：行高变化会被 CM 的高度测量
+  // 吃掉（编辑器开着 `lineWrapping`，逐行高度本来就是测出来的），而 margin 不计入行盒。
+  ".cm-block-gap": {
+    paddingBottom: "var(--nx-editor-paragraph-spacing, 0px)"
   },
   "&.cm-focused .cm-cursor": {
     borderLeftColor: "var(--nexus-accent-indicator)",

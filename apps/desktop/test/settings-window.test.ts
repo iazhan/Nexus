@@ -101,7 +101,13 @@ describe('设置窗口', () => {
       await app.evaluate<number>(
         `document.querySelectorAll('.nexus-settings-nav [data-availability="planned"]').length`
       )
-    ).toBe(5);
+    ).toBe(4);
+    // 数据分组这一批转可用：里面是两个动作（重建索引 / 打开历史目录）。
+    expect(
+      await app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('.nexus-settings-nav [data-availability="available"]')).map((el) => el.getAttribute('data-section'))`
+      )
+    ).toEqual(['general', 'editor', 'appearance', 'data']);
     // 独立窗口没有「返回工作区」这个键了 —— 关窗归标题栏与 Escape
     expect(await app.evaluate<boolean>(`!!document.querySelector('[data-settings-back]')`)).toBe(
       false
@@ -131,6 +137,48 @@ describe('设置窗口', () => {
       `gruvbox@${mode}`
     );
 
+    // ④c 排版设置走**同一条**跨窗口链路。判据取 `documentElement` 上的 CSS 变量而不是输入框的值
+    //     —— 变量才是编辑器真正读的东西，输入框只证明控件写进了 store。
+    //     数字输入框没有原生 `change` 语义，要走 React 认的那条路：原生 setter + `input` 事件。
+    await app.click('.nexus-settings-nav [data-section="editor"]');
+    await app.waitForSelector('[data-field-input="editor.fontSize"]', 10000);
+    await app.evaluate(`(() => {
+      const input = document.querySelector('[data-field-input="editor.fontSize"]');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, '18');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    expect(await app.evaluate<string>(`localStorage.getItem('nexus-editor-font-size') ?? ''`)).toBe(
+      '18'
+    );
+    expect(
+      await app.evaluate<string>(
+        `document.documentElement.style.getPropertyValue('--nx-editor-font-size')`
+      )
+    ).toBe('18px');
+
+    // ④d 数据分组的两个动作在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
+    //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」
+    //     这两件事只有真机验证得到，renderer 用例里那个 `window.nexus` 是打桩的。
+    await app.click('.nexus-settings-nav [data-section="data"]');
+    await app.waitForSelector('[data-field-action="data.rebuildIndex"]', 10000);
+    await app.waitForFunction(
+      `() => {
+        const button = document.querySelector('[data-field-action="data.rebuildIndex"]');
+        return Boolean(button) && !button.disabled;
+      }`,
+      10000
+    );
+    expect(
+      await app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('[data-field-action]')).map((el) => el.dataset.fieldAction)`
+      )
+    ).toEqual(['data.rebuildIndex', 'data.openHistoryDirectory']);
+    // 探到工作区就不该画那行「打开一个工作区后才能使用」。
+    expect(
+      await app.evaluate<number>(`document.querySelectorAll('[data-field-blocked]').length`)
+    ).toBe(0);
+
     // ⑤ 跨窗口同步：切回主窗口，它也换过来了。
     //    这条是独立窗口方案最容易漏的地方 —— 两个渲染进程各有一份 `SettingsStore`，
     //    少了主进程中转就是「设置窗口改了、主窗口纹丝不动」。
@@ -139,6 +187,12 @@ describe('设置窗口', () => {
       `() => document.documentElement.dataset.theme === 'gruvbox-${mode}'`,
       10000
     );
+    // 排版变量同样跟过来了 —— 设置窗口里改字号，主窗口的编辑器立刻按新字号排版。
+    expect(
+      await app.evaluate<string>(
+        `document.documentElement.style.getPropertyValue('--nx-editor-font-size')`
+      )
+    ).toBe('18px');
 
     // ⑥ 单例：再触发一次不会开出第二个设置窗口。
     //    这里走 `evaluate` 直接调桥、不派发按键 —— 设置窗口持有焦点时主窗口的
@@ -162,5 +216,12 @@ describe('设置窗口', () => {
     await app.waitForSelector('.nexus-activity-icon[data-activity="settings"]', 10000);
     await app.click('.nexus-activity-icon[data-activity="settings"]');
     await app.waitForPageCount(SETTINGS_WINDOW_URL_MARKER, 1, 15000);
+
+    // 还原字号与上次停留的分组：Electron 的 user-data-dir **没有按用例隔离**，留一个 18px
+    // 或「停在数据分组」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。
+    // 走 `localStorage` 直接清，不绕 UI。
+    await app.evaluate(
+      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-settings-section');`
+    );
   }, 120000);
 });

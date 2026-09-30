@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { MarkdownDocumentSession, createSessionEditorState } from '../src/index.js';
-import { buildMarkerDecorations } from '../src/markdown-markers.js';
+import { buildBlockGapDecorations, buildMarkerDecorations } from '../src/markdown-markers.js';
 import { buildDragHandleDecorations } from '../src/drag-handle.js';
 
 /**
@@ -18,6 +18,9 @@ import { buildDragHandleDecorations } from '../src/drag-handle.js';
  *   2. `buildDragHandleDecorations` —— Visual 拖拽手柄
  *   3. `createSessionEditorState(surfaceKind: 'source')`
  *   4. `createSessionEditorState(surfaceKind: 'visual')`
+ *
+ * 段间距的 `buildBlockGapDecorations` 是**单独一个集合**（理由见它的注释），所以
+ * `assertAscending` 对它是成立的 —— 它不含跨行 mark，不会产生嵌套层。
  *
  * 语料刻意自包含（不依赖被 gitignore 的 docs/），并且必须包含
  * **链接文字本身就是单个 widget** 的构造——那是唯一会踩中
@@ -93,6 +96,16 @@ function assertAscending(set: { between: (from: number, to: number, f: (from: nu
 describe('decoration construction order contract', () => {
   it('builds marker decorations in ascending from-order', () => {
     const set = buildMarkerDecorations(TRICKY_DOC);
+    expect(assertAscending(set, TRICKY_DOC.length)).toBeGreaterThan(0);
+  });
+
+  /**
+   * 段间距集合**只有零长度行装饰、位置严格递增**，所以它必须单层、严格升序。
+   * 这条同时是「别把段间距并回标记字段」的守卫：并回去之后跨行 mark 会把它推给嵌套层，
+   * 这里立刻红。
+   */
+  it('builds block gap decorations in ascending from-order', () => {
+    const set = buildBlockGapDecorations(TRICKY_DOC);
     expect(assertAscending(set, TRICKY_DOC.length)).toBeGreaterThan(0);
   });
 

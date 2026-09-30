@@ -108,11 +108,11 @@ describe('设置视图 · 左栏', () => {
     container.remove();
   });
 
-  it('八组全显示，五组标 planned、通用 / 编辑器 / 外观可用', () => {
+  it('八组全显示，四组标 planned、通用 / 编辑器 / 外观 / 数据可用', () => {
     renderSettings();
 
     expect(navItems()).toHaveLength(SECTIONS.length);
-    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(5);
+    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(4);
 
     const available = navItems().filter(
       (item) => item.dataset.availability === 'available'
@@ -120,7 +120,8 @@ describe('设置视图 · 左栏', () => {
     expect(available.map((item) => item.dataset.section)).toEqual([
       'general',
       'editor',
-      'appearance'
+      'appearance',
+      'data'
     ]);
   });
 
@@ -538,8 +539,21 @@ describe('设置视图 · Appearance', () => {
  * 消费者，也是「数值项给逐项重置」的第一个样本。
  */
 describe('设置视图 · Editor', () => {
-  beforeEach(() => {
+  /**
+   * 排版项会被写进 `documentElement` 的样式，而那是**跨用例共享**的全局状态 ——
+   * 不还原的话「改了字号」这条会污染后面所有读变量的用例。
+   */
+  function resetTypography(): void {
     settings.set('editor.panelWidth', PANEL_DEFAULT_WIDTH);
+    settings.set('editor.fontSize', 14);
+    settings.set('editor.lineHeight', 1.6);
+    settings.set('editor.paragraphSpacing', 0);
+    settings.set('editor.contentWidth', 'none');
+    settings.set('editor.fontFamily', 'default');
+  }
+
+  beforeEach(() => {
+    resetTypography();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -548,7 +562,7 @@ describe('设置视图 · Editor', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    settings.set('editor.panelWidth', PANEL_DEFAULT_WIDTH);
+    resetTypography();
   });
 
   it('编辑器分组渲染字段表里的字段（mermaid 开关 + 面板宽度）', () => {
@@ -601,6 +615,198 @@ describe('设置视图 · Editor', () => {
 
     expect(container.querySelector('[data-field="general.locale"]')).not.toBeNull();
     expect(container.querySelector('[data-field-reset="general.locale"]')).toBeNull();
+  });
+
+  /**
+   * 排版四项的**默认值必须等于改版前的观感** —— 这一批只加设置项，不该顺手改默认样式。
+   * 判据取注册表里的 `resetValue`，因为重置键就是照它画的：两者不一致时，
+   * 「重置」会把人送回一个从未存在过的样子。
+   */
+  it('排版项的默认值就是改版前的观感（14 / 1.6 / 0 / 跟随窗口 / 等宽）', () => {
+    const byId = new Map(FIELDS.map((field) => [field.id, field]));
+
+    expect(byId.get('editor.fontSize')?.resetValue).toBe('14');
+    expect(byId.get('editor.lineHeight')?.resetValue).toBe('1.6');
+    expect(byId.get('editor.paragraphSpacing')?.resetValue).toBe('0');
+    expect(settings.get('editor.fontSize')).toBe(14);
+    expect(settings.get('editor.lineHeight')).toBe(1.6);
+    expect(settings.get('editor.paragraphSpacing')).toBe(0);
+    expect(settings.get('editor.contentWidth')).toBe('none');
+    expect(settings.get('editor.fontFamily')).toBe('default');
+    expect(settings.get('general.autoSave')).toBe(true);
+  });
+
+  it('改正文字号立刻写进存档，并把变量写到 documentElement 上', () => {
+    renderSettings('editor');
+
+    const input = container.querySelector<HTMLInputElement>('[data-field-input="editor.fontSize"]');
+    act(() => setInputValue(input as HTMLInputElement, '18'));
+
+    expect(settings.get('editor.fontSize')).toBe(18);
+    // 编辑器主题只认这个变量，所以「改了没反应」与「变量没写」是同一件事。
+    expect(document.documentElement.style.getPropertyValue('--nx-editor-font-size')).toBe('18px');
+  });
+
+  it('字号越界被夹住，输入框显示夹取后的值', () => {
+    renderSettings('editor');
+
+    const input = container.querySelector<HTMLInputElement>('[data-field-input="editor.fontSize"]');
+    act(() => setInputValue(input as HTMLInputElement, '99'));
+
+    expect(settings.get('editor.fontSize')).toBe(20);
+    expect(input?.value).toBe('20');
+  });
+
+  /**
+   * 清空输入框是「正在改」的中间态，不是「要 0」。少了这道守卫，`Number('')` 是 0，
+   * 夹取后落到最小值 —— 表现是「删光字符，字号自己跳到 12」。
+   */
+  it('清空数值输入框不写盘，也不把值夹到最小值', () => {
+    settings.set('editor.fontSize', 18);
+    renderSettings('editor');
+
+    const input = container.querySelector<HTMLInputElement>('[data-field-input="editor.fontSize"]');
+    act(() => setInputValue(input as HTMLInputElement, ''));
+
+    expect(settings.get('editor.fontSize')).toBe(18);
+  });
+
+  it('内容宽度是枚举，选中项写进存档', () => {
+    renderSettings('editor');
+
+    const select = container.querySelector<HTMLSelectElement>(
+      '[data-field-input="editor.contentWidth"]'
+    );
+    expect(select?.value).toBe('none');
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        'value'
+      )?.set;
+      setter?.call(select, '880px');
+      select?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(settings.get('editor.contentWidth')).toBe('880px');
+    expect(document.documentElement.style.getPropertyValue('--nx-editor-content-width')).toBe(
+      '880px'
+    );
+  });
+});
+
+/**
+ * 动作字段（`control: 'action'`）。它没有值，只有「能不能按」与「按完怎么了」两种状态 ——
+ * 所以判据是 `disabled` 与两行回执，不是选中态。
+ */
+describe('设置视图 · 动作字段', () => {
+  const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
+
+  function stubBridge(roots: string[]): { rebuilds: string[]; opened: string[] } {
+    const calls = { rebuilds: [] as string[], opened: [] as string[] };
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve(roots),
+      rebuildIndex: (rootPath: string) => {
+        calls.rebuilds.push(rootPath);
+        return Promise.resolve({});
+      },
+      openHistoryDirectory: (rootPath: string) => {
+        calls.opened.push(rootPath);
+        return Promise.resolve(true);
+      }
+    };
+    return calls;
+  }
+
+  /** 探测是异步的，要让 `probe` 的 Promise 落地再断言。 */
+  async function settle(): Promise<void> {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    (window as unknown as { nexus?: unknown }).nexus = originalBridge;
+  });
+
+  it('有工作区时两个动作都可按，点了把工作区根交给桥', async () => {
+    const calls = stubBridge(['E:/notes']);
+    renderSettings('data');
+    await settle();
+
+    const rebuild = container.querySelector<HTMLButtonElement>(
+      '[data-field-action="data.rebuildIndex"]'
+    );
+    const openDir = container.querySelector<HTMLButtonElement>(
+      '[data-field-action="data.openHistoryDirectory"]'
+    );
+    expect(rebuild?.disabled).toBe(false);
+    expect(openDir?.disabled).toBe(false);
+
+    await act(async () => {
+      rebuild?.click();
+    });
+    await act(async () => {
+      openDir?.click();
+    });
+
+    expect(calls.rebuilds).toEqual(['E:/notes']);
+    expect(calls.opened).toEqual(['E:/notes']);
+    // 效果落在别的窗口，所以当前窗口必须给一行回执，否则点了像没反应。
+    expect(container.querySelector('[data-field-outcome="data.rebuildIndex"]')).not.toBeNull();
+  });
+
+  /**
+   * 轻量模式（只打开一个文件）没有工作区。**禁用加一行原因**，而不是让按钮点得动、
+   * 点了什么都不发生 —— 后者用户会反复点，然后以为是坏了。
+   */
+  it('没有工作区时禁用，并写明原因', async () => {
+    stubBridge([]);
+    renderSettings('data');
+    await settle();
+
+    const rebuild = container.querySelector<HTMLButtonElement>(
+      '[data-field-action="data.rebuildIndex"]'
+    );
+    expect(rebuild?.disabled).toBe(true);
+    expect(container.querySelector('[data-field-blocked="data.rebuildIndex"]')?.textContent).toBe(
+      translate(localeManager.locale, 'settings.data.needsWorkspace')
+    );
+  });
+
+  it('动作失败时给失败回执，不静默', async () => {
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve(['E:/notes']),
+      rebuildIndex: () => Promise.reject(new Error('boom'))
+    };
+    renderSettings('data');
+    await settle();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-field-action="data.rebuildIndex"]')?.click();
+    });
+
+    expect(container.querySelector('[data-field-outcome="data.rebuildIndex"]')?.textContent).toBe(
+      translate(localeManager.locale, 'settings.action.failed')
+    );
+  });
+
+  /** `action` 字段没有值可读，因此**不画重置键** —— 没有「默认值」这个概念。 */
+  it('动作字段不画重置键', async () => {
+    stubBridge(['E:/notes']);
+    renderSettings('data');
+    await settle();
+
+    expect(container.querySelector('[data-field-reset="data.rebuildIndex"]')).toBeNull();
+    expect(container.querySelector('[data-field-reset="data.openHistoryDirectory"]')).toBeNull();
   });
 });
 

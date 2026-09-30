@@ -10,7 +10,7 @@ import { getCodeLanguage } from './code-highlight.js';
 
 import { editorKeybindings } from './keymaps.js';
 import { markdownCompletionSource } from './completions.js';
-import { markdownMarkersField } from './markdown-markers.js';
+import { markdownMarkersField, blockGapField } from './markdown-markers.js';
 import { getEditorTheme } from './theme.js';
 import { getSelectionInfo } from './selection.js';
 import type { CreateSourceEditorOptions, SourceEditorConfig } from './types.js';
@@ -59,6 +59,7 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
     }),
 
     markdownMarkersField,
+    blockGapField,
 
     readOnlyCompartment.of(EditorState.readOnly.of(isReadOnly)),
     editableCompartment.of(EditorView.editable.of(!isReadOnly)),

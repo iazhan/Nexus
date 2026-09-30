@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { FileService } from './file-service.js';
 import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js';
 import { createElectronFileDialog } from './file-dialog.js';
-import { HistoryStore } from './history-store.js';
+import { HistoryStore, HISTORY_DIR } from './history-store.js';
 import { IndexStore } from './index-store.js';
 import { indexWorkspace } from './indexer.js';
 import { createProcessorRegistry } from './processor/index.js';
@@ -591,8 +591,31 @@ ipcMain.handle(
   }
 );
 
-function getOrCreateSession(webContents: Electron.WebContents): WebContentsSession {
-  let session = sessions.get(webContents.id);
+/**
+ * 打开版本历史目录。**路径由主进程拼**，不接受渲染进程给的目录 —— 这里做的是「打开一个文件夹」，
+ * 交给渲染进程指定等于把「打开任意路径」的能力开放出去。
+ *
+ * 目录不存在（工作区里从未保存过任何版本）返回 `false` 而不是抛：那是正常状态，
+ * 抛异常会让设置页把「还没写过东西」显示成一次失败。
+ */
+ipcMain.handle(IPC_CHANNELS.openHistoryDirectory, async (event, rootPath: unknown) => {
+  if (typeof rootPath !== 'string' || rootPath.trim() === '') return false;
+
+  const { service } = getOrCreateSession(event.sender);
+  const authorizedRoots = service.getWorkspaceRoots();
+  if (!authorizedRoots.some((root) => path.resolve(root) === path.resolve(rootPath))) {
+    throw new Error('openHistoryDirectory: 该工作区尚未授权');
+  }
+
+  const historyDir = path.join(rootPath, HISTORY_DIR);
+  if (!fs.existsSync(historyDir)) return false;
+
+  // `shell.openPath` 用**返回的字符串**报错（空串才是成功），不抛。
+  const failure = await shell.openPath(historyDir);
+  return failure === '';
+});
+
+function getOrCreateSession(webContents: Electron.WebContents): WebContentsSession {  let session = sessions.get(webContents.id);
   if (!session) {
     const browserWindow = BrowserWindow.fromWebContents(webContents) ?? undefined;
     const dialog = createElectronFileDialog(browserWindow);

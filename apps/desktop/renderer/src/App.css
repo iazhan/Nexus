@@ -5,6 +5,14 @@
   --font-mono: "JetBrains Mono", "Fira Code", Consolas, Monaco, monospace;
   /* 与 Electron 主进程 titleBarOverlay.height 保持一致 */
   --nx-header-height: 42px;
+  /* 编辑器排版。这里只是**初值**（与 settings/editor-typography.ts 的默认档一致），
+     渲染进程起来后会按设置覆盖 documentElement 上的同名变量。默认值刻意等于本批次之前的
+     实际观感 —— 加设置项不该改默认样式。 */
+  --nx-editor-font-size: 14px;
+  --nx-editor-font-family: var(--font-mono);
+  --nx-editor-line-height: 1.6;
+  --nx-editor-paragraph-spacing: 0px;
+  --nx-editor-content-width: none;
 }
 
 /*
@@ -480,7 +488,17 @@ body {
 .nexus-editor-full .cm-scroller {
   overflow: auto;
   height: 100%;
-  font-family: var(--font-mono);
+  font-family: var(--nx-editor-font-family);
+  /* 限宽时把「行号槽 + 正文」当一组居中。宽度不限时 `.cm-content` 会撑满，
+     没有剩余空间，这一条不起作用 —— 也就是改版前的布局。 */
+  justify-content: center;
+}
+
+/* 可读行宽。`none` 是默认，等价于改版前的铺满；给档位值时正文收窄并居中。
+   加在 `.cm-content` 而不是外壳上：CodeMirror 按它的 `clientWidth` 决定折行位置，
+   收窄外壳不改折行，只会把正文挤出去。 */
+.nexus-editor-full .cm-content {
+  max-width: var(--nx-editor-content-width);
 }
 
 /* Viewer 外壳：与 .nexus-editor-full 同一套尺寸契约 —— 在内容区里占满剩余空间。
@@ -2293,6 +2311,47 @@ body.nexus-resizing {
 .nexus-settings-switch:focus-visible {
   outline: 1px solid var(--nexus-accent-indicator);
   outline-offset: 2px;
+}
+
+/* 动作字段（重建索引 / 打开历史目录）。按钮左对齐而不是撑满：这两项是「按一下就完事」，
+   占满整行的按钮会读成一个需要填写的表单区。 */
+.nexus-settings-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.nexus-settings-action-button {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+  background-color: var(--nexus-bg-surface);
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.nexus-settings-action-button:hover:not(:disabled) {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+/* 禁用态要**看得出来**：它是「当前环境做不了这件事」的视觉信号，与旁边那行原因配对出现。 */
+.nexus-settings-action-button:disabled {
+  color: var(--nexus-text-muted);
+  cursor: default;
+}
+
+.nexus-settings-action-button:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 2px;
+}
+
+.nexus-settings-action-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
 }
 
 /* 主题卡片（外观分组）：主窗口缩略图 + 名字 + 一句话描述。

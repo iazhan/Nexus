@@ -20,6 +20,21 @@ import {
   PANEL_WIDTH_STORAGE_KEY,
   clampPanelWidth
 } from '../workspace/panel-width.js';
+import {
+  AUTO_SAVE_STORAGE_KEY,
+  EDITOR_CONTENT_WIDTH_DEFAULT,
+  EDITOR_CONTENT_WIDTH_OPTIONS,
+  EDITOR_CONTENT_WIDTH_STORAGE_KEY,
+  EDITOR_FONT_FAMILIES,
+  EDITOR_FONT_FAMILY_DEFAULT,
+  EDITOR_FONT_FAMILY_STORAGE_KEY,
+  EDITOR_FONT_SIZE,
+  EDITOR_LINE_HEIGHT,
+  EDITOR_PARAGRAPH_SPACING,
+  parseNumberSetting,
+  serializeNumberSetting,
+  type NumberSettingSpec
+} from './editor-typography.js';
 
 /** 一个设置项的定义。**不含 `path`** —— 表键就是它，两处各写一遍迟早对不上。 */
 export interface SettingDef<T> {
@@ -43,6 +58,36 @@ function defineSetting<T>(def: SettingDef<T>): SettingDef<T> {
 
 /** 设置页默认落在哪个分组。值域归 P4-02 的 `SectionId` 校验，store 只保证「非空字符串」。 */
 const DEFAULT_SECTION = 'appearance';
+
+/**
+ * 数值项的样板：夹取规则只在 `editor-typography.ts` 写一份，这里只负责接上。
+ * 六个排版 / 行为项里有三个是数值，各写一遍 parse 必然有一处漏夹。
+ */
+function numberSetting(spec: NumberSettingSpec) {
+  return defineSetting<number>({
+    storageKey: spec.storageKey,
+    fallback: spec.fallback,
+    parse: (raw) => parseNumberSetting(spec, raw),
+    serialize: (value) => serializeNumberSetting(spec, value)
+  });
+}
+
+/**
+ * 枚举项的样板：**存档里有未知值就回落默认**。用户能改 localStorage，也能从旧版本升上来 ——
+ * 读到不认识的档位时留着一个渲染不出来的值，表现是控件一个都不选中。
+ */
+function choiceSetting(
+  storageKey: string,
+  fallback: string,
+  allowed: readonly string[]
+) {
+  return defineSetting<string>({
+    storageKey,
+    fallback,
+    parse: (raw) => (raw !== null && allowed.includes(raw) ? raw : fallback),
+    serialize: (value) => value
+  });
+}
 
 /**
  * 全部设置项。**加一项只改这里** —— `registry.ts` 的 `FieldDef` 表引用这些 path，菜单投影也读它。
@@ -99,7 +144,36 @@ export const SETTING_DEFS = {
       return clampPanelWidth(Number(raw));
     },
     serialize: (value) => String(clampPanelWidth(value))
-  })
+  }),
+
+  /**
+   * 自动保存。关掉之后**只有显式保存才落盘**，编辑器仍会把状态标成未保存。
+   *
+   * 判据是「只有显式的 `'false'` 算关」：空串、`null`、写坏的字符串一律当开 —— 默认值是开，
+   * 而「读不懂就当关」会让存档里一个手滑的字符静默关掉自动保存，用户丢掉一整天的输入才发现。
+   */
+  'general.autoSave': defineSetting<boolean>({
+    storageKey: AUTO_SAVE_STORAGE_KEY,
+    fallback: true,
+    parse: (raw) => raw !== 'false',
+    serialize: (value) => String(value)
+  }),
+
+  'editor.fontSize': numberSetting(EDITOR_FONT_SIZE),
+  'editor.lineHeight': numberSetting(EDITOR_LINE_HEIGHT),
+  'editor.paragraphSpacing': numberSetting(EDITOR_PARAGRAPH_SPACING),
+
+  'editor.contentWidth': choiceSetting(
+    EDITOR_CONTENT_WIDTH_STORAGE_KEY,
+    EDITOR_CONTENT_WIDTH_DEFAULT,
+    EDITOR_CONTENT_WIDTH_OPTIONS.map((option) => option.value)
+  ),
+
+  'editor.fontFamily': choiceSetting(
+    EDITOR_FONT_FAMILY_STORAGE_KEY,
+    EDITOR_FONT_FAMILY_DEFAULT,
+    EDITOR_FONT_FAMILIES.map((family) => family.value)
+  )
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;

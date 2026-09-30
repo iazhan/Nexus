@@ -380,12 +380,90 @@ function collectOpaqueRanges(root: MarkdownNode): { from: number; to: number; ty
 export const BLOCK_MATH_BAND_CLASS = 'cm-marker-block-math-band';
 
 /**
+ * 块与块之间空行的类名 —— 段落间距挂在它上面（`.cm-block-gap` 的 `padding-bottom`）。
+ *
+ * 判据是「**空行**」而不是「块边界」：这个编辑器是**源行级投影**，块之间靠空行分隔，
+ * 所以空行的高度就是段间距。按块边界算的话，松散列表（项之间有空行）与引用块里的段落
+ * 会被漏掉 —— 而它们恰恰是最需要间距的地方。
+ *
+ * 装饰是**无条件**挂的、与设置值无关：间距值走 CSS 变量，改设置只换变量、不重建装饰集。
+ */
+export const BLOCK_GAP_CLASS = 'cm-block-gap';
+
+/**
+ * 一次事务里两个装饰字段都会问同一份文档要标记表：标记字段拿它画 mark，段间距字段拿它判断
+ * 「这个空行是不是在代码块里」。`marked.lexer` 对长文档不便宜，所以按内容串缓存**一条** ——
+ * 同一次事务里两个字段的入参相同，命中率 100%；文档一改内容就变，缓存自然失效。
+ *
+ * 缓存的是**返回值本身**，调用方只读不写（两处都只做遍历与 `filter`）。
+ */
+let cachedMarkerSource: string | null = null;
+let cachedMarkers: MarkdownMarker[] = [];
+
+function markersFor(content: string): MarkdownMarker[] {
+  if (cachedMarkerSource === content) return cachedMarkers;
+  cachedMarkers = findMarkdownMarkers(content);
+  cachedMarkerSource = content;
+  return cachedMarkers;
+}
+
+/**
+ * 找出所有「承担段间距」的空行行首，**升序**。
+ *
+ * 排除代码围栏与块级公式**内部**的空行：那里的空行是内容的一部分（代码块里的空行、
+ * 公式里的换行），给它们加段间距会把代码块撑出大小不一的缝。两者都由标记表给出范围，
+ * 所以这里不需要再解析一次 AST。
+ */
+function findBlockGapLines(content: string, markers: readonly MarkdownMarker[]): number[] {
+  const opaque = markers.filter(
+    (marker) => marker.type === 'code-fence' || marker.type === 'block-math'
+  );
+  const lines: number[] = [];
+
+  let lineStart = 0;
+  while (lineStart <= content.length) {
+    const breakAt = content.indexOf('\n', lineStart);
+    const lineEnd = breakAt === -1 ? content.length : breakAt;
+    if (
+      content.slice(lineStart, lineEnd).trim() === '' &&
+      !opaque.some((marker) => lineStart >= marker.from && lineStart < marker.to)
+    ) {
+      lines.push(lineStart);
+    }
+    if (breakAt === -1) break;
+    lineStart = breakAt + 1;
+  }
+
+  return lines;
+}
+
+/**
+ * 段间距的装饰集。**单独一个字段，不并进 `markdownMarkersField`** —— 行装饰与跨行 mark
+ * 天然冲突：`RangeSetBuilder` 遇到「位置落在前面某个 mark 区间内」的输入时，会把它推给
+ * 嵌套层，而 `RangeSet.between` 是「先本层全部、再嵌套层」，于是迭代出来的 `from` 不再
+ * 单调（块级公式底纹的行装饰就是这么被推走的，只是恰好排在最后才没暴露）。
+ * 分成两个字段后，每个集合内部各自单调，互不干扰。
+ *
+ * 集合内只有零长度行装饰、位置严格递增，所以**单层**、无需排序。
+ */
+export function buildBlockGapDecorations(content: string): DecorationSet {
+  const lines = findBlockGapLines(content, markersFor(content));
+  if (lines.length === 0) return Decoration.none;
+
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const lineStart of lines) {
+    builder.add(lineStart, lineStart, Decoration.line({ class: BLOCK_GAP_CLASS }));
+  }
+  return builder.finish();
+}
+
+/**
  * Builds a CodeMirror DecorationSet from scanned markdown markers.
  */
 export function buildMarkerDecorations(content: string): DecorationSet {
   const ranges: Array<{ from: number; to: number; decoration: Decoration }> = [];
 
-  for (const marker of findMarkdownMarkers(content)) {
+  for (const marker of markersFor(content)) {
     ranges.push({
       from: marker.from,
       to: marker.to,
@@ -445,6 +523,18 @@ export const markdownMarkersField = StateField.define<DecorationSet>({
   update(decorations, tr) {
     if (!tr.docChanged) return decorations;
     return buildMarkerDecorations(tr.state.doc.toString());
+  },
+  provide: (field) => EditorView.decorations.from(field)
+});
+
+/** 段间距的行装饰。与标记字段分开的理由见 `buildBlockGapDecorations`。 */
+export const blockGapField = StateField.define<DecorationSet>({
+  create(state) {
+    return buildBlockGapDecorations(state.doc.toString());
+  },
+  update(decorations, tr) {
+    if (!tr.docChanged) return decorations;
+    return buildBlockGapDecorations(tr.state.doc.toString());
   },
   provide: (field) => EditorView.decorations.from(field)
 });

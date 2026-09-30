@@ -14,6 +14,7 @@ import {
   type UserTheme
 } from '@nexus/theme';
 import { SettingsStore } from './settings/store.js';
+import { EDITOR_CSS_VARS, editorFontStack } from './settings/editor-typography.js';
 
 export const commandRegistry = new CommandRegistry();
 export const localeManager = new LocaleManager();
@@ -307,6 +308,48 @@ export function resyncFromStorage(): void {
   if (savedLocale) localeManager.setLocale(savedLocale);
 
   mermaidPreviewPreference.reload();
+
+  // 排版五项走 `settings.reload()` 那条订阅（见下），这里不必重复调 —— 但**必须**留一行说明
+  // 为什么：漏掉订阅的人会以为它靠这里同步。
+}
+
+/**
+ * 把编辑器排版设置写进 `documentElement` 的 CSS 变量。
+ *
+ * 为什么走 CSS 变量而不是重建 CodeMirror 主题：`EditorView.theme()` 的值只在**构造时**求值，
+ * 改字号得 reconfigure 整个 theme compartment，还要保住光标与滚动位置。变量是纯 CSS 层，
+ * 五个设置项一个 effect 都不用加。
+ *
+ * **在模块加载时调一次、并在这里订阅**，不交给 `App.tsx`：订阅放在消费方，将来多一个渲染
+ * 编辑器的窗口就要多记一次；放在这里，谁 import `platform` 谁就已经接好了。模块加载时就跑
+ * 一次也是必需的 —— 它发生在 React 首次渲染之前，所以自定义字号不会先闪一帧 14px。
+ *
+ * 主题窗口与设置窗口也跑这段（同一个 bundle），对它们无害：那两个窗口没有编辑器。
+ */
+export function applyEditorTypography(): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement.style;
+
+  root.setProperty(EDITOR_CSS_VARS.fontSize, `${settings.get('editor.fontSize')}px`);
+  root.setProperty(EDITOR_CSS_VARS.lineHeight, String(settings.get('editor.lineHeight')));
+  root.setProperty(
+    EDITOR_CSS_VARS.paragraphSpacing,
+    `${settings.get('editor.paragraphSpacing')}px`
+  );
+  root.setProperty(EDITOR_CSS_VARS.contentWidth, settings.get('editor.contentWidth'));
+  root.setProperty(EDITOR_CSS_VARS.fontFamily, editorFontStack(settings.get('editor.fontFamily')));
+}
+
+applyEditorTypography();
+
+for (const path of [
+  'editor.fontSize',
+  'editor.lineHeight',
+  'editor.paragraphSpacing',
+  'editor.contentWidth',
+  'editor.fontFamily'
+] as const) {
+  settings.subscribe(path, applyEditorTypography);
 }
 
 /**

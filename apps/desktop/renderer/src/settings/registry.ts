@@ -2,10 +2,10 @@
  * 设置注册表：分组与字段的**唯一数据源**。设置页左栏、内容区、外观菜单（现名「首选项」）都读它 ——
  * 三处各列一遍必然漂移，而漂移已经发生过一次：手写的外观菜单漏掉了「跟随系统」。
  *
- * `availability` 落在数据上、不是组件里的 6 个 `if` —— 这是「七组全显示、未实现的走空态」的前提。
+ * `availability` 落在数据上、不是组件里的 8 个 `if` —— 这是「全部分组都显示、未实现的走空态」的前提。
  *
- * **字段可以属于一个本期不做内容的分组**（语言属 General、mermaid 属 Editor，两组都还是 `planned`）：
- * 它们的内容区是空态，但仍是菜单项。按分组过滤菜单会让语言与 mermaid 消失，那是功能回退。
+ * **字段可以属于一个本期不做内容的分组**：`keybindings` / `plugins` / `sync` / `files` 四组仍是
+ * `planned`，内容区是空态，但仍是菜单项。按分组过滤菜单会让它们消失，那是功能回退。
  */
 
 import {
@@ -37,6 +37,13 @@ import {
   PANEL_MAX_WIDTH,
   PANEL_MIN_WIDTH
 } from '../workspace/panel-width.js';
+import {
+  EDITOR_CONTENT_WIDTH_OPTIONS,
+  EDITOR_FONT_FAMILIES,
+  EDITOR_FONT_SIZE,
+  EDITOR_LINE_HEIGHT,
+  EDITOR_PARAGRAPH_SPACING
+} from './editor-typography.js';
 import type { MenuBarItem } from '../MenuBar.js';
 
 export type SectionId =
@@ -124,7 +131,7 @@ export const SECTIONS: readonly SectionDef[] = [
     titleKey: 'settings.section.data',
     icon: DataIcon,
     order: 8,
-    availability: 'planned'
+    availability: 'available'
   }
 ];
 
@@ -187,7 +194,22 @@ export interface FieldDef {
    * 之后再想回到 240 只能靠手感，给；枚举项再点一次原来那张卡就回来了，不给。
    */
   resetValue?: string;
-  accessor: FieldAccessor;
+  /**
+   * 值访问器。**`control: 'action'` 的字段没有值，不填** —— 造一个「读恒为空串、写什么都不做」的
+   * 空访问器会把「这个字段没有值」这件事从类型里抹掉，而菜单投影正是按它有无来决定能不能读。
+   */
+  accessor?: FieldAccessor;
+  /** `action` 控件点击时执行。返回 Promise 时按钮在等待期间禁用，防连点。 */
+  run?: () => void | Promise<void>;
+  /**
+   * `action` 控件的可用性探测：返回 `null` 表示可执行，否则返回**说明为什么不能**的字典键。
+   *
+   * 异步是必需的 —— 「当前有没有工作区」要问主进程。只在挂载时探一次：设置窗口是短命窗口，
+   * 它开着的期间工作区不会变（换工作区要重开主窗口）。
+   */
+  probe?: () => Promise<string | null>;
+  /** `action` 按钮的文案键。缺省用 `labelKey`。 */
+  actionLabelKey?: string;
   /** 是否投影进菜单。投影的是**所有** `menu: true` 的字段，不按分组过滤。 */
   menu?: boolean;
 }
@@ -195,6 +217,27 @@ export interface FieldDef {
 /** 字段当前的选项表。渲染与菜单投影都走它，避免两处各判一次。 */
 export function optionsOf(field: FieldDef, t: (key: string) => string): readonly FieldOption[] {
   return field.optionsOf?.(t) ?? field.options ?? [];
+}
+
+/**
+ * 有值的字段。`accessor` 在 `FieldDef` 上是可选的（`action` 字段没有值），但**声明时**写成
+ * 这个类型，用的人就不必每处再判一次 undefined。外观分组的专用组件直接读主题字段的访问器，
+ * 正是靠它保持类型干净。
+ */
+export type ValueFieldDef = FieldDef & { accessor: FieldAccessor };
+
+/**
+ * 数值字段的写入口。**空串与非数字都不写**：`Number('')` 是 0，写进去会被夹成最小值 ——
+ * 表现是「清空输入框就把这一项缩到底」。夹取归 `store` 的 `parse`，这里只挡非法输入。
+ */
+function writeNumber(
+  path: 'editor.fontSize' | 'editor.lineHeight' | 'editor.paragraphSpacing' | 'editor.panelWidth',
+  value: string
+): void {
+  if (value.trim() === '') return;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return;
+  settings.set(path, parsed);
 }
 
 /**
@@ -235,7 +278,7 @@ const MODE_LABEL_KEYS: Record<ThemeMode, string> = {
 };
 
 /** 模式轴。**进菜单**：只有三项，是「现在想亮一点」这种即时动作。 */
-export const THEME_MODE_FIELD: FieldDef = {
+export const THEME_MODE_FIELD: ValueFieldDef = {
   id: 'appearance.themeMode',
   section: 'appearance',
   labelKey: 'settings.appearance.themeMode',
@@ -259,7 +302,7 @@ export const THEME_MODE_FIELD: FieldDef = {
  * 预设名直接用出厂表里的 `name`，不进字典 —— 主题名是数据，翻译它会让「Dracula」在中文界面
  * 变成别的东西。
  */
-export const THEME_PRESET_FIELD: FieldDef = {
+export const THEME_PRESET_FIELD: ValueFieldDef = {
   id: 'appearance.themePreset',
   section: 'appearance',
   labelKey: 'settings.appearance.themePreset',
@@ -351,15 +394,175 @@ export const PANEL_WIDTH_FIELD: FieldDef = {
   resetValue: String(PANEL_DEFAULT_WIDTH),
   accessor: {
     read: () => String(settings.get('editor.panelWidth')),
-    write: (value) => {
-      // 空串与非数字都不写：`Number('')` 是 0，写进去会被夹成最小值 ——
-      // 表现是「清空输入框就把侧栏缩到底」。
-      if (value.trim() === '') return;
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed)) return;
-      settings.set('editor.panelWidth', parsed);
-    },
+    write: (value) => writeNumber('editor.panelWidth', value),
     subscribe: (listener) => settings.subscribe('editor.panelWidth', listener)
+  },
+  menu: false
+};
+
+/**
+ * 自动保存。**开关只门控「改完自动落盘」，不门控保存本身** —— 关掉之后 `Cmd+S` 与
+ * 关闭窗口前的那次保存照常工作，状态栏也照常显示未保存。关掉自动保存不等于关掉保存能力。
+ */
+export const AUTO_SAVE_FIELD: FieldDef = {
+  id: 'general.autoSave',
+  section: 'general',
+  labelKey: 'settings.general.autoSave',
+  descriptionKey: 'settings.general.autoSaveDescription',
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('general.autoSave')),
+    write: (value) => settings.set('general.autoSave', value === 'true'),
+    subscribe: (listener) => settings.subscribe('general.autoSave', listener)
+  },
+  menu: false
+};
+
+/**
+ * 排版四项。**每一项的 `resetValue` 都等于改版前的实际观感** —— 重置不是「回到某个新设计的默认」，
+ * 而是「回到我改之前的样子」。
+ *
+ * 三项数值 + 两项枚举：枚举项**不给重置键**（再点一次原来的档位就回来了），数值项给 ——
+ * 判据见 `FieldDef.resetValue`。
+ */
+export const FONT_SIZE_FIELD: FieldDef = {
+  id: 'editor.fontSize',
+  section: 'editor',
+  labelKey: 'settings.editor.fontSize',
+  descriptionKey: 'settings.editor.fontSizeDescription',
+  control: 'number',
+  min: EDITOR_FONT_SIZE.min,
+  max: EDITOR_FONT_SIZE.max,
+  step: EDITOR_FONT_SIZE.step,
+  unit: 'px',
+  resetValue: String(EDITOR_FONT_SIZE.fallback),
+  accessor: {
+    read: () => String(settings.get('editor.fontSize')),
+    write: (value) => writeNumber('editor.fontSize', value),
+    subscribe: (listener) => settings.subscribe('editor.fontSize', listener)
+  },
+  menu: false
+};
+
+export const LINE_HEIGHT_FIELD: FieldDef = {
+  id: 'editor.lineHeight',
+  section: 'editor',
+  labelKey: 'settings.editor.lineHeight',
+  descriptionKey: 'settings.editor.lineHeightDescription',
+  control: 'number',
+  min: EDITOR_LINE_HEIGHT.min,
+  max: EDITOR_LINE_HEIGHT.max,
+  step: EDITOR_LINE_HEIGHT.step,
+  resetValue: String(EDITOR_LINE_HEIGHT.fallback),
+  accessor: {
+    read: () => String(settings.get('editor.lineHeight')),
+    write: (value) => writeNumber('editor.lineHeight', value),
+    subscribe: (listener) => settings.subscribe('editor.lineHeight', listener)
+  },
+  menu: false
+};
+
+export const PARAGRAPH_SPACING_FIELD: FieldDef = {
+  id: 'editor.paragraphSpacing',
+  section: 'editor',
+  labelKey: 'settings.editor.paragraphSpacing',
+  descriptionKey: 'settings.editor.paragraphSpacingDescription',
+  control: 'number',
+  min: EDITOR_PARAGRAPH_SPACING.min,
+  max: EDITOR_PARAGRAPH_SPACING.max,
+  step: EDITOR_PARAGRAPH_SPACING.step,
+  unit: 'px',
+  resetValue: String(EDITOR_PARAGRAPH_SPACING.fallback),
+  accessor: {
+    read: () => String(settings.get('editor.paragraphSpacing')),
+    write: (value) => writeNumber('editor.paragraphSpacing', value),
+    subscribe: (listener) => settings.subscribe('editor.paragraphSpacing', listener)
+  },
+  menu: false
+};
+
+export const CONTENT_WIDTH_FIELD: FieldDef = {
+  id: 'editor.contentWidth',
+  section: 'editor',
+  labelKey: 'settings.editor.contentWidth',
+  descriptionKey: 'settings.editor.contentWidthDescription',
+  control: 'select',
+  options: EDITOR_CONTENT_WIDTH_OPTIONS,
+  accessor: {
+    read: () => settings.get('editor.contentWidth'),
+    write: (value) => settings.set('editor.contentWidth', value),
+    subscribe: (listener) => settings.subscribe('editor.contentWidth', listener)
+  },
+  menu: false
+};
+
+export const FONT_FAMILY_FIELD: FieldDef = {
+  id: 'editor.fontFamily',
+  section: 'editor',
+  labelKey: 'settings.editor.fontFamily',
+  descriptionKey: 'settings.editor.fontFamilyDescription',
+  control: 'select',
+  options: EDITOR_FONT_FAMILIES.map((family): FieldOption => ({
+    value: family.value,
+    labelKey: `settings.editor.fontFamily.${family.value}`
+  })),
+  accessor: {
+    read: () => settings.get('editor.fontFamily'),
+    write: (value) => settings.set('editor.fontFamily', value),
+    subscribe: (listener) => settings.subscribe('editor.fontFamily', listener)
+  },
+  menu: false
+};
+
+/**
+ * 当前工作区根。轻量模式（只打开了一个文件）下没有工作区，`data` 组里依赖它的动作据此禁用 ——
+ * 让按钮点得动、点了什么都不发生，比禁用加一行原因更糟。
+ */
+async function currentWorkspaceRoot(): Promise<string | null> {
+  const roots = await window.nexus?.getWorkspaceRoots();
+  return roots?.[0] ?? null;
+}
+
+async function workspaceProbe(): Promise<string | null> {
+  return (await currentWorkspaceRoot()) ? null : 'settings.data.needsWorkspace';
+}
+
+/**
+ * 重建索引。**入口放在设置页而不是侧栏**：侧栏那次是进入工作区时的自动预热，而这里是
+ * 「索引看起来不对」时的手动修复 —— 两件事的触发时机不同，不该共用同一个入口。
+ */
+export const REBUILD_INDEX_FIELD: FieldDef = {
+  id: 'data.rebuildIndex',
+  section: 'data',
+  labelKey: 'settings.data.rebuildIndex',
+  descriptionKey: 'settings.data.rebuildIndexDescription',
+  control: 'action',
+  actionLabelKey: 'settings.data.rebuildIndexAction',
+  probe: workspaceProbe,
+  run: async () => {
+    const root = await currentWorkspaceRoot();
+    if (!root) return;
+    await window.nexus?.rebuildIndex(root);
+  },
+  menu: false
+};
+
+/**
+ * 打开版本历史目录。历史在 `<workspace>/.nexus/history/`，用户想自己备份或翻旧版本时，
+ * 这里比「在资源管理器里一层层点进去」快 —— 而 `.nexus` 是隐藏目录，很多人根本不知道它在。
+ */
+export const OPEN_HISTORY_DIR_FIELD: FieldDef = {
+  id: 'data.openHistoryDirectory',
+  section: 'data',
+  labelKey: 'settings.data.openHistoryDirectory',
+  descriptionKey: 'settings.data.openHistoryDirectoryDescription',
+  control: 'action',
+  actionLabelKey: 'settings.data.openHistoryDirectoryAction',
+  probe: workspaceProbe,
+  run: async () => {
+    const root = await currentWorkspaceRoot();
+    if (!root) return;
+    await window.nexus?.openHistoryDirectory(root);
   },
   menu: false
 };
@@ -370,7 +573,15 @@ export const FIELDS: readonly FieldDef[] = [
   THEME_PRESET_FIELD,
   LOCALE_FIELD,
   MERMAID_FIELD,
-  PANEL_WIDTH_FIELD
+  AUTO_SAVE_FIELD,
+  FONT_FAMILY_FIELD,
+  FONT_SIZE_FIELD,
+  LINE_HEIGHT_FIELD,
+  PARAGRAPH_SPACING_FIELD,
+  CONTENT_WIDTH_FIELD,
+  PANEL_WIDTH_FIELD,
+  REBUILD_INDEX_FIELD,
+  OPEN_HISTORY_DIR_FIELD
 ];
 
 export function fieldsOfSection(section: SectionId): readonly FieldDef[] {
@@ -396,14 +607,18 @@ export function projectMenuItems({ t, onOpenSettings }: MenuProjectionOptions): 
 
   for (const field of FIELDS) {
     if (!field.menu) continue;
+    // `action` 字段没有值可读 —— 菜单只投影「有当前值」的字段（枚举选中态、开关的开关态）。
+    // 提成局部常量是必需的：闭包里读 `field.accessor` 会丢掉上面那次收窄。
+    const accessor = field.accessor;
+    if (!accessor) continue;
     if (items.length > 0) items.push(SEPARATOR);
 
-    const current = field.accessor.read();
+    const current = accessor.read();
     if (field.control === 'toggle') {
       items.push({
         label: t(field.labelKey),
         active: current === 'true',
-        onSelect: () => field.accessor.write(current === 'true' ? 'false' : 'true')
+        onSelect: () => accessor.write(current === 'true' ? 'false' : 'true')
       });
       continue;
     }
@@ -412,7 +627,7 @@ export function projectMenuItems({ t, onOpenSettings }: MenuProjectionOptions): 
       items.push({
         label: optionLabel(option, t),
         active: current === option.value,
-        onSelect: () => field.accessor.write(option.value)
+        onSelect: () => accessor.write(option.value)
       });
     }
   }

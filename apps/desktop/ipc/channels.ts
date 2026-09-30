@@ -28,6 +28,8 @@ export const IPC_CHANNELS = {
   listHistory: 'nexus:list-history',
   readHistory: 'nexus:read-history',
   restoreHistory: 'nexus:restore-history',
+  /** 在系统文件管理器里打开 `<workspace>/.nexus/history`。目录不存在时返回 `false`。 */
+  openHistoryDirectory: 'nexus:open-history-directory',
   setDirty: 'nexus:set-dirty',
   requestSaveAndClose: 'nexus:request-save-and-close',
   readyToClose: 'nexus:ready-to-close',

@@ -169,8 +169,40 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.section.data': 'Data',
     'settings.planned': 'This section is not available yet.',
     'settings.reset': 'Reset to default',
+    'settings.action.done': 'Done.',
+    'settings.action.failed': 'That did not work. See the log for details.',
     'settings.appearance.themeMode': 'Mode',
     'settings.appearance.themePreset': 'Theme',
+    'settings.general.autoSave': 'Save automatically',
+    'settings.general.autoSaveDescription':
+      'Writes to disk shortly after you stop typing. Turning it off does not remove saving — use Ctrl+S or close the window.',
+    'settings.editor.fontFamily': 'Font',
+    'settings.editor.fontFamilyDescription':
+      'Typeface for document text. Headings and inline code scale along with it.',
+    'settings.editor.fontFamily.default': 'Monospace',
+    'settings.editor.fontFamily.sans': 'Sans-serif',
+    'settings.editor.fontFamily.serif': 'Serif',
+    'settings.editor.fontSize': 'Font size',
+    'settings.editor.fontSizeDescription':
+      'Base size of document text. Everything inside the document scales with it; the app chrome does not.',
+    'settings.editor.lineHeight': 'Line height',
+    'settings.editor.lineHeightDescription': 'Spacing between the lines of a paragraph.',
+    'settings.editor.paragraphSpacing': 'Paragraph spacing',
+    'settings.editor.paragraphSpacingDescription':
+      'Extra space between blocks, on top of the blank line that already separates them.',
+    'settings.editor.contentWidth': 'Line width',
+    'settings.editor.contentWidthDescription':
+      'Caps how wide a line can get and centres the text. Narrower columns are easier to read on a wide screen.',
+    'settings.editor.contentWidth.none': 'Fill the window',
+    'settings.data.rebuildIndex': 'Index',
+    'settings.data.rebuildIndexDescription':
+      'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
+    'settings.data.rebuildIndexAction': 'Rebuild index',
+    'settings.data.openHistoryDirectory': 'Version history',
+    'settings.data.openHistoryDirectoryDescription':
+      'Snapshots are kept in .nexus/history inside the workspace. Open the folder to back it up or read an old version.',
+    'settings.data.openHistoryDirectoryAction': 'Open history folder',
+    'settings.data.needsWorkspace': 'Open a workspace to use this.',
     'settings.editor.panelWidth': 'Sidebar width',
     'settings.editor.panelWidthDescription': 'Width of the left sidebar. You can also drag the handle on its edge.',
     'cmd.palette': 'Command palette',
@@ -545,8 +577,40 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.section.data': '数据',
     'settings.planned': '该分组尚未提供。',
     'settings.reset': '恢复默认',
+    'settings.action.done': '已完成。',
+    'settings.action.failed': '操作失败，详情见日志。',
     'settings.appearance.themeMode': '模式',
     'settings.appearance.themePreset': '主题',
+    'settings.general.autoSave': '自动保存',
+    'settings.general.autoSaveDescription':
+      '停止输入后自动写盘。关掉它不等于关掉保存能力 —— 仍可用 Ctrl+S，或关闭窗口时保存。',
+    'settings.editor.fontFamily': '字体',
+    'settings.editor.fontFamilyDescription':
+      '正文的字体。标题与行内代码会跟着一起缩放。',
+    'settings.editor.fontFamily.default': '等宽',
+    'settings.editor.fontFamily.sans': '无衬线',
+    'settings.editor.fontFamily.serif': '衬线',
+    'settings.editor.fontSize': '正文字号',
+    'settings.editor.fontSizeDescription':
+      '文档正文的基准字号。文档内的一切跟着缩放，应用界面不变。',
+    'settings.editor.lineHeight': '行高',
+    'settings.editor.lineHeightDescription': '同一段之内行与行的间距。',
+    'settings.editor.paragraphSpacing': '段落间距',
+    'settings.editor.paragraphSpacingDescription':
+      '块与块之间在原有空行之外再留的额外间距。',
+    'settings.editor.contentWidth': '内容宽度',
+    'settings.editor.contentWidthDescription':
+      '限制每行的最大宽度并把正文居中。宽屏上窄一些的栏更好读。',
+    'settings.editor.contentWidth.none': '跟随窗口',
+    'settings.data.rebuildIndex': '索引',
+    'settings.data.rebuildIndexDescription':
+      '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',
+    'settings.data.rebuildIndexAction': '重建索引',
+    'settings.data.openHistoryDirectory': '版本历史',
+    'settings.data.openHistoryDirectoryDescription':
+      '快照保存在工作区的 .nexus/history 里。打开该目录可以自行备份，或翻出旧版本。',
+    'settings.data.openHistoryDirectoryAction': '打开历史目录',
+    'settings.data.needsWorkspace': '打开一个工作区后才能使用。',
     'settings.editor.panelWidth': '侧栏宽度',
     'settings.editor.panelWidthDescription': '左侧栏的宽度。也可以拖拽它边缘的把手调整。',
     'cmd.palette': '命令面板',

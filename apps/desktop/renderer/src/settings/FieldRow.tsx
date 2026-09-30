@@ -8,8 +8,8 @@
  * 值的读写全走 `accessor` 的三个动作，渲染器**不知道**值存在 store、`localeManager` 还是别处 ——
  * 这是「字段表是唯一数据源」能覆盖 `locale` / mermaid 那两个未迁移项的原因。
  *
- * 控件覆盖 `radio / select / toggle / number / text`。`preset` 与 `action` **不在这里**：
- * 前者是主题卡片网格（专用组件），后者是一组动作按钮，两者都还没有通用形状。
+ * 控件覆盖 `radio / select / toggle / number / text / action`。`preset` **不在这里**：
+ * 那是主题卡片网格（专用组件）。
  *
  * 重置键的显隐判据是 `resetValue` 且**当前值不等于它** —— 见 `FieldDef.resetValue` 的注释。
  */
@@ -44,13 +44,16 @@ const ResetIcon = (
  * 不能用 `useSettingValue(path)` —— 那只认 `SettingsStore` 的 path，而 `locale` 与 mermaid
  * 偏好的值是各自管理器持有的。`accessor.read()` 返回字符串，所以快照天然稳定，
  * `useSyncExternalStore` 不会因为「每次读都造新对象」而无限重渲染。
+ *
+ * `action` 字段没有访问器，这里必须**照样调用 hook**（不能在调用方条件调用），所以读空串、
+ * 订阅空函数。钩子数量恒定，这一点比「省一次订阅」重要。
  */
 function useFieldValue(field: FieldDef): string {
   const subscribe = useCallback(
-    (listener: () => void) => field.accessor.subscribe(listener),
+    (listener: () => void) => field.accessor?.subscribe(listener) ?? (() => {}),
     [field]
   );
-  const getSnapshot = useCallback(() => field.accessor.read(), [field]);
+  const getSnapshot = useCallback(() => field.accessor?.read() ?? '', [field]);
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
@@ -83,7 +86,7 @@ const NumberControl: React.FC<{ field: FieldDef; label: string; value: string }>
           const next = event.target.value;
           setDraft(next);
           // 空串不提交 —— 那是「正在改」的中间态，提交它等于把侧栏缩到最小值。
-          if (next.trim() !== '') field.accessor.write(next);
+          if (next.trim() !== '') field.accessor?.write(next);
         }}
         onBlur={() => setDraft(value)}
       />
@@ -113,7 +116,7 @@ const RadioControl: React.FC<{ field: FieldDef; label: string; t: Translate; val
           aria-checked={checked}
           className={`nexus-settings-option${checked ? ' nexus-settings-option-active' : ''}`}
           data-field-option={`${field.id}:${option.value}`}
-          onClick={() => field.accessor.write(option.value)}
+          onClick={() => field.accessor?.write(option.value)}
         >
           {optionLabel(option, t)}
         </button>
@@ -133,7 +136,7 @@ const SelectControl: React.FC<{ field: FieldDef; label: string; t: Translate; va
     value={value}
     aria-label={label}
     data-field-input={field.id}
-    onChange={(event) => field.accessor.write(event.target.value)}
+    onChange={(event) => field.accessor?.write(event.target.value)}
   >
     {optionsOf(field, t).map((option) => (
       <option key={option.value} value={option.value}>
@@ -158,7 +161,7 @@ const ToggleControl: React.FC<{ field: FieldDef; label: string; value: string }>
       aria-label={label}
       className={`nexus-settings-switch${on ? ' nexus-settings-switch-on' : ''}`}
       data-field-input={field.id}
-      onClick={() => field.accessor.write(on ? 'false' : 'true')}
+      onClick={() => field.accessor?.write(on ? 'false' : 'true')}
     >
       <span className="nexus-settings-switch-knob" aria-hidden="true" />
     </button>
@@ -176,9 +179,75 @@ const TextControl: React.FC<{ field: FieldDef; label: string; value: string }> =
     value={value}
     aria-label={label}
     data-field-input={field.id}
-    onChange={(event) => field.accessor.write(event.target.value)}
+    onChange={(event) => field.accessor?.write(event.target.value)}
   />
 );
+
+/**
+ * 动作按钮。三种状态：可用、探测中（禁用）、被挡住（禁用 + 一行原因）。
+ *
+ * 探测是**异步**的 —— 「当前有没有工作区」要问主进程。只探一次：设置窗口是短命窗口，
+ * 它开着的期间工作区不会变。
+ *
+ * 跑完之后给一行短暂的回执。没有它，这个按钮的效果落在**另一个窗口**（重建索引会让主窗口的
+ * 侧栏刷新、打开目录会弹资源管理器），在当前窗口里点了像没反应。
+ */
+const ActionControl: React.FC<{ field: FieldDef; t: Translate }> = ({ field, t }) => {
+  const [blockedKey, setBlockedKey] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [outcomeKey, setOutcomeKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!field.probe) {
+      setBlockedKey(null);
+      return;
+    }
+    let alive = true;
+    void field.probe().then(
+      (reason) => {
+        if (alive) setBlockedKey(reason);
+      },
+      () => {
+        // 探测本身失败不该把按钮永久锁死 —— 让用户点，真出错时由回执那一行说明。
+        if (alive) setBlockedKey(null);
+      }
+    );
+    return () => {
+      alive = false;
+    };
+  }, [field]);
+
+  return (
+    <div className="nexus-settings-action">
+      <button
+        type="button"
+        className="nexus-settings-action-button"
+        data-field-action={field.id}
+        disabled={blockedKey !== null || pending}
+        onClick={() => {
+          if (pending) return;
+          setPending(true);
+          setOutcomeKey(null);
+          void Promise.resolve(field.run?.()).then(
+            () => setOutcomeKey('settings.action.done'),
+            () => setOutcomeKey('settings.action.failed')
+          ).finally(() => setPending(false));
+        }}
+      >
+        {t(field.actionLabelKey ?? field.labelKey)}
+      </button>
+      {blockedKey ? (
+        <p className="nexus-settings-action-note" data-field-blocked={field.id}>
+          {t(blockedKey)}
+        </p>
+      ) : outcomeKey ? (
+        <p className="nexus-settings-action-note" data-field-outcome={field.id}>
+          {t(outcomeKey)}
+        </p>
+      ) : null}
+    </div>
+  );
+};
 
 function controlFor(field: FieldDef, label: string, t: Translate, value: string): React.ReactNode {
   switch (field.control) {
@@ -192,8 +261,10 @@ function controlFor(field: FieldDef, label: string, t: Translate, value: string)
       return <NumberControl field={field} label={label} value={value} />;
     case 'text':
       return <TextControl field={field} label={label} value={value} />;
+    case 'action':
+      return <ActionControl field={field} t={t} />;
     default:
-      // `preset` / `action` 没有通用形状，由各自分组的专用组件负责。画不出东西时宁可不画，
+      // `preset` 是主题卡片网格，由外观分组的专用组件负责。画不出东西时宁可不画，
       // 也不要画一个点了没反应的控件。
       return null;
   }
@@ -217,7 +288,7 @@ export const FieldRow: React.FC<{ field: FieldDef }> = ({ field }) => {
             data-field-reset={field.id}
             title={t('settings.reset')}
             aria-label={`${t('settings.reset')} · ${label}`}
-            onClick={() => field.accessor.write(field.resetValue as string)}
+            onClick={() => field.accessor?.write(field.resetValue as string)}
           >
             {ResetIcon}
           </button>

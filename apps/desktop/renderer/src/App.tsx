@@ -264,6 +264,23 @@ export const App: React.FC = () => {
   const initialContentRef = useRef('');
   const savingContentRef = useRef<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * 自动保存在设置里被关掉时，**把已经排上的那一次撤掉**。
+   *
+   * 只判断「要不要排新的」是不够的：用户改完字（计时器已排上）再去关自动保存，那一枪照样会响，
+   * 表现是「明明关了还是写盘了」。关掉之后未保存的内容仍然算未保存 —— 状态栏照常标 dirty，
+   * 保存改由 `Cmd+S` 与关闭窗口前的那一次承担。
+   */
+  useEffect(
+    () =>
+      settings.subscribe('general.autoSave', () => {
+        if (settings.get('general.autoSave') || !debounceTimerRef.current) return;
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }),
+    []
+  );
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const unwatchRef = useRef<Unsubscribe | null>(null);
 
@@ -850,7 +867,7 @@ export const App: React.FC = () => {
       updateSaveState('dirty');
 
       // Schedule debounce auto-save if file has a target path
-      if (filePath) {
+      if (filePath && settings.get('general.autoSave')) {
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current);
         }

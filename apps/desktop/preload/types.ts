@@ -75,6 +75,13 @@ export interface NexusBridge {
    * 所以恢复了不该恢复的版本时还能找回来。
    */
   restoreHistory: (documentPath: string, entry: HistoryEntry) => Promise<void>;
+  /**
+   * 在系统文件管理器里打开工作区的版本历史目录。
+   *
+   * 返回**是否真的打开了**：目录还不存在（从未保存过任何版本）时主进程返回 `false`，
+   * 而不是抛异常 —— 「还没有历史」是正常状态，不是错误。
+   */
+  openHistoryDirectory: (rootPath: string) => Promise<boolean>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;
