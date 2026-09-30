@@ -38,12 +38,15 @@ import {
   PANEL_MIN_WIDTH
 } from '../workspace/panel-width.js';
 import {
+  AUTO_SAVE_DELAY,
   EDITOR_CONTENT_WIDTH_OPTIONS,
   EDITOR_FONT_FAMILIES,
   EDITOR_FONT_SIZE,
   EDITOR_LINE_HEIGHT,
-  EDITOR_PARAGRAPH_SPACING
-} from './editor-typography.js';
+  EDITOR_PARAGRAPH_SPACING,
+  EDITOR_TABLE_LAYOUT_OPTIONS,
+  EXTERNAL_CHANGE_OPTIONS
+} from './preference-specs.js';
 import type { MenuBarItem } from '../MenuBar.js';
 
 export type SectionId =
@@ -231,7 +234,12 @@ export type ValueFieldDef = FieldDef & { accessor: FieldAccessor };
  * 表现是「清空输入框就把这一项缩到底」。夹取归 `store` 的 `parse`，这里只挡非法输入。
  */
 function writeNumber(
-  path: 'editor.fontSize' | 'editor.lineHeight' | 'editor.paragraphSpacing' | 'editor.panelWidth',
+  path:
+    | 'editor.fontSize'
+    | 'editor.lineHeight'
+    | 'editor.paragraphSpacing'
+    | 'editor.panelWidth'
+    | 'general.autoSaveDelay',
   value: string
 ): void {
   if (value.trim() === '') return;
@@ -419,6 +427,52 @@ export const AUTO_SAVE_FIELD: FieldDef = {
 };
 
 /**
+ * 自动保存延迟。
+ *
+ * **文案必须说清它是 debounce 延迟**：落盘时机是「停止输入后等这么久」，不是「每隔这么久存一次」。
+ * 说成「间隔」的话，用户把它调到 5 分钟会以为自己得到了周期存档，实际是这 5 分钟内不写盘。
+ */
+export const AUTO_SAVE_DELAY_FIELD: FieldDef = {
+  id: 'general.autoSaveDelay',
+  section: 'general',
+  labelKey: 'settings.general.autoSaveDelay',
+  descriptionKey: 'settings.general.autoSaveDelayDescription',
+  control: 'number',
+  min: AUTO_SAVE_DELAY.min,
+  max: AUTO_SAVE_DELAY.max,
+  step: AUTO_SAVE_DELAY.step,
+  unit: 'ms',
+  resetValue: String(AUTO_SAVE_DELAY.fallback),
+  accessor: {
+    read: () => String(settings.get('general.autoSaveDelay')),
+    write: (value) => writeNumber('general.autoSaveDelay', value),
+    subscribe: (listener) => settings.subscribe('general.autoSaveDelay', listener)
+  },
+  menu: false
+};
+
+/**
+ * 外部修改文档时的处理方式。
+ *
+ * 用 `select` 而不是 `radio`：两项都是「一整句话才说得清」的取舍，横排的单选卡片放不下，
+ * 而竖排的两行卡片在这个分组里会显得比别的项高一截。
+ */
+export const EXTERNAL_CHANGE_FIELD: FieldDef = {
+  id: 'general.externalChange',
+  section: 'general',
+  labelKey: 'settings.general.externalChange',
+  descriptionKey: 'settings.general.externalChangeDescription',
+  control: 'select',
+  options: EXTERNAL_CHANGE_OPTIONS,
+  accessor: {
+    read: () => settings.get('general.externalChange'),
+    write: (value) => settings.set('general.externalChange', value),
+    subscribe: (listener) => settings.subscribe('general.externalChange', listener)
+  },
+  menu: false
+};
+
+/**
  * 排版四项。**每一项的 `resetValue` 都等于改版前的实际观感** —— 重置不是「回到某个新设计的默认」，
  * 而是「回到我改之前的样子」。
  *
@@ -538,6 +592,66 @@ export const CODE_BLOCK_LINE_NUMBERS_FIELD: FieldDef = {
 };
 
 /**
+ * 表格列宽。与代码块行号一样**没有 DOM 之外的落点** —— `table-layout` 由主题的 CSS 变量读，
+ * 所以这里只写 store，变量归 `platform.ts` 统一写。
+ */
+export const TABLE_LAYOUT_FIELD: FieldDef = {
+  id: 'editor.tableLayout',
+  section: 'editor',
+  labelKey: 'settings.editor.tableLayout',
+  descriptionKey: 'settings.editor.tableLayoutDescription',
+  control: 'select',
+  options: EDITOR_TABLE_LAYOUT_OPTIONS,
+  accessor: {
+    read: () => settings.get('editor.tableLayout'),
+    write: (value) => settings.set('editor.tableLayout', value),
+    subscribe: (listener) => settings.subscribe('editor.tableLayout', listener)
+  },
+  menu: false
+};
+
+/**
+ * 行号槽。
+ *
+ * 与 `editor.codeBlockLineNumbers` **不是一回事**，文案要能区分：这个是编辑器左侧那一列
+ * 文档行号（源码模式与就地编辑态都在），那个是代码块内部正文旁边的行号。
+ *
+ * 它也是本组唯一一个走 CodeMirror compartment 的字段 —— 其余都是 CSS 变量。判据：
+ * `lineNumbers()` 会建 gutter DOM 与一块宽度，只把它藏起来那截宽度还在。
+ */
+export const LINE_NUMBERS_FIELD: FieldDef = {
+  id: 'editor.lineNumbers',
+  section: 'editor',
+  labelKey: 'settings.editor.lineNumbers',
+  descriptionKey: 'settings.editor.lineNumbersDescription',
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('editor.lineNumbers')),
+    write: (value) => settings.set('editor.lineNumbers', value === 'true'),
+    subscribe: (listener) => settings.subscribe('editor.lineNumbers', listener)
+  },
+  menu: false
+};
+
+/**
+ * 状态栏字数。统计规则见 `@nexus/core` 的 `countDocumentCharacters` —— 非空白字符数，
+ * 中英文一视同仁，Markdown 语法字符计入。
+ */
+export const WORD_COUNT_FIELD: FieldDef = {
+  id: 'editor.wordCount',
+  section: 'editor',
+  labelKey: 'settings.editor.wordCount',
+  descriptionKey: 'settings.editor.wordCountDescription',
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('editor.wordCount')),
+    write: (value) => settings.set('editor.wordCount', value === 'true'),
+    subscribe: (listener) => settings.subscribe('editor.wordCount', listener)
+  },
+  menu: false
+};
+
+/**
  * 当前工作区根。轻量模式（只打开了一个文件）下没有工作区，`data` 组里依赖它的动作据此禁用 ——
  * 让按钮点得动、点了什么都不发生，比禁用加一行原因更糟。
  */
@@ -590,6 +704,31 @@ export const OPEN_HISTORY_DIR_FIELD: FieldDef = {
   menu: false
 };
 
+/**
+ * 打开索引库目录。
+ *
+ * 索引落在 `%APPDATA%` 而不是工作区里（ADR-0003 判过：索引是可重建的派生数据，不该污染
+ * 用户的目录）。副作用是**用户根本找不到它** —— 于是「索引出问题时想看一眼 / 想删掉重建」
+ * 只能靠猜路径。这个入口就是补那一格。
+ *
+ * 目录名里是工作区路径的哈希，用户看不懂是正常的：这里只负责把文件管理器打开到那儿。
+ */
+export const OPEN_INDEX_DIR_FIELD: FieldDef = {
+  id: 'data.openIndexDirectory',
+  section: 'data',
+  labelKey: 'settings.data.openIndexDirectory',
+  descriptionKey: 'settings.data.openIndexDirectoryDescription',
+  control: 'action',
+  actionLabelKey: 'settings.data.openIndexDirectoryAction',
+  probe: workspaceProbe,
+  run: async () => {
+    const root = await currentWorkspaceRoot();
+    if (!root) return;
+    await window.nexus?.openIndexDirectory(root);
+  },
+  menu: false
+};
+
 /** 全部字段。**加一项只改这里** —— 菜单投影与设置页内容区都从它派生。 */
 export const FIELDS: readonly FieldDef[] = [
   THEME_MODE_FIELD,
@@ -597,15 +736,21 @@ export const FIELDS: readonly FieldDef[] = [
   LOCALE_FIELD,
   MERMAID_FIELD,
   AUTO_SAVE_FIELD,
+  AUTO_SAVE_DELAY_FIELD,
+  EXTERNAL_CHANGE_FIELD,
   FONT_FAMILY_FIELD,
   FONT_SIZE_FIELD,
   LINE_HEIGHT_FIELD,
   PARAGRAPH_SPACING_FIELD,
   CONTENT_WIDTH_FIELD,
+  TABLE_LAYOUT_FIELD,
+  LINE_NUMBERS_FIELD,
   CODE_BLOCK_LINE_NUMBERS_FIELD,
+  WORD_COUNT_FIELD,
   PANEL_WIDTH_FIELD,
   REBUILD_INDEX_FIELD,
-  OPEN_HISTORY_DIR_FIELD
+  OPEN_HISTORY_DIR_FIELD,
+  OPEN_INDEX_DIR_FIELD
 ];
 
 export function fieldsOfSection(section: SectionId): readonly FieldDef[] {

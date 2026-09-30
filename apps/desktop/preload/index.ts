@@ -141,6 +141,10 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.openHistoryDirectory, rootPath);
   },
 
+  openIndexDirectory: (rootPath: string): Promise<boolean> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openIndexDirectory, rootPath);
+  },
+
   watchFile: (filePath: string, listener: FileWatchListener): Unsubscribe => {
     subscriptionCounter += 1;
     const subscriptionId = `sub_${Date.now()}_${subscriptionCounter}_${Math.random().toString(36).slice(2, 9)}`;

@@ -83,3 +83,5 @@ export {
   toAssetUrl,
   assetPathFromUrl
 } from './asset/url.js';
+
+export { countDocumentCharacters } from './document/text-stats.js';

@@ -615,6 +615,31 @@ ipcMain.handle(IPC_CHANNELS.openHistoryDirectory, async (event, rootPath: unknow
   return failure === '';
 });
 
+/**
+ * 打开索引库目录。
+ *
+ * 与上面那条同一套纪律：**路径由主进程拼**，不接受渲染进程给的目录。索引落在 `userData` 下
+ * （`indexPathForWorkspace` 用工作区路径的哈希做文件名），所以这里取它的父目录 ——
+ * 用户想看的是「这个工作区的库文件在不在、多大」，不是某个 `.db`。
+ *
+ * 目录不存在（这个工作区还没建过索引）返回 `false`，不抛：那是正常状态。
+ */
+ipcMain.handle(IPC_CHANNELS.openIndexDirectory, async (event, rootPath: unknown) => {
+  if (typeof rootPath !== 'string' || rootPath.trim() === '') return false;
+
+  const { service } = getOrCreateSession(event.sender);
+  const authorizedRoots = service.getWorkspaceRoots();
+  if (!authorizedRoots.some((root) => path.resolve(root) === path.resolve(rootPath))) {
+    throw new Error('openIndexDirectory: 该工作区尚未授权');
+  }
+
+  const indexDir = path.dirname(indexPathForWorkspace(rootPath));
+  if (!fs.existsSync(indexDir)) return false;
+
+  const failure = await shell.openPath(indexDir);
+  return failure === '';
+});
+
 function getOrCreateSession(webContents: Electron.WebContents): WebContentsSession {  let session = sessions.get(webContents.id);
   if (!session) {
     const browserWindow = BrowserWindow.fromWebContents(webContents) ?? undefined;

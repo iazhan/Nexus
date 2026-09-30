@@ -176,6 +176,14 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.general.autoSave': 'Save automatically',
     'settings.general.autoSaveDescription':
       'Writes to disk shortly after you stop typing. Turning it off does not remove saving — use Ctrl+S or close the window.',
+    'settings.general.autoSaveDelay': 'Save delay',
+    'settings.general.autoSaveDelayDescription':
+      'How long to wait after you stop typing before writing to disk. It is a delay, not an interval — nothing is written while you keep typing.',
+    'settings.general.externalChange': 'When the file changes outside the app',
+    'settings.general.externalChangeDescription':
+      'What to do when something else edits the file you have open.',
+    'settings.general.externalChange.smart': 'Reload if I have no unsaved edits',
+    'settings.general.externalChange.prompt': 'Always ask me',
     'settings.editor.fontFamily': 'Font',
     'settings.editor.fontFamilyDescription':
       'Typeface for document text. Headings and inline code scale along with it.',
@@ -194,9 +202,20 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.contentWidthDescription':
       'Caps how wide a line can get and centres the text. Narrower columns are easier to read on a wide screen.',
     'settings.editor.contentWidth.none': 'Fill the window',
+    'settings.editor.tableLayout': 'Table columns',
+    'settings.editor.tableLayoutDescription':
+      'How column widths are decided. Auto sizes them to their content (wide tables scroll sideways); equal makes every column the same width.',
+    'settings.editor.tableLayout.auto': 'Fit content',
+    'settings.editor.tableLayout.fixed': 'Equal widths',
     'settings.editor.codeBlockLineNumbers': 'Code block line numbers',
     'settings.editor.codeBlockLineNumbersDescription':
       'Number the lines down the left side of every code block.',
+    'settings.editor.lineNumbers': 'Editor line numbers',
+    'settings.editor.lineNumbersDescription':
+      'The document line-number column on the left of the editor. Separate from code block line numbers.',
+    'settings.editor.wordCount': 'Character count',
+    'settings.editor.wordCountDescription':
+      'Show the document length in the status bar. Counts every non-whitespace character, so Markdown punctuation is included.',
     'settings.data.rebuildIndex': 'Index',
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
@@ -205,6 +224,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.openHistoryDirectoryDescription':
       'Snapshots are kept in .nexus/history inside the workspace. Open the folder to back it up or read an old version.',
     'settings.data.openHistoryDirectoryAction': 'Open history folder',
+    'settings.data.openIndexDirectory': 'Search index',
+    'settings.data.openIndexDirectoryDescription':
+      'The index lives in the app data folder, not in your workspace. Open it to see how large it got or to delete it and rebuild from scratch.',
+    'settings.data.openIndexDirectoryAction': 'Open index folder',
     'settings.data.needsWorkspace': 'Open a workspace to use this.',
     'settings.editor.panelWidth': 'Sidebar width',
     'settings.editor.panelWidthDescription': 'Width of the left sidebar. You can also drag the handle on its edge.',
@@ -406,6 +429,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'mermaid.clickToReveal': 'Click diagram to show source',
     'status.lineColumn': 'Ln {line}, Col {column}',
     'status.selected': '{count} selected',
+    'status.characterCount': '{count} chars',
     'editor.dragHandle': 'Drag to reorder block',
     'editor.retry': 'Retry',
     'extensions.unavailable': 'Extension unavailable: {id}',
@@ -587,6 +611,13 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.general.autoSave': '自动保存',
     'settings.general.autoSaveDescription':
       '停止输入后自动写盘。关掉它不等于关掉保存能力 —— 仍可用 Ctrl+S，或关闭窗口时保存。',
+    'settings.general.autoSaveDelay': '自动保存延迟',
+    'settings.general.autoSaveDelayDescription':
+      '停止输入后等多久写盘。它是**延迟**不是间隔 —— 一直在输入就一直不写。',
+    'settings.general.externalChange': '文件被外部修改时',
+    'settings.general.externalChangeDescription': '当前打开的文件被别的程序改动时怎么办。',
+    'settings.general.externalChange.smart': '没有未保存改动就自动重载',
+    'settings.general.externalChange.prompt': '总是问我',
     'settings.editor.fontFamily': '字体',
     'settings.editor.fontFamilyDescription':
       '正文的字体。标题与行内代码会跟着一起缩放。',
@@ -605,6 +636,17 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.contentWidthDescription':
       '限制每行的最大宽度并把正文居中。宽屏上窄一些的栏更好读。',
     'settings.editor.contentWidth.none': '跟随窗口',
+    'settings.editor.tableLayout': '表格列宽',
+    'settings.editor.tableLayoutDescription':
+      '列宽怎么定。自适应按内容给宽（宽表格会撑出横向滚动），均分让各列等宽。',
+    'settings.editor.tableLayout.auto': '自适应',
+    'settings.editor.tableLayout.fixed': '均分',
+    'settings.editor.lineNumbers': '编辑器行号',
+    'settings.editor.lineNumbersDescription':
+      '编辑器左侧那一列文档行号。与「代码块行号」是两回事。',
+    'settings.editor.wordCount': '字数统计',
+    'settings.editor.wordCountDescription':
+      '在状态栏显示文档长度。按非空白字符数统计，Markdown 的语法符号也计入。',
     'settings.editor.codeBlockLineNumbers': '代码块行号',
     'settings.editor.codeBlockLineNumbersDescription': '在代码块左侧逐行显示行号。',
     'settings.data.rebuildIndex': '索引',
@@ -615,6 +657,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.openHistoryDirectoryDescription':
       '快照保存在工作区的 .nexus/history 里。打开该目录可以自行备份，或翻出旧版本。',
     'settings.data.openHistoryDirectoryAction': '打开历史目录',
+    'settings.data.openIndexDirectory': '搜索索引',
+    'settings.data.openIndexDirectoryDescription':
+      '索引放在应用数据目录里，不在工作区中。打开它可以看它有多大，或删掉重建。',
+    'settings.data.openIndexDirectoryAction': '打开索引目录',
     'settings.data.needsWorkspace': '打开一个工作区后才能使用。',
     'settings.editor.panelWidth': '侧栏宽度',
     'settings.editor.panelWidthDescription': '左侧栏的宽度。也可以拖拽它边缘的把手调整。',
@@ -812,6 +858,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'mermaid.clickToReveal': '点击图表显示源码',
     'status.lineColumn': '第 {line} 行，第 {column} 列',
     'status.selected': '已选 {count} 个字符',
+    'status.characterCount': '{count} 字',
     'editor.dragHandle': '拖动以重排块',
     'editor.retry': '重试',
     'extensions.unavailable': '扩展不可用：{id}',

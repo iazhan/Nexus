@@ -67,6 +67,8 @@ export interface SourceEditorConfig {
   keybindings?: import('@codemirror/view').KeyBinding[];
   extensionHost?: import('./extensions.js').ExtensionHost;
   theme?: 'light' | 'dark';
+  /** 行号槽。缺省视为开 —— 与这个设置项出现之前的行为一致。 */
+  lineNumbers?: boolean;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
 }

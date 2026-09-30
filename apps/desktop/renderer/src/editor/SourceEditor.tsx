@@ -4,6 +4,7 @@ import {
   getSelectionInfo,
   setEditorReadOnly,
   setDocumentDirectory,
+  setEditorLineNumbers,
   setEditorThemeConfig,
   setEditorLocale,
   setMermaidPreviewSettings,
@@ -15,7 +16,7 @@ import {
   type EditorScrollAnchor,
   type LinkNavigator
 } from '@nexus/editor';
-import { mermaidPreviewPreference } from '../platform';
+import { mermaidPreviewPreference, settings } from '../platform';
 
 export type { EditorSaveState, EditorSelectionInfo };
 
@@ -113,6 +114,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       extensionHost,
       theme,
       locale,
+      lineNumbers: settings.get('editor.lineNumbers'),
       scrollTo: pendingScrollRef.current ?? undefined,
       onSelectionChange: () => {
         const view = handleRef.current?.view;
@@ -183,6 +185,19 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       }
     }
   }, [locale]);
+
+  // 行号槽。**唯一一个走 CodeMirror compartment 的外观项** —— 其余（字号、行高、内容宽度、
+  // 代码块行号、表格列宽）都是 CSS 变量。判据：`lineNumbers()` 会建一个 gutter DOM 与一块宽度，
+  // 只把它藏起来那截宽度还在，正文与左边框之间会空一条。
+  useEffect(() => {
+    const apply = () => {
+      if (handleRef.current) {
+        setEditorLineNumbers(handleRef.current.view, settings.get('editor.lineNumbers'));
+      }
+    };
+    apply();
+    return settings.subscribe('editor.lineNumbers', apply);
+  }, []);
 
   // Mermaid 块显示偏好（只有 visual surface 装了那个 Compartment）
   useEffect(() => {

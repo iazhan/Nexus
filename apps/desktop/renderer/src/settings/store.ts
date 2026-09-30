@@ -21,7 +21,9 @@ import {
   clampPanelWidth
 } from '../workspace/panel-width.js';
 import {
+  AUTO_SAVE_DELAY,
   AUTO_SAVE_STORAGE_KEY,
+  CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY,
   EDITOR_CONTENT_WIDTH_DEFAULT,
   EDITOR_CONTENT_WIDTH_OPTIONS,
   EDITOR_CONTENT_WIDTH_STORAGE_KEY,
@@ -31,11 +33,18 @@ import {
   EDITOR_FONT_SIZE,
   EDITOR_LINE_HEIGHT,
   EDITOR_PARAGRAPH_SPACING,
-  CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY,
+  EDITOR_TABLE_LAYOUT_DEFAULT,
+  EDITOR_TABLE_LAYOUT_OPTIONS,
+  EDITOR_TABLE_LAYOUT_STORAGE_KEY,
+  EDITOR_LINE_NUMBERS_STORAGE_KEY,
+  EDITOR_WORD_COUNT_STORAGE_KEY,
+  EXTERNAL_CHANGE_DEFAULT,
+  EXTERNAL_CHANGE_OPTIONS,
+  EXTERNAL_CHANGE_STORAGE_KEY,
   parseNumberSetting,
   serializeNumberSetting,
   type NumberSettingSpec
-} from './editor-typography.js';
+} from './preference-specs.js';
 
 /** 一个设置项的定义。**不含 `path`** —— 表键就是它，两处各写一遍迟早对不上。 */
 export interface SettingDef<T> {
@@ -61,8 +70,8 @@ function defineSetting<T>(def: SettingDef<T>): SettingDef<T> {
 const DEFAULT_SECTION = 'appearance';
 
 /**
- * 数值项的样板：夹取规则只在 `editor-typography.ts` 写一份，这里只负责接上。
- * 七个外观 / 行为项里有三个是数值，各写一遍 parse 必然有一处漏夹。
+ * 数值项的样板：夹取规则只在 `preference-specs.ts` 写一份，这里只负责接上。
+ * 十来个外观 / 行为项里有四个是数值，各写一遍 parse 必然有一处漏夹。
  */
 function numberSetting(spec: NumberSettingSpec) {
   return defineSetting<number>({
@@ -70,6 +79,21 @@ function numberSetting(spec: NumberSettingSpec) {
     fallback: spec.fallback,
     parse: (raw) => parseNumberSetting(spec, raw),
     serialize: (value) => serializeNumberSetting(spec, value)
+  });
+}
+
+/**
+ * 开关项的样板。**只有显式的 `'false'` 算关** —— 空串、`null`、写坏的字符串一律当开。
+ *
+ * 这些开关的默认值全是「开」，而「读不懂就当关」会让存档里一个手滑的字符静默关掉一项能力，
+ * 用户要过很久才发现（自动保存关掉会丢输入，行号关掉只是难看 —— 但判据一致比逐项解释便宜）。
+ */
+function toggleSetting(storageKey: string) {
+  return defineSetting<boolean>({
+    storageKey,
+    fallback: true,
+    parse: (raw) => raw !== 'false',
+    serialize: (value) => String(value)
   });
 }
 
@@ -150,15 +174,25 @@ export const SETTING_DEFS = {
   /**
    * 自动保存。关掉之后**只有显式保存才落盘**，编辑器仍会把状态标成未保存。
    *
-   * 判据是「只有显式的 `'false'` 算关」：空串、`null`、写坏的字符串一律当开 —— 默认值是开，
-   * 而「读不懂就当关」会让存档里一个手滑的字符静默关掉自动保存，用户丢掉一整天的输入才发现。
+   * 落盘时机见 `general.autoSaveDelay`：那是 debounce 延迟，不是周期快照间隔。
    */
-  'general.autoSave': defineSetting<boolean>({
-    storageKey: AUTO_SAVE_STORAGE_KEY,
-    fallback: true,
-    parse: (raw) => raw !== 'false',
-    serialize: (value) => String(value)
-  }),
+  'general.autoSave': toggleSetting(AUTO_SAVE_STORAGE_KEY),
+
+  /**
+   * 自动保存延迟（毫秒）。**只在自动保存开着时有意义**，但不禁用控件 ——
+   * 关掉自动保存时这个值仍会被保留，再打开时接着用；禁用它反而要多解释一次「为什么点不动」。
+   */
+  'general.autoSaveDelay': numberSetting(AUTO_SAVE_DELAY),
+
+  /**
+   * 外部修改文档时怎么处理。`smart` 是改版前的行为（干净就自动重载、有改动才提示），
+   * 所以默认值不动观感。
+   */
+  'general.externalChange': choiceSetting(
+    EXTERNAL_CHANGE_STORAGE_KEY,
+    EXTERNAL_CHANGE_DEFAULT,
+    EXTERNAL_CHANGE_OPTIONS.map((option) => option.value)
+  ),
 
   'editor.fontSize': numberSetting(EDITOR_FONT_SIZE),
   'editor.lineHeight': numberSetting(EDITOR_LINE_HEIGHT),
@@ -176,18 +210,27 @@ export const SETTING_DEFS = {
     EDITOR_FONT_FAMILIES.map((family) => family.value)
   ),
 
+  'editor.tableLayout': choiceSetting(
+    EDITOR_TABLE_LAYOUT_STORAGE_KEY,
+    EDITOR_TABLE_LAYOUT_DEFAULT,
+    EDITOR_TABLE_LAYOUT_OPTIONS.map((option) => option.value)
+  ),
+
   /**
-   * 代码块行号。判据同 `general.autoSave`：**只有显式的 `'false'` 算关**。
+   * 行号槽。默认开 —— 这个设置项出现之前行号一直显示着，**关掉才是新行为**。
    *
-   * 行号是读代码时的定位依据，关掉之后 `::before` 整块消失、没有别的入口把它找回来；
-   * 存档里一个写坏的字符就静默改变外观，代价和收益不对等。默认值是开 —— 与改版前一致。
+   * 与 `editor.codeBlockLineNumbers` 是两件事：这个是**编辑器 gutter 的文档行号**
+   * （源码模式与编辑态都在），那个是**代码块内部的正文行号**。
    */
-  'editor.codeBlockLineNumbers': defineSetting<boolean>({
-    storageKey: CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY,
-    fallback: true,
-    parse: (raw) => raw !== 'false',
-    serialize: (value) => String(value)
-  })
+  'editor.lineNumbers': toggleSetting(EDITOR_LINE_NUMBERS_STORAGE_KEY),
+
+  /**
+   * 状态栏字数。默认开：它是纯新增的展示项，不动任何已有元素 ——
+   * 「默认等于改版前」在这里意味着「可以有」。
+   */
+  'editor.wordCount': toggleSetting(EDITOR_WORD_COUNT_STORAGE_KEY),
+
+  'editor.codeBlockLineNumbers': toggleSetting(CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY)
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;

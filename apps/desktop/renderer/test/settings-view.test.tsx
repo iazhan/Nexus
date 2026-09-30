@@ -551,6 +551,11 @@ describe('设置视图 · Editor', () => {
     settings.set('editor.contentWidth', 'none');
     settings.set('editor.fontFamily', 'default');
     settings.set('editor.codeBlockLineNumbers', true);
+    settings.set('editor.tableLayout', 'auto');
+    settings.set('editor.lineNumbers', true);
+    settings.set('editor.wordCount', true);
+    settings.set('general.autoSaveDelay', 800);
+    settings.set('general.externalChange', 'smart');
   }
 
   beforeEach(() => {
@@ -572,6 +577,9 @@ describe('设置视图 · Editor', () => {
     expect(container.querySelector('[data-field="editor.mermaidClickToReveal"]')).not.toBeNull();
     expect(container.querySelector('[data-field="editor.codeBlockLineNumbers"]')).not.toBeNull();
     expect(container.querySelector('[data-field="editor.panelWidth"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="editor.tableLayout"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="editor.lineNumbers"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="editor.wordCount"]')).not.toBeNull();
   });
 
   it('改面板宽度立刻写进存档 —— 主窗口据此跟随，没有保存按钮', () => {
@@ -637,6 +645,11 @@ describe('设置视图 · Editor', () => {
     expect(settings.get('editor.fontFamily')).toBe('default');
     expect(settings.get('editor.codeBlockLineNumbers')).toBe(true);
     expect(settings.get('general.autoSave')).toBe(true);
+    expect(settings.get('editor.lineNumbers')).toBe(true);
+    expect(settings.get('editor.tableLayout')).toBe('auto');
+    expect(settings.get('general.autoSaveDelay')).toBe(800);
+    expect(settings.get('general.externalChange')).toBe('smart');
+    expect(byId.get('general.autoSaveDelay')?.resetValue).toBe('800');
   });
 
   it('改正文字号立刻写进存档，并把变量写到 documentElement 上', () => {
@@ -722,6 +735,134 @@ describe('设置视图 · Editor', () => {
     );
     expect(toggle?.getAttribute('aria-checked')).toBe('false');
   });
+
+  /**
+   * 表格列宽。和代码块行号同属「能力一直在、只是关不掉」那一类：`table-layout` 由主题
+   * 的 CSS 变量读，设置只切变量。
+   */
+  it('表格列宽是枚举，默认 auto，改 fixed 写进存档与变量', () => {
+    renderSettings('editor');
+
+    const select = container.querySelector<HTMLSelectElement>(
+      '[data-field-input="editor.tableLayout"]'
+    );
+    expect(select?.value).toBe('auto');
+    expect(document.documentElement.style.getPropertyValue('--nx-editor-table-layout')).toBe('auto');
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      setter?.call(select, 'fixed');
+      select?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(settings.get('editor.tableLayout')).toBe('fixed');
+    expect(document.documentElement.style.getPropertyValue('--nx-editor-table-layout')).toBe('fixed');
+  });
+
+  /**
+   * 编辑器行号槽是这一组里**唯一没有 CSS 变量落点**的字段 —— 它走 CodeMirror 的 compartment，
+   * 由 `SourceEditor.tsx` 订阅后重配。所以这里只断言存档；DOM 侧的真判据在 `packages/editor`
+   * 的 `editor-line-numbers.test.ts` 与 desktop 真机用例里。
+   */
+  it('行号槽开关默认开，点一下写进存档', () => {
+    renderSettings('editor');
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[data-field-input="editor.lineNumbers"]'
+    );
+    expect(toggle?.getAttribute('aria-checked')).toBe('true');
+
+    act(() => toggle?.click());
+
+    expect(settings.get('editor.lineNumbers')).toBe(false);
+    expect(toggle?.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('状态栏字数开关默认开，点一下写进存档', () => {
+    renderSettings('editor');
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[data-field-input="editor.wordCount"]'
+    );
+    expect(toggle?.getAttribute('aria-checked')).toBe('true');
+
+    act(() => toggle?.click());
+
+    expect(settings.get('editor.wordCount')).toBe(false);
+    expect(toggle?.getAttribute('aria-checked')).toBe('false');
+  });
+});
+
+/**
+ * 通用分组新增的两项：自动保存延迟、外部修改时。
+ *
+ * 两者都不产生任何 DOM 落点 —— 一个被 `App.tsx` 的 setTimeout 读，一个被外部修改分支读 ——
+ * 所以组件层只断言「值写对了」，行为判据在真机用例里。
+ */
+describe('设置视图 · 通用（自动保存延迟 / 外部修改）', () => {
+  beforeEach(() => {
+    settings.set('general.autoSaveDelay', 800);
+    settings.set('general.externalChange', 'smart');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    settings.set('general.autoSaveDelay', 800);
+    settings.set('general.externalChange', 'smart');
+  });
+
+  it('通用分组渲染自动保存延迟与外部修改两项', () => {
+    renderSettings('general');
+
+    expect(container.querySelector('[data-field="general.autoSaveDelay"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="general.externalChange"]')).not.toBeNull();
+  });
+
+  it('自动保存延迟默认 800，改值立刻写进存档', () => {
+    renderSettings('general');
+
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-field-input="general.autoSaveDelay"]'
+    );
+    expect(input?.value).toBe('800');
+
+    act(() => setInputValue(input as HTMLInputElement, '1500'));
+
+    expect(settings.get('general.autoSaveDelay')).toBe(1500);
+  });
+
+  it('自动保存延迟越界被夹住', () => {
+    renderSettings('general');
+
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-field-input="general.autoSaveDelay"]'
+    );
+    act(() => setInputValue(input as HTMLInputElement, '99999'));
+
+    expect(settings.get('general.autoSaveDelay')).toBe(5000);
+    expect(input?.value).toBe('5000');
+  });
+
+  it('外部修改默认 smart，改 prompt 写进存档', () => {
+    renderSettings('general');
+
+    const select = container.querySelector<HTMLSelectElement>(
+      '[data-field-input="general.externalChange"]'
+    );
+    expect(select?.value).toBe('smart');
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      setter?.call(select, 'prompt');
+      select?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(settings.get('general.externalChange')).toBe('prompt');
+  });
 });
 
 /**
@@ -731,8 +872,12 @@ describe('设置视图 · Editor', () => {
 describe('设置视图 · 动作字段', () => {
   const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
 
-  function stubBridge(roots: string[]): { rebuilds: string[]; opened: string[] } {
-    const calls = { rebuilds: [] as string[], opened: [] as string[] };
+  function stubBridge(roots: string[]): {
+    rebuilds: string[];
+    opened: string[];
+    openedIndex: string[];
+  } {
+    const calls = { rebuilds: [] as string[], opened: [] as string[], openedIndex: [] as string[] };
     (window as unknown as { nexus: unknown }).nexus = {
       getWorkspaceRoots: () => Promise.resolve(roots),
       rebuildIndex: (rootPath: string) => {
@@ -741,6 +886,10 @@ describe('设置视图 · 动作字段', () => {
       },
       openHistoryDirectory: (rootPath: string) => {
         calls.opened.push(rootPath);
+        return Promise.resolve(true);
+      },
+      openIndexDirectory: (rootPath: string) => {
+        calls.openedIndex.push(rootPath);
         return Promise.resolve(true);
       }
     };
@@ -777,8 +926,12 @@ describe('设置视图 · 动作字段', () => {
     const openDir = container.querySelector<HTMLButtonElement>(
       '[data-field-action="data.openHistoryDirectory"]'
     );
+    const openIndex = container.querySelector<HTMLButtonElement>(
+      '[data-field-action="data.openIndexDirectory"]'
+    );
     expect(rebuild?.disabled).toBe(false);
     expect(openDir?.disabled).toBe(false);
+    expect(openIndex?.disabled).toBe(false);
 
     await act(async () => {
       rebuild?.click();
@@ -786,9 +939,13 @@ describe('设置视图 · 动作字段', () => {
     await act(async () => {
       openDir?.click();
     });
+    await act(async () => {
+      openIndex?.click();
+    });
 
     expect(calls.rebuilds).toEqual(['E:/notes']);
     expect(calls.opened).toEqual(['E:/notes']);
+    expect(calls.openedIndex).toEqual(['E:/notes']);
     // 效果落在别的窗口，所以当前窗口必须给一行回执，否则点了像没反应。
     expect(container.querySelector('[data-field-outcome="data.rebuildIndex"]')).not.toBeNull();
   });

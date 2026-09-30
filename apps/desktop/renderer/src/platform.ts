@@ -14,7 +14,7 @@ import {
   type UserTheme
 } from '@nexus/theme';
 import { SettingsStore } from './settings/store.js';
-import { EDITOR_CSS_VARS, codeLineNumbersDisplay, editorFontStack } from './settings/editor-typography.js';
+import { EDITOR_CSS_VARS, codeLineNumbersDisplay, editorFontStack } from './settings/preference-specs.js';
 
 export const commandRegistry = new CommandRegistry();
 export const localeManager = new LocaleManager();
@@ -312,8 +312,10 @@ export function resyncFromStorage(): void {
 
   mermaidPreviewPreference.reload();
 
-  // 外观六项走 `settings.reload()` 那条订阅（见下），这里不必重复调 —— 但**必须**留一行说明
+  // 外观七项走 `settings.reload()` 那条订阅（见下），这里不必重复调 —— 但**必须**留一行说明
   // 为什么：漏掉订阅的人会以为它靠这里同步。
+  // 自动保存延迟与外部修改策略是**读时取值**（`App.tsx` 在用到时才 `settings.get`），
+  // 所以 `reload()` 一过就生效，不需要额外通知。
 }
 
 /**
@@ -321,10 +323,13 @@ export function resyncFromStorage(): void {
  *
  * 为什么走 CSS 变量而不是重建 CodeMirror 主题：`EditorView.theme()` 的值只在**构造时**求值，
  * 改字号得 reconfigure 整个 theme compartment，还要保住光标与滚动位置。变量是纯 CSS 层，
- * 六个设置项一个 effect 都不用加。
+ * 六项外观一个 effect 都不用加。
  *
- * 代码块行号也在这里：它改的是伪元素的 `display`，与字号同属「编辑器长什么样」，
- * 分两个函数只会让「改了设置没反应」多一种排查方向。
+ * 代码块行号与表格列宽也在这里：它们改的是伪元素的 `display` 与表格的 `table-layout`，
+ * 与字号同属「编辑器长什么样」。分几个函数只会让「改了设置没反应」多出几种排查方向。
+ *
+ * **行号槽不在这里** —— 它是真正的 CodeMirror 扩展（`lineNumbers()`），只能靠 compartment
+ * reconfigure，由 `editor/SourceEditor.tsx` 订阅（与 mermaid 偏好同一条路）。
  *
  * **在模块加载时调一次、并在这里订阅**，不交给 `App.tsx`：订阅放在消费方，将来多一个渲染
  * 编辑器的窗口就要多记一次；放在这里，谁 import `platform` 谁就已经接好了。模块加载时就跑
@@ -348,6 +353,7 @@ export function applyEditorAppearance(): void {
     EDITOR_CSS_VARS.codeLineNumbers,
     codeLineNumbersDisplay(settings.get('editor.codeBlockLineNumbers'))
   );
+  root.setProperty(EDITOR_CSS_VARS.tableLayout, settings.get('editor.tableLayout'));
 }
 
 applyEditorAppearance();
@@ -358,7 +364,8 @@ for (const path of [
   'editor.paragraphSpacing',
   'editor.contentWidth',
   'editor.fontFamily',
-  'editor.codeBlockLineNumbers'
+  'editor.codeBlockLineNumbers',
+  'editor.tableLayout'
 ] as const) {
   settings.subscribe(path, applyEditorAppearance);
 }

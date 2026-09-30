@@ -7,7 +7,7 @@ import React, {
   useSyncExternalStore
 } from 'react';
 import type { FileDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
-import { isViewerDocumentType, parsePageAnchor } from '@nexus/core';
+import { countDocumentCharacters, isViewerDocumentType, parsePageAnchor } from '@nexus/core';
 import {
   MarkdownDocumentSession,
   openSearchPanel,
@@ -31,7 +31,7 @@ import { WindowControls } from './WindowControls.js';
 import { DarkIcon, LightIcon } from './components/theme-icons.js';
 import { formatShortcut, matchesShortcut } from './shortcut.js';
 import { commandRegistry, mermaidPreviewPreference, settings } from './platform.js';
-import { useTheme, useLocale } from './hooks.js';
+import { useTheme, useLocale, useSettingValue } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
 import { WorkspaceStore } from './workspace/store.js';
 import { TabBar } from './workspace/TabBar.js';
@@ -361,6 +361,23 @@ export const App: React.FC = () => {
   const filePath = activeDocument?.filePath ?? null;
   const saveState = activeDocument?.saveState ?? 'clean';
   const saveError = activeDocument?.saveError ?? null;
+
+  /** 状态栏字数的显隐。走 `useSettingValue` 而不是 `settings.get`：后者不会在改设置时重渲染。 */
+  const showCharacterCount = useSettingValue('editor.wordCount');
+
+  /**
+   * 状态栏字数。
+   *
+   * 订阅 session 而不是在 `handleContentChange` 里算：后者只在编辑器 `onChange` 时跑，
+   * 而**打开文件、切标签、外部重载**都会换内容却不经过那条回调 —— 那些时刻数字会停在上一个
+   * 文档的值上。session 的订阅覆盖所有内容变更来源，一处就够。
+   */
+  const [characterCount, setCharacterCount] = useState(0);
+  useEffect(() => {
+    const sync = () => setCharacterCount(countDocumentCharacters(session.getSnapshot().source));
+    sync();
+    return session.subscribe(sync);
+  }, [session]);
 
   const saveStateRef = useRef(saveState);
   saveStateRef.current = saveState;
@@ -723,7 +740,11 @@ export const App: React.FC = () => {
             (saveStateRef.current === 'saved' || saveStateRef.current === 'clean' || saveStateRef.current === 'readonly') &&
             initialContentRef.current === session.getSnapshot().source;
 
-          if (isDocClean && window.nexus?.readFile) {
+          // 关掉自动重载后**一律提示**，干净文档也提示 —— 否则「始终提示」在干净文档上
+          // 等于没生效（那时它和 smart 走的是同一条路）。
+          const autoReload = settings.get('general.externalChange') === 'smart';
+
+          if (autoReload && isDocClean && window.nexus?.readFile) {
             try {
               const freshContent = await window.nexus.readFile(filePath);
               // 应用自己的 writeFile 同样会唤醒这个 watcher。内容与当前文档完全一致时
@@ -740,8 +761,8 @@ export const App: React.FC = () => {
               setSaveError(String(readErr));
               updateSaveState('error');
             }
-          } else if (saveStateRef.current !== 'saved' && saveStateRef.current !== 'clean' && saveStateRef.current !== 'readonly') {
-            // 保存中或保存失败也仍有本地未持久化内容，必须进入冲突保护路径。
+          } else {
+            // 有本地未持久化内容（保存中 / 保存失败 / 已 dirty）时也走这里：必须进入冲突保护路径。
             updateSaveState('external-changed');
           }
         }
@@ -871,9 +892,10 @@ export const App: React.FC = () => {
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current);
         }
+        // 延迟**读时取值**：改设置后下一次输入就按新值走，不需要重挂这个回调。
         debounceTimerRef.current = setTimeout(() => {
           saveFile({ immediate: false });
-        }, 800);
+        }, settings.get('general.autoSaveDelay'));
       }
     } else {
       updateSaveState('saved');
@@ -1876,6 +1898,11 @@ export const App: React.FC = () => {
           {selection.selectedTextLength > 0 && (
             <span className="status-metric">
               ({t('status.selected', { count: String(selection.selectedTextLength) })})
+            </span>
+          )}
+          {showCharacterCount && (
+            <span className="status-metric" data-status-metric="character-count">
+              {t('status.characterCount', { count: String(characterCount) })}
             </span>
           )}
           {/* 专有名词（Workspace / Markdown）不翻译；附件类型由 formatLabel 给出 */}

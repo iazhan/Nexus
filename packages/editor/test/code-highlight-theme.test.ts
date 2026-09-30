@@ -85,4 +85,20 @@ describe('Editor Syntax Highlighting Theme', () => {
     view.destroy();
     parent.remove();
   });
+
+  /**
+   * 表格列宽的 `table-layout` 同样走变量。
+   *
+   * `table-layout` 只在构造时求值，写死 `auto` 会让「固定列宽」这个选项静默无效。
+   */
+  it('表格列宽走变量，而不是写死 auto', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({ parent, extensions: [nexusBaseTheme] });
+    const styles = Array.from(document.querySelectorAll('style')).map(s => s.textContent).join('\n');
+
+    expect(styles).toContain('var(--nx-editor-table-layout');
+    view.destroy();
+    parent.remove();
+  });
 });

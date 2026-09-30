@@ -51,6 +51,8 @@ export interface CreateSessionEditorStateOptions {
   onSelectionChange?: (selection: MarkdownSelection) => void;
   theme?: 'light' | 'dark';
   locale?: string;
+  /** 行号槽。缺省视为开。 */
+  lineNumbers?: boolean;
 }
 
 /**
@@ -368,7 +370,8 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
     includeHistory: false,
     keybindings: options.surfaceKind === 'visual' ? visualEditorKeybindings : editorKeybindings,
     extensionHost: options.extensionHost,
-    theme: options.theme
+    theme: options.theme,
+    lineNumbers: options.lineNumbers
   });
   const visualExtensions = options.surfaceKind === 'visual'
     ? [

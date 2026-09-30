@@ -171,6 +171,28 @@ describe('设置窗口', () => {
       )
     ).toBe(expectedLineNumberVar);
 
+    // ④c″ 表格列宽同属「变量落点」那一类：`table-layout` 由主题 CSS 读。判据取变量而不是
+    //     选中项 —— 变量变了表格就一定变，选中项只证明控件写进了 store。
+    //     同样先读存档再改，不假定初始档位。
+    const tableLayoutBefore = await app.evaluate<string>(
+      `localStorage.getItem('nexus-editor-table-layout') ?? 'auto'`
+    );
+    const tableLayoutNext = tableLayoutBefore === 'fixed' ? 'auto' : 'fixed';
+    await app.evaluate(`(() => {
+      const select = document.querySelector('[data-field-input="editor.tableLayout"]');
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      setter.call(select, ${JSON.stringify(tableLayoutNext)});
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    expect(await app.evaluate<string>(`localStorage.getItem('nexus-editor-table-layout') ?? ''`)).toBe(
+      tableLayoutNext
+    );
+    expect(
+      await app.evaluate<string>(
+        `document.documentElement.style.getPropertyValue('--nx-editor-table-layout')`
+      )
+    ).toBe(tableLayoutNext);
+
     // ④d 数据分组的两个动作在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
     //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」
     //     这两件事只有真机验证得到，renderer 用例里那个 `window.nexus` 是打桩的。
@@ -187,7 +209,7 @@ describe('设置窗口', () => {
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('[data-field-action]')).map((el) => el.dataset.fieldAction)`
       )
-    ).toEqual(['data.rebuildIndex', 'data.openHistoryDirectory']);
+    ).toEqual(['data.rebuildIndex', 'data.openHistoryDirectory', 'data.openIndexDirectory']);
     // 探到工作区就不该画那行「打开一个工作区后才能使用」。
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-field-blocked]').length`)
@@ -212,6 +234,11 @@ describe('设置窗口', () => {
         `document.documentElement.style.getPropertyValue('--nx-editor-code-line-numbers')`
       )
     ).toBe(expectedLineNumberVar);
+    expect(
+      await app.evaluate<string>(
+        `document.documentElement.style.getPropertyValue('--nx-editor-table-layout')`
+      )
+    ).toBe(tableLayoutNext);
 
     // ⑥ 单例：再触发一次不会开出第二个设置窗口。
     //    这里走 `evaluate` 直接调桥、不派发按键 —— 设置窗口持有焦点时主窗口的
@@ -240,7 +267,7 @@ describe('设置窗口', () => {
     // 或「停在数据分组」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。
     // 走 `localStorage` 直接清，不绕 UI。
     await app.evaluate(
-      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-settings-section');`
+      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-settings-section');`
     );
   }, 120000);
 });

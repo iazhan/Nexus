@@ -20,6 +20,7 @@ export const readOnlyCompartment = new Compartment();
 export const editableCompartment = new Compartment();
 export const themeCompartment = new Compartment();
 export const editorLocaleCompartment = new Compartment();
+export const lineNumbersCompartment = new Compartment();
 
 export const editorLocaleFacet = Facet.define<string, string>({
   combine: (values) => values[0] || 'zh-CN'
@@ -36,7 +37,13 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
   // 它与 `lineNumbers()` 配合正好是「换行显示 + 续行不显示行号」：
   // `lineNumbers()` 只给**逻辑行起点**标号，软换行出来的续行本来就不带行号 ——
   // 所以不需要额外做「隐藏续行行号」的处理，两件事是一件事。
-  const extensions: Extension[] = [lineNumbers(), EditorView.lineWrapping];
+  //
+  // 行号槽走 Compartment：设置里能关掉它。缺省视为开（`config.lineNumbers !== false`），
+  // 因为「关掉行号」是这个设置项带来的新可能，不是新的默认。
+  const extensions: Extension[] = [
+    lineNumbersCompartment.of(config.lineNumbers === false ? [] : lineNumbers()),
+    EditorView.lineWrapping
+  ];
 
   if (config.includeHistory !== false) {
     extensions.push(history());
@@ -141,5 +148,17 @@ export function setEditorLocale(view: EditorView, locale: string): void {
     effects: [
       editorLocaleCompartment.reconfigure(editorLocaleFacet.of(locale))
     ]
+  });
+}
+
+/**
+ * Reconfigures the line-number gutter of an existing EditorView.
+ *
+ * 关掉时送空扩展而不是别的「隐藏样式」：`lineNumbers()` 自己会建一个 gutter DOM 与一块宽度，
+ * 只把它藏起来的话那截宽度还在，正文会与左边框之间空一条 —— 看起来像没生效。
+ */
+export function setEditorLineNumbers(view: EditorView, visible: boolean): void {
+  view.dispatch({
+    effects: [lineNumbersCompartment.reconfigure(visible ? lineNumbers() : [])]
   });
 }

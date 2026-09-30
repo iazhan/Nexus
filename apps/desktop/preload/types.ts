@@ -82,6 +82,13 @@ export interface NexusBridge {
    * 而不是抛异常 —— 「还没有历史」是正常状态，不是错误。
    */
   openHistoryDirectory: (rootPath: string) => Promise<boolean>;
+  /**
+   * 在系统文件管理器里打开该工作区的**索引库目录**。
+   *
+   * 索引在 `userData` 下、不在工作区里，所以用户平时看不到它。返回是否真的打开了：
+   * 目录不存在（这个工作区还没建过索引）时返回 `false`，而不是抛异常。
+   */
+  openIndexDirectory: (rootPath: string) => Promise<boolean>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;

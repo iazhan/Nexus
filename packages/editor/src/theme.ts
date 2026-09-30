@@ -4,9 +4,9 @@ import { tags as t } from "@lezer/highlight";
 
 // Nexus Unified Theme using CSS Variables (Design Tokens)
 //
-// 排版四项（字号 / 字体 / 行高 / 段间距）、内容宽度与代码块行号开关走 `--nx-editor-*` 而不是主题
-// token：它们是**用户偏好**，不是主题的一部分 —— 换主题不该把字号或行号重置回去。变量由宿主
-// （App.css 的 `:root` 给默认值、渲染进程按设置覆盖）提供，包内只引用。
+// 排版四项（字号 / 字体 / 行高 / 段间距）、内容宽度、代码块行号开关与表格列宽走 `--nx-editor-*`
+// 而不是主题 token：它们是**用户偏好**，不是主题的一部分 —— 换主题不该把字号或行号重置回去。
+// 变量由宿主（App.css 的 `:root` 给默认值、渲染进程按设置覆盖）提供，包内只引用。
 //
 // 字号是**基准**：标题与行内元素一律用 `em`，所以改这一个值整篇一起缩放。
 export const nexusBaseTheme = EditorView.theme({
@@ -602,7 +602,8 @@ export const nexusBaseTheme = EditorView.theme({
     border: "1px solid var(--nexus-border-subtle)",
     borderRadius: "6px",
     backgroundColor: "var(--nexus-bg-canvas)",
-    tableLayout: "auto"
+    // `auto` 是默认，也是改版前的行为：列宽由内容决定。`fixed` 让各列等宽。
+    tableLayout: "var(--nx-editor-table-layout, auto)"
   },
   ".cm-visual-table th": {
     backgroundColor: "var(--nexus-bg-surface)",
