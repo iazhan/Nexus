@@ -2,9 +2,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { HistoryStore } from '../electron/history-store.js';
 import { FileService } from '../electron/file-service.js';
 import { createTempDir } from './smoke-harness.js';
+
+/** 与 `HistoryStore` 同口径的内容哈希（sha256 前 8 位）—— 铺盘造数据时要造对。 */
+function contentHash(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 8);
+}
 
 describe('版本历史存储', () => {
   let workspace: string;
@@ -102,6 +108,119 @@ describe('版本历史存储', () => {
     fs.writeFileSync(path.join(store.directoryFor('dma.md'), 'malformed.md'), 'x', 'utf8');
 
     expect(store.list('dma.md')).toHaveLength(1);
+  });
+});
+
+/**
+ * 保留上限。
+ *
+ * **用例在磁盘上直接铺出时间戳递增的历史**，不靠连着调 `record` —— 时间戳精度是秒，
+ * 同一秒内写多条会拿到相同的 `savedAt`，而 `list` 对并列不做保证（落在 `readdir` 顺序上，
+ * 也就是文件名即哈希的顺序）。那样写出来的用例「谁被删掉」是不确定的，会随机红。
+ * 铺盘还顺带覆盖了「上限调小之后，已有的那一堆怎么办」这个真实场景。
+ */
+describe('版本历史 · 保留上限', () => {
+  let workspace: string;
+  let store: HistoryStore;
+
+  beforeEach(() => {
+    workspace = createTempDir('nexus-history-retention-');
+    store = new HistoryStore(workspace);
+  });
+
+  afterEach(() => {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  /** 铺 `count` 份历史，时间戳递增（旧 → 新），内容是 `内容 1` … `内容 count`。 */
+  function seed(relativePath: string, count: number): void {
+    const directory = store.directoryFor(relativePath);
+    fs.mkdirSync(directory, { recursive: true });
+
+    for (let index = 1; index <= count; index += 1) {
+      const savedAt = `20260901T${String(index).padStart(6, '0')}`;
+      // 哈希必须是真的内容哈希：去重是按它比的，编一个会让「去重命中」那条用例假红。
+      const hash = contentHash(`内容 ${index}`);
+      fs.writeFileSync(path.join(directory, `${savedAt}-${hash}.md`), `内容 ${index}`, 'utf8');
+    }
+  }
+
+  /** 目录里实际剩几个文件 —— 「真的删了」与「只是没列出来」的区别。 */
+  function fileCount(relativePath: string): number {
+    return fs.readdirSync(store.directoryFor(relativePath)).length;
+  }
+
+  /** 当前历史的内容，新的在前。 */
+  function contents(relativePath: string): string[] {
+    return store.list(relativePath).map((entry) => store.read(relativePath, entry));
+  }
+
+  it('不超上限时一个都不删', () => {
+    seed('dma.md', 3);
+
+    expect(store.record('dma.md', '新的', 5)).not.toBeNull();
+    expect(contents('dma.md')).toEqual(['新的', '内容 3', '内容 2', '内容 1']);
+  });
+
+  it('超上限时删掉最旧的，留下最新的 N 份', () => {
+    seed('dma.md', 4);
+
+    store.record('dma.md', '新的', 2);
+
+    expect(contents('dma.md')).toEqual(['新的', '内容 4']);
+  });
+
+  it('删的是磁盘上的文件，不只是「不列出来」', () => {
+    seed('dma.md', 4);
+
+    store.record('dma.md', '新的', 2);
+
+    // 少了 3 个（内容 1/2/3）。不这么断言的话，「list 过滤掉了」也能骗过上面那条。
+    expect(fileCount('dma.md')).toBe(2);
+  });
+
+  it('上限调小之后，第一次留快照就把多余的削到上限', () => {
+    seed('dma.md', 20);
+
+    store.record('dma.md', '新的', 2);
+
+    expect(contents('dma.md')).toEqual(['新的', '内容 20']);
+    expect(fileCount('dma.md')).toBe(2);
+  });
+
+  it('**去重命中时也修剪** —— 否则把上限调小要等下次内容真的变了才生效', () => {
+    seed('dma.md', 4);
+
+    // 存一个已经存在的内容：不写新条目，但仍该把多余的削掉
+    expect(store.record('dma.md', '内容 2', 2)).toBeNull();
+
+    expect(contents('dma.md')).toEqual(['内容 4', '内容 3']);
+  });
+
+  it('不清理（null）时永不删', () => {
+    seed('dma.md', 30);
+
+    store.record('dma.md', '新的', null);
+
+    expect(fileCount('dma.md')).toBe(31);
+  });
+
+  it('刚写的那条不会被自己削掉 —— 上限 1 时留下的必须正是它', () => {
+    seed('dma.md', 3);
+
+    store.record('dma.md', '刚写的', 1);
+
+    expect(contents('dma.md')).toEqual(['刚写的']);
+  });
+
+  it('上限只管自己这份文档，不碰别的', () => {
+    seed('a.md', 3);
+    seed('b.md', 3);
+
+    store.record('a.md', '新的', 1);
+
+    expect(fileCount('a.md')).toBe(1);
+    expect(fileCount('b.md')).toBe(3);
   });
 });
 

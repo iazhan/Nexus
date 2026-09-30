@@ -242,6 +242,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
     'settings.data.rebuildIndexAction': 'Rebuild index',
+    'settings.data.historyRetention': 'History limit',
+    'settings.data.historyRetentionDescription':
+      'How many snapshots to keep per document. Beyond the limit the oldest ones are deleted and cannot be recovered — they are the only copy of that content on this machine. Choose “Unlimited” to never delete.',
+    'settings.data.historyRetentionUnlimited': 'Unlimited',
+    'settings.data.historyRetentionVersions': 'Keep last {count}',
     'settings.data.openHistoryDirectory': 'Version history',
     'settings.data.openHistoryDirectoryDescription':
       'Snapshots are kept in .nexus/history inside the workspace. Open the folder to back it up or read an old version.',
@@ -711,6 +716,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',
     'settings.data.rebuildIndexAction': '重建索引',
+    'settings.data.historyRetention': '历史快照上限',
+    'settings.data.historyRetentionDescription':
+      '每个文档最多保留多少份历史快照。超出上限时最旧的会被删除，且不可恢复 —— 那些内容在本机只有这一份副本。选「不清理」则永不自动删除。',
+    'settings.data.historyRetentionUnlimited': '不清理',
+    'settings.data.historyRetentionVersions': '保留最近 {count} 份',
     'settings.data.openHistoryDirectory': '版本历史',
     'settings.data.openHistoryDirectoryDescription':
       '快照保存在工作区的 .nexus/history 里。打开该目录可以自行备份，或翻出旧版本。',

@@ -501,6 +501,9 @@ function getIndexStore(webContentsId: number): IndexStore | null {
  * 3. **内容没变就直接返回** —— `HistoryStore.record` 内部也按哈希去重，
  *    这里先挡一道是因为「读整个旧文件」本身有 IO 成本，能省则省。
  *
+ * 上限（每个文档留几份）也在这里传给 `record`。**它由 `record` 自己去重后修剪**，
+ * 所以这里不额外判一次 —— 两处各判一次的话，「把上限调小」在两条路径上会表现不一致。
+ *
  * Lightweight 模式没有工作区，也就没有「相对于工作区的路径」，直接跳过。
  */
 function recordHistory(session: WebContentsSession, filePath: string, content: string): void {
@@ -518,7 +521,9 @@ function recordHistory(session: WebContentsSession, filePath: string, content: s
     // 在工作区之外（或正好是根）就不留 —— 历史是按工作区组织的
     if (!relativePath || relativePath.startsWith('..')) return;
 
-    new HistoryStore(root).record(relativePath, previous);
+    // 上限来自渲染进程（本机偏好存在那边），走宿主设置通道过来。
+    // 没收到过就是 `null` ＝ 不清理，方向安全。
+    new HistoryStore(root).record(relativePath, previous, hostSettings().historyRetention);
   } catch (err) {
     console.error('[Nexus Shell] 留历史快照失败（不影响保存）:', err);
   }

@@ -56,6 +56,9 @@ import {
   EXTERNAL_CHANGE_STORAGE_KEY,
   IGNORE_RULES_DEFAULT,
   IGNORE_RULES_STORAGE_KEY,
+  HISTORY_RETENTION_DEFAULT,
+  HISTORY_RETENTION_OPTIONS,
+  HISTORY_RETENTION_STORAGE_KEY,
   NEW_DOCUMENT_LOCATION_DEFAULT,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   NEW_DOCUMENT_LOCATION_STORAGE_KEY,
@@ -348,7 +351,22 @@ export const SETTING_DEFS = {
     fallback: IGNORE_RULES_DEFAULT,
     parse: (raw) => raw ?? IGNORE_RULES_DEFAULT,
     serialize: (value) => value
-  })
+  }),
+
+  /**
+   * 版本历史每个文档保留几份。**`data` 组第一个带值的设置项** ——
+   * 同组另外三项都是 `action`（重建索引 / 打开历史目录 / 打开索引目录），没有值。
+   *
+   * 用 `choiceSetting` 而不是数值输入：这一项会**删数据**，一个手滑填进去的 `5`
+   * 比一个必须主动选中的档位危险得多。回落规则也因此跟着枚举走（未知值 → 默认档），
+   * 而 `parseHistoryRetention` 那一层是**第二道**保险（未知值 → 不清理），
+   * 两道方向不同是刻意的：这里保证界面显示得出东西，那里保证不误删。
+   */
+  'data.historyRetention': choiceSetting(
+    HISTORY_RETENTION_STORAGE_KEY,
+    HISTORY_RETENTION_DEFAULT,
+    HISTORY_RETENTION_OPTIONS
+  )
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;

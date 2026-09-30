@@ -101,3 +101,11 @@ export {
   parseIgnoreRules,
   shouldIgnoreDirectory
 } from './workspace/ignore-rules.js';
+
+export {
+  HISTORY_RETENTION_UNLIMITED,
+  HISTORY_RETENTION_OPTIONS,
+  HISTORY_RETENTION_DEFAULT,
+  parseHistoryRetention,
+  entriesToTrim
+} from './history/retention.js';

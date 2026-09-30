@@ -20,6 +20,7 @@ import {
   userThemeName,
   type ThemeMode
 } from '@nexus/theme';
+import { HISTORY_RETENTION_OPTIONS, HISTORY_RETENTION_UNLIMITED } from '@nexus/core';
 import type React from 'react';
 import {
   AppearanceIcon,
@@ -166,8 +167,15 @@ export interface FieldOption {
   label?: string;
 }
 
+/**
+ * 字段文案的翻译函数。与 `LocaleManager.t` 同形 —— **带变量**，因为有些选项标签里嵌着数值
+ * （「保留最近 {count} 份」）。把变量参数去掉的话，那类标签只能拆成四个字典键，
+ * 或者退回 `label` 手拼字符串 —— 后者在英文界面里会漏出中文。
+ */
+export type FieldTranslate = (key: string, variables?: Record<string, string>) => string;
+
 /** 选项文案。两者都缺时回落到 `value`，不会渲染出空白。 */
-export function optionLabel(option: FieldOption, t: (key: string) => string): string {
+export function optionLabel(option: FieldOption, t: FieldTranslate): string {
   if (option.label !== undefined) return option.label;
   return option.labelKey ? t(option.labelKey) : option.value;
 }
@@ -191,7 +199,7 @@ export interface FieldDef {
    * 运行期才定的选项。有它时**优先于** `options` —— 用户主题是编辑出来的，静态表列不出来；
    * 两者都写会让「静态表是唯一真相」这句话失效。
    */
-  optionsOf?: (t: (key: string) => string) => readonly FieldOption[];
+  optionsOf?: (t: FieldTranslate) => readonly FieldOption[];
   /** 数值控件的取值域与步长。只在 `control: 'number'` 时有意义。 */
   min?: number;
   max?: number;
@@ -224,7 +232,7 @@ export interface FieldDef {
 }
 
 /** 字段当前的选项表。渲染与菜单投影都走它，避免两处各判一次。 */
-export function optionsOf(field: FieldDef, t: (key: string) => string): readonly FieldOption[] {
+export function optionsOf(field: FieldDef, t: FieldTranslate): readonly FieldOption[] {
   return field.optionsOf?.(t) ?? field.options ?? [];
 }
 
@@ -719,6 +727,35 @@ export const REBUILD_INDEX_FIELD: FieldDef = {
 };
 
 /**
+ * 每个文档保留多少份历史快照。
+ *
+ * **这一项会删数据**，而且是删掉「本机唯一副本」—— 所以描述文案必须把不可恢复说清，
+ * 而不是含糊成「自动清理旧版本」。
+ *
+ * 档位而不是数值输入框：见 `preference-specs.ts` 里那段注释（手滑填个 `5` 的代价）。
+ * 选项文案带数值，所以用 `optionsOf` 现算而不是写死 `options` —— 四个档位一个字典键就够。
+ */
+export const HISTORY_RETENTION_FIELD: FieldDef = {
+  id: 'data.historyRetention',
+  section: 'data',
+  labelKey: 'settings.data.historyRetention',
+  descriptionKey: 'settings.data.historyRetentionDescription',
+  control: 'select',
+  optionsOf: (t) =>
+    HISTORY_RETENTION_OPTIONS.map((value) =>
+      value === HISTORY_RETENTION_UNLIMITED
+        ? { value, label: t('settings.data.historyRetentionUnlimited') }
+        : { value, label: t('settings.data.historyRetentionVersions', { count: value }) }
+    ),
+  accessor: {
+    read: () => settings.get('data.historyRetention'),
+    write: (value) => settings.set('data.historyRetention', value),
+    subscribe: (listener) => settings.subscribe('data.historyRetention', listener)
+  },
+  menu: false
+};
+
+/**
  * 打开版本历史目录。历史在 `<workspace>/.nexus/history/`，用户想自己备份或翻旧版本时，
  * 这里比「在资源管理器里一层层点进去」快 —— 而 `.nexus` 是隐藏目录，很多人根本不知道它在。
  */
@@ -899,6 +936,7 @@ export const FIELDS: readonly FieldDef[] = [
   NEW_DOCUMENT_LOCATION_FIELD,
   PANEL_WIDTH_FIELD,
   REBUILD_INDEX_FIELD,
+  HISTORY_RETENTION_FIELD,
   OPEN_HISTORY_DIR_FIELD,
   OPEN_INDEX_DIR_FIELD
 ];

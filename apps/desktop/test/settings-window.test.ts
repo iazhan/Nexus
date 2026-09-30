@@ -195,11 +195,13 @@ describe('设置窗口', () => {
       )
     ).toBe(tableLayoutNext);
 
-    // ④d 数据分组的两个动作在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
+    // ④d 数据分组在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
     //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」
     //     这两件事只有真机验证得到，renderer 用例里那个 `window.nexus` 是打桩的。
     await app.click('.nexus-settings-nav [data-section="data"]');
     await app.waitForSelector('[data-field-action="data.rebuildIndex"]', 10000);
+    // 这一组从这一批起不再全是按钮：历史快照上限是**带值的**下拉（`data-field-input`）。
+    await app.waitForSelector('[data-field-input="data.historyRetention"]', 10000);
     await app.waitForFunction(
       `() => {
         const button = document.querySelector('[data-field-action="data.rebuildIndex"]');
@@ -212,6 +214,17 @@ describe('设置窗口', () => {
         `Array.from(document.querySelectorAll('[data-field-action]')).map((el) => el.dataset.fieldAction)`
       )
     ).toEqual(['data.rebuildIndex', 'data.openHistoryDirectory', 'data.openIndexDirectory']);
+    // 上限项的档位与默认值 —— 真机里读的是真的 `<option>`，不是打桩的 `settings.get`。
+    expect(
+      await app.evaluate<string[]>(
+        `Array.from(document.querySelector('[data-field-input="data.historyRetention"]').options).map((option) => option.value)`
+      )
+    ).toEqual(['unlimited', '20', '50', '100', '200']);
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('[data-field-input="data.historyRetention"]').value`
+      )
+    ).toBe('100');
     // 探到工作区就不该画那行「打开一个工作区后才能使用」。
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-field-blocked]').length`)

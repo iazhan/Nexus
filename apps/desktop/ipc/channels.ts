@@ -141,10 +141,27 @@ export interface HostSettings {
    * 它们不可配置，跟着代码走。这里只放用户加的那部分。
    */
   ignoreRules: readonly string[];
+  /**
+   * 每个文档最多留几份历史快照。`null` ＝ **不清理**。
+   *
+   * 送的是**解析后的数值**而不是存档里的字符串（`'unlimited'` / `'100'`）：
+   * 「存档格式」是渲染进程的事，主进程只该拿到「留几份」这个答案。
+   * 解析规则见 `@nexus/core` 的 `parseHistoryRetention` —— 认不出的值一律当不清理。
+   */
+  historyRetention: number | null;
 }
 
-/** 一份「什么都还没同步过」的初始值：行为与加这条通道之前完全一致。 */
-export const DEFAULT_HOST_SETTINGS: HostSettings = { ignoreRules: [] };
+/**
+ * 一份「什么都还没同步过」的初始值：行为与加这条通道之前完全一致。
+ *
+ * `historyRetention: null` 就是那个「完全一致」—— 没收到设置之前不删任何历史。
+ * 注意它**不等于**设置项的默认档位（100）：默认档位是「用户没选过时界面上显示什么」，
+ * 这里是「主进程还没听到用户的选择时该怎么做」，后者必须更保守。
+ */
+export const DEFAULT_HOST_SETTINGS: HostSettings = {
+  ignoreRules: [],
+  historyRetention: null
+};
 
 /**
  * 文件监听 IPC 传输载荷。

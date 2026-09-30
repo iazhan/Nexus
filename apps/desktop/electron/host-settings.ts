@@ -4,8 +4,9 @@
  * ## 为什么需要它
  *
  * 本机偏好存在渲染进程的存储里，**主进程读不到**。而有些设置是「主进程必须照着做」的：
- * 扫描工作区跳过哪些目录，就是在主进程的 walker 里发生的。这类设置只能由渲染进程
- * 显式送一份过来（`syncHostSettings` 通道），主进程存下来，干活时现读。
+ * 扫描工作区跳过哪些目录（在主进程的 walker 里发生）、每个文档留几份历史快照
+ * （在主进程的 `HistoryStore` 里发生）。这类设置只能由渲染进程显式送一份过来
+ * （`syncHostSettings` 通道），主进程存下来，干活时现读。
  *
  * ## 为什么是内存而不是落盘
  *
@@ -46,6 +47,16 @@ export function sanitizeHostSettings(raw: unknown): Partial<HostSettings> {
       throw new Error('syncHostSettings: ignoreRules 必须是字符串数组');
     }
     patch.ignoreRules = rules as string[];
+  }
+
+  if ('historyRetention' in candidate) {
+    const retention = candidate.historyRetention;
+    // `null` 是合法值（＝不清理），不是「字段缺失」。负数与小数直接拒 ——
+    // 这一个字段是**删数据**的开关，宁可让整条通道报错，也不猜用户想表达什么。
+    if (retention !== null && (typeof retention !== 'number' || !Number.isInteger(retention) || retention < 0)) {
+      throw new Error('syncHostSettings: historyRetention 必须是非负整数或 null');
+    }
+    patch.historyRetention = retention as number | null;
   }
 
   return patch;

@@ -4,7 +4,8 @@
  * ## 为什么需要一条单独的通道
  *
  * 本机偏好存在本渲染进程的存储里，主进程读不到。凡是要主进程照着做的设置
- * （扫描工作区跳过哪些目录，就在主进程的 walker 里发生），只能由这边显式送一份过去。
+ * （扫描工作区跳过哪些目录，在主进程的 walker 里发生；每个文档留几份历史快照，
+ * 在主进程的 `HistoryStore` 里发生），只能由这边显式送一份过去。
  *
  * ## 为什么要能等
  *
@@ -20,7 +21,7 @@
  * 都改得动它。
  */
 
-import { parseIgnoreRules } from '@nexus/core';
+import { parseHistoryRetention, parseIgnoreRules } from '@nexus/core';
 import type { HostSettings } from '../../ipc/channels.js';
 import { settings } from './platform.js';
 
@@ -30,9 +31,21 @@ import { settings } from './platform.js';
  */
 function currentHostSettings(): HostSettings {
   return {
-    ignoreRules: parseIgnoreRules(settings.get('files.ignoreRules'))
+    ignoreRules: parseIgnoreRules(settings.get('files.ignoreRules')),
+    historyRetention: parseHistoryRetention(settings.get('data.historyRetention'))
   };
 }
+
+/**
+ * 要订阅的设置键。**每加一项就要在这里加一行** —— 漏了不会报错，
+ * 症状是「改了设置要重启才生效」。
+ *
+ * `subscribe` 一次只收一个键，所以这里是数组而不是单个字符串。
+ */
+const WATCHED: ReadonlyArray<'files.ignoreRules' | 'data.historyRetention'> = [
+  'files.ignoreRules',
+  'data.historyRetention'
+];
 
 /** 最近一次推送。串起来是为了「改得快」时后一次不会先落地。 */
 let pending: Promise<void> = Promise.resolve();
@@ -67,5 +80,8 @@ export function hostSettingsSynced(): Promise<void> {
  */
 export function startHostSettingsSync(): () => void {
   push();
-  return settings.subscribe('files.ignoreRules', push);
+  const unsubscribes = WATCHED.map((path) => settings.subscribe(path, push));
+  return () => {
+    for (const unsubscribe of unsubscribes) unsubscribe();
+  };
 }

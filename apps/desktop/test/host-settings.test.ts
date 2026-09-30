@@ -36,6 +36,23 @@ describe('主进程宿主设置', () => {
       expect(() => sanitizeHostSettings({ ignoreRules: null })).toThrow(/字符串数组/);
     });
 
+    it('historyRetention 收下非负整数与 null', () => {
+      expect(sanitizeHostSettings({ historyRetention: 20 })).toEqual({ historyRetention: 20 });
+      // `null` 是合法值（＝不清理），不是「字段缺失」—— 两者在合并时的效果一样，
+      // 但「显式说不清理」与「这次没说」是两件事，前者不该被当成后者的笔误。
+      expect(sanitizeHostSettings({ historyRetention: null })).toEqual({ historyRetention: null });
+      expect(sanitizeHostSettings({ historyRetention: 0 })).toEqual({ historyRetention: 0 });
+    });
+
+    it('historyRetention 是负数 / 小数 / 字符串 / 布尔就抛', () => {
+      // 这一个字段是**删数据**的开关，宁可整条通道报错也不猜用户想表达什么。
+      expect(() => sanitizeHostSettings({ historyRetention: -1 })).toThrow(/非负整数/);
+      expect(() => sanitizeHostSettings({ historyRetention: 1.5 })).toThrow(/非负整数/);
+      expect(() => sanitizeHostSettings({ historyRetention: '20' })).toThrow(/非负整数/);
+      expect(() => sanitizeHostSettings({ historyRetention: true })).toThrow(/非负整数/);
+      expect(() => sanitizeHostSettings({ historyRetention: NaN })).toThrow(/非负整数/);
+    });
+
     it('载荷本身不是对象就抛', () => {
       expect(() => sanitizeHostSettings(null)).toThrow(/必须是对象/);
       expect(() => sanitizeHostSettings('drafts')).toThrow(/必须是对象/);
@@ -44,7 +61,9 @@ describe('主进程宿主设置', () => {
 
   describe('updateHostSettings · 补丁合并', () => {
     it('初始值等于「加这条通道之前的行为」', () => {
-      expect(hostSettings()).toEqual({ ignoreRules: [] });
+      // `historyRetention: null` 就是那个「之前的行为」：没听到设置之前不删任何历史。
+      // 它**不等于**设置项的默认档位（100）—— 前者是「还没听到」，后者是「用户没选过」。
+      expect(hostSettings()).toEqual({ ignoreRules: [], historyRetention: null });
     });
 
     it('未出现的键保持原值', () => {
@@ -61,11 +80,18 @@ describe('主进程宿主设置', () => {
       expect(hostSettings().ignoreRules).toEqual(['c']);
     });
 
+    it('historyRetention 只推一半时不影响 ignoreRules，反之亦然', () => {
+      updateHostSettings({ ignoreRules: ['drafts'] });
+      updateHostSettings({ historyRetention: 50 });
+
+      expect(hostSettings()).toEqual({ ignoreRules: ['drafts'], historyRetention: 50 });
+    });
+
     it('resetHostSettings 回到初始值', () => {
       updateHostSettings({ ignoreRules: ['drafts'] });
       resetHostSettings();
 
-      expect(hostSettings()).toEqual({ ignoreRules: [] });
+      expect(hostSettings()).toEqual({ ignoreRules: [], historyRetention: null });
     });
   });
 });

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { HISTORY_RETENTION_DEFAULT, HISTORY_RETENTION_UNLIMITED } from '@nexus/core';
 import { settings } from '../src/platform.js';
 import { hostSettingsSynced, startHostSettingsSync } from '../src/host-settings.js';
 
@@ -14,7 +15,10 @@ describe('宿主设置同步', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    // `SettingsStore` 在构造时缓存了值，`localStorage.clear()` 改不动它 ——
+    // 必须走 `settings.set` 才能把上一轮用例的改动还原。
     settings.set('files.ignoreRules', '');
+    settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
     syncSpy = vi.fn().mockResolvedValue(undefined);
     (window as unknown as { nexus?: unknown }).nexus = { syncHostSettings: syncSpy };
   });
@@ -24,6 +28,7 @@ describe('宿主设置同步', () => {
     stop = undefined;
     delete (window as unknown as { nexus?: unknown }).nexus;
     settings.set('files.ignoreRules', '');
+    settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
   });
 
   it('启动时立刻推一次，值已经归一化', async () => {
@@ -33,7 +38,8 @@ describe('宿主设置同步', () => {
     await hostSettingsSynced();
 
     expect(syncSpy).toHaveBeenCalledWith({
-      ignoreRules: ['Drafts', 'notes/private']
+      ignoreRules: ['Drafts', 'notes/private'],
+      historyRetention: 100
     });
   });
 
@@ -41,7 +47,7 @@ describe('宿主设置同步', () => {
     stop = startHostSettingsSync();
     await hostSettingsSynced();
 
-    expect(syncSpy).toHaveBeenCalledWith({ ignoreRules: [] });
+    expect(syncSpy).toHaveBeenCalledWith({ ignoreRules: [], historyRetention: 100 });
   });
 
   it('改设置会再推一次', async () => {
@@ -53,7 +59,7 @@ describe('宿主设置同步', () => {
     await hostSettingsSynced();
 
     expect(syncSpy).toHaveBeenCalledTimes(2);
-    expect(syncSpy).toHaveBeenLastCalledWith({ ignoreRules: ['drafts'] });
+    expect(syncSpy).toHaveBeenLastCalledWith({ ignoreRules: ['drafts'], historyRetention: 100 });
   });
 
   /**
@@ -103,7 +109,57 @@ describe('宿主设置同步', () => {
     await hostSettingsSynced();
 
     expect(syncSpy).toHaveBeenCalledTimes(2);
-    expect(syncSpy).toHaveBeenLastCalledWith({ ignoreRules: ['drafts'] });
+    expect(syncSpy).toHaveBeenLastCalledWith({ ignoreRules: ['drafts'], historyRetention: 100 });
     consoleError.mockRestore();
+  });
+
+  describe('历史快照上限', () => {
+    it('默认档位送的是数字 100，不是存档里的字符串', async () => {
+      // 存档格式（`'100'`）是渲染进程的事；主进程只该拿到「留几份」这个答案。
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ historyRetention: 100 })
+      );
+    });
+
+    it('「不清理」送 null，不是 0 —— 0 是「一份都不留」', async () => {
+      settings.set('data.historyRetention', HISTORY_RETENTION_UNLIMITED);
+
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ historyRetention: null })
+      );
+    });
+
+    it('**改这一项本身就会触发推送** —— 漏订阅的症状是「改了要重启才生效」', async () => {
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+
+      settings.set('data.historyRetention', '20');
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenCalledTimes(2);
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ historyRetention: 20 })
+      );
+    });
+
+    it('取消订阅后两个键都不再推 —— 用例之间不该互相污染', async () => {
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+      stop();
+      stop = undefined;
+
+      settings.set('data.historyRetention', '20');
+      settings.set('files.ignoreRules', 'drafts');
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+    });
   });
 });

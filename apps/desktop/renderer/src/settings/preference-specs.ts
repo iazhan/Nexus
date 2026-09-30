@@ -24,7 +24,12 @@
  * 归审计脚本管），而这些是用户偏好 —— 换主题不该把字号或行号重置回去。见 `App.css` 头部。
  */
 
-import { DEFAULT_ATTACHMENT_DIRECTORY, DEFAULT_ATTACHMENT_NAME_TEMPLATE } from '@nexus/core';
+import {
+  DEFAULT_ATTACHMENT_DIRECTORY,
+  DEFAULT_ATTACHMENT_NAME_TEMPLATE,
+  HISTORY_RETENTION_DEFAULT,
+  HISTORY_RETENTION_OPTIONS
+} from '@nexus/core';
 import {
   UI_ZOOM_DEFAULT,
   UI_ZOOM_OPTIONS,
@@ -256,6 +261,21 @@ export const IGNORE_RULES_STORAGE_KEY = 'nexus-ignore-rules';
  * 存档里留的就是用户写的样子。
  */
 export const IGNORE_RULES_DEFAULT = '';
+
+export const HISTORY_RETENTION_STORAGE_KEY = 'nexus-history-retention';
+
+/**
+ * 每个文档保留多少份历史快照。
+ *
+ * **取值域（档位表、默认档、解析规则）在 `@nexus/core` 的 `history/retention.ts`**，
+ * 这里只转出 —— 主进程也要用同一份口径（它才是真正删文件的那一侧），
+ * 两处各写一份的话「设置页显示保留 20 份、主进程按 100 份删」不会报错。
+ *
+ * 与 `files.ignoreRules` 一样，这一项**跨进程**：值住在渲染进程的存储里，而干活的是主进程。
+ * 区别在于它不是自由文本 —— 档位是有限的，所以走 `choiceSetting`，
+ * 存档里出现未知值时回落默认档，而不是像忽略规则那样原样保留。
+ */
+export { HISTORY_RETENTION_OPTIONS, HISTORY_RETENTION_DEFAULT };
 
 /**
  * UI 缩放。**取值口径（磁盘键 / 档位 / 解析）住在 `preload/ui-zoom.ts`** —— 那个文件

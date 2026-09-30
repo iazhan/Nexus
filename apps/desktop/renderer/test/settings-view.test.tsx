@@ -1795,3 +1795,114 @@ describe('菜单投影', () => {
     expect(opened).toBe(1);
   });
 });
+
+/**
+ * 数据分组：历史快照上限。
+ *
+ * 这是这一组**第一个带值的设置项** —— 同组另外三项都是 `action`（重建索引 / 打开历史目录 /
+ * 打开索引目录），没有值，所以「`data` 组全是按钮」这个假设从这一批起不再成立。
+ *
+ * 判据刻意不写死文案：**选项标签里嵌着数值**，而界面语言由 `localeManager` 决定。
+ * 钉住的是那几条性质 —— 档位顺序、每个数字档的标签真的带上了那个数字、没有未替换的占位符、
+ * 文案来自字典而不是原始键名。写死中文会让这条用例在换语言时假红。
+ */
+describe('设置视图 · 数据', () => {
+  const label = (key: string, vars?: Record<string, string>): string =>
+    translate(localeManager.locale, key, vars);
+
+  beforeEach(() => {
+    settings.set('data.historyRetention', '100');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    settings.set('data.historyRetention', '100');
+  });
+
+  function retentionSelect(): HTMLSelectElement {
+    return container.querySelector<HTMLSelectElement>(
+      '[data-field-input="data.historyRetention"]'
+    ) as HTMLSelectElement;
+  }
+
+  it('上限项渲染成下拉，默认档是 100', () => {
+    renderSettings('data');
+
+    expect(retentionSelect()).not.toBeNull();
+    expect(retentionSelect().value).toBe('100');
+    // 默认档也是存档值 —— 「界面上写着 100、存档里是别的」这种错位不会报错，只会按另一个数删。
+    expect(settings.get('data.historyRetention')).toBe('100');
+  });
+
+  it('档位顺序固定，「不清理」排在最前', () => {
+    renderSettings('data');
+
+    expect(Array.from(retentionSelect().options).map((option) => option.value)).toEqual([
+      'unlimited',
+      '20',
+      '50',
+      '100',
+      '200'
+    ]);
+  });
+
+  it('数字档的标签真的带上了那个数字，没有未替换的占位符', () => {
+    renderSettings('data');
+
+    const numeric = Array.from(retentionSelect().options).filter(
+      (option) => option.value !== 'unlimited'
+    );
+    expect(numeric).toHaveLength(4);
+
+    for (const option of numeric) {
+      const text = option.textContent ?? '';
+      expect(text).toContain(option.value);
+      expect(text).not.toContain('{');
+      // 字典里没有这个键时 `translate` 原样返回键名 —— 那会在界面上漏出 `settings.data.…`。
+      expect(text).not.toContain('settings.');
+    }
+  });
+
+  it('「不清理」的标签与数字档都不同 —— 它是独立的一条文案，不是拼出来的', () => {
+    renderSettings('data');
+
+    const [first, second] = Array.from(retentionSelect().options);
+    const unlimited = first?.textContent ?? '';
+
+    expect(unlimited).not.toContain('{');
+    expect(unlimited).not.toContain('settings.');
+    expect(unlimited).not.toBe(second?.textContent);
+    expect(unlimited).toBe(label('settings.data.historyRetentionUnlimited'));
+  });
+
+  it('选「不清理」写进存档，枚举项不画重置键', () => {
+    renderSettings('data');
+
+    const select = retentionSelect();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        'value'
+      )?.set;
+      setter?.call(select, 'unlimited');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(settings.get('data.historyRetention')).toBe('unlimited');
+    expect(container.querySelector('[data-field-reset="data.historyRetention"]')).toBeNull();
+  });
+
+  it('同组的三个动作仍在 —— 加一项带值的控件不该把按钮挤掉', () => {
+    renderSettings('data');
+
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>('[data-field-action]')).map(
+        (el) => el.dataset.fieldAction
+      )
+    ).toEqual(['data.rebuildIndex', 'data.openHistoryDirectory', 'data.openIndexDirectory']);
+  });
+});
