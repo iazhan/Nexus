@@ -15,12 +15,25 @@ import { getEditorTheme } from './theme.js';
 import { getSelectionInfo } from './selection.js';
 import type { CreateSourceEditorOptions, SourceEditorConfig } from './types.js';
 import { extensionHostFacet } from './extensions.js';
+import { createTypewriterExtension } from './typewriter.js';
+import { vimCompartment } from './vim.js';
 
 export const readOnlyCompartment = new Compartment();
 export const editableCompartment = new Compartment();
 export const themeCompartment = new Compartment();
 export const editorLocaleCompartment = new Compartment();
 export const lineNumbersCompartment = new Compartment();
+/**
+ * 拼写检查。**缺省是关**（CodeMirror 自己在 `contentDOM` 上写死 `spellcheck="false"`），
+ * 打开就是把那条属性覆盖成 `true` —— 它不是「加一个扩展」，是改一个 DOM 属性。
+ */
+export const spellCheckCompartment = new Compartment();
+/**
+ * 打字机模式。与 `lineNumbers` 不同，它**没有构造参数**：`ViewPlugin` 不能在建 state 时
+ * 就拿到 view，而且「跟随光标」这件事只在有光标之后才有意义。所以一律靠 `setEditorTypewriter`
+ * 装上，构造时恒为空。
+ */
+export const typewriterCompartment = new Compartment();
 
 export const editorLocaleFacet = Facet.define<string, string>({
   combine: (values) => values[0] || 'zh-CN'
@@ -70,6 +83,16 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
 
     readOnlyCompartment.of(EditorState.readOnly.of(isReadOnly)),
     editableCompartment.of(EditorView.editable.of(!isReadOnly)),
+
+    // 拼写检查走 `contentAttributes` 覆盖 CM 写死的 `spellcheck="false"`。关的时候送空扩展，
+    // 而不是送 `spellcheck="false"` —— 后者会把 CM 自己那份默认值抄一遍，将来 CM 改了默认
+    // 我们这里还是旧的。
+    spellCheckCompartment.of(
+      config.spellCheck ? EditorView.contentAttributes.of({ spellcheck: 'true' }) : []
+    ),
+    // 打字机模式与 vim 都在构造时留空，等 `setEditorTypewriter` / `applyEditorVim` 装上。
+    typewriterCompartment.of([]),
+    vimCompartment.of([]),
 
     ...(config.extensionHost ? [extensionHostFacet.of(config.extensionHost)] : []),
 
@@ -160,5 +183,28 @@ export function setEditorLocale(view: EditorView, locale: string): void {
 export function setEditorLineNumbers(view: EditorView, visible: boolean): void {
   view.dispatch({
     effects: [lineNumbersCompartment.reconfigure(visible ? lineNumbers() : [])]
+  });
+}
+
+/**
+ * 拼写检查。与 `setEditorLineNumbers` 同形 —— 同样是一个 compartment，同样关的时候送空扩展。
+ *
+ * 浏览器在 `contenteditable` 上做拼写检查，所以这条只影响**渲染进程的输入元素**：它不改
+ * 文档内容、不联网、也不经过任何 IPC（Chromium 的拼写检查在本地词典里做）。
+ */
+export function setEditorSpellCheck(view: EditorView, enabled: boolean): void {
+  view.dispatch({
+    effects: [
+      spellCheckCompartment.reconfigure(
+        enabled ? EditorView.contentAttributes.of({ spellcheck: 'true' }) : []
+      )
+    ]
+  });
+}
+
+/** 打字机模式。装/卸的是同一个 `ViewPlugin`，没有「部分生效」的中间态。 */
+export function setEditorTypewriter(view: EditorView, enabled: boolean): void {
+  view.dispatch({
+    effects: [typewriterCompartment.reconfigure(enabled ? createTypewriterExtension() : [])]
   });
 }

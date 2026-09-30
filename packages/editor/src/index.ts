@@ -17,6 +17,8 @@ export * from './heading-anchor.js';
 export * from './table-edit.js';
 export * from './code-block-edit.js';
 export * from './ime-composition.js';
+export * from './typewriter.js';
+export * from './vim.js';
 export * from './clipboard.js';
 export * from './ast-walker.js';
 export * from './extensions.js';

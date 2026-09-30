@@ -95,6 +95,16 @@ export const EDITOR_FONT_FAMILY_STORAGE_KEY = 'nexus-editor-font-family';
 export const CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY = 'nexus-editor-code-block-line-numbers';
 export const EDITOR_TABLE_LAYOUT_STORAGE_KEY = 'nexus-editor-table-layout';
 export const EDITOR_LINE_NUMBERS_STORAGE_KEY = 'nexus-editor-line-numbers';
+/**
+ * 编辑器手感的三个开关（拼写检查 / 打字机模式 / Vim 键位）。
+ *
+ * 三者**默认全关**，与「加这一项之前的观感一致」：CodeMirror 自己就在 `contentDOM` 上写死
+ * `spellcheck="false"`，光标跟随与 vim 键位则都是纯新增的行为。所以三者在 store 里都用
+ * `toggleSettingOff`（认不出的值当关），而不是 `toggleSetting`。
+ */
+export const EDITOR_SPELL_CHECK_STORAGE_KEY = 'nexus-editor-spell-check';
+export const EDITOR_TYPEWRITER_MODE_STORAGE_KEY = 'nexus-editor-typewriter-mode';
+export const EDITOR_VIM_KEYBINDINGS_STORAGE_KEY = 'nexus-editor-vim-keybindings';
 export const EDITOR_WORD_COUNT_STORAGE_KEY = 'nexus-editor-word-count';
 export const AUTO_SAVE_STORAGE_KEY = 'nexus-auto-save';
 export const EXTERNAL_CHANGE_STORAGE_KEY = 'nexus-external-change';

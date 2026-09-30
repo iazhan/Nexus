@@ -113,6 +113,13 @@ export interface NexusBridge {
    * 工作区未授权时主进程抛异常，不返回空串 —— 路径里含 `userData`，不该对任意输入给出来。
    */
   getIndexPath: (rootPath: string) => Promise<string | null>;
+  /**
+   * 应用版本号。**不需要参数、不查授权** —— 它不是路径，也不泄露任何东西。
+   *
+   * 由主进程的 `app.getVersion()` 回答：渲染进程那边没有版本号可读（`package.json` 不打进
+   * 渲染包），所以这条通道不是「绕一圈」，是唯一能拿到它的地方。
+   */
+  getAppVersion: () => Promise<string>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;

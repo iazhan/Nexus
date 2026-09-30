@@ -755,6 +755,9 @@ describe('设置视图 · Editor', () => {
     settings.set('editor.tableLayout', 'auto');
     settings.set('editor.lineNumbers', true);
     settings.set('editor.wordCount', true);
+    settings.set('editor.typewriterMode', false);
+    settings.set('editor.vimKeybindings', false);
+    settings.set('editor.spellCheck', false);
     settings.set('general.autoSaveDelay', 800);
     settings.set('general.externalChange', 'smart');
   }
@@ -992,6 +995,61 @@ describe('设置视图 · Editor', () => {
     expect(settings.get('editor.wordCount')).toBe(false);
     expect(toggle?.getAttribute('aria-checked')).toBe('false');
   });
+
+  /**
+   * 编辑器三项新开关（打字机模式 / Vim 键位 / 拼写检查）。
+   *
+   * 三项**默认全关**，方向与「行号 / 字数」相反：后者是「本来就有、给个关掉的开关」，
+   * 这三项是「本来没有、给个打开的开关」。所以这里除断言存档，还要钉住
+   * 「存档里是认不出的值 ⇒ 回落关」——那是默认关的开关唯一会出人命的地方
+   * （写坏的字符不该把 Vim 装上）。
+   *
+   * DOM 侧的真判据在别处：拼写检查与打字机在 `packages/editor/test/`，
+   * vim 在 `packages/editor/test/vim.test.ts`，三项的接线在 `SourceEditor.tsx`。
+   */
+  describe('三项默认关的开关', () => {
+    const cases = [
+      { label: '打字机模式', id: 'editor.typewriterMode', storageKey: 'nexus-editor-typewriter-mode' },
+      { label: 'Vim 键位', id: 'editor.vimKeybindings', storageKey: 'nexus-editor-vim-keybindings' },
+      { label: '拼写检查', id: 'editor.spellCheck', storageKey: 'nexus-editor-spell-check' }
+    ];
+
+    function toggle(id: string): HTMLElement | null {
+      return container.querySelector<HTMLElement>(`[data-field-input="${id}"]`);
+    }
+
+    it.each(cases)('$label 渲染出来且默认关', ({ id }) => {
+      renderSettings('editor');
+
+      expect(container.querySelector(`[data-field="${id}"]`)).not.toBeNull();
+      expect(toggle(id)?.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it.each(cases)('$label 点一下写进存档，再点一下关回去', ({ id }) => {
+      renderSettings('editor');
+
+      act(() => toggle(id)?.click());
+      expect(toggle(id)?.getAttribute('aria-checked')).toBe('true');
+
+      act(() => toggle(id)?.click());
+      expect(toggle(id)?.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it.each(cases)('$label 存档里是认不出的值时回落「关」', ({ id, storageKey }) => {
+      localStorage.setItem(storageKey, 'garbage');
+      settings.reload();
+
+      expect(settings.get(id)).toBe(false);
+      localStorage.removeItem(storageKey);
+      settings.reload();
+    });
+
+    it.each(cases)('$label 不给重置键 —— 再点一次就回去了', ({ id }) => {
+      renderSettings('editor');
+
+      expect(container.querySelector(`[data-field-reset="${id}"]`)).toBeNull();
+    });
+  });
 });
 
 /**
@@ -1122,6 +1180,70 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改 / 启动恢
       renderSettings('general');
 
       expect(container.querySelector('[data-field-reset="general.restoreLastWorkspace"]')).toBeNull();
+    });
+  });
+
+  /**
+   * 当前版本。**没有可改的东西** —— 它是 `control: 'readonly'`，只画一行文本。
+   *
+   * 两条判据都要有：画出来的必须是**桥给的那一串**（渲染进程自己拼一个 `0.43.0` 也是「看起来对」），
+   * 以及**取不到时不画**（主进程还没接上这条通道、或某个窗口没透出它时，
+   * 不能留一个空行或一个假版本号）。
+   */
+  describe('当前版本', () => {
+    const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
+
+    async function settle(): Promise<void> {
+      await act(async () => {
+        for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
+      });
+    }
+
+    afterEach(() => {
+      (window as unknown as { nexus?: unknown }).nexus = originalBridge;
+    });
+
+    it('显示主进程报的版本号', async () => {
+      // 故意用一个**与 package.json 不一致**的值：渲染进程要是自己去读版本，这条会红。
+      (window as unknown as { nexus: unknown }).nexus = {
+        getAppVersion: () => Promise.resolve('9.9.9-probe')
+      };
+      renderSettings('general');
+      await settle();
+
+      expect(
+        container.querySelector('[data-field-readonly="general.version"]')?.textContent
+      ).toBe('9.9.9-probe');
+    });
+
+    it('只读值是文本，不是控件', async () => {
+      (window as unknown as { nexus: unknown }).nexus = {
+        getAppVersion: () => Promise.resolve('1.2.3')
+      };
+      renderSettings('general');
+      await settle();
+
+      expect(container.querySelector('[data-field-input="general.version"]')).toBeNull();
+      expect(container.querySelector('[data-field-readonly="general.version"]')?.tagName).toBe('P');
+    });
+
+    it('取不到版本时不画那一行（而不是画个空的）', async () => {
+      (window as unknown as { nexus: unknown }).nexus = {};
+      renderSettings('general');
+      await settle();
+
+      expect(container.querySelector('[data-field="general.version"]')).not.toBeNull();
+      expect(container.querySelector('[data-field-readonly="general.version"]')).toBeNull();
+    });
+
+    it('不给重置键 —— 没有可重置的值', async () => {
+      (window as unknown as { nexus: unknown }).nexus = {
+        getAppVersion: () => Promise.resolve('1.2.3')
+      };
+      renderSettings('general');
+      await settle();
+
+      expect(container.querySelector('[data-field-reset="general.version"]')).toBeNull();
     });
   });
 });

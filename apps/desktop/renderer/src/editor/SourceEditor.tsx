@@ -5,9 +5,13 @@ import {
   setEditorReadOnly,
   setDocumentDirectory,
   setEditorLineNumbers,
+  setEditorSpellCheck,
+  setEditorTypewriter,
   setEditorThemeConfig,
   setEditorLocale,
   setMermaidPreviewSettings,
+  applyEditorVim,
+  loadVimExtension,
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo,
@@ -129,6 +133,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       theme,
       locale,
       lineNumbers: settings.get('editor.lineNumbers'),
+      spellCheck: settings.get('editor.spellCheck'),
       scrollTo: pendingScrollRef.current ?? undefined,
       onSelectionChange: () => {
         const view = handleRef.current?.view;
@@ -212,6 +217,71 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
     apply();
     return settings.subscribe('editor.lineNumbers', apply);
   }, []);
+
+  // 拼写检查。与行号同一个形状，但走 `contentAttributes` 而不是 gutter。
+  useEffect(() => {
+    const apply = () => {
+      if (handleRef.current) {
+        setEditorSpellCheck(handleRef.current.view, settings.get('editor.spellCheck'));
+      }
+    };
+    apply();
+    return settings.subscribe('editor.spellCheck', apply);
+  }, []);
+
+  /**
+   * 打字机模式与 Vim 键位。
+   *
+   * 这两项**没有构造参数**，只能在视图建好之后装上 —— 前者的 `ViewPlugin` 拿不到构造期的
+   * view，后者的扩展是异步 `import()` 来的。所以这个 effect 的依赖必须与上面那个挂载 effect
+   * 一致（切 session / 切 surface 会重建视图），否则新视图上这两项会静默失效。
+   *
+   * vim 那条还多两层竞态要挡，都写在 `applyVim` 里。
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    const applyTypewriter = () => {
+      if (handleRef.current) {
+        setEditorTypewriter(handleRef.current.view, settings.get('editor.typewriterMode'));
+      }
+    };
+    applyTypewriter();
+
+    const applyVim = async () => {
+      const view = handleRef.current?.view;
+      if (!view) return;
+      if (!settings.get('editor.vimKeybindings')) {
+        applyEditorVim(view, null);
+        return;
+      }
+
+      const extension = await loadVimExtension();
+      // 等 import 的这段时间里可能发生两件事，判据不同、都要挡：
+      // ① 视图被销毁或换了一个（切 surface / 关标签页）—— 对旧 view dispatch 会抛；
+      // ② 用户把开关又关掉了 —— 不重读一次设置，就会把它重新装回去。
+      if (cancelled || handleRef.current?.view !== view) return;
+      applyEditorVim(view, settings.get('editor.vimKeybindings') ? extension : null);
+    };
+    void applyVim().catch((error: unknown) => {
+      // 加载失败（chunk 没打出来、被 CSP 挡住）不该把编辑器搞崩：开关停在「没生效」，
+      // 并在控制台留一句 —— 静默失败会让用户反复拨那个开关。
+      console.warn('[Nexus] Vim 扩展加载失败:', error);
+    });
+
+    const unsubscribers = [
+      settings.subscribe('editor.typewriterMode', applyTypewriter),
+      settings.subscribe('editor.vimKeybindings', () => {
+        void applyVim().catch((error: unknown) => {
+          console.warn('[Nexus] Vim 扩展加载失败:', error);
+        });
+      })
+    ];
+    return () => {
+      cancelled = true;
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
+  }, [session, surfaceId, surfaceKind]);
 
   // Mermaid 块显示偏好（只有 visual surface 装了那个 Compartment）
   useEffect(() => {

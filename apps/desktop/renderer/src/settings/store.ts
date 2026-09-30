@@ -52,6 +52,9 @@ import {
   EDITOR_TABLE_LAYOUT_OPTIONS,
   EDITOR_TABLE_LAYOUT_STORAGE_KEY,
   EDITOR_LINE_NUMBERS_STORAGE_KEY,
+  EDITOR_SPELL_CHECK_STORAGE_KEY,
+  EDITOR_TYPEWRITER_MODE_STORAGE_KEY,
+  EDITOR_VIM_KEYBINDINGS_STORAGE_KEY,
   EDITOR_WORD_COUNT_STORAGE_KEY,
   EXTERNAL_CHANGE_DEFAULT,
   EXTERNAL_CHANGE_OPTIONS,
@@ -131,9 +134,12 @@ function toggleSetting(storageKey: string) {
  * **认不出时的方向也相反**：那个是「读不懂就当开」，这个是「读不懂就当关」。
  *
  * 两条判据其实同一条 —— **回落到这项的默认值**。默认开的那几个（自动保存、行号）
- * 回落到开，因为静默关掉一项已有能力比留着它更糟；这一项默认就是关的，回落到关才自洽。
- * 而且它的后果更重：打开它意味着**下一次启动会对一个目录做授权**（写权限），
- * 存档里一个写坏的字符不该把用户送进某个工作区。
+ * 回落到开，因为静默关掉一项已有能力比留着它更糟；默认关的回落到关才自洽。
+ *
+ * 后果最重的一个消费方是「启动时恢复上次工作区」：打开它意味着**下一次启动会对一个目录做
+ * 授权**（写权限），存档里一个写坏的字符不该把用户送进某个工作区。编辑器手感那三项
+ * （拼写检查 / 打字机模式 / Vim 键位）没这么重，但判据一致 —— 它们加进来之前本来就没有
+ * 这些行为，读不懂就当关等于回到那个状态。
  */
 function toggleSettingOff(storageKey: string) {
   return defineSetting<boolean>({
@@ -296,6 +302,14 @@ export const SETTING_DEFS = {
    * （源码模式与编辑态都在），那个是**代码块内部的正文行号**。
    */
   'editor.lineNumbers': toggleSetting(EDITOR_LINE_NUMBERS_STORAGE_KEY),
+
+  /**
+   * 编辑器手感的三个开关。**都是默认关**，所以都用 `toggleSettingOff` ——
+   * 它们各自加进来之前，拼写检查由 CodeMirror 关着、没有光标跟随、也没有 vim 键位。
+   */
+  'editor.spellCheck': toggleSettingOff(EDITOR_SPELL_CHECK_STORAGE_KEY),
+  'editor.typewriterMode': toggleSettingOff(EDITOR_TYPEWRITER_MODE_STORAGE_KEY),
+  'editor.vimKeybindings': toggleSettingOff(EDITOR_VIM_KEYBINDINGS_STORAGE_KEY),
 
   /**
    * 状态栏字数。默认开：它是纯新增的展示项，不动任何已有元素 ——

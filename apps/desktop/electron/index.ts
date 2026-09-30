@@ -671,6 +671,16 @@ ipcMain.handle(IPC_CHANNELS.openHistoryDirectory, async (event, rootPath: unknow
 });
 
 /**
+ * 应用版本号。
+ *
+ * `app.getVersion()` 读的是**应用目录**的 `package.json`（打包后是安装包里的那一份），
+ * 所以界面显示的版本与用户装的那个包一定一致 —— 这也是不让渲染进程自己拼一个版本号的原因。
+ *
+ * 没有参数、不查授权：它不是路径，不泄露任何东西。
+ */
+ipcMain.handle(IPC_CHANNELS.getAppVersion, () => app.getVersion());
+
+/**
  * 该工作区的索引库**文件**路径。与下面那条是同一个库的两半：这个只把路径交出去，
  * 不打开任何东西。
  *

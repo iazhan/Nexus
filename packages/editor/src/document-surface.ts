@@ -60,6 +60,14 @@ export interface CreateSessionEditorStateOptions {
   locale?: string;
   /** 行号槽。缺省视为开。 */
   lineNumbers?: boolean;
+  /**
+   * 拼写检查。缺省视为**关** —— 与 CodeMirror 自己的默认一致。
+   *
+   * 打字机模式与 vim **不在这里**：它们由 `setEditorTypewriter` / `applyEditorVim` 在视图建好
+   * 之后装上。前者的 `ViewPlugin` 拿不到构造期的 view，后者的扩展是异步加载的，都不可能在
+   * 建 state 的那一刻就位。
+   */
+  spellCheck?: boolean;
 }
 
 /**
@@ -378,7 +386,8 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
     keybindings: options.surfaceKind === 'visual' ? visualEditorKeybindings : editorKeybindings,
     extensionHost: options.extensionHost,
     theme: options.theme,
-    lineNumbers: options.lineNumbers
+    lineNumbers: options.lineNumbers,
+    spellCheck: options.spellCheck
   });
   const visualExtensions = options.surfaceKind === 'visual'
     ? [

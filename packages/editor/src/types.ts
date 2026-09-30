@@ -69,6 +69,8 @@ export interface SourceEditorConfig {
   theme?: 'light' | 'dark';
   /** 行号槽。缺省视为开 —— 与这个设置项出现之前的行为一致。 */
   lineNumbers?: boolean;
+  /** 拼写检查。缺省视为关 —— 与 CodeMirror 自己的默认一致。 */
+  spellCheck?: boolean;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
 }

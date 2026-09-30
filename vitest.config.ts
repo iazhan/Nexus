@@ -20,9 +20,11 @@ export default defineConfig({
           // @codemirror/state are loaded`（实测 17 文件 / 313 条全红）。
           // **不能收窄**到 `state` + `view` —— `language-data` 的动态 import 会落到
           // 另一份实例上，7 条语法高亮用例变红。
+          // `@replit` 是同一个理由：`@replit/codemirror-vim` 自己也 require `@codemirror/state`，
+          // 不外置化就会给 vim 单独造出第二份 state（`vim.test.ts` 直接报同一个错）。
           server: {
             deps: {
-              inline: [/@codemirror[\\/]/, /@lezer[\\/]/]
+              inline: [/@codemirror[\\/]/, /@lezer[\\/]/, /@replit[\\/]/]
             }
           }
         }

@@ -201,6 +201,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.general.restoreLastWorkspace': 'Reopen the last workspace on start',
     'settings.general.restoreLastWorkspaceDescription':
       'When the app starts with no folder, open the one you used last. Takes effect the next time the app starts.',
+    'settings.general.version': 'Version',
+    'settings.general.versionDescription':
+      'The build that is running right now. Read from the app itself — there is nothing to set here.',
     'settings.editor.fontFamily': 'Font',
     'settings.editor.fontFamilyDescription':
       'Typeface for document text. Headings and inline code scale along with it.',
@@ -233,6 +236,15 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.wordCount': 'Character count',
     'settings.editor.wordCountDescription':
       'Show the document length in the status bar. Counts every non-whitespace character, so Markdown punctuation is included.',
+    'settings.editor.typewriterMode': 'Typewriter mode',
+    'settings.editor.typewriterModeDescription':
+      'Keep the line you are typing on near the middle of the window, so your eyes stay in one place. Lines at the very start and end of the document cannot be centred — there is nothing left to scroll.',
+    'settings.editor.vimKeybindings': 'Vim keybindings',
+    'settings.editor.vimKeybindingsDescription':
+      'Vim motions and modes while editing. Only the keys Vim itself binds are taken over — saving, the command palette and the rest of the app keep working. The extension is downloaded the first time you turn this on.',
+    'settings.editor.spellCheck': 'Spell check',
+    'settings.editor.spellCheckDescription':
+      'Underline misspelled words with the system spell checker. It runs entirely on this machine and never sends your text anywhere.',
     'settings.files.attachmentLocation': 'Attachment folder',
     'settings.files.attachmentLocationDescription':
       'Where pasted images and files are saved. The link written into the document is always relative to it.',
@@ -690,6 +702,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.general.restoreLastWorkspace': '启动时恢复上次的工作区',
     'settings.general.restoreLastWorkspaceDescription':
       '应用不带目录启动时，直接打开上次用过的那个工作区。下次启动生效。',
+    'settings.general.version': '当前版本',
+    'settings.general.versionDescription':
+      '此刻正在运行的版本号。由应用自己报出，这里没有可改的东西。',
     'settings.editor.fontFamily': '字体',
     'settings.editor.fontFamilyDescription':
       '正文的字体。标题与行内代码会跟着一起缩放。',
@@ -721,6 +736,15 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       '在状态栏显示文档长度。按非空白字符数统计，Markdown 的语法符号也计入。',
     'settings.editor.codeBlockLineNumbers': '代码块行号',
     'settings.editor.codeBlockLineNumbersDescription': '在代码块左侧逐行显示行号。',
+    'settings.editor.typewriterMode': '打字机模式',
+    'settings.editor.typewriterModeDescription':
+      '正在写的那一行尽量停在窗口正中，视线不用跟着上下跑。文档最前面与最后面几行无法居中 —— 那几行上面/下面没有内容可滚了。',
+    'settings.editor.vimKeybindings': 'Vim 键位',
+    'settings.editor.vimKeybindingsDescription':
+      '用 Vim 的移动与模式编辑。只接管 Vim 自己绑定的那些键 —— 保存、命令面板以及应用其余快捷键照常工作。第一次打开时才会下载这个扩展。',
+    'settings.editor.spellCheck': '拼写检查',
+    'settings.editor.spellCheckDescription':
+      '用系统拼写检查给拼错的词标上下划线。它完全在本机完成，不会把文字发到任何地方。',
     'settings.files.attachmentLocation': '附件存放位置',
     'settings.files.attachmentLocationDescription':
       '粘贴进来的图片与文件保存在哪里。写进文档里的引用始终是相对路径。',

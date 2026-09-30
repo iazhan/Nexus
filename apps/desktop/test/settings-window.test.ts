@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   launchElectronApp,
   createTempDir,
@@ -10,6 +11,19 @@ import {
   type ElectronAppInstance
 } from './smoke-harness.js';
 import { indexPathForWorkspace } from '../electron/index-path.js';
+
+/**
+ * `apps/desktop/package.json` 里的版本 —— 也就是 `app.getVersion()` 在**未打包**运行时
+ * 会读到的那个。用它当期望值而不是「非空」：后者对一个写死的字符串也过。
+ */
+const EXPECTED_APP_VERSION = (
+  JSON.parse(
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json'),
+      'utf-8'
+    )
+  ) as { version: string }
+).version;
 
 /**
  * 设置窗口的真机接线。
@@ -196,6 +210,55 @@ describe('设置窗口', () => {
       )
     ).toBe(tableLayoutNext);
 
+    // ④c″′ 编辑器三项**默认关**的开关（打字机模式 / Vim 键位 / 拼写检查）。
+    //      三项都没有 DOM 落点，所以真机里能钉的是「整条链通不通」：注册表里的 `FieldDef`
+    //      → 真窗口里的 `role="switch"` → store → localStorage。行为判据在
+    //      `packages/editor/test/{typewriter,vim,editor-spell-check}.test.ts`，
+    //      接线（哪个 effect 把它装到视图上）在 `SourceEditor.tsx`。
+    //
+    //      先强制关掉再点，不假定初始值 —— 与 ④c′ 同一条理由。
+    const newEditorToggles = [
+      'editor.typewriterMode',
+      'editor.vimKeybindings',
+      'editor.spellCheck'
+    ];
+    await app.waitForSelector('[data-field-input="editor.spellCheck"]', 10000);
+    expect(
+      await app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('[data-field-input]')).map((el) => el.dataset.fieldInput).filter((id) => ${JSON.stringify(
+          newEditorToggles
+        )}.includes(id))`
+      )
+    ).toEqual(newEditorToggles);
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('[data-field-input="editor.typewriterMode"]').getAttribute('role')`
+      )
+    ).toBe('switch');
+    // 这三项**不给重置键** —— 再点一次就回去了（与同分组的行号 / 字数一致）。
+    expect(
+      await app.evaluate<number>(
+        `document.querySelectorAll('[data-field-reset^="editor.typewriterMode"], [data-field-reset^="editor.vimKeybindings"], [data-field-reset^="editor.spellCheck"]').length`
+      )
+    ).toBe(0);
+
+    await app.evaluate(
+      `(() => { window.nexusSettings.set('editor.typewriterMode', false); return true; })()`
+    );
+    await app.waitForFunction(
+      `() => document.querySelector('[data-field-input="editor.typewriterMode"]').getAttribute('aria-checked') === 'false'`,
+      10000
+    );
+    await app.click('[data-field-input="editor.typewriterMode"]');
+    expect(
+      await app.evaluate<string>(`localStorage.getItem('nexus-editor-typewriter-mode') ?? ''`)
+    ).toBe('true');
+    // 关回去，免得留给同一 user-data-dir 的后续步骤。
+    await app.click('[data-field-input="editor.typewriterMode"]');
+    expect(
+      await app.evaluate<string>(`localStorage.getItem('nexus-editor-typewriter-mode') ?? ''`)
+    ).toBe('false');
+
     // ④c‴ 开关组（`control: 'group'`）：判据属性是 `data-field-member`，与单选组的
     //      `data-field-option` 同形，区别是**每个成员都画出来**。真机里要钉的是「注册表里声明
     //      的成员一个不少地画出来了」—— 少一条成员时 renderer 用例与真机用例读的是同一个
@@ -248,6 +311,21 @@ describe('设置窗口', () => {
         `document.querySelector('[data-field-input="general.restoreLastWorkspace"]').getAttribute('role')`
       )
     ).toBe('switch');
+
+    // ④c⁗′ 「当前版本」的只读值。这条要三样同时成立才过：preload 暴露了 `getAppVersion`、
+    //      主进程真的从 `app.getVersion()` 读到了 `apps/desktop/package.json` 的版本、
+    //      `FieldRow` 把值画出来了。renderer 用例里那个 `window.nexus` 是打桩的，
+    //      证明不了前两样；而「非空」这种断言对一个写死的字符串也过，所以拿 package.json 比。
+    await app.waitForSelector('[data-field-readonly="general.version"]', 10000);
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('[data-field-readonly="general.version"]').textContent`
+      )
+    ).toBe(EXPECTED_APP_VERSION);
+    // 通用分组里只读值只画这一处（索引那条在数据分组，不在此处）。
+    expect(
+      await app.evaluate<number>(`document.querySelectorAll('[data-field-readonly]').length`)
+    ).toBe(1);
 
     // ④d 数据分组在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
     //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」

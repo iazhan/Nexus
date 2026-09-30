@@ -46,6 +46,14 @@ export const IPC_CHANNELS = {
    * 「显示的位置」与「打开的位置」不会分家。
    */
   getIndexPath: 'nexus:get-index-path',
+  /**
+   * 应用版本号（`package.json` 的 `version`）。
+   *
+   * 设置页把它当只读值显示 —— 「报告问题时看」那一类信息里，用户唯一能自己报出来的就是这个。
+   * **主进程答而不是渲染进程答**：渲染进程那边没有版本号（`package.json` 不进包），
+   * 而 `app.getVersion()` 拿的就是这个值，不会出现「界面显示的版本与安装包不一致」。
+   */
+  getAppVersion: 'nexus:get-app-version',
   setDirty: 'nexus:set-dirty',
   requestSaveAndClose: 'nexus:request-save-and-close',
   readyToClose: 'nexus:ready-to-close',

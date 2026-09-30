@@ -390,6 +390,11 @@ function controlFor(field: FieldDef, label: string, t: Translate, value: string)
       return <ActionControl field={field} t={t} />;
     case 'group':
       return <GroupControl field={field} label={label} t={t} value={value} />;
+    case 'readonly':
+      // 只读值那一行由 `FieldRow` 自己画（它在控件**上方**，与控件不是同一个位置），
+      // 所以这里什么都不画。返回 `null` 而不是省略这个 case：`FieldControl` 是联合类型，
+      // 少一个分支编译器不会报错，但加控件的人会以为漏了。
+      return null;
     default:
       // `preset` 是主题卡片网格，由外观分组的专用组件负责。画不出东西时宁可不画，
       // 也不要画一个点了没反应的控件。

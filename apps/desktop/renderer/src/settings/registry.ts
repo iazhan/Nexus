@@ -177,7 +177,17 @@ export type FieldControl =
    * 顺序会变，规范化就不再稳定。这条与 `FieldDef.optionsOf` 的说明不冲突：那个是给
    * 「选项随状态而变」的控件用的，组不属于那一类。
    */
-  | 'group';
+  | 'group'
+  /**
+   * **只读值**：这一行只显示一段用户改不了的文本（`readonlyValue` 取），自己不画控件。
+   *
+   * 它与 `action` 的区别是「有没有东西可点」，与「`toggle` 加 `disabled`」的区别是**语义**：
+   * 一个禁用的开关暗示「条件满足时你可以改」，而这一项永远不可改。
+   *
+   * 之所以要一个显式的控件值而不是「`control` 可省略」：`FieldDef.control` 是必填的，
+   * 省略它会让 `controlFor` 的 switch 少一个能穷尽的分支，将来加控件时编译器帮不上忙。
+   */
+  | 'readonly';
 
 export interface FieldOption {
   value: string;
@@ -620,6 +630,28 @@ export const RESTORE_LAST_WORKSPACE_FIELD: FieldDef = {
 };
 
 /**
+ * 当前版本。**只读值，不是设置项** —— 它没有默认值、没有「改回去」，所以没有 `accessor`。
+ *
+ * 排在 `general` 组最后：前面几项都是「你可以改什么」，这一项是「你现在装的是什么」。
+ *
+ * 调研表里这一行写的是「当前版本 / 检查更新 | 只读 + 按钮」，**只落只读那半**：另一半要一个
+ * 更新检查通道（往哪问、问什么、失败怎么办、要不要自动检查），而 Nexus 现在没有发布通道。
+ * 摆一个点了只会说「暂时无法检查更新」的按钮，比没有这个按钮更糟 —— 用户会以为网络坏了。
+ *
+ * 值走主进程的 `app.getVersion()` 而不是渲染进程自己拼：渲染包里没有 `package.json`，
+ * 唯一能拿到真实版本号的地方就是那里。
+ */
+export const APP_VERSION_FIELD: FieldDef = {
+  id: 'general.version',
+  section: 'general',
+  labelKey: 'settings.general.version',
+  descriptionKey: 'settings.general.versionDescription',
+  control: 'readonly',
+  readonlyValue: async () => (await window.nexus?.getAppVersion()) ?? null,
+  menu: false
+};
+
+/**
  * 排版四项。**每一项的 `resetValue` 都等于改版前的实际观感** —— 重置不是「回到某个新设计的默认」，
  * 而是「回到我改之前的样子」。
  *
@@ -794,6 +826,71 @@ export const WORD_COUNT_FIELD: FieldDef = {
     read: () => String(settings.get('editor.wordCount')),
     write: (value) => settings.set('editor.wordCount', value === 'true'),
     subscribe: (listener) => settings.subscribe('editor.wordCount', listener)
+  },
+  menu: false
+};
+
+/**
+ * 编辑器手感三件套：打字机模式 / Vim 键位 / 拼写检查。
+ *
+ * 放在 `editor` 组**最后**：前几项改的是「字怎么排」（字号、行高、宽度），这三项改的是
+ * 「手怎么动」。混在一起读会以为它们是同一类。
+ *
+ * 三项**默认全关**，而且都在**同一批**落地 —— 它们的共同点是「要往编辑器里装一个新扩展」，
+ * 而装扩展的机制（compartment + 建好视图之后再配置）是共用的。分开做会把同一套机制写三遍。
+ */
+export const TYPEWRITER_MODE_FIELD: FieldDef = {
+  id: 'editor.typewriterMode',
+  section: 'editor',
+  labelKey: 'settings.editor.typewriterMode',
+  descriptionKey: 'settings.editor.typewriterModeDescription',
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('editor.typewriterMode')),
+    write: (value) => settings.set('editor.typewriterMode', value === 'true'),
+    subscribe: (listener) => settings.subscribe('editor.typewriterMode', listener)
+  },
+  menu: false
+};
+
+/**
+ * Vim 键位。
+ *
+ * 文案里要写清**它不接管全部按键**：只有 vim 自己绑定的键会被吃掉，保存、命令面板这些
+ * 应用快捷键照常。不写的话，Vim 用户会以为打开它等于把整个应用的键位换掉，而普通用户会
+ * 以为打开它就再也存不了文件。
+ */
+export const VIM_KEYBINDINGS_FIELD: FieldDef = {
+  id: 'editor.vimKeybindings',
+  section: 'editor',
+  labelKey: 'settings.editor.vimKeybindings',
+  descriptionKey: 'settings.editor.vimKeybindingsDescription',
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('editor.vimKeybindings')),
+    write: (value) => settings.set('editor.vimKeybindings', value === 'true'),
+    subscribe: (listener) => settings.subscribe('editor.vimKeybindings', listener)
+  },
+  menu: false
+};
+
+/**
+ * 拼写检查。
+ *
+ * 描述里那句「由操作系统/浏览器在本地完成，不上传」是这一项**必须**说的：它是设置页里少数
+ * 几个让人联想到「联网」的开关之一，而它其实一个字节都不出机器。不说清的话，谨慎的用户会
+ * 一直不敢打开。
+ */
+export const SPELL_CHECK_FIELD: FieldDef = {
+  id: 'editor.spellCheck',
+  section: 'editor',
+  labelKey: 'settings.editor.spellCheck',
+  descriptionKey: 'settings.editor.spellCheckDescription',
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('editor.spellCheck')),
+    write: (value) => settings.set('editor.spellCheck', value === 'true'),
+    subscribe: (listener) => settings.subscribe('editor.spellCheck', listener)
   },
   menu: false
 };
@@ -1041,6 +1138,7 @@ export const FIELDS: readonly FieldDef[] = [
   AUTO_SAVE_DELAY_FIELD,
   EXTERNAL_CHANGE_FIELD,
   RESTORE_LAST_WORKSPACE_FIELD,
+  APP_VERSION_FIELD,
   FONT_FAMILY_FIELD,
   FONT_SIZE_FIELD,
   LINE_HEIGHT_FIELD,
@@ -1050,6 +1148,9 @@ export const FIELDS: readonly FieldDef[] = [
   LINE_NUMBERS_FIELD,
   CODE_BLOCK_LINE_NUMBERS_FIELD,
   WORD_COUNT_FIELD,
+  TYPEWRITER_MODE_FIELD,
+  VIM_KEYBINDINGS_FIELD,
+  SPELL_CHECK_FIELD,
   IGNORE_RULES_FIELD,
   ATTACHMENT_LOCATION_FIELD,
   ATTACHMENT_DIRECTORY_FIELD,
