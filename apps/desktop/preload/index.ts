@@ -15,6 +15,7 @@ import type {
 import {
   IPC_CHANNELS,
   type FileWatchIpcPayload,
+  type HostSettings,
   type SaveAttachmentRequest,
   type WindowState
 } from '../ipc/channels.js';
@@ -259,6 +260,10 @@ const bridge: NexusBridge = {
 
   notifySettingsChanged: (): void => {
     ipcRenderer.send(IPC_CHANNELS.notifySettingsChanged);
+  },
+
+  syncHostSettings: (hostSettings: HostSettings): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.syncHostSettings, hostSettings);
   },
 
   onSettingsChanged: (callback: () => void): Unsubscribe => {

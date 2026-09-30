@@ -235,6 +235,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       'Where the save dialog starts the first time you save a new document. Nothing is written until you save.',
     'settings.files.newDocumentLocation.document': 'Folder of the current document',
     'settings.files.newDocumentLocation.workspace': 'Workspace root',
+    'settings.files.ignoreRules': 'Folders to ignore when scanning',
+    'settings.files.ignoreRulesDescription':
+      'One per line or comma-separated, matched by folder name or by path relative to the workspace root (drafts, notes/private). Dot-folders and node_modules, dist, out, build are always ignored. Rebuild the index to apply.',
     'settings.data.rebuildIndex': 'Index',
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
@@ -701,6 +704,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       '新建的文档第一次保存时，对话框停在哪个目录。没按保存之前不会写任何东西到磁盘。',
     'settings.files.newDocumentLocation.document': '与当前文档同目录',
     'settings.files.newDocumentLocation.workspace': '工作区根目录',
+    'settings.files.ignoreRules': '扫描时忽略的目录',
+    'settings.files.ignoreRulesDescription':
+      '一行一条或用逗号分隔，按目录名或相对工作区根的路径匹配（如 drafts、notes/private）。点开头的目录与 node_modules、dist、out、build 始终忽略。改完要重建索引才生效。',
     'settings.data.rebuildIndex': '索引',
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',

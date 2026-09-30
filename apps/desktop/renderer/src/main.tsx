@@ -5,7 +5,17 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { SettingsWindow } from './settings/SettingsWindow';
 import { ThemeWindow } from './settings/ThemeWindow';
 import { readWindowRole, type WindowRole } from './window-role';
+import { startHostSettingsSync } from './host-settings';
 import './App.css';
+
+/**
+ * 先把「主进程要照着做的设置」送过去，再渲染。
+ *
+ * 放在渲染之前而不是某个组件的 effect 里：索引启动（`WorkspaceSidebar`）与设置页的
+ * 重建索引都依赖主进程已经拿到规则，而它们都在这之后才会跑。三个窗口都跑这份入口，
+ * 各自推一份 —— 它们共用同一份存储，值一样。
+ */
+startHostSettingsSync();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

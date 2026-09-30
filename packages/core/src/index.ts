@@ -95,3 +95,9 @@ export {
   normalizeAttachmentDirectory,
   formatAttachmentReference
 } from './document/attachments.js';
+
+export {
+  BUILT_IN_IGNORED_DIRECTORY_NAMES,
+  parseIgnoreRules,
+  shouldIgnoreDirectory
+} from './workspace/ignore-rules.js';

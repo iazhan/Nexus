@@ -10,7 +10,7 @@ import type {
   WorkspaceGraph,
   HistoryEntry
 } from '@nexus/core';
-import type { SaveAttachmentRequest, WindowState } from '../ipc/channels.js';
+import type { HostSettings, SaveAttachmentRequest, WindowState } from '../ipc/channels.js';
 
 export interface NexusBridge {
   getLaunchContext: () => Promise<LaunchContext>;
@@ -135,6 +135,13 @@ export interface NexusBridge {
    * 单向 `send` 而不是 `invoke`：广播没有返回值，也不该让写盘路径去等一个 IPC 往返。
    */
   notifySettingsChanged: () => void;
+  /**
+   * 把**主进程要照着做**的设置值送过去（`HostSettings`）。
+   *
+   * 返回 Promise 而不是单向 `send`：调用方要能等它落定 —— 索引启动紧跟着设置同步，
+   * 只发不等的话第一次建索引可能跑在旧规则上。
+   */
+  syncHostSettings: (settings: HostSettings) => Promise<void>;
   /**
    * 别的窗口改了本机偏好，该重读了。
    *

@@ -945,6 +945,7 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改）', () => 
  */
 describe('设置视图 · 文件与链接', () => {
   beforeEach(() => {
+    settings.set('files.ignoreRules', '');
     settings.set('files.attachmentLocation', 'document');
     settings.set('files.attachmentDirectory', 'assets');
     settings.set('files.attachmentNameTemplate', 'pasted-{timestamp}');
@@ -957,24 +958,42 @@ describe('设置视图 · 文件与链接', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    settings.set('files.ignoreRules', '');
     settings.set('files.attachmentLocation', 'document');
     settings.set('files.attachmentDirectory', 'assets');
     settings.set('files.attachmentNameTemplate', 'pasted-{timestamp}');
     settings.set('files.newDocumentLocation', 'document');
   });
 
-  it('四项都渲染出来，默认值是「与文档同目录 / assets / pasted-{timestamp} / 与当前文档同目录」', () => {
+  it('五项都渲染出来，默认值是「空规则 / 与文档同目录 / assets / pasted-{timestamp} / 与当前文档同目录」', () => {
     renderSettings('files');
 
+    expect(container.querySelector('[data-field="files.ignoreRules"]')).not.toBeNull();
     expect(container.querySelector('[data-field="files.attachmentLocation"]')).not.toBeNull();
     expect(container.querySelector('[data-field="files.attachmentDirectory"]')).not.toBeNull();
     expect(container.querySelector('[data-field="files.attachmentNameTemplate"]')).not.toBeNull();
     expect(container.querySelector('[data-field="files.newDocumentLocation"]')).not.toBeNull();
 
+    expect(settings.get('files.ignoreRules')).toBe('');
     expect(settings.get('files.attachmentLocation')).toBe('document');
     expect(settings.get('files.attachmentDirectory')).toBe('assets');
     expect(settings.get('files.attachmentNameTemplate')).toBe('pasted-{timestamp}');
     expect(settings.get('files.newDocumentLocation')).toBe('document');
+  });
+
+  /**
+   * 忽略规则**原样存**，与同组的子目录名相反（那个归一化后才进存档）。
+   * 区别在于是自由文本还是有损归一化：把换行压成逗号会一边敲一边改写用户的排版。
+   */
+  it('忽略规则原样进存档，归一化留给使用处', () => {
+    renderSettings('files');
+
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-field-input="files.ignoreRules"]'
+    );
+    act(() => setInputValue(input as HTMLInputElement, 'Drafts, notes\\private'));
+
+    expect(settings.get('files.ignoreRules')).toBe('Drafts, notes\\private');
   });
 
   it('改新建文档默认位置写进存档', () => {

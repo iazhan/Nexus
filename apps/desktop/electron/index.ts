@@ -16,6 +16,7 @@ import { FileService } from './file-service.js';
 import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js';
 import { createElectronFileDialog } from './file-dialog.js';
 import { HistoryStore, HISTORY_DIR } from './history-store.js';
+import { hostSettings, sanitizeHostSettings, updateHostSettings } from './host-settings.js';
 import { IndexStore } from './index-store.js';
 import { indexWorkspace } from './indexer.js';
 import { createProcessorRegistry } from './processor/index.js';
@@ -888,7 +889,9 @@ ipcMain.handle(IPC_CHANNELS.scanWorkspace, async (event, rootPath: unknown) => {
   if (typeof rootPath !== 'string' || rootPath.length === 0) {
     throw new Error('scanWorkspace: 需要非空的目录路径');
   }
-  return getOrCreateSession(event.sender).service.scanWorkspaceMarkdownFiles(rootPath);
+  return getOrCreateSession(event.sender).service.scanWorkspaceMarkdownFiles(rootPath, {
+    ignoreRules: hostSettings().ignoreRules
+  });
 });
 
 ipcMain.handle(IPC_CHANNELS.getWorkspaceRoots, (event) => {
@@ -916,6 +919,9 @@ ipcMain.handle(IPC_CHANNELS.rebuildIndex, async (event, rootPath: unknown) => {
     service,
     store,
     rootPath,
+    // 跳过规则与「扫描工作区」那条通道取的是**同一份**宿主设置 —— 索引与文件树是
+    // 两个投影，规则不一致会让「树里没有、搜索里有」。
+    scanOptions: { ignoreRules: hostSettings().ignoreRules },
     processors: createProcessorRegistry()
   });
 });
@@ -1037,6 +1043,19 @@ ipcMain.on(IPC_CHANNELS.notifySettingsChanged, (event) => {
     if (win.webContents.id === event.sender.id) continue;
     win.webContents.send(IPC_CHANNELS.settingsChanged);
   }
+});
+
+/**
+ * 渲染进程送来「主进程要用的设置值」。
+ *
+ * 走 `handle` 而不是 `on`：渲染进程要能**等它落定**。索引启动紧跟着设置同步，
+ * 只发不等的话，第一次建索引有可能跑在旧规则上 —— 症状是「填了忽略规则，第一次没生效，
+ * 按一次重建索引才对」，而那是个查不出来的时序问题。
+ *
+ * 三个窗口都会推（它们共用同一份存储，值一样），后到的覆盖先到的，结果相同。
+ */
+ipcMain.handle(IPC_CHANNELS.syncHostSettings, async (_event, payload: unknown) => {
+  updateHostSettings(sanitizeHostSettings(payload));
 });
 
 // App lifecycle

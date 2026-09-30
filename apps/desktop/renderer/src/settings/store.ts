@@ -54,6 +54,8 @@ import {
   EXTERNAL_CHANGE_DEFAULT,
   EXTERNAL_CHANGE_OPTIONS,
   EXTERNAL_CHANGE_STORAGE_KEY,
+  IGNORE_RULES_DEFAULT,
+  IGNORE_RULES_STORAGE_KEY,
   NEW_DOCUMENT_LOCATION_DEFAULT,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   NEW_DOCUMENT_LOCATION_STORAGE_KEY,
@@ -332,7 +334,21 @@ export const SETTING_DEFS = {
     NEW_DOCUMENT_LOCATION_STORAGE_KEY,
     NEW_DOCUMENT_LOCATION_DEFAULT,
     NEW_DOCUMENT_LOCATION_OPTIONS.map((option) => option.value)
-  )
+  ),
+
+  /**
+   * 扫描时忽略的目录规则。**原样存，不归一化** —— 理由见 `preference-specs.ts` 里
+   * `IGNORE_RULES_DEFAULT` 的注释（自由文本，归一化是有损的，而损失的正是用户刚打的排版）。
+   *
+   * 空串是合法值（＝只有内置规则），所以这里没有「清空回落默认」那一步 ——
+   * 默认值本身就是空串，回落与不回落的区别不存在。
+   */
+  'files.ignoreRules': defineSetting<string>({
+    storageKey: IGNORE_RULES_STORAGE_KEY,
+    fallback: IGNORE_RULES_DEFAULT,
+    parse: (raw) => raw ?? IGNORE_RULES_DEFAULT,
+    serialize: (value) => value
+  })
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;

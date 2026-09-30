@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { IndexedDocument } from '@nexus/core';
 import { useLocale } from '../hooks.js';
+import { hostSettingsSynced } from '../host-settings.js';
 import {
   buildAttachmentGroups,
   extractionNoteOf,
@@ -87,6 +88,11 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
         if (!window.nexus?.rebuildIndex || !window.nexus?.listIndexedDocuments) {
           throw new Error('索引接口不可用');
         }
+
+        // 等宿主设置送到主进程**再**建索引：跳过规则是在主进程的 walker 里生效的，
+        // 抢在前面跑会让第一次索引用上旧规则（症状是「填了忽略规则，第一次没生效」）。
+        await hostSettingsSynced();
+        if (cancelled) return;
 
         const result = await window.nexus.rebuildIndex(rootPath);
         if (cancelled) return;

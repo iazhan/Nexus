@@ -6,6 +6,7 @@ import {
   documentTypeForPath,
   getPathExtension,
   isMarkdownPath,
+  shouldIgnoreDirectory,
   supportedDocumentExtensions,
   type DocumentType,
   type FileDocument,
@@ -348,24 +349,12 @@ function wrapIoError(action: string, filePath: string, err: unknown): FileServic
  */
 
 /**
- * 扫描工作区时跳过的**非点开头**目录名。
+ * 「哪些目录不看」的判定在 `@nexus/core` 的 `workspace/ignore-rules.ts` —— 那里是唯一事实源。
  *
- * 点开头的目录不在这里列举，由 `shouldSkipDirectory` 按前缀一律跳过。它们
- * 几乎全是工具元数据：`.git` / `.svn` / `.hg` / `.obsidian` / `.cache`，
- * 本应用自己的 `.nexus/history/`（存的是快照不是文档），以及别的笔记工具
- * 留下的 `.marking/snapshots/`、`.nestnote/trash/`。
- *
- * **改成前缀判定是因为逐个列举必然漏。** 实测一个真实工作区的索引里有 97 个
- * 文档，其中 12 个来自 `.marking` 与 `.nestnote` —— 那是别的工具的**快照和
- * 回收站**，却进了搜索、标签、图谱和文件树。逐个补名字只能等下一次踩坑。
- * Obsidian 同样忽略点开头的目录，这是同类工具的通行约定。
+ * 搬走的理由是设置页要能改它：用户填的那串规则得用**同一个**判定去解释，两处各写一份的话
+ * 「设置页显示 `drafts`、实际没跳过」这种错不会报错。为什么是前缀判定而不是逐个列举，
+ * 见 core 那份的注释（实测 97 个文档里 12 个来自别的工具的快照与回收站）。
  */
-const SKIPPED_DIRECTORY_NAMES = new Set(['node_modules', 'dist', 'out', 'build']);
-
-/** 该目录名是否应跳过扫描（既不进索引，也不进文件树）。 */
-export function shouldSkipDirectory(name: string): boolean {
-  return name.startsWith('.') || SKIPPED_DIRECTORY_NAMES.has(name);
-}
 
 /**
  * 判断 target 是否位于 root 之下（含 root 自身）。
@@ -389,6 +378,16 @@ export interface ScanWorkspaceOptions {
   maxFiles?: number;
   /** 递归深度上限，默认 24 */
   maxDepth?: number;
+  /**
+   * 用户自定义的跳过规则（已由 `parseIgnoreRules` 归一化）。
+   *
+   * 由调用方注入而不是在这里读全局：主进程的「当前宿主设置」是一份可变状态，
+   * 而扫描是**可以被并发触发**的（工作区打开时自动跑一次、用户按重建索引又跑一次）。
+   * 从参数进来，这一次扫描用的就是同一个快照。
+   *
+   * 不传即「只有内置规则」—— 与加这条通道之前的行为一致。
+   */
+  ignoreRules?: readonly string[];
 }
 
 /** FileService 初始化配置。 */
@@ -1163,6 +1162,7 @@ export class FileService {
 
     const maxFiles = options.maxFiles ?? 20000;
     const maxDepth = options.maxDepth ?? 24;
+    const ignoreRules = options.ignoreRules ?? [];
 
     const files: WorkspaceDocumentFile[] = [];
     let truncated = false;
@@ -1188,7 +1188,10 @@ export class FileService {
         if (entry.isSymbolicLink()) continue;
 
         if (entry.isDirectory()) {
-          if (shouldSkipDirectory(entry.name)) {
+          // 相对路径要传进去：规则里带 `/` 时按路径比（`notes/private` 只命中那一条），
+          // 不带 `/` 时按目录名比（`drafts` 命中任意层级）。只给名字的话前者没法表达。
+          const relativeDir = path.relative(normalizedRoot, childPath).split(path.sep).join('/');
+          if (shouldIgnoreDirectory(entry.name, relativeDir, ignoreRules)) {
             skippedDirectories += 1;
             continue;
           }

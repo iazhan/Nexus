@@ -32,6 +32,7 @@ import {
   SyncIcon
 } from '../components/section-icons.js';
 import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
+import { hostSettingsSynced } from '../host-settings.js';
 import {
   PANEL_DEFAULT_WIDTH,
   PANEL_MAX_WIDTH,
@@ -709,6 +710,9 @@ export const REBUILD_INDEX_FIELD: FieldDef = {
   run: async () => {
     const root = await currentWorkspaceRoot();
     if (!root) return;
+    // 与侧栏那次同一个理由：跳过规则在主进程生效，先等设置送到再建索引。
+    // 少了这一句，「刚改完忽略规则就按重建索引」会跑在旧规则上。
+    await hostSettingsSynced();
     await window.nexus?.rebuildIndex(root);
   },
   menu: false
@@ -755,6 +759,31 @@ export const OPEN_INDEX_DIR_FIELD: FieldDef = {
     const root = await currentWorkspaceRoot();
     if (!root) return;
     await window.nexus?.openIndexDirectory(root);
+  },
+  menu: false
+};
+
+/**
+ * 扫描时忽略的目录。
+ *
+ * 放在 `files` 组**最前面**：它决定「哪些东西算这个工作区的一部分」，是这一组里唯一
+ * 影响**输入**的项 —— 后面几项都在说「已有文档的附件放哪、新文档从哪开始」，
+ * 混在一起读会以为它们是一件事。
+ *
+ * 用 `text` 而不是「标签列表」类控件：规则是自由文本（一行一条或逗号分隔），
+ * 而设置页没有多行控件。单行输入框配一句「用逗号分隔」够用，且不用为一个字段
+ * 新增一种控件。
+ */
+export const IGNORE_RULES_FIELD: FieldDef = {
+  id: 'files.ignoreRules',
+  section: 'files',
+  labelKey: 'settings.files.ignoreRules',
+  descriptionKey: 'settings.files.ignoreRulesDescription',
+  control: 'text',
+  accessor: {
+    read: () => settings.get('files.ignoreRules'),
+    write: (value) => settings.set('files.ignoreRules', value),
+    subscribe: (listener) => settings.subscribe('files.ignoreRules', listener)
   },
   menu: false
 };
@@ -863,6 +892,7 @@ export const FIELDS: readonly FieldDef[] = [
   LINE_NUMBERS_FIELD,
   CODE_BLOCK_LINE_NUMBERS_FIELD,
   WORD_COUNT_FIELD,
+  IGNORE_RULES_FIELD,
   ATTACHMENT_LOCATION_FIELD,
   ATTACHMENT_DIRECTORY_FIELD,
   ATTACHMENT_NAME_TEMPLATE_FIELD,

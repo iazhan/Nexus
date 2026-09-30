@@ -69,7 +69,19 @@ export const IPC_CHANNELS = {
    */
   notifySettingsChanged: 'nexus:notify-settings-changed',
   /** 上面那条的中转结果。主进程 → 其他窗口。 */
-  settingsChanged: 'nexus:settings-changed'
+  settingsChanged: 'nexus:settings-changed',
+  /**
+   * 渲染进程 → 主进程：**把主进程要用的设置值送过去**。
+   *
+   * 本机偏好存在渲染进程的存储里，主进程读不到（`notifySettingsChanged` 是空载荷的
+   * 广播，收方自己去读 —— 而主进程没有可读的地方）。所以凡是要主进程**照着做**的设置，
+   * 都得由渲染进程显式送一份过来。
+   *
+   * 与 `notifySettingsChanged` 分成两条而不是合并：那条是**给别的窗口**的信号
+   * （收方各读各的存档），这条是**给主进程**的数据。合并的话主进程就要区分
+   * 「这次广播是不是给我的」，而窗口之间的广播本来也不该顺带传值。
+   */
+  syncHostSettings: 'nexus:sync-host-settings'
 } as const;
 
 /**
@@ -110,6 +122,29 @@ export interface SaveAttachmentRequest {
 }
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
+
+/**
+ * 主进程需要照着做的那些设置值。
+ *
+ * **只放「主进程必须知道才能干活」的项**，不放本机偏好本身 —— 这份东西每改一次设置就
+ * 过一趟 IPC，塞进全部设置项是白付的序列化，而且会让「哪一项真的影响主进程」变得看不出来。
+ * 加一项的条件很硬：**没有它，主进程的某个行为就是错的**。
+ *
+ * 形状定义在这里而不是 `electron/host-settings.ts`：它是跨进程契约，
+ * `NexusBridge`（preload）与主进程两侧都要用它（同 `SaveAttachmentRequest` 的理由）。
+ */
+export interface HostSettings {
+  /**
+   * 扫描工作区时跳过的**用户自定义**目录规则（已由 `parseIgnoreRules` 归一化）。
+   *
+   * 内置规则（点开头目录、`node_modules` / `dist` / `out` / `build`）不在这里 ——
+   * 它们不可配置，跟着代码走。这里只放用户加的那部分。
+   */
+  ignoreRules: readonly string[];
+}
+
+/** 一份「什么都还没同步过」的初始值：行为与加这条通道之前完全一致。 */
+export const DEFAULT_HOST_SETTINGS: HostSettings = { ignoreRules: [] };
 
 /**
  * 文件监听 IPC 传输载荷。

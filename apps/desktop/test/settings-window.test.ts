@@ -217,7 +217,7 @@ describe('设置窗口', () => {
       await app.evaluate<number>(`document.querySelectorAll('[data-field-blocked]').length`)
     ).toBe(0);
 
-    // ④e 文件与链接分组：四项都由 `FIELDS` 派生渲染，这里只钉住「注册表里加了一项，
+    // ④e 文件与链接分组：五项都由 `FIELDS` 派生渲染，这里只钉住「注册表里加了一项，
     //     真窗口里就真的多一个控件」—— 少一条 `FieldDef` 时 renderer 用例与真机用例
     //     会一起漏，因为两边读的是同一个 `FIELDS`。
     await app.click('.nexus-settings-nav [data-section="files"]');
@@ -231,6 +231,7 @@ describe('设置窗口', () => {
         `Array.from(document.querySelectorAll('[data-field]')).map((el) => el.dataset.field)`
       )
     ).toEqual([
+      'files.ignoreRules',
       'files.attachmentLocation',
       'files.attachmentDirectory',
       'files.attachmentNameTemplate',
@@ -345,7 +346,7 @@ describe('设置窗口', () => {
     // 或「停在数据分组」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。
     // 走 `localStorage` 直接清，不绕 UI。
     await app.evaluate(
-      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-settings-section'); localStorage.removeItem('nexus-ui-zoom');`
+      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-settings-section'); localStorage.removeItem('nexus-ui-zoom'); localStorage.removeItem('nexus-ignore-rules');`
     );
   }, 120000);
 });

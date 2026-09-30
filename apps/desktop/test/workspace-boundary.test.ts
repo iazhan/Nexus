@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { parseIgnoreRules } from '@nexus/core';
 import { FileService, isPathInside } from '../electron/file-service.js';
 
 /**
@@ -283,6 +284,48 @@ describe('工作区边界与目录扫描', () => {
       expect(result.files.map((f) => f.relativePath).sort()).toEqual(['notes/a.md', 'root.md']);
       // 只计顶层被跳过的目录：`.marking` 被跳过就不会再往下走 `snapshots`
       expect(result.skippedDirectories).toBe(ghostFiles.length);
+    });
+
+    /**
+     * 用户自定义的忽略规则（`files.ignoreRules`）。
+     *
+     * 两条判据合在一个用例里，因为它们要一起读才说明「带斜杠与不带斜杠是两种匹配」：
+     * 同一个目录名 `private` 在两处，只有带路径的那一条被跳过。
+     */
+    it('用户规则：不带斜杠按目录名命中任意层级，带斜杠按相对路径只命中那一条', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      for (const relative of ['drafts', 'notes/drafts', 'notes/private', 'archive/private']) {
+        await fsPromises.mkdir(path.join(workspace, relative), { recursive: true });
+        await fsPromises.writeFile(path.join(workspace, relative, 'x.md'), '# x\n', 'utf-8');
+      }
+      await fsPromises.writeFile(path.join(workspace, 'root.md'), '# root\n', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+      const result = await service.scanWorkspaceMarkdownFiles(workspace, {
+        ignoreRules: parseIgnoreRules('drafts, notes/private')
+      });
+
+      expect(result.files.map((file) => file.relativePath).sort()).toEqual([
+        'archive/private/x.md',
+        'root.md'
+      ]);
+    });
+
+    it('不传规则时只有内置规则生效 —— 与加这一项之前的行为一致', async () => {
+      const workspace = path.join(tempDir, 'vault');
+      await fsPromises.mkdir(path.join(workspace, 'drafts'), { recursive: true });
+      await fsPromises.writeFile(path.join(workspace, 'drafts', 'x.md'), '# x\n', 'utf-8');
+      await fsPromises.writeFile(path.join(workspace, 'root.md'), '# root\n', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(workspace);
+      const result = await service.scanWorkspaceMarkdownFiles(workspace);
+
+      expect(result.files.map((file) => file.relativePath).sort()).toEqual([
+        'drafts/x.md',
+        'root.md'
+      ]);
     });
 
     it('未授权的工作区无法扫描', async () => {

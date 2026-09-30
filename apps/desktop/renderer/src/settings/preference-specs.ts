@@ -242,6 +242,21 @@ export const NEW_DOCUMENT_LOCATION_OPTIONS: ReadonlyArray<{ value: string; label
  */
 export const NEW_DOCUMENT_LOCATION_DEFAULT = NEW_DOCUMENT_LOCATION_DOCUMENT;
 
+export const IGNORE_RULES_STORAGE_KEY = 'nexus-ignore-rules';
+
+/**
+ * 扫描时忽略的目录规则。默认空串 ＝ 只有内置规则 —— 与加这一项之前的行为一致。
+ *
+ * **这一项刻意不做 parse 归一化**，与 `files.attachmentDirectory` 相反。区别在于那个存的是
+ * **一个路径**，归一化之后只剩一种写法，两处各判一次才会漂移；这个存的是**一段自由文本**，
+ * 归一化是有损的：`parseIgnoreRules` 会把换行压成逗号、去掉空行 —— 用户一边敲一边被改写，
+ * 而改写掉的正是他刚打的排版。
+ *
+ * 归一化因此只发生在**使用处**（`renderer/src/host-settings.ts` 推给主进程那一刻），
+ * 存档里留的就是用户写的样子。
+ */
+export const IGNORE_RULES_DEFAULT = '';
+
 /**
  * UI 缩放。**取值口径（磁盘键 / 档位 / 解析）住在 `preload/ui-zoom.ts`** —— 那个文件
  * 要在首帧之前把缩放应用上去，所以它才是那份规则的所在地；这里只补一件它不需要的东西：
