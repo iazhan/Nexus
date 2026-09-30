@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   MarkdownDocumentSession,
   createSessionEditorView,
@@ -7,6 +7,28 @@ import {
   createClipboardPasteTransaction,
   extractPlainTextFromHtml
 } from '../src/index.js';
+
+/**
+ * 造一个只带 `files` 与 `getData` 的剪贴板。
+ *
+ * 不用真的 `DataTransfer`：happy-dom 的那份构造不了「带文件的粘贴」，而这里要钉的
+ * 恰恰是 `files` 与 `text/plain` **同时存在**时的优先级。
+ */
+function clipboardWith(files: File[], text = ''): DataTransfer {
+  return {
+    files: { length: files.length, item: (index: number) => files[index] ?? null },
+    getData: (type: string) => (type === 'text/plain' ? text : '')
+  } as unknown as DataTransfer;
+}
+
+function imageFile(name = 'image.png', type = 'image/png'): File {
+  return new File([new Uint8Array([1, 2, 3])], name, { type });
+}
+
+/** 粘贴处理器是同步返回的，落盘那一支是异步的 —— 等一轮宏任务再看文档。 */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 describe('P1-04E Clipboard Security & Paste Handling', () => {
   describe('A. HTML Clipboard Plain-Text Extraction', () => {
@@ -278,6 +300,162 @@ describe('P1-04E Clipboard Security & Paste Handling', () => {
 
       expect(pasteEvent.defaultPrevented).toBe(true);
       expect(session.getSnapshot().source).toBe('Base: Plain Priority');
+
+      handle.destroy();
+      parent.remove();
+    });
+  });
+
+  /**
+   * 图片落盘钩子（`files` 组）。编辑器这一层只证明「文件交出去了、回来的文本插进去了」——
+   * 名字怎么算、写到哪、重名怎么办全在宿主，那些在 `packages/core` 的单测与真机用例里。
+   */
+  describe('C. Image Paste Hook', () => {
+    it('图片交给宿主，落盘返回的引用插进文档，且不让位给剪贴板文本', async () => {
+      const session = new MarkdownDocumentSession('Base: ');
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const received: File[][] = [];
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'paste-img-1',
+        surfaceKind: 'source',
+        parent,
+        onPasteFiles: (files) => {
+          received.push([...files]);
+          return Promise.resolve('![shot](assets/pasted-1.png)');
+        }
+      });
+
+      handle.view.dispatch({ selection: { anchor: 6, head: 6 } });
+
+      // 截图粘贴时剪贴板里往往**同时**有 `text/html`（一个 `<img>`）与文本。
+      // 先走文本分支的话图就没了，而用户明明看得见剪贴板里有东西。
+      const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(pasteEvent, 'clipboardData', {
+        value: clipboardWith([imageFile()], 'plain fallback')
+      });
+      handle.view.contentDOM.dispatchEvent(pasteEvent);
+
+      expect(pasteEvent.defaultPrevented).toBe(true);
+      expect(received).toHaveLength(1);
+      expect(received[0]?.[0]?.name).toBe('image.png');
+
+      await flush();
+      expect(session.getSnapshot().source).toBe('Base: ![shot](assets/pasted-1.png)');
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('宿主返回 null（没有落点）时退回剪贴板文本，而不是静默什么都不发生', async () => {
+      const session = new MarkdownDocumentSession('Base: ');
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'paste-img-2',
+        surfaceKind: 'source',
+        parent,
+        onPasteFiles: () => Promise.resolve(null)
+      });
+
+      handle.view.dispatch({ selection: { anchor: 6, head: 6 } });
+
+      const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(pasteEvent, 'clipboardData', {
+        value: clipboardWith([imageFile()], 'C:\\shots\\a.png')
+      });
+      handle.view.contentDOM.dispatchEvent(pasteEvent);
+
+      await flush();
+      expect(session.getSnapshot().source).toBe('Base: C:\\shots\\a.png');
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('落盘失败不外抛，也不写进文档', async () => {
+      const session = new MarkdownDocumentSession('Base: ');
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'paste-img-3',
+        surfaceKind: 'source',
+        parent,
+        onPasteFiles: () => Promise.reject(new Error('disk full'))
+      });
+
+      handle.view.dispatch({ selection: { anchor: 6, head: 6 } });
+
+      const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(pasteEvent, 'clipboardData', { value: clipboardWith([imageFile()]) });
+      handle.view.contentDOM.dispatchEvent(pasteEvent);
+
+      await flush();
+      // 抛出去就是一个没人 await 的 promise rejection；失败就是「什么都没发生」。
+      expect(session.getSnapshot().source).toBe('Base: ');
+      expect(spy).toHaveBeenCalled();
+
+      spy.mockRestore();
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('只读 surface 不触发落盘钩子', () => {
+      const session = new MarkdownDocumentSession('Read only');
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const calls: number[] = [];
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'paste-img-ro',
+        surfaceKind: 'source',
+        readOnly: true,
+        parent,
+        onPasteFiles: () => {
+          calls.push(1);
+          return Promise.resolve('![]()');
+        }
+      });
+
+      const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(pasteEvent, 'clipboardData', { value: clipboardWith([imageFile()]) });
+      handle.view.contentDOM.dispatchEvent(pasteEvent);
+
+      expect(pasteEvent.defaultPrevented).toBe(true);
+      expect(calls).toHaveLength(0);
+
+      handle.destroy();
+      parent.remove();
+    });
+
+    it('没有钩子时图片粘贴不拦文本 —— 沿用改版前的行为', async () => {
+      const session = new MarkdownDocumentSession('Base: ');
+      const parent = document.createElement('div');
+      document.body.appendChild(parent);
+
+      const handle = createSessionEditorView({
+        session,
+        surfaceId: 'paste-img-none',
+        surfaceKind: 'source',
+        parent
+      });
+
+      handle.view.dispatch({ selection: { anchor: 6, head: 6 } });
+
+      const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(pasteEvent, 'clipboardData', { value: clipboardWith([imageFile()], 'text wins') });
+      handle.view.contentDOM.dispatchEvent(pasteEvent);
+
+      await flush();
+      expect(session.getSnapshot().source).toBe('Base: text wins');
 
       handle.destroy();
       parent.remove();

@@ -47,6 +47,13 @@ export interface CreateSessionEditorStateOptions {
   imageSourceResolver?: ImageSourceResolver;
   /** Ctrl/Cmd+左键点击普通链接时的导航策略，由宿主提供；缺省表示不导航。 */
   linkNavigator?: LinkNavigator;
+  /**
+   * 粘贴图片时的落盘钩子，由宿主提供；缺省表示不处理图片粘贴。
+   *
+   * 与 `linkNavigator` 同类：**策略在宿主，编辑器只递事件**。编辑器不知道文件写到哪，
+   * 也不该知道。
+   */
+  onPasteFiles?: (files: readonly File[]) => Promise<string | null>;
   extensionHost?: import('./extensions.js').ExtensionHost;
   onSelectionChange?: (selection: MarkdownSelection) => void;
   theme?: 'light' | 'dark';
@@ -398,7 +405,8 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
       createImeCompositionExtension(),
       createClipboardExtension(options.session, {
         surfaceId: options.surfaceId,
-        readOnly: options.readOnly
+        readOnly: options.readOnly,
+        onPasteFiles: options.onPasteFiles
       }),
       editorLocaleCompartment.of(editorLocaleFacet.of(options.locale ?? 'zh-CN')),
       ...visualExtensions,

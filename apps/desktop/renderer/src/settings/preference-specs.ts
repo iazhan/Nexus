@@ -6,9 +6,9 @@
  * 三处各写一遍，改范围时漏掉一处不会报错，只会让「输入框允许 20、存档夹到 18」这种
  * 半生效状态长期存在。`panel-width.ts` 是同一个形状的先例。
  *
- * 覆盖面是**本机偏好**：编辑器外观（排版 / 代码块行号 / 表格列宽）与通用行为
- * （自动保存开关与延迟、外部修改时怎么处理）。主题与用户主题**不在这里** —— 那是
- * `@nexus/theme` 的领域，存档形状由 `parseUserThemes` 负责。
+ * 覆盖面是**本机偏好**：编辑器外观（排版 / 代码块行号 / 表格列宽）、通用行为
+ * （自动保存开关与延迟、外部修改时怎么处理）与文件落盘（附件放哪、叫什么）。
+ * 主题与用户主题**不在这里** —— 那是 `@nexus/theme` 的领域，存档形状由 `parseUserThemes` 负责。
  *
  * **默认值一律等于加设置项之前的实际观感与行为**（字号 14 / 行高 1.6 / 段间距 0 / 宽度跟随窗口 /
  * 等宽字体 / 代码块行号开 / 表格列宽 auto / 自动保存开且延迟 800ms / 外部修改走 smart）。
@@ -20,6 +20,8 @@
  * 变量前缀是 `--nx-` 不是 `--nexus-`：后者是主题 token 的命名空间（由 `ThemeManager` 注入，
  * 归审计脚本管），而这些是用户偏好 —— 换主题不该把字号或行号重置回去。见 `App.css` 头部。
  */
+
+import { DEFAULT_ATTACHMENT_DIRECTORY, DEFAULT_ATTACHMENT_NAME_TEMPLATE } from '@nexus/core';
 
 /** 一个数值项的完整取值域。`step` 只给控件用，不参与夹取。 */
 export interface NumberSettingSpec {
@@ -166,6 +168,32 @@ export const EXTERNAL_CHANGE_OPTIONS: ReadonlyArray<{ value: string; labelKey: s
 ];
 
 export const EXTERNAL_CHANGE_DEFAULT = 'smart';
+
+export const ATTACHMENT_LOCATION_STORAGE_KEY = 'nexus-attachment-location';
+export const ATTACHMENT_DIRECTORY_STORAGE_KEY = 'nexus-attachment-directory';
+export const ATTACHMENT_NAME_TEMPLATE_STORAGE_KEY = 'nexus-attachment-name-template';
+
+/**
+ * 附件存放位置。**两个选项就够，不提供「绝对路径」** —— 附件路径要写进文档正文（相对引用），
+ * 绝对路径的引用换个机器就断，而它自己又没法表达「相对谁」。
+ *
+ * `document` 是默认，也是这一版之前的观感：那时根本没有落盘功能，所以「与文档同目录」是
+ * 最保守的起点 —— 装上这一版不该让粘贴行为先落在用户没指定的地方。
+ */
+export const ATTACHMENT_LOCATION_OPTIONS: ReadonlyArray<{ value: string; labelKey: string }> = [
+  { value: 'document', labelKey: 'settings.files.attachmentLocation.document' },
+  { value: 'directory', labelKey: 'settings.files.attachmentLocation.directory' }
+];
+
+export const ATTACHMENT_LOCATION_DEFAULT = 'document';
+
+/**
+ * 子目录名与命名模板的默认值**从 `@nexus/core` 取，不在这里抄第二份** —— 那两个常量是
+ * 「算名字」这件事的一部分（`normalizeAttachmentDirectory` 落空时也是回落到它），
+ * 抄一份的后果是设置页显示 `assets`、实际落盘到别的目录。
+ */
+export const ATTACHMENT_DIRECTORY_DEFAULT = DEFAULT_ATTACHMENT_DIRECTORY;
+export const ATTACHMENT_NAME_TEMPLATE_DEFAULT = DEFAULT_ATTACHMENT_NAME_TEMPLATE;
 
 /**
  * 代码块行号的开关值。

@@ -15,6 +15,7 @@ import type {
 import {
   IPC_CHANNELS,
   type FileWatchIpcPayload,
+  type SaveAttachmentRequest,
   type WindowState
 } from '../ipc/channels.js';
 import type { NexusBridge } from './types.js';
@@ -83,6 +84,10 @@ const bridge: NexusBridge = {
 
   saveAs: (content: string): Promise<string> => {
     return ipcRenderer.invoke(IPC_CHANNELS.saveAs, content);
+  },
+
+  saveAttachment: (request: SaveAttachmentRequest): Promise<string> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.saveAttachment, request);
   },
 
   authorizeWorkspace: (rootPath: string): Promise<string> => {

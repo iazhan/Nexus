@@ -10,7 +10,7 @@ import type {
   WorkspaceGraph,
   HistoryEntry
 } from '@nexus/core';
-import type { WindowState } from '../ipc/channels.js';
+import type { SaveAttachmentRequest, WindowState } from '../ipc/channels.js';
 
 export interface NexusBridge {
   getLaunchContext: () => Promise<LaunchContext>;
@@ -31,6 +31,13 @@ export interface NexusBridge {
   readFile: (filePath: string) => Promise<string>;
   writeFile: (filePath: string, content: string) => Promise<void>;
   saveAs: (content: string) => Promise<string>;
+  /**
+   * 把粘贴进来的图片写到文档目录（或其子目录）下，返回**实际落盘的绝对路径**。
+   *
+   * 返回绝对路径而不是相对路径：重名去重发生在主进程（只有它看得见文件系统），
+   * 所以最终文件名只有那边知道。渲染进程拿到之后再算相对路径写进 Markdown。
+   */
+  saveAttachment: (request: SaveAttachmentRequest) => Promise<string>;
   watchFile: (filePath: string, listener: FileWatchListener) => Unsubscribe;
   /**
    * 授权一个工作区根目录，该目录下的文件随即可读写。返回规范化后的绝对路径。

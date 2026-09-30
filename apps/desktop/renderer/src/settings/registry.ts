@@ -4,8 +4,8 @@
  *
  * `availability` 落在数据上、不是组件里的 8 个 `if` —— 这是「全部分组都显示、未实现的走空态」的前提。
  *
- * **字段可以属于一个本期不做内容的分组**：`keybindings` / `plugins` / `sync` / `files` 四组仍是
- * `planned`，内容区是空态，但仍是菜单项。按分组过滤菜单会让它们消失，那是功能回退。
+ * **字段可以属于一个本期不做内容的分组**：`plugins` / `sync` 两组仍是 `planned`，
+ * 内容区是空态，但仍是菜单项。按分组过滤菜单会让它们消失，那是功能回退。
  */
 
 import {
@@ -38,6 +38,9 @@ import {
   PANEL_MIN_WIDTH
 } from '../workspace/panel-width.js';
 import {
+  ATTACHMENT_DIRECTORY_DEFAULT,
+  ATTACHMENT_LOCATION_OPTIONS,
+  ATTACHMENT_NAME_TEMPLATE_DEFAULT,
   AUTO_SAVE_DELAY,
   EDITOR_CONTENT_WIDTH_OPTIONS,
   EDITOR_FONT_FAMILIES,
@@ -99,7 +102,7 @@ export const SECTIONS: readonly SectionDef[] = [
     titleKey: 'settings.section.files',
     icon: FilesIcon,
     order: 3,
-    availability: 'planned'
+    availability: 'available'
   },
   {
     id: 'appearance',
@@ -729,6 +732,70 @@ export const OPEN_INDEX_DIR_FIELD: FieldDef = {
   menu: false
 };
 
+/**
+ * 附件存放位置（`files` 组第一项，也是这一组唯一的 P0）。
+ *
+ * 用 `radio` 而不是 `select`：两个选项各是一句短语，横排放得下，而这一组的项本来就少 ——
+ * 竖排下拉会把这个分组显得比 `editor` 空得多。
+ */
+export const ATTACHMENT_LOCATION_FIELD: FieldDef = {
+  id: 'files.attachmentLocation',
+  section: 'files',
+  labelKey: 'settings.files.attachmentLocation',
+  descriptionKey: 'settings.files.attachmentLocationDescription',
+  control: 'radio',
+  options: ATTACHMENT_LOCATION_OPTIONS,
+  accessor: {
+    read: () => settings.get('files.attachmentLocation'),
+    write: (value) => settings.set('files.attachmentLocation', value),
+    subscribe: (listener) => settings.subscribe('files.attachmentLocation', listener)
+  },
+  menu: false
+};
+
+/**
+ * 附件子目录名。**与上一项是两个字段而不是「一项带一个输入框」** —— 控件表只认一个
+ * `control`，而「单选 + 输入」这种复合控件在 `FieldDef` 里表达不出来。拆成两项的代价是
+ * 它在 `attachmentLocation` 选「与文档同目录」时仍然可编辑。
+ *
+ * **这个代价是刻意接受的**：`general.autoSaveDelay` 在自动保存关掉时也不禁用，
+ * 理由是「禁用它反而要多解释一次『为什么点不动』」。同一条判据在这里成立 ——
+ * 值留着，下次选「子目录」时接着用。
+ */
+export const ATTACHMENT_DIRECTORY_FIELD: FieldDef = {
+  id: 'files.attachmentDirectory',
+  section: 'files',
+  labelKey: 'settings.files.attachmentDirectory',
+  descriptionKey: 'settings.files.attachmentDirectoryDescription',
+  control: 'text',
+  resetValue: ATTACHMENT_DIRECTORY_DEFAULT,
+  accessor: {
+    read: () => settings.get('files.attachmentDirectory'),
+    write: (value) => settings.set('files.attachmentDirectory', value),
+    subscribe: (listener) => settings.subscribe('files.attachmentDirectory', listener)
+  },
+  menu: false
+};
+
+/**
+ * 附件命名模板。**文本项也要重置键** —— 判据是「重置的代价是否高于手动还原」：
+ * 枚举项再点一次原来那张卡就回去了，而 `pasted-{timestamp}` 这一串没人记得住。
+ */
+export const ATTACHMENT_NAME_TEMPLATE_FIELD: FieldDef = {
+  id: 'files.attachmentNameTemplate',
+  section: 'files',
+  labelKey: 'settings.files.attachmentNameTemplate',
+  descriptionKey: 'settings.files.attachmentNameTemplateDescription',
+  control: 'text',
+  resetValue: ATTACHMENT_NAME_TEMPLATE_DEFAULT,
+  accessor: {
+    read: () => settings.get('files.attachmentNameTemplate'),
+    write: (value) => settings.set('files.attachmentNameTemplate', value),
+    subscribe: (listener) => settings.subscribe('files.attachmentNameTemplate', listener)
+  },
+  menu: false
+};
+
 /** 全部字段。**加一项只改这里** —— 菜单投影与设置页内容区都从它派生。 */
 export const FIELDS: readonly FieldDef[] = [
   THEME_MODE_FIELD,
@@ -747,6 +814,9 @@ export const FIELDS: readonly FieldDef[] = [
   LINE_NUMBERS_FIELD,
   CODE_BLOCK_LINE_NUMBERS_FIELD,
   WORD_COUNT_FIELD,
+  ATTACHMENT_LOCATION_FIELD,
+  ATTACHMENT_DIRECTORY_FIELD,
+  ATTACHMENT_NAME_TEMPLATE_FIELD,
   PANEL_WIDTH_FIELD,
   REBUILD_INDEX_FIELD,
   OPEN_HISTORY_DIR_FIELD,

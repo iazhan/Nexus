@@ -110,11 +110,11 @@ describe('设置视图 · 左栏', () => {
     container.remove();
   });
 
-  it('八组全显示，三组标 planned、其余可用', () => {
+  it('八组全显示，两组标 planned、其余可用', () => {
     renderSettings();
 
     expect(navItems()).toHaveLength(SECTIONS.length);
-    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(2);
 
     const available = navItems().filter(
       (item) => item.dataset.availability === 'available'
@@ -122,6 +122,7 @@ describe('设置视图 · 左栏', () => {
     expect(available.map((item) => item.dataset.section)).toEqual([
       'general',
       'editor',
+      'files',
       'appearance',
       'keybindings',
       'data'
@@ -129,7 +130,7 @@ describe('设置视图 · 左栏', () => {
   });
 
   it('未实现的分组**可以点**（点不动比空态更糟），内容区给空态', () => {
-    renderSettings('files');
+    renderSettings('sync');
 
     expect(container.querySelector('[data-availability="planned"]')).not.toBeNull();
     expect(container.querySelector('.nexus-settings-empty')).not.toBeNull();
@@ -865,6 +866,97 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改）', () => 
     });
 
     expect(settings.get('general.externalChange')).toBe('prompt');
+  });
+});
+
+/**
+ * 文件与链接分组（本批只做附件那三项）。
+ *
+ * 这一组的判据不只是「渲染出来了」：**默认值必须等于加设置项之前的行为**（与文档同目录），
+ * 而两个文本框的空串会被 `parse` 落回默认值 —— 那条只有真敲一遍才看得出。
+ */
+describe('设置视图 · 文件与链接', () => {
+  beforeEach(() => {
+    settings.set('files.attachmentLocation', 'document');
+    settings.set('files.attachmentDirectory', 'assets');
+    settings.set('files.attachmentNameTemplate', 'pasted-{timestamp}');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    settings.set('files.attachmentLocation', 'document');
+    settings.set('files.attachmentDirectory', 'assets');
+    settings.set('files.attachmentNameTemplate', 'pasted-{timestamp}');
+  });
+
+  it('三项都渲染出来，默认值是「与文档同目录 / assets / pasted-{timestamp}」', () => {
+    renderSettings('files');
+
+    expect(container.querySelector('[data-field="files.attachmentLocation"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="files.attachmentDirectory"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="files.attachmentNameTemplate"]')).not.toBeNull();
+
+    expect(settings.get('files.attachmentLocation')).toBe('document');
+    expect(settings.get('files.attachmentDirectory')).toBe('assets');
+    expect(settings.get('files.attachmentNameTemplate')).toBe('pasted-{timestamp}');
+  });
+
+  it('改存放位置写进存档（枚举项不画重置键）', () => {
+    renderSettings('files');
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[data-field-option="files.attachmentLocation:directory"]')
+        ?.click();
+    });
+
+    expect(settings.get('files.attachmentLocation')).toBe('directory');
+    expect(
+      container.querySelector('[data-field-reset="files.attachmentLocation"]')
+    ).toBeNull();
+  });
+
+  it('子目录名归一化后才进存档（盘符前缀丢掉、非法字符换成 -）', () => {
+    renderSettings('files');
+
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-field-input="files.attachmentDirectory"]'
+    );
+    act(() => setInputValue(input as HTMLInputElement, 'D:/Note/att:ach'));
+
+    expect(settings.get('files.attachmentDirectory')).toBe('Note/att-ach');
+  });
+
+  it('文本框清空后回落到默认值，而不是留一个空串', () => {
+    settings.set('files.attachmentNameTemplate', '图-{date}');
+    renderSettings('files');
+
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-field-input="files.attachmentNameTemplate"]'
+    );
+    expect(input?.value).toBe('图-{date}');
+
+    act(() => setInputValue(input as HTMLInputElement, ''));
+
+    expect(settings.get('files.attachmentNameTemplate')).toBe('pasted-{timestamp}');
+  });
+
+  it('偏离默认值时画重置键，点它回到默认值', () => {
+    settings.set('files.attachmentDirectory', 'media');
+    renderSettings('files');
+
+    const reset = container.querySelector<HTMLButtonElement>(
+      '[data-field-reset="files.attachmentDirectory"]'
+    );
+    expect(reset).not.toBeNull();
+
+    act(() => reset?.click());
+
+    expect(settings.get('files.attachmentDirectory')).toBe('assets');
   });
 });
 

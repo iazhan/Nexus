@@ -656,8 +656,10 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
      * 再登记一次没有收益，却会让「工作区外的文件也能被打开」这种异常情形顺带
      * 获得一个资源根。条件写出来比「反正冗余」更好读。
      *
-     * 注意它是 `assetRoots` 而不是 `allowedPaths`：**只能读，不能写**。
-     * 轻量模式下可编辑的文件仍然只有用户打开的那一个。
+     * 它是 `assetRoots` 而不是 `allowedPaths`：**这个集合本身不授权写**，轻量模式下
+     * 可编辑的文件仍然只有用户打开的那一个。唯一的写入口子是 `saveAttachment`，
+     * 而它写什么是 API 形状决定的（`<文档目录>[/<子目录>]/<算好的名字>.<扩展名>`），
+     * 调用方指定不了任意路径 —— 附件必须落在资源通道读得到的地方，见 `file-service.ts`。
      */
     const assetRoots =
       !launchContext.workspaceRoot && launchContext.filePath
@@ -782,6 +784,42 @@ ipcMain.handle(IPC_CHANNELS.writeFile, async (event, filePath: string, content: 
 ipcMain.handle(IPC_CHANNELS.saveAs, async (event, content: string) => {
   const session = getOrCreateSession(event.sender);
   return await session.service.saveAs(content);
+});
+
+/**
+ * 附件落盘。参数逐个校验而不是整体信任 —— 这条通道的输入跨了进程边界，
+ * 而 `SaveAttachmentRequest` 是编译期的形状，运行时什么都能传进来。
+ *
+ * `data` 收 `Uint8Array`：Electron 的结构化克隆会把它还原成 `Uint8Array`
+ * （不是 `Buffer`），而 `atomicWriteFile` 收的正是 `Uint8Array`，两边对得上。
+ */
+ipcMain.handle(IPC_CHANNELS.saveAttachment, async (event, request: unknown) => {
+  if (typeof request !== 'object' || request === null) {
+    throw new Error('saveAttachment: 参数必须是对象');
+  }
+
+  const { documentPath, directory, fileName, extension, data } = request as Record<string, unknown>;
+  if (typeof documentPath !== 'string' || documentPath.length === 0) {
+    throw new Error('saveAttachment: documentPath 必须是非空字符串');
+  }
+  if (typeof directory !== 'string' || typeof fileName !== 'string' || fileName.length === 0) {
+    throw new Error('saveAttachment: directory / fileName 形状不对');
+  }
+  if (typeof extension !== 'string' || !/^\.[A-Za-z0-9]{1,8}$/.test(extension)) {
+    throw new Error(`saveAttachment: 扩展名非法: ${String(extension)}`);
+  }
+  if (!(data instanceof Uint8Array)) {
+    throw new Error('saveAttachment: data 必须是 Uint8Array');
+  }
+
+  const session = getOrCreateSession(event.sender);
+  return await session.service.saveAttachment({
+    documentPath,
+    directory,
+    fileName,
+    extension,
+    data
+  });
 });
 
 ipcMain.handle(

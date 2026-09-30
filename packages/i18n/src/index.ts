@@ -216,6 +216,17 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.wordCount': 'Character count',
     'settings.editor.wordCountDescription':
       'Show the document length in the status bar. Counts every non-whitespace character, so Markdown punctuation is included.',
+    'settings.files.attachmentLocation': 'Attachment folder',
+    'settings.files.attachmentLocationDescription':
+      'Where pasted images and files are saved. The link written into the document is always relative to it.',
+    'settings.files.attachmentLocation.document': 'Same folder as the document',
+    'settings.files.attachmentLocation.directory': 'In a subfolder',
+    'settings.files.attachmentDirectory': 'Subfolder name',
+    'settings.files.attachmentDirectoryDescription':
+      'Relative to the folder of the document. Only used by "In a subfolder", and the same for every document.',
+    'settings.files.attachmentNameTemplate': 'Attachment name',
+    'settings.files.attachmentNameTemplateDescription':
+      'Name without the extension, which comes from the file itself. {timestamp}, {date} and {time} are filled in at the moment you paste.',
     'settings.data.rebuildIndex': 'Index',
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
@@ -663,6 +674,17 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       '在状态栏显示文档长度。按非空白字符数统计，Markdown 的语法符号也计入。',
     'settings.editor.codeBlockLineNumbers': '代码块行号',
     'settings.editor.codeBlockLineNumbersDescription': '在代码块左侧逐行显示行号。',
+    'settings.files.attachmentLocation': '附件存放位置',
+    'settings.files.attachmentLocationDescription':
+      '粘贴进来的图片与文件保存在哪里。写进文档里的引用始终是相对路径。',
+    'settings.files.attachmentLocation.document': '与文档同目录',
+    'settings.files.attachmentLocation.directory': '放在子目录里',
+    'settings.files.attachmentDirectory': '子目录名',
+    'settings.files.attachmentDirectoryDescription':
+      '相对文档所在的那一层目录。只在选了「放在子目录里」时生效，对所有文档一样。',
+    'settings.files.attachmentNameTemplate': '附件命名模板',
+    'settings.files.attachmentNameTemplateDescription':
+      '不含扩展名 —— 扩展名取自文件本身。粘贴时会把 {timestamp}、{date}、{time} 换成当时的时间。',
     'settings.data.rebuildIndex': '索引',
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',

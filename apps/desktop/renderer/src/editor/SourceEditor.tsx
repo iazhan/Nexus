@@ -30,6 +30,13 @@ export interface SourceEditorProps {
   documentDirectory?: string | null;
   /** Ctrl/Cmd+左键点击普通链接时的导航策略。 */
   linkNavigator?: LinkNavigator;
+  /**
+   * 粘贴图片时的落盘钩子。返回要插进文档的 Markdown 片段，`null` 表示不处理。
+   *
+   * 落盘是宿主的职责：编辑器包不认识 IPC。宿主在这里决定文件写在哪、
+   * 以及引用写成什么形状。
+   */
+  onPasteFiles?: (files: readonly File[]) => Promise<string | null>;
   extensionHost?: import('@nexus/editor').ExtensionHost;
   theme?: 'light' | 'dark';
   locale?: string;
@@ -49,6 +56,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   readOnly = false,
   documentDirectory,
   linkNavigator,
+  onPasteFiles,
   extensionHost,
   theme,
   locale,
@@ -85,6 +93,11 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   const linkNavigatorRef = useRef(linkNavigator);
   linkNavigatorRef.current = linkNavigator;
 
+  // 落盘钩子同理：它要读当前文档的路径与当前设置，而 EditorView 只在 session/surface
+  // 变化时重建。包一层 ref 转发，粘贴发生时用的永远是最新那一个回调。
+  const onPasteFilesRef = useRef(onPasteFiles);
+  onPasteFilesRef.current = onPasteFiles;
+
   useEffect(() => {
     return session.subscribe((snapshot, transaction) => {
       if (transaction && transaction.changes.length > 0) {
@@ -111,6 +124,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       readOnly,
       documentDirectory,
       linkNavigator: (request) => linkNavigatorRef.current?.(request),
+      onPasteFiles: (files) => onPasteFilesRef.current?.(files) ?? Promise.resolve(null),
       extensionHost,
       theme,
       locale,

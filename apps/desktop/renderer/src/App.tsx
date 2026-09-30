@@ -7,7 +7,16 @@ import React, {
   useSyncExternalStore
 } from 'react';
 import type { FileDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
-import { countDocumentCharacters, isViewerDocumentType, parsePageAnchor } from '@nexus/core';
+import {
+  attachmentExtension,
+  countDocumentCharacters,
+  documentTitleOf,
+  expandAttachmentName,
+  formatAttachmentReference,
+  isViewerDocumentType,
+  parsePageAnchor,
+  relativePathFrom
+} from '@nexus/core';
 import {
   MarkdownDocumentSession,
   openSearchPanel,
@@ -1371,6 +1380,63 @@ export const App: React.FC = () => {
     }
   }, [focusActiveEditor, session]);
 
+  /**
+   * 粘贴图片：落盘 → 插入相对引用。
+   *
+   * 编辑器只负责「把文件交出来、拿回一段文本」（`ClipboardOptions.onPasteFiles`）；
+   * 落点、命名、重名、边界校验都在这一侧往下 —— 渲染进程算名字（纯函数，可单测），
+   * 主进程写盘（只有它看得见文件系统，也只有它知道那个名字是不是已经被占了）。
+   *
+   * 三个设置项在这里合流：`files.attachmentLocation` 决定要不要用子目录、
+   * `files.attachmentDirectory` 是那个子目录、`files.attachmentNameTemplate` 是文件名。
+   * **每次粘贴现读**，不订阅 —— 值与「这一刻的粘贴」绑定，订阅只会多一条要清理的链。
+   *
+   * 返回 `null` 表示这次不处理（文档还没存过盘、类型认不出来），编辑器会接着走文本分支。
+   */
+  const handlePasteFiles = useCallback(
+    async (files: readonly File[]): Promise<string | null> => {
+      // 没有落点：新建但还没保存的文档没有目录可写。`saveAttachment` 要求文档路径，
+      // 所以这里只能不处理 —— 猜一个目录出来会把附件落在用户没指定的地方。
+      const documentPath = filePath;
+      const baseDirectory = getDocumentDirectory(documentPath);
+      if (!documentPath || !baseDirectory) return null;
+
+      const directory =
+        settings.get('files.attachmentLocation') === 'directory'
+          ? settings.get('files.attachmentDirectory')
+          : '';
+      const template = settings.get('files.attachmentNameTemplate');
+
+      const references: string[] = [];
+      for (const file of files) {
+        const extension = attachmentExtension(file.name, file.type);
+        // 认不出来的类型跳过这一个，而不是整批放弃：一次粘贴里混着 png 与别的文件时，
+        // 让能处理的那几张照常落盘比「全都不动」好。
+        if (extension === '') continue;
+
+        const saved = await window.nexus?.saveAttachment({
+          documentPath,
+          directory,
+          // 名字在**这一刻**展开：模板里的 `{timestamp}` 是「粘贴时间」，
+          // 不是「用户改设置的时间」。
+          fileName: expandAttachmentName(template, new Date()),
+          extension,
+          data: new Uint8Array(await file.arrayBuffer())
+        });
+        if (!saved) continue;
+
+        const relative = relativePathFrom(baseDirectory, saved);
+        // 跨盘符时不存在合法的相对路径，而绝对路径写进 Markdown 是点不开的
+        // （渲染侧会把它当成相对路径拼到文档目录后面）。文件已经落盘了，只是不插引用。
+        if (relative === null) continue;
+        references.push(formatAttachmentReference(relative, documentTitleOf(saved)));
+      }
+
+      return references.length > 0 ? references.join('\n') : null;
+    },
+    [filePath]
+  );
+
   const menus = useMemo<MenuBarMenu[]>(
     () => [
       {
@@ -1900,6 +1966,7 @@ export const App: React.FC = () => {
             readOnly={saveState === 'readonly'}
             documentDirectory={getDocumentDirectory(filePath)}
             linkNavigator={handleLinkNavigation}
+            onPasteFiles={handlePasteFiles}
             extensionHost={extensionHostRef.current ?? undefined}
             theme={resolvedTheme.type}
             locale={locale}

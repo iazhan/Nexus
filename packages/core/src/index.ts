@@ -85,3 +85,13 @@ export {
 } from './asset/url.js';
 
 export { countDocumentCharacters } from './document/text-stats.js';
+
+export {
+  DEFAULT_ATTACHMENT_DIRECTORY,
+  DEFAULT_ATTACHMENT_NAME_TEMPLATE,
+  expandAttachmentName,
+  sanitizeFileNameSegment,
+  attachmentExtension,
+  normalizeAttachmentDirectory,
+  formatAttachmentReference
+} from './document/attachments.js';

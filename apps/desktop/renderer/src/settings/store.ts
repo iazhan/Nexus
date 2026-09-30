@@ -20,12 +20,20 @@ import {
   serializeKeybindingOverrides,
   type KeybindingOverrides
 } from '@nexus/command';
+import { normalizeAttachmentDirectory } from '@nexus/core';
 import {
   PANEL_DEFAULT_WIDTH,
   PANEL_WIDTH_STORAGE_KEY,
   clampPanelWidth
 } from '../workspace/panel-width.js';
 import {
+  ATTACHMENT_DIRECTORY_DEFAULT,
+  ATTACHMENT_DIRECTORY_STORAGE_KEY,
+  ATTACHMENT_LOCATION_DEFAULT,
+  ATTACHMENT_LOCATION_OPTIONS,
+  ATTACHMENT_LOCATION_STORAGE_KEY,
+  ATTACHMENT_NAME_TEMPLATE_DEFAULT,
+  ATTACHMENT_NAME_TEMPLATE_STORAGE_KEY,
   AUTO_SAVE_DELAY,
   AUTO_SAVE_STORAGE_KEY,
   CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY,
@@ -252,6 +260,46 @@ export const SETTING_DEFS = {
     // 坏 JSON / 坏项一律丢掉，不抛：存档是用户能改的，读初值抛错会白屏。
     parse: parseKeybindingOverrides,
     serialize: serializeKeybindingOverrides
+  }),
+
+  /**
+   * 附件存放位置。**这一项与下面两项是「先有功能、再有设置项」的顺序** —— 粘贴图片落盘
+   * 本身是同一批做的，设置项只是把已经写死的规则暴露出来。
+   */
+  'files.attachmentLocation': choiceSetting(
+    ATTACHMENT_LOCATION_STORAGE_KEY,
+    ATTACHMENT_LOCATION_DEFAULT,
+    ATTACHMENT_LOCATION_OPTIONS.map((option) => option.value)
+  ),
+
+  /**
+   * 附件子目录名。**归一化在 `@nexus/core`，这里不重写规则** —— 落盘路径也走同一个函数，
+   * 两处各判一次的话「设置页显示 `assets`、实际写到别处」这种错误不会报错。
+   *
+   * 空串不会被存进来：`normalizeAttachmentDirectory` 把它落回 `assets`。空串的语义是
+   * 「与文档同目录」，那和 `files.attachmentLocation` 选的「子目录」直接矛盾 ——
+   * 一个设置项不该被另一个设置项的内容反向推翻。
+   */
+  'files.attachmentDirectory': defineSetting<string>({
+    storageKey: ATTACHMENT_DIRECTORY_STORAGE_KEY,
+    fallback: ATTACHMENT_DIRECTORY_DEFAULT,
+    parse: (raw) => normalizeAttachmentDirectory(raw),
+    serialize: (value) => value
+  }),
+
+  /**
+   * 附件命名模板（**不含扩展名**）。扩展名来自实际内容，让用户填是给他一个必然填错的机会。
+   *
+   * 清空回落默认而不是存空串：空串存进来之后，落盘时还得再判一次「空的话用默认」——
+   * 那等于把同一条规则写两遍，而两遍迟早只改一处。展开与净化仍归 `expandAttachmentName`：
+   * 模板里写 `{date}` 这类占位符的替换发生在粘贴那一刻，不是写入设置那一刻。
+   */
+  'files.attachmentNameTemplate': defineSetting<string>({
+    storageKey: ATTACHMENT_NAME_TEMPLATE_STORAGE_KEY,
+    fallback: ATTACHMENT_NAME_TEMPLATE_DEFAULT,
+    parse: (raw) =>
+      raw === null || raw.trim() === '' ? ATTACHMENT_NAME_TEMPLATE_DEFAULT : raw,
+    serialize: (value) => value
   })
 };
 

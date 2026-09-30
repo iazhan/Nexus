@@ -14,7 +14,7 @@
  * 重置键的显隐判据是 `resetValue` 且**当前值不等于它** —— 见 `FieldDef.resetValue` 的注释。
  */
 
-import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useLocale } from '../hooks.js';
 import { optionLabel, optionsOf, type FieldDef } from './registry.js';
 
@@ -168,20 +168,51 @@ const ToggleControl: React.FC<{ field: FieldDef; label: string; value: string }>
   );
 };
 
+/**
+ * 文本输入框。
+ *
+ * 草稿态与 `NumberControl` 同一个理由：受控输入框直接绑 `value` 的话，用户清空时
+ * `value` 立刻被写回旧值，一个字符都删不掉。
+ *
+ * 比数值框多一层**聚焦期间不跟外部同步**：这两项文本的空串会被 `parse` 落回默认值，
+ * 于是「清空 → 存档变回默认 → `value` 变了 → 输入框跳回默认值」会在用户还没打完字时发生。
+ * 数值框没这个问题（它的空串不提交），但这条防的是同一类事，多一层判据比逐项解释便宜。
+ */
 const TextControl: React.FC<{ field: FieldDef; label: string; value: string }> = ({
   field,
   label,
   value
-}) => (
-  <input
-    type="text"
-    className="nexus-settings-text"
-    value={value}
-    aria-label={label}
-    data-field-input={field.id}
-    onChange={(event) => field.accessor?.write(event.target.value)}
-  />
-);
+}) => {
+  const [draft, setDraft] = useState(value);
+  const editing = useRef(false);
+
+  useEffect(() => {
+    if (!editing.current) setDraft(value);
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      className="nexus-settings-text"
+      value={draft}
+      aria-label={label}
+      data-field-input={field.id}
+      onFocus={() => {
+        editing.current = true;
+      }}
+      onBlur={() => {
+        editing.current = false;
+        // 离开输入框时回到**存档里的值** —— 留空被落回默认值，这里就会显示默认值，
+        // 用户不必猜「我清空了，现在到底存的是什么」。
+        setDraft(value);
+      }}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        field.accessor?.write(event.target.value);
+      }}
+    />
+  );
+};
 
 /**
  * 动作按钮。三种状态：可用、探测中（禁用）、被挡住（禁用 + 一行原因）。

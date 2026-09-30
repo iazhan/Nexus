@@ -16,12 +16,17 @@ import {
   type WorkspaceScanResult
 } from '@nexus/core';
 import type { FileDialog } from './file-dialog.js';
+import type { SaveAttachmentRequest } from '../ipc/channels.js';
 
 /**
  * 文件句柄最小接口，便于测试 mock 与原子保存操作。
+ *
+ * `data` 收 `Uint8Array` 是为了**附件**（粘贴进来的图片是字节，不是文本）。
+ * 与 `readFileBuffer` 那条分开的理由同源：`string | Uint8Array` 只在这一个签名上出现，
+ * 不会把返回类型也污染成联合类型。
  */
 export interface FileHandleLike {
-  writeFile(data: string, encoding: BufferEncoding): Promise<void>;
+  writeFile(data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
   sync(): Promise<void>;
   close(): Promise<void>;
 }
@@ -79,6 +84,14 @@ export interface FileSystemAdapter {
   open(filePath: string, flags: string | number, mode?: number): Promise<FileHandleLike>;
   rename(oldPath: string, newPath: string): Promise<void>;
   unlink(filePath: string): Promise<void>;
+  /**
+   * 递归创建目录。附件落盘要它 —— `assets/` 通常还不存在，而 `atomicWriteFile`
+   * 在同目录开临时文件，目录不在就直接 `ENOENT`。
+   *
+   * 必填而非可选：可选成员会被漏实现，然后在运行时静默拿到 `undefined`
+   * （P3-03 给 `readFileBuffer`、P3-07 给 `readRange` 定过同一条）。
+   */
+  mkdir(dirPath: string, options?: { recursive?: boolean }): Promise<void>;
   stat(
     filePath: string
   ): Promise<{ isFile(): boolean; isDirectory(): boolean; size?: number; mtimeMs?: number }>;
@@ -166,6 +179,10 @@ export class DefaultFileSystemAdapter implements FileSystemAdapter {
     return fsPromises.access(filePath, mode);
   }
 
+  async mkdir(dirPath: string, options?: { recursive?: boolean }): Promise<void> {
+    await fsPromises.mkdir(dirPath, options);
+  }
+
   watch(
     filePath: string,
     options: { persistent?: boolean },
@@ -182,15 +199,24 @@ export interface AtomicWriteOptions {
 }
 
 /**
+ * 重名时最多试多少个后缀。100 是「够用且不会把一次粘贴变成一百次 stat」的折中：
+ * 真要撞满 100 次，模板里必定少了 `{timestamp}` 这类区分位，那时报错比继续找更好。
+ */
+const MAX_ATTACHMENT_COLLISION_ATTEMPTS = 100;
+
+/**
  * 原子写入文件：
  * 1. 同目录下创建唯一临时文件；
  * 2. 写入内容后 sync/close；
  * 3. Windows 平台若目标已存在，使用备份文件交换并在失败时尽力恢复原文件；
  * 4. 失败清理临时文件，且不能吞错。
+ *
+ * `content` 收字节是为了附件：粘贴进来的图片必须**原样**落盘，过一遍字符串编码
+ * 会把 PNG 的字节改坏（`utf-8` 解码再编码不是恒等变换）。
  */
 export async function atomicWriteFile(
   targetPath: string,
-  content: string,
+  content: string | Uint8Array,
   options: AtomicWriteOptions = {}
 ): Promise<void> {
   const fsAdapter = options.fsAdapter ?? new DefaultFileSystemAdapter();
@@ -668,6 +694,90 @@ export class FileService {
     this.allowedPaths.add(this.toPathKey(normalizedPath));
 
     return normalizedPath;
+  }
+
+  /**
+   * 把粘贴进来的附件写到文档目录（或其子目录）下，返回**实际落盘的绝对路径**。
+   *
+   * 名字与扩展名由调用方算好（见 `@nexus/core` 的 `document/attachments.ts`），
+   * 这里只负责三件**只有主进程能做**的事：边界校验、建目录、重名去重。
+   * 把命名规则搬进来会让「用户改模板」变成一次 IPC 参数，而那本该是渲染进程的偏好。
+   *
+   * ## 边界用的是 `assetRoots`，不是 `allowedRoots`
+   *
+   * 这是刻意的：附件必须落在**资源通道读得到**的地方。写到别处的结果是「文件确实存在，
+   * 但编辑器里那张图永远是空白」—— 而那种失败用户查不出来。让写入集合与读取集合重合，
+   * 这条不变式就由类型之外的这一行保住。
+   *
+   * 代价是轻量模式下可写范围从「那一个 `.md`」放宽到「它所在的那一层目录」。
+   * 放宽的量由 API 形状兜住：这里只会写出 `<文档目录>[/<子目录>]/<算好的名字>.<扩展名>`，
+   * 没有任何一条路径能让调用方指定任意文件名。
+   */
+  async saveAttachment(request: SaveAttachmentRequest): Promise<string> {
+    const normalizedDocument = this.normalizePath(request.documentPath);
+    this.checkBoundary(normalizedDocument);
+
+    if (request.data.length === 0) {
+      throw new FileServiceError('IO_ERROR', '附件内容为空', normalizedDocument);
+    }
+
+    const baseDirectory = path.dirname(normalizedDocument);
+    const targetDirectory = request.directory
+      ? path.resolve(baseDirectory, request.directory)
+      : baseDirectory;
+    // 第二道。`directory` 已经由渲染进程归一化过（`normalizeAttachmentDirectory` 丢掉了
+    // `..` 与盘符），但边界校验不能建立在「调用方已经净化过」之上 —— 这条通道写的是磁盘。
+    this.checkAssetBoundary(targetDirectory);
+
+    await this.fsAdapter.mkdir(targetDirectory, { recursive: true });
+
+    const targetPath = await this.uniqueAttachmentPath(
+      targetDirectory,
+      request.fileName,
+      request.extension
+    );
+
+    await atomicWriteFile(targetPath, request.data, {
+      fsAdapter: this.fsAdapter,
+      forceBackupSwap: this.forceBackupSwap
+    });
+
+    return targetPath;
+  }
+
+  /**
+   * 重名时在扩展名前加 `-1`、`-2`…。
+   *
+   * 必须在这里做而不是在渲染进程：只有这里看得见文件系统。而重名**真的会发生** ——
+   * 默认模板的 `{timestamp}` 只到秒，同一秒内粘两张（截图工具连拍、批量拖拽）就撞上了；
+   * 用户把模板改成 `{date}` 之后，一天之内必然撞。
+   */
+  private async uniqueAttachmentPath(
+    directory: string,
+    fileName: string,
+    extension: string
+  ): Promise<string> {
+    for (let index = 0; index < MAX_ATTACHMENT_COLLISION_ATTEMPTS; index += 1) {
+      const suffix = index === 0 ? '' : `-${index}`;
+      const candidate = path.join(directory, `${fileName}${suffix}${extension}`);
+      if (!(await this.attachmentExists(candidate))) return candidate;
+    }
+
+    throw new FileServiceError(
+      'IO_ERROR',
+      `附件重名次数过多: ${fileName}${extension}`,
+      directory
+    );
+  }
+
+  private async attachmentExists(filePath: string): Promise<boolean> {
+    try {
+      await this.fsAdapter.stat(filePath);
+      return true;
+    } catch (err) {
+      if (isNotFoundError(err)) return false;
+      throw wrapIoError('检查附件是否重名失败', filePath, err);
+    }
   }
 
   /**

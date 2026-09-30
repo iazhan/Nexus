@@ -12,6 +12,13 @@ export const IPC_CHANNELS = {
   readFile: 'nexus:read-file',
   writeFile: 'nexus:write-file',
   saveAs: 'nexus:save-as',
+  /**
+   * 把粘贴进来的图片落到文档目录下，返回实际落盘的绝对路径。
+   *
+   * 单独一条而不是复用 `writeFile`：`writeFile` 收的是字符串，图片是字节 ——
+   * 过一遍 `utf-8` 解码再编码**不是恒等变换**，PNG 会被改坏。
+   */
+  saveAttachment: 'nexus:save-attachment',
   watchFile: 'nexus:watch-file',
   unwatchFile: 'nexus:unwatch-file',
   fileWatchEvent: 'nexus:file-watch-event',
@@ -79,6 +86,27 @@ export type WindowRole = 'main' | 'settings' | 'theme';
  */
 export interface WindowState {
   maximized: boolean;
+}
+
+/**
+ * 一次附件落盘请求。**名字与扩展名已经算好**，主进程不再解释模板 ——
+ * 「叫什么」是渲染进程的偏好（模板可改），「放不放得下」才是主进程的事。
+ *
+ * 形状定义在这里而不是 `electron/file-service.ts`：它是**跨进程的契约**，
+ * 而 `NexusBridge`（preload）与 `FileService`（main）两边都要用它。
+ * 定义在主进程那一侧的话，preload 只能再写一遍 —— 两份形状漂移不会被任何东西报错。
+ */
+export interface SaveAttachmentRequest {
+  /** 当前文档的绝对路径。附件落在它的目录下 —— 没有文档就没有落点。 */
+  documentPath: string;
+  /** 相对文档目录的子目录；空串表示与文档同目录。 */
+  directory: string;
+  /** 不含扩展名的文件名。 */
+  fileName: string;
+  /** 含前导点的扩展名，如 `.png`。 */
+  extension: string;
+  /** 文件字节。图片必须原样落盘，过一遍 `utf-8` 解码再编码会把 PNG 改坏。 */
+  data: Uint8Array;
 }
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
