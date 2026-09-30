@@ -157,7 +157,27 @@ export function isSectionId(id: string): id is SectionId {
   return SECTIONS.some((section) => section.id === id);
 }
 
-export type FieldControl = 'radio' | 'select' | 'toggle' | 'number' | 'text' | 'action' | 'preset';
+export type FieldControl =
+  | 'radio'
+  | 'select'
+  | 'toggle'
+  | 'number'
+  | 'text'
+  | 'action'
+  | 'preset'
+  /**
+   * **开关组**：一行里放 N 个独立开关，值是「被关掉的成员」（逗号分隔，空串 ＝ 全开）。
+   *
+   * 与 `radio` 的区别是**多选**，与「N 个独立 `toggle` 字段」的区别是**一个字段**：
+   * 同一件事的几个面拆成 N 个字段之后，它们在搜索、重置、菜单投影里会各出现一次，
+   * 而它们本来只该是一个决定。取值域与规范化在 `preference-specs.ts` 的
+   * `GroupSettingSpec` / `parseGroupSetting` / `toggleGroupMember`。
+   *
+   * **`options` 必须是静态表**（顺序即存储顺序），不能用运行期生成的 `optionsOf` ——
+   * 顺序会变，规范化就不再稳定。这条与 `FieldDef.optionsOf` 的说明不冲突：那个是给
+   * 「选项随状态而变」的控件用的，组不属于那一类。
+   */
+  | 'group';
 
 export interface FieldOption {
   value: string;
@@ -405,6 +425,58 @@ export const UI_ZOOM_FIELD: FieldDef = {
     read: () => settings.get('appearance.uiZoom'),
     write: (value) => settings.set('appearance.uiZoom', value),
     subscribe: (listener) => settings.subscribe('appearance.uiZoom', listener)
+  },
+  menu: false
+};
+
+/**
+ * 界面元素显隐。**这是 `control: 'group'` 的第一个消费者**，第二个是同分组的「状态栏显示项」。
+ *
+ * 值是**被藏起来的那些成员**（逗号分隔），空串 ＝ 全显示 —— 见 `GroupSettingSpec` 的两条理由。
+ * 控件因此画成「每个成员一个开关」，**勾上 ＝ 显示**（勾选语义与存储语义相反，是有意的：
+ * 用户看到的是「界面元素」，不是「隐藏清单」）。
+ *
+ * 成员只有两项，因为 Nexus 的 chrome 里「藏了还能用」的就这两个 —— 缺的那几项各自的理由
+ * 写在 `preference-specs.ts` 的 `CHROME_VISIBILITY` 上。
+ */
+export const CHROME_VISIBILITY_FIELD: FieldDef = {
+  id: 'appearance.chromeVisibility',
+  section: 'appearance',
+  labelKey: 'settings.appearance.chromeVisibility',
+  descriptionKey: 'settings.appearance.chromeVisibilityDescription',
+  control: 'group',
+  options: [
+    { value: 'statusBar', labelKey: 'settings.appearance.chromeVisibility.statusBar' },
+    { value: 'tabBar', labelKey: 'settings.appearance.chromeVisibility.tabBar' }
+  ],
+  accessor: {
+    read: () => settings.get('appearance.chromeVisibility'),
+    write: (value) => settings.set('appearance.chromeVisibility', value),
+    subscribe: (listener) => settings.subscribe('appearance.chromeVisibility', listener)
+  },
+  menu: false
+};
+
+/**
+ * 状态栏右侧显示项。同 `control: 'group'`，值也是「被藏起来的那些」。
+ *
+ * 左侧的状态点与保存态**不在成员表里** —— 理由见 `preference-specs.ts` 的 `STATUS_BAR_METRICS`。
+ */
+export const STATUS_BAR_METRICS_FIELD: FieldDef = {
+  id: 'appearance.statusBarMetrics',
+  section: 'appearance',
+  labelKey: 'settings.appearance.statusBarMetrics',
+  descriptionKey: 'settings.appearance.statusBarMetricsDescription',
+  control: 'group',
+  options: [
+    { value: 'lineColumn', labelKey: 'settings.appearance.statusBarMetrics.lineColumn' },
+    { value: 'selection', labelKey: 'settings.appearance.statusBarMetrics.selection' },
+    { value: 'format', labelKey: 'settings.appearance.statusBarMetrics.format' }
+  ],
+  accessor: {
+    read: () => settings.get('appearance.statusBarMetrics'),
+    write: (value) => settings.set('appearance.statusBarMetrics', value),
+    subscribe: (listener) => settings.subscribe('appearance.statusBarMetrics', listener)
   },
   menu: false
 };
@@ -915,6 +987,8 @@ export const FIELDS: readonly FieldDef[] = [
   THEME_MODE_FIELD,
   THEME_PRESET_FIELD,
   UI_ZOOM_FIELD,
+  CHROME_VISIBILITY_FIELD,
+  STATUS_BAR_METRICS_FIELD,
   LOCALE_FIELD,
   MERMAID_FIELD,
   AUTO_SAVE_FIELD,

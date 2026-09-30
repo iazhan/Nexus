@@ -12,7 +12,15 @@ import {
 import { AutoIcon, DarkIcon, LightIcon } from '../components/theme-icons.js';
 import { duplicateTheme, removeUserTheme, themeManager } from '../platform.js';
 import { useLocale, useSettingValue, useTheme } from '../hooks.js';
-import { optionLabel, optionsOf, THEME_MODE_FIELD, THEME_PRESET_FIELD, UI_ZOOM_FIELD } from './registry.js';
+import {
+  CHROME_VISIBILITY_FIELD,
+  optionLabel,
+  optionsOf,
+  STATUS_BAR_METRICS_FIELD,
+  THEME_MODE_FIELD,
+  THEME_PRESET_FIELD,
+  UI_ZOOM_FIELD
+} from './registry.js';
 import { schemesForPreset } from './theme-preview-schemes.js';
 import { ThemeThumbnail } from './ThemeThumbnail.js';
 import { ThemeTransfer } from './ThemeTransfer.js';
@@ -452,6 +460,12 @@ export const AppearanceSection: React.FC = () => {
           走通用 `FieldRow`：它就是「标签 + 说明 + 控件」这一件事，本分组只有它一个这样的字段，
           手写一遍等于把字段表的信息抄第二遍。 */}
       <FieldRow field={UI_ZOOM_FIELD} />
+
+      {/* 界面元素显隐与状态栏显示项。放这里而不是挤进主题卡片网格：它们改的是「壳上显示什么」，
+          与「这套主题长什么样」无关 —— 换主题不该把它们重置，它们也不进主题窗口。
+          两项都走通用 `FieldRow` 的开关组控件，本分组里手写的只有主题那两轴。 */}
+      <FieldRow field={CHROME_VISIBILITY_FIELD} />
+      <FieldRow field={STATUS_BAR_METRICS_FIELD} />
 
       {/* 导入 / 导出与「在不在编辑一套自定义主题」无关：导出内置主题同样要能用，导入进来也照样
           在设置页里挑。它不进主题窗口 —— 那个窗口可能正开在一套内置主题上（只读），

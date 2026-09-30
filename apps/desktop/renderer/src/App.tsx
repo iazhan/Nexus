@@ -58,6 +58,11 @@ import { classifyOpenTarget } from './workspace/open-target.js';
 import { ViewerRendererRegistry } from './viewer/registry.js';
 import { ViewerSurface } from './viewer/ViewerSurface.js';
 import { PANEL_DEFAULT_WIDTH, clampPanelWidth } from './workspace/panel-width.js';
+import {
+  CHROME_VISIBILITY,
+  disabledMembers,
+  STATUS_BAR_METRICS
+} from './settings/preference-specs.js';
 import { ActivityBar } from './shell/ActivityBar.js';
 import {
   INITIAL_ACTIVITY_STATE,
@@ -390,6 +395,23 @@ export const App: React.FC = () => {
 
   /** 状态栏字数的显隐。走 `useSettingValue` 而不是 `settings.get`：后者不会在改设置时重渲染。 */
   const showCharacterCount = useSettingValue('editor.wordCount');
+
+  /**
+   * 界面元素显隐与状态栏显示项。
+   *
+   * **两项都存「被藏起来的那些」**（见 `GroupSettingSpec`），所以这里判的是「不在隐藏集合里」。
+   * 走 `disabledMembers` 而不是自己 `value.includes(member)`：后者按**子串**匹配，当前这两组
+   * 恰好没有互相包含的成员，但 `STATUS_BAR_METRICS` 已经有 `lineColumn` 这样的名字 ——
+   * 将来加一个 `line` 或 `column`，`'lineColumn'.includes('line')` 就会把它误判成被藏。
+   * 按成员整词比对的逻辑只该有一份。
+   */
+  const chromeVisibility = useSettingValue('appearance.chromeVisibility');
+  const hiddenChrome = disabledMembers(CHROME_VISIBILITY.options, chromeVisibility);
+  const showStatusBar = !hiddenChrome.includes('statusBar');
+  const showTabBar = !hiddenChrome.includes('tabBar');
+
+  const statusBarMetrics = useSettingValue('appearance.statusBarMetrics');
+  const hiddenMetrics = disabledMembers(STATUS_BAR_METRICS.options, statusBarMetrics);
 
   /**
    * 生效的快捷键表。**只为了拿到一个「改过绑定就变」的依赖** —— 菜单里的标签由模块级的
@@ -1911,13 +1933,18 @@ export const App: React.FC = () => {
 
       <main className="nexus-main-content">
       {/* 标签栏挂在编辑区容器**内部**：它只该横跨编辑区，不该延伸到活动栏和侧栏上方。
-          放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。 */}
-      <TabBar
-        documents={workspaceSnapshot.documents}
-        activeId={workspaceSnapshot.activeId}
-        onActivate={store.activate}
-        onClose={handleCloseTab}
-      />
+          放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。
+
+          藏起来时**不卸载 `TabBar` 的调用方状态**：文档仍然开着，只是这条栏不画 ——
+          所以「藏了标签页」不会关掉任何东西，侧栏的文件树照样能切换。 */}
+      {showTabBar && (
+        <TabBar
+          documents={workspaceSnapshot.documents}
+          activeId={workspaceSnapshot.activeId}
+          onActivate={store.activate}
+          onClose={handleCloseTab}
+        />
+      )}
       {status === 'loading' && (
         <div className="nexus-state-container">
           <div className="nexus-loading-spinner" />
@@ -2000,43 +2027,54 @@ export const App: React.FC = () => {
       </main>
       </div>
 
-      {/* Status Bar Footer */}
-      <footer className="nexus-status-bar">
-        <div className="status-bar-left">
-          <span className={`status-dot ${statusDisplay.tone}`} aria-hidden="true" />
-          {/* 保存状态现在是这里唯一的展示位（标题栏的徽标已移除），
-              所以 aria-live 也搬过来，屏幕阅读器才会播报状态变化。 */}
-          <span
-            className="status-text"
-            role="status"
-            aria-live="polite"
-            title={saveError ?? statusDisplay.text}
-          >
-            {statusDisplay.text}
-          </span>
-        </div>
+      {/* Status Bar Footer。整条可藏（`appearance.chromeVisibility`），但**左侧那半永远在** ——
+          保存失败只在那里说，把它也做成开关等于把「这次没保存成功」藏起来。
+          右侧三项各自可藏（`appearance.statusBarMetrics`），全藏掉时这里只剩一个空 div，
+          宽度为 0，不需要额外判一次。 */}
+      {showStatusBar && (
+        <footer className="nexus-status-bar">
+          <div className="status-bar-left">
+            <span className={`status-dot ${statusDisplay.tone}`} aria-hidden="true" />
+            {/* 保存状态现在是这里唯一的展示位（标题栏的徽标已移除），
+                所以 aria-live 也搬过来，屏幕阅读器才会播报状态变化。 */}
+            <span
+              className="status-text"
+              role="status"
+              aria-live="polite"
+              title={saveError ?? statusDisplay.text}
+            >
+              {statusDisplay.text}
+            </span>
+          </div>
 
-        <div className="status-bar-right">
-          <span className="status-metric">
-            {t('status.lineColumn', {
-              line: String(selection.line),
-              column: String(selection.column)
-            })}
-          </span>
-          {selection.selectedTextLength > 0 && (
-            <span className="status-metric">
-              ({t('status.selected', { count: String(selection.selectedTextLength) })})
-            </span>
-          )}
-          {showCharacterCount && (
-            <span className="status-metric" data-status-metric="character-count">
-              {t('status.characterCount', { count: String(characterCount) })}
-            </span>
-          )}
-          {/* 专有名词（Workspace / Markdown）不翻译；附件类型由 formatLabel 给出 */}
-          <span className="status-metric status-format">{formatLabel}</span>
-        </div>
-      </footer>
+          <div className="status-bar-right">
+            {!hiddenMetrics.includes('lineColumn') && (
+              <span className="status-metric" data-status-metric="line-column">
+                {t('status.lineColumn', {
+                  line: String(selection.line),
+                  column: String(selection.column)
+                })}
+              </span>
+            )}
+            {!hiddenMetrics.includes('selection') && selection.selectedTextLength > 0 && (
+              <span className="status-metric" data-status-metric="selection">
+                ({t('status.selected', { count: String(selection.selectedTextLength) })})
+              </span>
+            )}
+            {showCharacterCount && (
+              <span className="status-metric" data-status-metric="character-count">
+                {t('status.characterCount', { count: String(characterCount) })}
+              </span>
+            )}
+            {!hiddenMetrics.includes('format') && (
+              // 专有名词（Workspace / Markdown）不翻译；附件类型由 formatLabel 给出
+              <span className="status-metric status-format" data-status-metric="format">
+                {formatLabel}
+              </span>
+            )}
+          </div>
+        </footer>
+      )}
       <CommandPalette 
         isOpen={isCommandPaletteOpen} 
         onClose={() => setCommandPaletteOpen(false)} 

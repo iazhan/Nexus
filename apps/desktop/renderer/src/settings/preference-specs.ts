@@ -112,6 +112,86 @@ export function serializeNumberSetting(spec: NumberSettingSpec, value: number): 
 }
 
 /**
+ * 一个开关组的取值域。
+ *
+ * 值是**被关掉的那些成员**，逗号分隔，空串表示全开。为什么存「关掉的」而不是「开着的」——
+ * 两条都不是风格问题：
+ *
+ * 1. **默认值就是空串**，而空串也正是「存档缺失 / 写坏了 / 被清掉」解析出来的东西 ——
+ *    失败方向因此天然安全：一个坏值不会把界面藏起来。反过来存「开着的那些」时，坏值解析成
+ *    空集 ＝ 全关，而藏掉的恰恰是把它点回来的入口。
+ * 2. **将来加一个新成员，它对已有用户是「开着」的。** 存「开着的那些」则相反 ——
+ *    新加的 chrome 会在所有老用户那里默认消失。
+ *
+ * `options` 的顺序就是**存储顺序**：规范化后按它拼，所以同一组开关无论按什么顺序点，
+ * 存档里都是同一个字符串 —— 否则「值变了没有」的判断会误报（用户主题那一课：只按 id 判
+ * 会漏掉切模式）。
+ */
+export interface GroupSettingSpec {
+  storageKey: string;
+  /** 全部成员。顺序即存储顺序。 */
+  options: readonly string[];
+  /** 默认值 ＝ 被关掉的成员集合，空串表示全开。 */
+  fallback: string;
+}
+
+/**
+ * 值 → 被关掉的成员。丢掉不认识的与重复的。
+ *
+ * 返回顺序**跟随值里的出现顺序**，不一定是 `options` 的顺序 —— 要规范写法（同一集合只有一种
+ * 字符串）请走 `serializeGroupMembers`。判「某个成员在不在里面」用 `includes`，顺序无所谓。
+ *
+ * 入参是 `options` 而不是整个 spec：控件（`FieldRow` 的 `GroupControl`）手里只有
+ * `FieldDef.options`，拿不到 spec —— 而它同样需要「哪些成员、什么顺序」。
+ */
+export function disabledMembers(options: readonly string[], value: string | null): string[] {
+  if (value === null || value.trim() === '') return [];
+
+  const seen = new Set<string>();
+  const members: string[] = [];
+
+  for (const piece of value.split(',')) {
+    const member = piece.trim();
+    if (member === '' || seen.has(member)) continue;
+    // 不认识的成员丢掉而不是让整串失效：将来删掉一个成员时，老存档不该整份作废。
+    if (!options.includes(member)) continue;
+    seen.add(member);
+    members.push(member);
+  }
+
+  return members;
+}
+
+/** 成员集合 → 值。按 `options` 的顺序拼，所以同一个集合只有一种写法。 */
+export function serializeGroupMembers(
+  options: readonly string[],
+  members: readonly string[]
+): string {
+  const wanted = new Set(members);
+  return options.filter((option) => wanted.has(option)).join(',');
+}
+
+/** 存档 → 值。整串都认不出时得到空串 ＝ 全开（见 `GroupSettingSpec`）。 */
+export function parseGroupSetting(spec: GroupSettingSpec, raw: string | null): string {
+  if (raw === null) return spec.fallback;
+  return serializeGroupMembers(spec.options, disabledMembers(spec.options, raw));
+}
+
+/** 把一个成员拨到相反状态。控件的写入口 —— 认不出的成员是空操作，不会写进存档。 */
+export function toggleGroupMember(
+  options: readonly string[],
+  value: string,
+  member: string
+): string {
+  const members = disabledMembers(options, value);
+  const next = members.includes(member)
+    ? members.filter((item) => item !== member)
+    : [...members, member];
+
+  return serializeGroupMembers(options, next);
+}
+
+/**
  * 内容宽度。**用档位而不是像素输入框**：`max-width` 要表达「不限」只能写 `none`，
  * 而数值控件给不出这个值 —— 要么编一个 `0 = 不限` 的哨兵（输入框里显示 `0 px`，读起来像「零宽」），
  * 要么就得为它单开一条 `none` 分支。档位把这件事变成选项本身，顺带省掉解析。
@@ -276,6 +356,52 @@ export const HISTORY_RETENTION_STORAGE_KEY = 'nexus-history-retention';
  * 存档里出现未知值时回落默认档，而不是像忽略规则那样原样保留。
  */
 export { HISTORY_RETENTION_OPTIONS, HISTORY_RETENTION_DEFAULT };
+
+export const CHROME_VISIBILITY_STORAGE_KEY = 'nexus-chrome-hidden';
+
+/**
+ * 界面元素显隐 —— 值是**被藏起来的那些**。
+ *
+ * 只有两项，因为 Nexus 真实的 chrome 里「藏了还能用」的就这两个：
+ *
+ * - `statusBar` 底部状态栏
+ * - `tabBar` 多标签页栏（只在开了两个以上文档时出现）
+ *
+ * **刻意没有的三项都不是遗漏**：
+ *
+ * - **活动栏**：它是切换右侧面板的唯一入口，藏了就没有地方点回来。顺带记一笔 ——
+ *   调研表里写的「活动栏标签」在 Nexus **不存在**：`shell/ActivityBar.tsx` 是纯图标的
+ *   （只有 `aria-label` 与 `title`），那一格是从 Markra 的对照表抄过来的空项。
+ * - **顶栏**：它是无边框窗口的拖动区，还挂着窗口按钮（最小化 / 最大化 / 关闭）。
+ * - **侧栏面板**：它已经能收起（点活动栏图标），再加一个开关是同一件事的第二条路。
+ */
+export const CHROME_VISIBILITY: GroupSettingSpec = {
+  storageKey: CHROME_VISIBILITY_STORAGE_KEY,
+  options: ['statusBar', 'tabBar'],
+  // 全显示 ＝ 加这一项之前的观感。
+  fallback: ''
+};
+
+export const STATUS_BAR_METRICS_STORAGE_KEY = 'nexus-status-bar-hidden';
+
+/**
+ * 状态栏右侧显示哪几项 —— 值同样是**被藏起来的那些**。
+ *
+ * 三项都在 `App.tsx` 的 `.status-bar-right` 里：
+ *
+ * - `lineColumn` 光标行列
+ * - `selection` 选中字符数（只在有选区时出现）
+ * - `format` 当前文档格式（Markdown / PDF / DOCX …）
+ *
+ * **左侧那半不在这个组里，也不该进来**：状态点与保存态是状态栏上唯一「据以行动」的东西 ——
+ * 保存失败只在那里说，藏掉它等于把「这次保存没成功」藏起来。**字数也不在这里**：
+ * 它已经有自己的开关（`editor.wordCount`），同一个东西给两个开关，两个都会显得不可信。
+ */
+export const STATUS_BAR_METRICS: GroupSettingSpec = {
+  storageKey: STATUS_BAR_METRICS_STORAGE_KEY,
+  options: ['lineColumn', 'selection', 'format'],
+  fallback: ''
+};
 
 /**
  * UI 缩放。**取值口径（磁盘键 / 档位 / 解析）住在 `preload/ui-zoom.ts`** —— 那个文件

@@ -37,6 +37,8 @@ import {
   AUTO_SAVE_DELAY,
   AUTO_SAVE_STORAGE_KEY,
   CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY,
+  CHROME_VISIBILITY,
+  STATUS_BAR_METRICS,
   EDITOR_CONTENT_WIDTH_DEFAULT,
   EDITOR_CONTENT_WIDTH_OPTIONS,
   EDITOR_CONTENT_WIDTH_STORAGE_KEY,
@@ -62,11 +64,13 @@ import {
   NEW_DOCUMENT_LOCATION_DEFAULT,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   NEW_DOCUMENT_LOCATION_STORAGE_KEY,
+  parseGroupSetting,
   parseNumberSetting,
   serializeNumberSetting,
   UI_ZOOM_DEFAULT,
   UI_ZOOM_OPTIONS,
   UI_ZOOM_STORAGE_KEY,
+  type GroupSettingSpec,
   type NumberSettingSpec
 } from './preference-specs.js';
 
@@ -135,6 +139,24 @@ function choiceSetting(
     fallback,
     parse: (raw) => (raw !== null && allowed.includes(raw) ? raw : fallback),
     serialize: (value) => value
+  });
+}
+
+/**
+ * 开关组的样板：值是**被关掉的成员**（逗号分隔，空串 ＝ 全开）。
+ *
+ * 取值域与规范化都归 `preference-specs.ts`，这里只接上 —— 与 `numberSetting` 同一个理由：
+ * 各写一遍必然有一处漏掉规范化，而漏掉的那处不会报错，只会让「值变了没有」误报。
+ *
+ * `parse` 与 `serialize` 是同一个函数，这是刻意的：这一项没有「另一种写法」，
+ * 规范化（丢未知成员、去重、按 `options` 排序）就是它的全部语义。
+ */
+function groupSetting(spec: GroupSettingSpec) {
+  return defineSetting<string>({
+    storageKey: spec.storageKey,
+    fallback: spec.fallback,
+    parse: (raw) => parseGroupSetting(spec, raw),
+    serialize: (value) => parseGroupSetting(spec, value)
   });
 }
 
@@ -366,7 +388,16 @@ export const SETTING_DEFS = {
     HISTORY_RETENTION_STORAGE_KEY,
     HISTORY_RETENTION_DEFAULT,
     HISTORY_RETENTION_OPTIONS
-  )
+  ),
+
+  /**
+   * 界面元素显隐。**值是「被藏起来的那些」**，空串 ＝ 全显示 ——
+   * 为什么是「藏起来的」而不是「显示着的」，见 `GroupSettingSpec` 的两条理由。
+   */
+  'appearance.chromeVisibility': groupSetting(CHROME_VISIBILITY),
+
+  /** 状态栏右侧显示项。同上，值是「被藏起来的那些」。 */
+  'appearance.statusBarMetrics': groupSetting(STATUS_BAR_METRICS)
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;

@@ -16,6 +16,7 @@
 
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useLocale } from '../hooks.js';
+import { disabledMembers, toggleGroupMember } from './preference-specs.js';
 import { optionLabel, optionsOf, type FieldDef } from './registry.js';
 
 type Translate = (key: string, vars?: Record<string, string>) => string;
@@ -145,6 +146,62 @@ const SelectControl: React.FC<{ field: FieldDef; label: string; t: Translate; va
     ))}
   </select>
 );
+
+/**
+ * 开关组：一行一个「名字 + 开关」。
+ *
+ * **勾选语义与存储语义相反，这是有意的**：存档里存的是「被藏起来的成员」，而用户看到的是
+ * 「界面元素」—— 让他对着一份隐藏清单勾选，等于要求他先做一次心算。
+ *
+ * 每个成员一个 `role="switch"`，与单项开关同一个语义（没有不确定态）。判据属性是
+ * `data-field-member="<字段 id>:<成员>"`，与单选组的 `data-field-option` 同形；
+ * 区别是这里**每个成员都会画出来**，单选组只画一个选中项。
+ *
+ * 成员 id 与顺序取自 `FieldDef.options`（`optionsOf`），所以「什么顺序写进存档」与
+ * 「界面上什么顺序」是同一份表 —— 两处各写一遍的话，规范化会按另一个顺序拼。
+ * 这也意味着**组不能用运行期生成的 `optionsOf`**：顺序会变，规范化就不再稳定。
+ */
+const GroupControl: React.FC<{ field: FieldDef; label: string; t: Translate; value: string }> = ({
+  field,
+  label,
+  t,
+  value
+}) => {
+  const members = optionsOf(field, t);
+  const memberIds = members.map((option) => option.value);
+  const off = disabledMembers(memberIds, value);
+
+  return (
+    <div
+      className="nexus-settings-group"
+      role="group"
+      aria-label={label}
+      data-field-input={field.id}
+    >
+      {members.map((option) => {
+        const on = !off.includes(option.value);
+        return (
+          <div className="nexus-settings-group-row" key={option.value}>
+            <span className="nexus-settings-group-name">{optionLabel(option, t)}</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={on}
+              aria-label={optionLabel(option, t)}
+              className={`nexus-settings-switch${on ? ' nexus-settings-switch-on' : ''}`}
+              data-field-member={`${field.id}:${option.value}`}
+              onClick={() =>
+                field.accessor?.write(toggleGroupMember(memberIds, value, option.value))
+              }
+            >
+              <span className="nexus-settings-switch-knob" aria-hidden="true" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 /** 开关用 `role="switch"` 而不是 checkbox：它没有「不确定态」，语义更窄也更准确。 */
 const ToggleControl: React.FC<{ field: FieldDef; label: string; value: string }> = ({
@@ -294,6 +351,8 @@ function controlFor(field: FieldDef, label: string, t: Translate, value: string)
       return <TextControl field={field} label={label} value={value} />;
     case 'action':
       return <ActionControl field={field} t={t} />;
+    case 'group':
+      return <GroupControl field={field} label={label} t={t} value={value} />;
     default:
       // `preset` 是主题卡片网格，由外观分组的专用组件负责。画不出东西时宁可不画，
       // 也不要画一个点了没反应的控件。

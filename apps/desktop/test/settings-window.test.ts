@@ -195,6 +195,47 @@ describe('设置窗口', () => {
       )
     ).toBe(tableLayoutNext);
 
+    // ④c‴ 开关组（`control: 'group'`）：判据属性是 `data-field-member`，与单选组的
+    //      `data-field-option` 同形，区别是**每个成员都画出来**。真机里要钉的是「注册表里声明
+    //      的成员一个不少地画出来了」—— 少一条成员时 renderer 用例与真机用例读的是同一个
+    //      `FIELDS`，会一起漏，所以这里读真实 DOM。
+    await app.click('.nexus-settings-nav [data-section="appearance"]');
+    await app.waitForSelector('[data-field-member="appearance.chromeVisibility:statusBar"]', 10000);
+    expect(
+      await app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('[data-field-member^="appearance.chromeVisibility:"]')).map((el) => el.dataset.fieldMember)`
+      )
+    ).toEqual(['appearance.chromeVisibility:statusBar', 'appearance.chromeVisibility:tabBar']);
+    expect(
+      await app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('[data-field-member^="appearance.statusBarMetrics:"]')).map((el) => el.dataset.fieldMember)`
+      )
+    ).toEqual([
+      'appearance.statusBarMetrics:lineColumn',
+      'appearance.statusBarMetrics:selection',
+      'appearance.statusBarMetrics:format'
+    ]);
+
+    // 拨一个成员：存档里出现的是**被关掉的那个**，不是「开着的那些」。
+    // 先复位这一项 —— user-data-dir 不按用例隔离，上次跑剩下的隐藏项会让「点一下」的方向反过来。
+    await app.evaluate(
+      `(() => { window.nexusSettings.set('appearance.statusBarMetrics', ''); return true; })()`
+    );
+    await app.waitForFunction(
+      `() => document.querySelector('[data-field-member="appearance.statusBarMetrics:format"]').getAttribute('aria-checked') === 'true'`,
+      10000
+    );
+    await app.click('[data-field-member="appearance.statusBarMetrics:format"]');
+    await app.waitForFunction(
+      `() => document.querySelector('[data-field-member="appearance.statusBarMetrics:format"]').getAttribute('aria-checked') === 'false'`,
+      10000
+    );
+    // 存档里只有被关掉的那一个 —— 存「开着的」会让空串从「全开」变成「全关」，
+    // 而空串是这一组的默认值。写成精确值而不是 `toContain`：多写了别的成员就该红。
+    expect(
+      await app.evaluate<string>(`localStorage.getItem('nexus-status-bar-hidden') ?? ''`)
+    ).toBe('format');
+
     // ④d 数据分组在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
     //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」
     //     这两件事只有真机验证得到，renderer 用例里那个 `window.nexus` 是打桩的。
@@ -275,6 +316,23 @@ describe('设置窗口', () => {
         `document.documentElement.style.getPropertyValue('--nx-editor-table-layout')`
       )
     ).toBe(tableLayoutNext);
+    // 界面元素显隐也跟过来了 —— 第 ④c‴ 步在设置窗口里藏掉的读数，主窗口的状态栏真的不画了。
+    // 这一条是这一批里**只有真机验得到**的一格：renderer 用例的 `window.nexus` 是打桩的，
+    // 跨窗口那条路（广播 → 各自 `resyncFromStorage` → 重渲染）在那儿根本不存在。
+    await app.waitForFunction(
+      `() => document.querySelector('.nexus-status-bar') !== null &&
+             document.querySelector('[data-status-metric="format"]') === null`,
+      10000
+    );
+    // 同组里没被藏的那项还在，左侧那半也还在 —— 否则一个「藏一个就全藏」的实现也能让上面那句通过。
+    expect(
+      await app.evaluate<boolean>(
+        `document.querySelector('[data-status-metric="line-column"]') !== null`
+      )
+    ).toBe(true);
+    expect(
+      await app.evaluate<boolean>(`document.querySelector('.status-bar-left .status-text') !== null`)
+    ).toBe(true);
 
     // ⑥ 单例：再触发一次不会开出第二个设置窗口。
     //    这里走 `evaluate` 直接调桥、不派发按键 —— 设置窗口持有焦点时主窗口的
@@ -355,11 +413,11 @@ describe('设置窗口', () => {
     );
     expect(await stableWidth()).toBeGreaterThan(mainBaseWidth * 0.9);
 
-    // 还原字号与上次停留的分组：Electron 的 user-data-dir **没有按用例隔离**，留一个 18px
-    // 或「停在数据分组」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。
+    // 还原字号、藏起来的读数与上次停留的分组：Electron 的 user-data-dir **没有按用例隔离**，
+    // 留一个 18px 或「状态栏少一项」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。
     // 走 `localStorage` 直接清，不绕 UI。
     await app.evaluate(
-      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-settings-section'); localStorage.removeItem('nexus-ui-zoom'); localStorage.removeItem('nexus-ignore-rules');`
+      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-settings-section'); localStorage.removeItem('nexus-ui-zoom'); localStorage.removeItem('nexus-ignore-rules'); localStorage.removeItem('nexus-status-bar-hidden'); localStorage.removeItem('nexus-chrome-hidden');`
     );
   }, 120000);
 });

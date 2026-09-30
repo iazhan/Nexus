@@ -2275,6 +2275,29 @@ body.nexus-resizing {
   outline-offset: 0;
 }
 
+/* 开关组（`control: 'group'`）：一行一个「名字 + 开关」。
+   每个成员复用的是下面那套单项开关的药丸样式 —— 组里的一项就是一个普通开关，
+   另画一套只会让两处的圆角与动画各漂各的。 */
+.nexus-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.nexus-settings-group-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nexus-settings-group-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+}
+
 /* 开关自己画：系统 checkbox 在 Windows 上是一块方蓝底，与这套「1px 描边 + 小圆角」接不上。 */
 .nexus-settings-switch {
   position: relative;

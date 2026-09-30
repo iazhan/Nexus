@@ -486,6 +486,7 @@ describe('设置视图 · Appearance', () => {
         return 'transfer';
       }
       if (button.dataset.fieldReset !== undefined) return 'reset';
+      if (button.dataset.fieldMember !== undefined) return 'group';
       return 'other';
     });
 
@@ -504,7 +505,9 @@ describe('设置视图 · Appearance', () => {
     expect(kinds.filter((kind) => kind === 'paste')).toHaveLength(1);
     // 这一份用户主题是从两变体预设 fork 出来的，没有「同名互补」的另一套可合并。
     expect(kinds.filter((kind) => kind === 'merge')).toHaveLength(0);
-    // 外观这一页全是枚举（模式 / 预设），一个重置键都不该有。
+    // 开关组的每个成员一枚开关：界面元素两项（状态栏 / 标签页）+ 状态栏读数三项。
+    expect(kinds.filter((kind) => kind === 'group')).toHaveLength(5);
+    // 外观这一页的值控件全是枚举（模式 / 预设 / 缩放）与开关组，一个重置键都不该有。
     expect(kinds.filter((kind) => kind === 'reset')).toHaveLength(0);
   });
 
@@ -601,6 +604,132 @@ describe('设置视图 · 界面缩放', () => {
 
     expect(settings.get('appearance.uiZoom')).toBe('100');
     localStorage.removeItem('nexus-ui-zoom');
+  });
+});
+
+/**
+ * 开关组控件（`FieldRow.tsx` 的 `GroupControl`）—— `control: 'group'` 的第一个消费者。
+ *
+ * 这一层要盯的是**渲染方向**：取值域（`group-setting.test.ts`）只管「串 ↔ 集合」，
+ * 它绿不代表控件把「勾上」画成了「显示」。判据取 `data-field-member` 与 `aria-checked`
+ * —— 不取文案，文案随 locale 变。
+ *
+ * 接线（改了设置主窗口真的少一块）不在这一层，在 `apps/desktop/test/chrome-visibility.test.ts`。
+ */
+describe('设置视图 · 开关组（界面元素显隐 / 状态栏显示项）', () => {
+  beforeEach(() => {
+    settings.set('appearance.chromeVisibility', '');
+    settings.set('appearance.statusBarMetrics', '');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    settings.set('appearance.chromeVisibility', '');
+    settings.set('appearance.statusBarMetrics', '');
+  });
+
+  /** 一个开关组里的全部开关。 */
+  function members(fieldId: string): HTMLElement[] {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>(`[data-field-member^="${fieldId}:"]`)
+    );
+  }
+
+  function member(fieldId: string, name: string): HTMLElement | null {
+    return container.querySelector<HTMLElement>(`[data-field-member="${fieldId}:${name}"]`);
+  }
+
+  function isOn(el: HTMLElement | null): boolean {
+    return el?.getAttribute('aria-checked') === 'true';
+  }
+
+  it('外观分组渲染出两组开关，成员数与取值域一致', () => {
+    renderSettings('appearance');
+
+    expect(members('appearance.chromeVisibility').map((el) => el.dataset.fieldMember)).toEqual([
+      'appearance.chromeVisibility:statusBar',
+      'appearance.chromeVisibility:tabBar'
+    ]);
+    expect(members('appearance.statusBarMetrics').map((el) => el.dataset.fieldMember)).toEqual([
+      'appearance.statusBarMetrics:lineColumn',
+      'appearance.statusBarMetrics:selection',
+      'appearance.statusBarMetrics:format'
+    ]);
+  });
+
+  it('默认（空串）全开：每个开关都是勾上的', () => {
+    renderSettings('appearance');
+
+    for (const el of members('appearance.statusBarMetrics')) {
+      expect(isOn(el)).toBe(true);
+    }
+  });
+
+  it('点一下开关写进存档的是「**被关掉的**」，不是「开着的」', () => {
+    renderSettings('appearance');
+
+    act(() => member('appearance.statusBarMetrics', 'selection')?.click());
+
+    // 存档里只有被关掉的那一个 —— 存「开着的」会让空串变成「全关」，
+    // 而空串是这一组的默认值。
+    expect(settings.get('appearance.statusBarMetrics')).toBe('selection');
+    expect(isOn(member('appearance.statusBarMetrics', 'selection'))).toBe(false);
+    expect(isOn(member('appearance.statusBarMetrics', 'lineColumn'))).toBe(true);
+  });
+
+  it('再点一下打开，回到空串', () => {
+    renderSettings('appearance');
+
+    act(() => member('appearance.statusBarMetrics', 'format')?.click());
+    expect(settings.get('appearance.statusBarMetrics')).toBe('format');
+
+    act(() => member('appearance.statusBarMetrics', 'format')?.click());
+    expect(settings.get('appearance.statusBarMetrics')).toBe('');
+  });
+
+  it('存档里已有隐藏项时开关跟着灭（另一个窗口改的也算）', () => {
+    renderSettings('appearance');
+
+    act(() => settings.set('appearance.chromeVisibility', 'tabBar'));
+
+    expect(isOn(member('appearance.chromeVisibility', 'tabBar'))).toBe(false);
+    expect(isOn(member('appearance.chromeVisibility', 'statusBar'))).toBe(true);
+  });
+
+  /**
+   * 失败方向：整串认不出时**全开**，不是全关。这条在视图层也要有一份 ——
+   * 取值域那份证明了 `parse` 返回空串，这一份证明控件不会把坏值画成「全都关掉」
+   * （那是一个用户再也点不回来的界面）。
+   */
+  it('存档里是认不出的成员时按「显示」处理', () => {
+    act(() => settings.set('appearance.statusBarMetrics', 'garbage'));
+
+    renderSettings('appearance');
+
+    expect(settings.get('appearance.statusBarMetrics')).toBe('');
+    for (const el of members('appearance.statusBarMetrics')) {
+      expect(isOn(el)).toBe(true);
+    }
+  });
+
+  /**
+   * 不给重置键，判据与枚举项同一条（见 `FieldDef.resetValue`）：**重置的代价是否高于手动还原**。
+   * 谁被关掉了就画在旁边那个开关上，点回来即可 —— 代价不比点一次重置高。
+   *
+   * 这条同时钉住「别顺手给组加个 `resetValue: ''`」：加了之后每组都会多一枚「恢复显示全部」，
+   * 而那正是 `FieldDef.resetValue` 那条规矩要避免的噪音。
+   */
+  it('开关组不画重置键 —— 被关掉的成员就画在旁边，点回来即可', () => {
+    act(() => settings.set('appearance.chromeVisibility', 'statusBar'));
+
+    renderSettings('appearance');
+
+    expect(container.querySelector('[data-field-reset="appearance.chromeVisibility"]')).toBeNull();
+    expect(container.querySelector('[data-field-reset="appearance.statusBarMetrics"]')).toBeNull();
   });
 });
 

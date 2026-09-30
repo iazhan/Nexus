@@ -176,6 +176,17 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.appearance.uiZoom': 'Interface scale',
     'settings.appearance.uiZoomDescription':
       'Scales the whole window — panels, menus and the editor together. To change only the text inside documents, use the editor font size.',
+    'settings.appearance.chromeVisibility': 'Interface elements',
+    'settings.appearance.chromeVisibilityDescription':
+      'Which parts of the shell to show. Hiding the tab bar does not close anything — documents stay open, and the sidebar tree still switches between them.',
+    'settings.appearance.chromeVisibility.statusBar': 'Status bar',
+    'settings.appearance.chromeVisibility.tabBar': 'Tab bar',
+    'settings.appearance.statusBarMetrics': 'Status bar items',
+    'settings.appearance.statusBarMetricsDescription':
+      'Which readings to show on the right of the status bar. The save state on the left is always shown — it is where a failed save is reported.',
+    'settings.appearance.statusBarMetrics.lineColumn': 'Cursor line and column',
+    'settings.appearance.statusBarMetrics.selection': 'Selected characters',
+    'settings.appearance.statusBarMetrics.format': 'Document format',
     'settings.general.autoSave': 'Save automatically',
     'settings.general.autoSaveDescription':
       'Writes to disk shortly after you stop typing. Turning it off does not remove saving — use Ctrl+S or close the window.',
@@ -652,6 +663,17 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.appearance.uiZoom': '界面缩放',
     'settings.appearance.uiZoomDescription':
       '把整个窗口一起缩放：面板、菜单与编辑器。只想改文档里的正文字号的话，用「编辑器 → 正文字号」。',
+    'settings.appearance.chromeVisibility': '界面元素',
+    'settings.appearance.chromeVisibilityDescription':
+      '外壳上显示哪几块。藏起标签页不会关掉任何文档 —— 它们照样开着，用侧栏的文件树仍能互相切换。',
+    'settings.appearance.chromeVisibility.statusBar': '底部状态栏',
+    'settings.appearance.chromeVisibility.tabBar': '多标签页栏',
+    'settings.appearance.statusBarMetrics': '状态栏显示项',
+    'settings.appearance.statusBarMetricsDescription':
+      '状态栏右侧显示哪几项读数。左侧的保存状态永远显示 —— 保存失败只在那里说。',
+    'settings.appearance.statusBarMetrics.lineColumn': '光标行列',
+    'settings.appearance.statusBarMetrics.selection': '选中字符数',
+    'settings.appearance.statusBarMetrics.format': '文档格式',
     'settings.general.autoSave': '自动保存',
     'settings.general.autoSaveDescription':
       '停止输入后自动写盘。关掉它不等于关掉保存能力 —— 仍可用 Ctrl+S，或关闭窗口时保存。',
