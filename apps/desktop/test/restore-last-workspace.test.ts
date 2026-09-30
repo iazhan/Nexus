@@ -8,6 +8,7 @@ import {
   type ElectronAppInstance
 } from './smoke-harness.js';
 import { RECENT_WORKSPACE_FILE } from '../electron/recent-workspace.js';
+import { indexPathForWorkspace } from '../electron/index-path.js';
 
 /**
  * 「启动时恢复上次工作区」的**端到端**验证 —— 这一条是这一批里唯一验得到的那一格。
@@ -95,6 +96,29 @@ describe('启动时恢复上次工作区', () => {
     const enabled = await waitForState((state) => state.restoreLastWorkspace === true);
     // 打开开关**不该**把已经记下的目录弄丢 —— 落盘那份是两个字段一起写的。
     expect(enabled.workspaceRoot).toBe(vault);
+
+    // ── 等第一次启动把索引建完、把锁放掉，再关应用 ────────────────────────────────
+    //
+    // **这一等不是装饰。** 侧栏一挂载就 `rebuildIndex`，而索引用的 wasm SQLite 实现
+    // 拿**目录**当锁（`<db>.lock`：加锁 `mkdirSync`、解锁 `rmdirSync`，锁是按语句取的）。
+    // 不等就 `close()`（SIGTERM）的话，若信号正好落在某条语句中间，那个目录会留在磁盘上；
+    // 第二次启动的 `rebuildIndex` 于是报 `SQLite3Error: database is locked`，而
+    // `IndexStore.open()` **明确拒绝**打开残留锁的库（刻意如此：残留锁也可能是另一个实例
+    // 正在用），侧栏拿不到文档 → 本用例最后那一步等到超时。
+    //
+    // 症状是「同一个文件单独跑两次，一次红一次绿」，失败信息指向侧栏文件树 —— 看上去
+    // 像恢复功能坏了，其实与恢复无关。所以这一等同时是**把竞态变成显式前置条件**：
+    // 下面那条 `existsSync` 断言在说「现在确实没有锁了」，而不是碰运气。
+    await first.waitForFunction(
+      `() => Boolean(document.querySelector('.nexus-workspace-sidebar .nexus-tree-item'))`,
+      20000
+    );
+    const indexLockPath = `${indexPathForWorkspace(userDataDir, vault)}.lock`;
+    const lockDeadline = Date.now() + 10000;
+    while (fs.existsSync(indexLockPath) && Date.now() < lockDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(fs.existsSync(indexLockPath)).toBe(false);
 
     await first.close();
     activeApp = null;

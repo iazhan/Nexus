@@ -49,4 +49,22 @@ describe('i18n 字典一致性', () => {
     expect(hasMessage('en-US', 'theme.description.gruvbox')).toBe(true);
     expect(hasMessage('zh-CN', 'theme.description.user:abc')).toBe(false);
   });
+
+  /**
+   * 文案是**纯文本渲染**的（`FieldRow` 直接把 `description` 放进 `<p>`，不解析 Markdown），
+   * 所以文案里写 `**强调**` 只会在界面上露出两个星号。
+   *
+   * 这条是补的哨兵：中文侧 `settings.general.autoSaveDelayDescription` 曾经写着
+   * 「它是**延迟**不是间隔」，一直显示成字面的星号，而**没有任何东西会发现** ——
+   * 它不是缺键、不是空值、占位符也对得上。星号在注释里写惯了，顺手带进文案是很自然的事。
+   *
+   * 只禁 `**`：单独一个 `*` 在中文文案里可能是有意为之（比如「*必填」）。
+   */
+  it('文案里不出现 Markdown 强调标记 —— 描述是纯文本渲染的', () => {
+    for (const [locale, dict] of Object.entries(DICTIONARIES)) {
+      for (const [key, value] of Object.entries(dict)) {
+        expect(value, `${locale} 的 ${key} 含 Markdown 强调标记`).not.toContain('**');
+      }
+    }
+  });
 });

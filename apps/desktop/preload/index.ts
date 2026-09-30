@@ -14,6 +14,7 @@ import type {
 } from '@nexus/core';
 import {
   IPC_CHANNELS,
+  type DiagnosticsReport,
   type FileWatchIpcPayload,
   type HostSettings,
   type SaveAttachmentRequest,
@@ -162,6 +163,10 @@ const bridge: NexusBridge = {
 
   getAppVersion: (): Promise<string> => {
     return ipcRenderer.invoke(IPC_CHANNELS.getAppVersion);
+  },
+
+  getDiagnostics: (): Promise<DiagnosticsReport> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getDiagnostics);
   },
 
   watchFile: (filePath: string, listener: FileWatchListener): Unsubscribe => {

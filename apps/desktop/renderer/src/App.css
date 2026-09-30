@@ -2172,6 +2172,10 @@ body.nexus-resizing {
   line-height: 1.5;
   color: var(--nexus-text-primary);
   word-break: break-all;
+  /* 只读值有两种：一条路径（索引库位置）与一整段多行文本（诊断信息）。
+     `pre-wrap` 让后者按自己的换行断行，同时对前者没有任何影响。
+     不这么做的话，那一段会被 HTML 折成一整行 —— 界面上与复制出来的不一样长。 */
+  white-space: pre-wrap;
 }
 
 .nexus-settings-options {

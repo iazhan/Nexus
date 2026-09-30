@@ -34,6 +34,7 @@ import {
 } from '../components/section-icons.js';
 import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
 import { hostSettingsSynced } from '../host-settings.js';
+import { readDiagnosticsText } from './diagnostics.js';
 import {
   PANEL_DEFAULT_WIDTH,
   PANEL_MAX_WIDTH,
@@ -1016,6 +1017,47 @@ export const OPEN_INDEX_DIR_FIELD: FieldDef = {
 };
 
 /**
+ * 诊断信息：一段可以直接贴进 issue 的环境描述。
+ *
+ * ## 为什么是「只读值 + 复制」而不是一个面板
+ *
+ * 这一项的价值**不在设置页里**，而在设置页之外 —— 用户把它复制出去。所以在页面上的形态就是
+ * 「看得见 + 一键拿走」两件事，不需要可折叠、不需要分区。
+ *
+ * 显示的那一段与复制出去的那一段走**同一个** `readDiagnosticsText()`，所以「屏幕上是什么、
+ * 复制到的就是什么」是可以断言的（真机用例正是这么钉的）。
+ *
+ * ## 两个刻意的取舍
+ *
+ * - **没有 `probe`**：其它 `data` 动作都要先有工作区才可点，这一项**不需要** ——
+ *   版本与平台在轻量模式下照样是排障必需的。没有工作区时少画两行（工作区与索引），
+ *   而不是把整个按钮禁掉。
+ * - **不打开索引库**：文档数要开库才拿得到，而开库会创建库文件。设置页看一眼诊断就多出一个
+ *   `.db` 说不通，所以索引那部分只有文件系统事实（在不在、多大、什么时候改的）。
+ *
+ * 这一段含**本机绝对路径**（有用户名），所以描述文案必须说出来 —— 用户贴之前该知道自己贴了什么。
+ * 里面**没有文档内容**：诊断信息是给外人看的，只能有环境不能有作品。
+ */
+export const DIAGNOSTICS_FIELD: FieldDef = {
+  id: 'data.diagnostics',
+  section: 'data',
+  labelKey: 'settings.data.diagnostics',
+  descriptionKey: 'settings.data.diagnosticsDescription',
+  control: 'action',
+  actionLabelKey: 'settings.data.copyDiagnosticsAction',
+  readonlyValue: readDiagnosticsText,
+  run: async () => {
+    const text = await readDiagnosticsText();
+    if (!text) return;
+    // `copyText` 用返回值表示「真的写进剪贴板了吗」。不把它翻成异常的话，
+    // 失败时按钮照样显示「已完成」—— 而这一项失败的唯一表现就是用户粘出来是空的。
+    const copied = await window.nexus?.copyText(text);
+    if (copied === false) throw new Error('copyText: 写剪贴板失败');
+  },
+  menu: false
+};
+
+/**
  * 扫描时忽略的目录。
  *
  * 放在 `files` 组**最前面**：它决定「哪些东西算这个工作区的一部分」，是这一组里唯一
@@ -1160,7 +1202,8 @@ export const FIELDS: readonly FieldDef[] = [
   REBUILD_INDEX_FIELD,
   HISTORY_RETENTION_FIELD,
   OPEN_HISTORY_DIR_FIELD,
-  OPEN_INDEX_DIR_FIELD
+  OPEN_INDEX_DIR_FIELD,
+  DIAGNOSTICS_FIELD
 ];
 
 export function fieldsOfSection(section: SectionId): readonly FieldDef[] {

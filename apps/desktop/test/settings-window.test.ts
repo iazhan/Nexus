@@ -345,7 +345,12 @@ describe('设置窗口', () => {
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('[data-field-action]')).map((el) => el.dataset.fieldAction)`
       )
-    ).toEqual(['data.rebuildIndex', 'data.openHistoryDirectory', 'data.openIndexDirectory']);
+    ).toEqual([
+      'data.rebuildIndex',
+      'data.openHistoryDirectory',
+      'data.openIndexDirectory',
+      'data.diagnostics'
+    ]);
     // 上限项的档位与默认值 —— 真机里读的是真的 `<option>`，不是打桩的 `settings.get`。
     expect(
       await app.evaluate<string[]>(
@@ -389,10 +394,84 @@ describe('设置窗口', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(fs.existsSync(shownIndexPath)).toBe(true);
-    // 只读值只画这一处：别的动作字段跟着多一行路径时是接线接错了。
+
+    // ④d″ 诊断信息：设置页里**唯一**「既画一段文本、又给一个按钮」的字段。
+    //
+    //      这一段有两个只有真机能证的点：
+    //
+    //      1. **两条通道都真的暴露了**。renderer 用例里的 `window.nexus` 是打桩的，所以
+    //         「preload 忘了暴露 `getDiagnostics`」和「忘了暴露 `copyText`」在那一层都照样绿。
+    //      2. **`getDiagnostics` 报的版本与 `app.getVersion()` 一致** —— 也就是与
+    //         `package.json` 一致。钉住这一条，是因为它同时证明了「主进程那条 handler
+    //         真的被走到」（而不是 renderer 自己拼了一个版本号）。
+    //
+    //      刻意**不读系统剪贴板**回验：那要 `Get-Clipboard`（Windows 专有），而
+    //      `copyText` 返回 `true` 的含义就是 `clipboard.writeText` 被调用过 ——
+    //      `writeText` 是同步的，再读回来只能证明同一件事。
+    //
+    //      **也不比「回执那一行的文案」**：那要拿到字典（真机用例一律只读 DOM，不 import
+    //      `@nexus/i18n` 的 dist），而且「`copyText` 返回 `false` 时回执是失败」已经由
+    //      `settings-view.test.tsx` 那条 `写剪贴板失败时给失败回执` 钉住了。这一层只管
+    //      「通道在不在」—— 不在的话 `run` 会抛，回执是失败，而下面的 `typeof` 判据
+    //      会先一步用更清楚的信息红掉。
+    expect(
+      await app.evaluate<string[]>(
+        `[typeof window.nexus.getDiagnostics, typeof window.nexus.copyText]`
+      )
+    ).toEqual(['function', 'function']);
+    await app.waitForSelector('[data-field-readonly="data.diagnostics"]', 10000);
+    const shownDiagnostics = await app.evaluate<string>(
+      `document.querySelector('[data-field-readonly="data.diagnostics"]').textContent`
+    );
+    // ① 九个键都在，且顺序固定（`diagnostics-format.test.ts` 钉的规则在真机里照样成立）。
+    //    这里索引库已经落盘（上面那条等过 `existsSync`），所以大小与时间两行也在 ——
+    //    「文件还没建」那种少两行的形状由 `diagnostics-format.test.ts` 覆盖。
+    expect(shownDiagnostics.split('\n').map((line) => line.split(':')[0])).toEqual([
+      'version',
+      'platform',
+      'electron',
+      'chromium',
+      'node',
+      'workspace',
+      'index path',
+      'index size',
+      'index updated'
+    ]);
+    // ② 版本来自 `app.getVersion()`，与 package.json 一致。
+    expect(shownDiagnostics).toContain(`version: ${EXPECTED_APP_VERSION}`);
+    // ③ 平台与运行时版本都是真的（`process.*`）—— 形状固定，不写死具体数字。
+    expect(shownDiagnostics).toMatch(/\nplatform: win32-x64\n/);
+    expect(shownDiagnostics).toMatch(/\nelectron: \d+\.\d+\.\d+/);
+    expect(shownDiagnostics).toMatch(/\nchromium: \d+\./);
+    expect(shownDiagnostics).toMatch(/\nnode: \d+\.\d+\.\d+\n/);
+    // ④ 工作区那一条与主进程授权的那条根一致；索引路径那一条与 `getIndexPath` 给的一致。
+    //    这两条是**跨通道一致性**的哨兵：三条通道各自算一遍路径，漂移了就得红。
+    expect(shownDiagnostics).toContain(`\nworkspace: ${authorizedRoot[0]}`);
+    expect(shownDiagnostics).toContain(`\nindex path: ${shownIndexPath}`);
+    // ⑤ 索引文件已经落盘，所以大小与时间两行都该在（它们是文件系统事实）。
+    expect(shownDiagnostics).toMatch(/\nindex size: [\d.]+ [KMG]?B \(\d+ bytes\)/);
+    expect(shownDiagnostics).toMatch(/\nindex updated: \d{4}-\d{2}-\d{2}T/);
+    // ⑥ 报告里**没有文档内容**。这一段是要被整段贴到 issue 里的，混进正文等于泄露笔记。
+    //    只钉「正文里那串字没出现」—— 用工作区里那个真实文件的正文。
+    expect(shownDiagnostics).not.toContain('正文。');
+
+    // 点按钮：真写一次系统剪贴板。回执那一行必须出现且非空 —— 空回执意味着
+    // `run` 走完了但 `setOutcomeKey` 没落地，那是另一种坏法。
+    await app.click('[data-field-action="data.diagnostics"]');
+    await app.waitForSelector('[data-field-outcome="data.diagnostics"]', 10000);
+    expect(
+      (
+        await app.evaluate<string>(
+          `document.querySelector('[data-field-outcome="data.diagnostics"]').textContent`
+        )
+      ).trim()
+    ).not.toBe('');
+
+    // 只读值现在有两处：通用分组的版本、数据分组的索引路径与诊断信息（诊断在数据分组里，
+    // 所以本组是**两处**）。别的动作字段跟着多一行时是接线接错了。
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-field-readonly]').length`)
-    ).toBe(1);
+    ).toBe(2);
 
     // ④e 文件与链接分组：五项都由 `FIELDS` 派生渲染，这里只钉住「注册表里加了一项，
     //     真窗口里就真的多一个控件」—— 少一条 `FieldDef` 时 renderer 用例与真机用例

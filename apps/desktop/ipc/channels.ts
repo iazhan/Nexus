@@ -54,6 +54,15 @@ export const IPC_CHANNELS = {
    * 而 `app.getVersion()` 拿的就是这个值，不会出现「界面显示的版本与安装包不一致」。
    */
   getAppVersion: 'nexus:get-app-version',
+  /**
+   * 诊断信息：版本、平台、运行时版本、工作区与索引库的文件系统事实。
+   *
+   * **没有参数、不查授权**（与 `getAppVersion` 同理）：工作区根由主进程从自己的会话里取，
+   * 渲染进程不告诉它「要看哪个工作区」—— 那样才不会有「拿一个任意路径来问」的口子。
+   *
+   * 返回值里**没有文档内容**：这份东西是贴进 issue 的，只能有环境不能有作品。
+   */
+  getDiagnostics: 'nexus:get-diagnostics',
   setDirty: 'nexus:set-dirty',
   requestSaveAndClose: 'nexus:request-save-and-close',
   readyToClose: 'nexus:ready-to-close',
@@ -137,6 +146,39 @@ export interface SaveAttachmentRequest {
 }
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
+
+/**
+ * 索引库文件的文件系统事实。
+ *
+ * `sizeBytes` / `updatedAt` 为 `null` 表示**文件还不存在**（这个工作区还没建过索引）——
+ * 与「算不出路径」不是一回事：`path` 在任何情况下都有值，它是工作区路径的纯函数。
+ */
+export interface DiagnosticsIndexFile {
+  path: string;
+  sizeBytes: number | null;
+  /** ISO 8601（含时区），直接贴出去不会歧义。 */
+  updatedAt: string | null;
+}
+
+/**
+ * 一次诊断快照。**形状定义在这里而不是 `electron/diagnostics.ts`**：它是跨进程契约，
+ * `NexusBridge`（preload）与主进程两侧都要用它（同 `SaveAttachmentRequest` 的理由）。
+ *
+ * 只放**主进程才知道**的东西。渲染进程自己知道的（主题、语言）不放 —— 那些在设置页上
+ * 本来就看得见，而它们的取值口径（存档字符串 vs 解析结果）是另一个决定，不该顺手塞进来。
+ */
+export interface DiagnosticsReport {
+  version: string;
+  /** `<platform>-<arch>`，如 `win32-x64`。 */
+  platform: string;
+  electron: string;
+  chromium: string;
+  node: string;
+  /** 已授权的工作区根。轻量模式（只打开一个文件）下是 `null`。 */
+  workspaceRoot: string | null;
+  /** 没有工作区时是 `null`。 */
+  index: DiagnosticsIndexFile | null;
+}
 
 /**
  * 主进程需要照着做的那些设置值。

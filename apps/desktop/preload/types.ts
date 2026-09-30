@@ -10,7 +10,12 @@ import type {
   WorkspaceGraph,
   HistoryEntry
 } from '@nexus/core';
-import type { HostSettings, SaveAttachmentRequest, WindowState } from '../ipc/channels.js';
+import type {
+  DiagnosticsReport,
+  HostSettings,
+  SaveAttachmentRequest,
+  WindowState
+} from '../ipc/channels.js';
 
 export interface NexusBridge {
   getLaunchContext: () => Promise<LaunchContext>;
@@ -120,6 +125,15 @@ export interface NexusBridge {
    * 渲染包），所以这条通道不是「绕一圈」，是唯一能拿到它的地方。
    */
   getAppVersion: () => Promise<string>;
+  /**
+   * 诊断信息：版本、平台、运行时版本、工作区与索引库的文件系统事实。
+   *
+   * **不接受参数** —— 工作区根由主进程从自己的会话里取。它含本机用户名，但那是复现问题必需的，
+   * 所以设置项的描述文案要把这件事说清（用户贴出去之前该知道贴了什么）。
+   *
+   * 返回值里**没有文档内容**：这份东西是贴进 issue 的，只能有环境不能有作品。
+   */
+  getDiagnostics: () => Promise<DiagnosticsReport>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;

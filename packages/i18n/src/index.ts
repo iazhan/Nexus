@@ -281,6 +281,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.openIndexDirectoryDescription':
       'The index lives in the app data folder, not in your workspace. The file below is this workspace’s index — open its folder to see how large it got, or to delete it and rebuild from scratch.',
     'settings.data.openIndexDirectoryAction': 'Open index folder',
+    'settings.data.diagnostics': 'Diagnostics',
+    'settings.data.diagnosticsDescription':
+      'Version, platform and where things live on this machine. It contains local paths, so it shows your user name — it never contains document text. Paste it when reporting a problem.',
+    'settings.data.copyDiagnosticsAction': 'Copy diagnostics',
     'settings.data.needsWorkspace': 'Open a workspace to use this.',
     'settings.keybindings.remappable': 'Keyboard shortcuts',
     'settings.keybindings.remappableDescription':
@@ -694,7 +698,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       '停止输入后自动写盘。关掉它不等于关掉保存能力 —— 仍可用 Ctrl+S，或关闭窗口时保存。',
     'settings.general.autoSaveDelay': '自动保存延迟',
     'settings.general.autoSaveDelayDescription':
-      '停止输入后等多久写盘。它是**延迟**不是间隔 —— 一直在输入就一直不写。',
+      '停止输入后等多久写盘。它是延迟不是间隔 —— 一直在输入就一直不写。',
     'settings.general.externalChange': '文件被外部修改时',
     'settings.general.externalChangeDescription': '当前打开的文件被别的程序改动时怎么办。',
     'settings.general.externalChange.smart': '没有未保存改动就自动重载',
@@ -781,6 +785,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.openIndexDirectoryDescription':
       '索引放在应用数据目录里，不在工作区中。下面这个文件就是本工作区的索引 —— 打开它所在的目录可以看它有多大，或删掉重建。',
     'settings.data.openIndexDirectoryAction': '打开索引目录',
+    'settings.data.diagnostics': '诊断信息',
+    'settings.data.diagnosticsDescription':
+      '版本、平台，以及东西在这台机器上落在哪。里面含本机路径，所以会露出你的用户名；不含任何文档内容。报问题时把它贴出去即可。',
+    'settings.data.copyDiagnosticsAction': '复制诊断信息',
     'settings.data.needsWorkspace': '打开一个工作区后才能使用。',
     'settings.keybindings.remappable': '快捷键',
     'settings.keybindings.remappableDescription':

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BUILT_IN_PRESETS, BUILT_IN_SCHEMES, DEFAULT_THEME_CHOICE } from '@nexus/theme';
 import { formatShortcut } from '@nexus/command';
 import { translate } from '@nexus/i18n';
+import type { DiagnosticsReport } from '../../ipc/channels.js';
 import { SettingsView } from '../src/settings/SettingsView.js';
 import { REMAPPABLE_ACTIONS, resolveShortcut } from '../src/keybindings.js';
 import {
@@ -1522,20 +1523,29 @@ describe('设置视图 · 动作字段', () => {
   /** 桥给回来的索引库路径。故意用一条**渲染进程推不出来**的值（真路径里含 userData）。 */
   const INDEX_PATH = 'C:/Users/tester/AppData/Roaming/Nexus/workspace-index/9f3a1c07b4e2d8a5.db';
 
+  /**
+   * `report` 默认 `null` ＝ **桥明确说「没有报告」**。诊断那一项自有一套用例
+   * （`设置视图 · 诊断信息`），本组刻意让它不画那一行，好让「只读值计数」这个判据
+   * 只反映索引那一项。**不要**靠「桥上没有 `getDiagnostics` 所以它抛异常」来达到这个效果 ——
+   * 那样这条计数就是碰巧对的，将来谁给桥补上这条通道，本组会毫无理由地红。
+   */
   function stubBridge(
     roots: string[],
-    indexPath: string | null = INDEX_PATH
+    indexPath: string | null = INDEX_PATH,
+    report: DiagnosticsReport | null = null
   ): {
     rebuilds: string[];
     opened: string[];
     openedIndex: string[];
     askedPaths: string[];
+    copied: string[];
   } {
     const calls = {
       rebuilds: [] as string[],
       opened: [] as string[],
       openedIndex: [] as string[],
-      askedPaths: [] as string[]
+      askedPaths: [] as string[],
+      copied: [] as string[]
     };
     (window as unknown as { nexus: unknown }).nexus = {
       getWorkspaceRoots: () => Promise.resolve(roots),
@@ -1554,6 +1564,11 @@ describe('设置视图 · 动作字段', () => {
       getIndexPath: (rootPath: string) => {
         calls.askedPaths.push(rootPath);
         return Promise.resolve(indexPath);
+      },
+      getDiagnostics: () => Promise.resolve(report),
+      copyText: (text: string) => {
+        calls.copied.push(text);
+        return Promise.resolve(true);
       }
     };
     return calls;
@@ -1693,8 +1708,14 @@ describe('设置视图 · 动作字段', () => {
     ).toBe('P');
   });
 
-  /** 这一行只属于索引那一项。别的动作字段跟着多出一行路径时，是接线接错了。 */
-  it('同组另外两个动作字段没有只读值', async () => {
+  /**
+   * 这一行只属于索引那一项。别的动作字段跟着多出一行路径时，是接线接错了。
+   *
+   * 计数写死 1 之所以还成立：本组给桥的是一份 **`null` 报告**，诊断那一项因此也不画。
+   * 它的只读值是「主进程给的一段文本」，索引那一项是「主进程给的一条路径」—— 两者
+   * 同形不同源，所以这一条只钉「谁有资格画」，不钉内容。
+   */
+  it('四个动作字段里只有索引那一项画只读值', async () => {
     stubBridge(['E:/notes']);
     renderSettings('data');
     await settle();
@@ -1702,27 +1723,37 @@ describe('设置视图 · 动作字段', () => {
     expect(container.querySelectorAll('[data-field-readonly]')).toHaveLength(1);
     expect(container.querySelector('[data-field-readonly="data.rebuildIndex"]')).toBeNull();
     expect(container.querySelector('[data-field-readonly="data.openHistoryDirectory"]')).toBeNull();
+    expect(container.querySelector('[data-field-readonly="data.diagnostics"]')).toBeNull();
   });
 
-  /** 没有工作区时连那一行也不画 —— 而不是画一个空框。 */
-  it('没有工作区时不画只读值', async () => {
+  /**
+   * 没有工作区时连那一行也不画 —— 而不是画一个空框。
+   *
+   * 判据按字段 id 查，**不用 `[data-field-readonly]` 全查**：诊断那一项的文本里只有版本与
+   * 平台，跟工作区无关，将来谁给它接上桥，这条就会因为「别人画了」而假红。
+   */
+  it('没有工作区时索引那一项不画只读值', async () => {
     stubBridge([]);
     renderSettings('data');
     await settle();
 
-    expect(container.querySelector('[data-field-readonly]')).toBeNull();
+    expect(
+      container.querySelector('[data-field-readonly="data.openIndexDirectory"]')
+    ).toBeNull();
   });
 
   /**
    * 主进程说「这条路径我算不出来」时（返回 `null`）同样不画。
    * 画一行 `null` 或空串都会让用户以为索引坏了。
    */
-  it('桥返回空时不画只读值', async () => {
+  it('桥返回空时不画索引那一项的只读值', async () => {
     stubBridge(['E:/notes'], null);
     renderSettings('data');
     await settle();
 
-    expect(container.querySelector('[data-field-readonly]')).toBeNull();
+    expect(
+      container.querySelector('[data-field-readonly="data.openIndexDirectory"]')
+    ).toBeNull();
   });
 
   /**
@@ -1738,11 +1769,195 @@ describe('设置视图 · 动作字段', () => {
     renderSettings('data');
     await settle();
 
-    expect(container.querySelector('[data-field-readonly]')).toBeNull();
+    expect(
+      container.querySelector('[data-field-readonly="data.openIndexDirectory"]')
+    ).toBeNull();
     expect(
       container.querySelector<HTMLButtonElement>('[data-field-action="data.openIndexDirectory"]')
         ?.disabled
     ).toBe(false);
+  });
+});
+
+/**
+ * 诊断信息（`control: 'action'` + `readonlyValue` 组合的第一处）。
+ *
+ * 它是设置页里**唯一**「既显示一段文本、又给一个按钮」的字段，两条通路必须指向同一份文本 ——
+ * 判据是「点按钮交给剪贴板的那段，逐字符等于屏幕上那段」，而不是「两处各自拼了一遍、看起来差不多」。
+ *
+ * 主进程给的是**事实**（版本 / 平台 / 路径 / 文件大小），渲染进程拼成文本。所以这里打的桩
+ * 只需要给一份报告，拼装规则由 `diagnostics-format.test.ts` 逐行钉住。
+ */
+describe('设置视图 · 诊断信息', () => {
+  const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
+
+  const REPORT: DiagnosticsReport = {
+    version: '0.44.0',
+    platform: 'win32-x64',
+    electron: '33.0.0',
+    chromium: '130.0.0.0',
+    node: '20.18.0',
+    workspaceRoot: 'E:/notes',
+    index: {
+      path: 'C:/Users/tester/AppData/Roaming/Nexus/workspace-index/9f3a1c07b4e2d8a5.db',
+      sizeBytes: 2412544,
+      updatedAt: '2026-09-30T02:11:05.000Z'
+    }
+  };
+
+  /** 桥报告 + 剪贴板。`copied` 收下每一次交给剪贴板的文本。 */
+  function stubBridge(report: DiagnosticsReport | null): { copied: string[] } {
+    const calls = { copied: [] as string[] };
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve([]),
+      getDiagnostics: () => Promise.resolve(report),
+      copyText: (text: string) => {
+        calls.copied.push(text);
+        return Promise.resolve(true);
+      }
+    };
+    return calls;
+  }
+
+  async function settle(): Promise<void> {
+    await act(async () => {
+      for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
+    });
+  }
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    (window as unknown as { nexus?: unknown }).nexus = originalBridge;
+  });
+
+  function readonly(): HTMLElement | null {
+    return container.querySelector<HTMLElement>('[data-field-readonly="data.diagnostics"]');
+  }
+
+  /**
+   * 判据是「画出来的就是桥给的那几个事实」—— 逐项比，不写死整段。
+   * 写死整段会让拼装规则的任何调整都要求改两处，而拼装规则已经被另一条用例钉住了。
+   */
+  it('画的是主进程给的那几个事实，且排在最前面', async () => {
+    stubBridge(REPORT);
+    renderSettings('data');
+    await settle();
+
+    const text = readonly()?.textContent ?? '';
+    expect(text.startsWith('version: 0.44.0')).toBe(true);
+    expect(text).toContain('platform: win32-x64');
+    expect(text).toContain('electron: 33.0.0');
+    expect(text).toContain('chromium: 130.0.0.0');
+    expect(text).toContain('node: 20.18.0');
+    expect(text).toContain('workspace: E:/notes');
+    expect(text).toContain(REPORT.index!.path);
+    // 大小是**人类可读**的那一份，原始字节数跟在括号里 —— 两个都要有，用户贴出去时
+    // 维护者看字节、用户看 MB。
+    expect(text).toContain('2.3 MB (2412544 bytes)');
+    expect(text).toContain('2026-09-30T02:11:05.000Z');
+  });
+
+  /**
+   * **本组最重要的一条**：屏幕上那段与交给剪贴板的那段必须逐字符相等。
+   * 两处各取一次数（`readonlyValue` 挂载时一次、按钮点击时一次），所以这条同时在钉
+   * 「报告里没有时间戳」—— 有时间戳的话这两次取数永远不相等。
+   */
+  it('点按钮把屏幕上那一段原样交给剪贴板', async () => {
+    const calls = stubBridge(REPORT);
+    renderSettings('data');
+    await settle();
+
+    const onScreen = readonly()?.textContent ?? '';
+    expect(onScreen).not.toBe('');
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-field-action="data.diagnostics"]')?.click();
+    });
+    await settle();
+
+    expect(calls.copied).toEqual([onScreen]);
+  });
+
+  /** 复制成功要有回执 —— 效果落在系统剪贴板里，当前窗口不给一行字就像没反应。 */
+  it('复制成功后给一行回执', async () => {
+    stubBridge(REPORT);
+    renderSettings('data');
+    await settle();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-field-action="data.diagnostics"]')?.click();
+    });
+    await settle();
+
+    expect(
+      container.querySelector('[data-field-outcome="data.diagnostics"]')?.textContent
+    ).toBe(translate(localeManager.locale, 'settings.action.done'));
+  });
+
+  /**
+   * `copyText` 返回 `false`（写剪贴板失败）时**必须翻成异常**。
+   * 不翻的话按钮照样显示「已完成」，而这一项失败的唯一表现是「用户粘出来是空的」——
+   * 一个不可能被发现的静默失败。
+   */
+  it('写剪贴板失败时给失败回执，不谎报成功', async () => {
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve([]),
+      getDiagnostics: () => Promise.resolve(REPORT),
+      copyText: () => Promise.resolve(false)
+    };
+    renderSettings('data');
+    await settle();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-field-action="data.diagnostics"]')?.click();
+    });
+    await settle();
+
+    expect(
+      container.querySelector('[data-field-outcome="data.diagnostics"]')?.textContent
+    ).toBe(translate(localeManager.locale, 'settings.action.failed'));
+  });
+
+  /**
+   * 桥说「没有报告」时不画那一行，但**按钮还在** —— 这一项没有工作区也能用
+   * （版本与平台与工作区无关），所以它没有 `probe`、永远不禁用。
+   */
+  it('桥没有报告时不画文本行，按钮仍可按', async () => {
+    stubBridge(null);
+    renderSettings('data');
+    await settle();
+
+    expect(readonly()).toBeNull();
+    expect(
+      container.querySelector<HTMLButtonElement>('[data-field-action="data.diagnostics"]')?.disabled
+    ).toBe(false);
+  });
+
+  /** 只读值是文本不是控件；而这一项**多一个按钮** —— 与索引那一项（只有文本）的形状不同。 */
+  it('不画输入框，且只读值与按钮同时在', async () => {
+    stubBridge(REPORT);
+    renderSettings('data');
+    await settle();
+
+    expect(container.querySelector('[data-field-input="data.diagnostics"]')).toBeNull();
+    expect(readonly()?.tagName).toBe('P');
+    expect(container.querySelector('[data-field-action="data.diagnostics"]')).not.toBeNull();
+  });
+
+  /** 没有值可读 ⇒ 没有「默认值」这个概念，因此不画重置键。 */
+  it('不画重置键', async () => {
+    stubBridge(REPORT);
+    renderSettings('data');
+    await settle();
+
+    expect(container.querySelector('[data-field-reset="data.diagnostics"]')).toBeNull();
   });
 });
 
@@ -2314,13 +2529,18 @@ describe('设置视图 · 数据', () => {
     expect(container.querySelector('[data-field-reset="data.historyRetention"]')).toBeNull();
   });
 
-  it('同组的三个动作仍在 —— 加一项带值的控件不该把按钮挤掉', () => {
+  it('同组的四个动作仍在 —— 加一项带值的控件不该把按钮挤掉', () => {
     renderSettings('data');
 
     expect(
       Array.from(container.querySelectorAll<HTMLElement>('[data-field-action]')).map(
         (el) => el.dataset.fieldAction
       )
-    ).toEqual(['data.rebuildIndex', 'data.openHistoryDirectory', 'data.openIndexDirectory']);
+    ).toEqual([
+      'data.rebuildIndex',
+      'data.openHistoryDirectory',
+      'data.openIndexDirectory',
+      'data.diagnostics'
+    ]);
   });
 });

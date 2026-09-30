@@ -12,6 +12,7 @@ import {
   type Unsubscribe
 } from '@nexus/core';
 import { FileService } from './file-service.js';
+import { buildDiagnostics } from './diagnostics.js';
 import { indexDirectoryForWorkspace, indexPathForWorkspace } from './index-path.js';
 import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js';
 import { createElectronFileDialog } from './file-dialog.js';
@@ -679,6 +680,35 @@ ipcMain.handle(IPC_CHANNELS.openHistoryDirectory, async (event, rootPath: unknow
  * 没有参数、不查授权：它不是路径，不泄露任何东西。
  */
 ipcMain.handle(IPC_CHANNELS.getAppVersion, () => app.getVersion());
+
+/**
+ * 诊断信息。用户报问题时贴出来的一段事实。
+ *
+ * **不接受参数**（与 `getAppVersion` 同理，但理由不同）：工作区根由主进程从自己的会话里取，
+ * 所以没有「拿一个任意路径来问」的口子 —— `getIndexPath` 那种带参数的通道才需要查授权。
+ *
+ * **不打开索引库**：`better-sqlite3` 的 `new Database(path)` 会创建库文件，而设置页里看一眼
+ * 诊断就凭空多出一个 `.db` 是说不通的副作用。所以索引那部分只有文件系统事实（在不在、多大、
+ * 什么时候改的），文档数不在这里 —— 那个在侧栏看得到。
+ *
+ * `process.versions.electron` / `.chrome` 在渲染进程里也存在，但**这里才是权威的**：
+ * 渲染进程报的是它自己那个进程的运行时，用户装的那个包以主进程为准。
+ */
+ipcMain.handle(IPC_CHANNELS.getDiagnostics, (event) => {
+  const { service } = getOrCreateSession(event.sender);
+  const workspaceRoot = service.getWorkspaceRoots()[0] ?? null;
+
+  return buildDiagnostics({
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    electron: process.versions.electron ?? 'unknown',
+    chromium: process.versions.chrome ?? 'unknown',
+    node: process.versions.node,
+    workspaceRoot,
+    indexDbPath: workspaceRoot ? indexPathFor(workspaceRoot) : null
+  });
+});
 
 /**
  * 该工作区的索引库**文件**路径。与下面那条是同一个库的两半：这个只把路径交出去，
