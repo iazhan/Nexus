@@ -101,13 +101,13 @@ describe('设置窗口', () => {
       await app.evaluate<number>(
         `document.querySelectorAll('.nexus-settings-nav [data-availability="planned"]').length`
       )
-    ).toBe(4);
+    ).toBe(3);
     // 数据分组这一批转可用：里面是两个动作（重建索引 / 打开历史目录）。
     expect(
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('.nexus-settings-nav [data-availability="available"]')).map((el) => el.getAttribute('data-section'))`
       )
-    ).toEqual(['general', 'editor', 'appearance', 'data']);
+    ).toEqual(['general', 'editor', 'appearance', 'keybindings', 'data']);
     // 独立窗口没有「返回工作区」这个键了 —— 关窗归标题栏与 Escape
     expect(await app.evaluate<boolean>(`!!document.querySelector('[data-settings-back]')`)).toBe(
       false

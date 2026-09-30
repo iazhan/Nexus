@@ -29,9 +29,10 @@ import { ErrorBoundary } from './ErrorBoundary.js';
 import { MenuBar, type MenuBarMenu } from './MenuBar.js';
 import { WindowControls } from './WindowControls.js';
 import { DarkIcon, LightIcon } from './components/theme-icons.js';
-import { formatShortcut, matchesShortcut } from './shortcut.js';
+import { formatShortcut, matchesShortcut } from '@nexus/command';
+import { DEFAULT_SHORTCUTS, REDO_SHORTCUT, resolveShortcut } from './keybindings.js';
 import { commandRegistry, mermaidPreviewPreference, settings } from './platform.js';
-import { useTheme, useLocale, useSettingValue } from './hooks.js';
+import { useTheme, useLocale, useSettingValue, useKeybindingTable } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
 import { WorkspaceStore } from './workspace/store.js';
 import { TabBar } from './workspace/TabBar.js';
@@ -116,6 +117,15 @@ function getDocumentDirectory(filePath: string | null): string | null {
 function getFileName(filePath: string | null): string {
   if (!filePath) return '';
   return filePath.replace(/^.*[\\/]/, '');
+}
+
+/**
+ * 菜单项上显示的快捷键文案。**每次调用现读**当前生效表，所以取消绑定的项会当场变成
+ * `undefined`（菜单不画那一格），不需要调用方自己判空。
+ */
+function shortcutLabel(commandId: string): string | undefined {
+  const spec = resolveShortcut(commandId);
+  return spec ? formatShortcut(spec) : undefined;
 }
 
 export const App: React.FC = () => {
@@ -364,6 +374,13 @@ export const App: React.FC = () => {
 
   /** 状态栏字数的显隐。走 `useSettingValue` 而不是 `settings.get`：后者不会在改设置时重渲染。 */
   const showCharacterCount = useSettingValue('editor.wordCount');
+
+  /**
+   * 生效的快捷键表。**只为了拿到一个「改过绑定就变」的依赖** —— 菜单里的标签由模块级的
+   * `shortcutLabel` 现读，键盘分发在事件里现读，两者都不需要这个值本身。少了它，在设置窗口
+   * 改完绑定后菜单会一直显示旧组合键。
+   */
+  const keybindings = useKeybindingTable();
 
   /**
    * 状态栏字数。
@@ -1113,31 +1130,40 @@ export const App: React.FC = () => {
     [filePath, handleOpenWorkspaceFile, t]
   );
 
-  // Global keyboard shortcuts and commands
+  /**
+   * 宿主命令的注册与键盘分发。
+   *
+   * `shortcut` 字段取 `DEFAULT_SHORTCUTS` 而不是写字面量：**生效值由覆盖表决定**
+   * （`resolveShortcut`），命令上带的那份只是默认值。两处各写一个字面量的话，改默认值时
+   * 设置页显示的和实际按下去生效的会分叉。
+   *
+   * 分发循环**每次事件现读** `resolveShortcut`，不把结果缓进闭包 —— 否则在设置窗口改完绑定
+   * 之后，主窗口要等到这个 effect 因别的原因重跑才会用上新值。
+   */
   useEffect(() => {
     const unsubs = [
       commandRegistry.registerCommand({
         id: 'new-file',
         titleKey: 'cmd.newFile',
-        shortcut: 'Mod-N',
+        shortcut: DEFAULT_SHORTCUTS['new-file'],
         execute: () => void handleNewFile()
       }),
       commandRegistry.registerCommand({
         id: 'open-file',
         titleKey: 'cmd.openFile',
-        shortcut: 'Mod-O',
+        shortcut: DEFAULT_SHORTCUTS['open-file'],
         execute: handleOpenFile
       }),
       commandRegistry.registerCommand({
         id: 'save',
         titleKey: 'cmd.save',
-        shortcut: 'Mod-S',
+        shortcut: DEFAULT_SHORTCUTS['save'],
         execute: () => saveFile({ immediate: true })
       }),
       commandRegistry.registerCommand({
         id: 'save-as',
         titleKey: 'cmd.saveAs',
-        shortcut: 'Mod-Shift-S',
+        shortcut: DEFAULT_SHORTCUTS['save-as'],
         execute: saveAs
       }),
       commandRegistry.registerCommand({
@@ -1158,13 +1184,13 @@ export const App: React.FC = () => {
       commandRegistry.registerCommand({
         id: 'toggle-surface',
         titleKey: 'cmd.toggleSurface',
-        shortcut: 'Mod-M',
+        shortcut: DEFAULT_SHORTCUTS['toggle-surface'],
         execute: () => setSurfaceKind((prev) => (prev === 'source' ? 'visual' : 'source'))
       }),
       commandRegistry.registerCommand({
         id: 'find',
         titleKey: 'cmd.find',
-        shortcut: 'Mod-F',
+        shortcut: DEFAULT_SHORTCUTS['find'],
         execute: () => {
           const activeView = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
           if (activeView) openSearchPanel(activeView);
@@ -1173,7 +1199,7 @@ export const App: React.FC = () => {
       commandRegistry.registerCommand({
         id: 'replace',
         titleKey: 'cmd.replace',
-        shortcut: 'Mod-H',
+        shortcut: DEFAULT_SHORTCUTS['replace'],
         execute: () => {
           const activeView = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
           if (activeView) openSearchPanel(activeView);
@@ -1186,11 +1212,36 @@ export const App: React.FC = () => {
           // Placeholder for opening current file in workspace
         }
       }),
-      // `Mod-,` 由下面的快捷键循环统一分发（读命令自己的 `shortcut` 字段），不用另写分支。
+      /**
+       * 下面三条原本是 `handleKeyDown` 里的硬编码分支。提升成命令是为了让它们**可重映射** ——
+       * 一个改不了的组合键留在「可重映射动作表」外面，用户只会觉得那张表在骗人。
+       */
+      commandRegistry.registerCommand({
+        id: 'palette.open',
+        titleKey: 'cmd.palette',
+        shortcut: DEFAULT_SHORTCUTS['palette.open'],
+        execute: () => setCommandPaletteOpen(true)
+      }),
+      // 快速打开与命令面板分开：一个是「找文件」，一个是「找命令」，
+      // 混成一个入口会让两个都很慢。
+      commandRegistry.registerCommand({
+        id: 'quick-open',
+        titleKey: 'quickopen.title',
+        shortcut: DEFAULT_SHORTCUTS['quick-open'],
+        execute: () => setQuickOpenOpen(true)
+      }),
+      commandRegistry.registerCommand({
+        id: 'window.close',
+        titleKey: 'cmd.closeFile',
+        shortcut: DEFAULT_SHORTCUTS['window.close'],
+        execute: () => {
+          if (window.nexus?.closeWindow) window.nexus.closeWindow();
+        }
+      }),
       commandRegistry.registerCommand({
         id: 'settings.open',
         titleKey: 'cmd.openSettings',
-        shortcut: 'Mod-,',
+        shortcut: DEFAULT_SHORTCUTS['settings.open'],
         execute: openSettingsWindow
       })
     ];
@@ -1198,28 +1249,9 @@ export const App: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
 
-      if (matchesShortcut(e, 'Mod-K')) {
-        e.preventDefault();
-        setCommandPaletteOpen(true);
-        return;
-      }
-
-      // Ctrl+P 快速打开。与 Mod-K 分开：一个是「找文件」，一个是「找命令」，
-      // 混成一个入口会让两个都很慢。
-      if (matchesShortcut(e, 'Mod-P')) {
-        e.preventDefault();
-        setQuickOpenOpen(true);
-        return;
-      }
-
-      if (matchesShortcut(e, 'Mod-W')) {
-        e.preventDefault();
-        if (window.nexus?.closeWindow) window.nexus.closeWindow();
-        return;
-      }
-
       for (const cmd of commandRegistry.getCommands()) {
-        if (cmd.shortcut && matchesShortcut(e, cmd.shortcut)) {
+        const spec = resolveShortcut(cmd.id);
+        if (spec && matchesShortcut(e, spec)) {
           e.preventDefault();
           commandRegistry.executeCommand(cmd.id);
           return;
@@ -1347,17 +1379,17 @@ export const App: React.FC = () => {
         items: [
           {
             label: t('cmd.newFile'),
-            shortcut: formatShortcut('Mod-N'),
+            shortcut: shortcutLabel('new-file'),
             onSelect: () => void handleNewFile()
           },
           {
             label: t('cmd.openFile'),
-            shortcut: formatShortcut('Mod-O'),
+            shortcut: shortcutLabel('open-file'),
             onSelect: () => void handleOpenFile()
           },
           {
             label: t('cmd.save'),
-            shortcut: formatShortcut('Mod-S'),
+            shortcut: shortcutLabel('save'),
             // 附件是只读的，没有「保存」可言。禁用而不是留着点了没反应 ——
             // 后者会让用户以为保存失败了。快捷键侧由 `saveFile` 自己守。
             disabled: !activeEditor,
@@ -1365,7 +1397,7 @@ export const App: React.FC = () => {
           },
           {
             label: t('cmd.saveAs'),
-            shortcut: formatShortcut('Mod-Shift-S'),
+            shortcut: shortcutLabel('save-as'),
             disabled: !activeEditor,
             onSelect: () => void saveAs()
           },
@@ -1391,7 +1423,7 @@ export const App: React.FC = () => {
           { label: '', separator: true },
           {
             label: t('cmd.closeFile'),
-            shortcut: formatShortcut('Mod-W'),
+            shortcut: shortcutLabel('window.close'),
             onSelect: () => {
               if (window.nexus?.closeWindow) window.nexus.closeWindow();
             }
@@ -1405,6 +1437,10 @@ export const App: React.FC = () => {
         // 它们操作的是兜底 session —— 不会崩，但也没有任何可见效果。
         // 禁用是如实表达「这里没有可编辑的东西」；附件自己的复制（PDF 选区）
         // 由渲染器处理，不走这一组。
+        //
+        // **这一组的快捷键是写死的**，不走 `shortcutLabel` —— 它们不经过宿主的 keydown 分发
+        // （撤销/重做归 CodeMirror 的 keymap，剪贴板归操作系统），所以改不了。设置页的
+        // 「固定键」清单列的正是这批（见 `keybindings.ts` 的 `FIXED_SHORTCUTS`）。
         items: [
           {
             label: t('cmd.undo'),
@@ -1414,7 +1450,9 @@ export const App: React.FC = () => {
           },
           {
             label: t('cmd.redo'),
-            shortcut: formatShortcut('Mod-Shift-Z'),
+            // 平台不同：Apple 是 `Mod-Shift-Z`，其余平台是 `Mod-Y`（`historyKeymap` 就这么分）。
+            // 原来写死 `Mod-Shift-Z`，在 Windows 上显示的是一个按下去不生效的组合键。
+            shortcut: formatShortcut(REDO_SHORTCUT),
             disabled: !activeEditor,
             onSelect: handleRedo
           },
@@ -1473,7 +1511,9 @@ export const App: React.FC = () => {
       locale,
       setLocale,
       mermaidClickToReveal,
-      openSettingsWindow
+      openSettingsWindow,
+      // 改过快捷键之后菜单上的标签要跟着换。`keybindings` 的身份只在覆盖项真变了时才变。
+      keybindings
     ]
   );
 

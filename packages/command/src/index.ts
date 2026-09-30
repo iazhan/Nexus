@@ -1,7 +1,14 @@
 export interface Command {
   id: string;
   titleKey: string;
-  shortcut?: string; // e.g. 'Mod-S'
+  /**
+   * **默认**快捷键（如 `Mod-S`）。用户改过的绑定存在覆盖表里 —— 生效值要问
+   * `createKeybindingTable().resolve(id)`，不要直接读这个字段。
+   *
+   * 留着它有两个用处：默认表的第二份载体（覆盖表丢了也能恢复），以及命令面板在
+   * 拿不到宿主默认表时的兜底显示。
+   */
+  shortcut?: string;
   execute: (...args: any[]) => void;
 }
 
@@ -31,3 +38,24 @@ export class CommandRegistry {
     cmd.execute(...args);
   }
 }
+
+export {
+  isApplePlatform,
+  parseShortcut,
+  formatShortcut,
+  matchesShortcut,
+  normalizeShortcut,
+  shortcutFromEvent,
+  type ShortcutDescriptor,
+  type KeyboardShortcutEvent
+} from './shortcut.js';
+
+export {
+  UNBOUND,
+  parseKeybindingOverrides,
+  serializeKeybindingOverrides,
+  createKeybindingTable,
+  type KeybindingOverrides,
+  type KeybindingEntry,
+  type KeybindingTable
+} from './keybindings.js';

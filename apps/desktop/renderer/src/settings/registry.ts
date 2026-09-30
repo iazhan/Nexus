@@ -113,7 +113,7 @@ export const SECTIONS: readonly SectionDef[] = [
     titleKey: 'settings.section.keybindings',
     icon: KeybindingsIcon,
     order: 5,
-    availability: 'planned'
+    availability: 'available'
   },
   {
     id: 'plugins',

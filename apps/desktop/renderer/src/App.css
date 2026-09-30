@@ -2356,6 +2356,110 @@ body.nexus-resizing {
   color: var(--nexus-text-muted);
 }
 
+/* 快捷键分组（`KeybindingsSection.tsx`）：一行一条动作。
+   动作名 `flex: 1` 吃掉剩余宽度，其余按内容宽度排 —— 组合键按钮要能容纳 `Ctrl+Shift+S`，
+   所以给它 `min-width` 而不是让内容撑，否则每行的按钮宽度会随组合键长短跳动。 */
+.nexus-settings-keybinding {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-settings-keybinding-label {
+  flex: 1;
+  min-width: 120px;
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-settings-keybinding-capture {
+  min-width: 96px;
+  padding: 4px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 5px;
+  background-color: var(--nexus-bg-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--nexus-text-primary);
+  cursor: pointer;
+}
+
+.nexus-settings-keybinding-capture:hover {
+  border-color: var(--nexus-border-strong);
+}
+
+.nexus-settings-keybinding-capture-active {
+  border-color: var(--nexus-accent-indicator);
+  background-color: var(--nexus-selection-bg);
+  color: var(--nexus-accent-text);
+}
+
+.nexus-settings-keybinding-action,
+.nexus-settings-keybinding-resetall {
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+  cursor: pointer;
+}
+
+.nexus-settings-keybinding-action:hover:not(:disabled),
+.nexus-settings-keybinding-resetall:hover {
+  border-color: var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+/* 禁用态要看得出来：`取消绑定` 在没有绑定时点不动，不置灰会被当成「点了没反应」。 */
+.nexus-settings-keybinding-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 冲突提示自成一行（`flex-wrap` + `flex-basis: 100%`），并染成错误色 ——
+   它与下面「固定键」那些中性说明不是一回事：这一行表示刚才那次捕获被拒了。 */
+.nexus-settings-keybinding .nexus-settings-action-note {
+  flex-basis: 100%;
+  color: var(--nexus-status-error-text);
+}
+
+.nexus-settings-keybinding-fixed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nexus-settings-keybinding-fixed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.nexus-settings-keybinding-fixed-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-settings-keybinding-fixed-spec {
+  min-width: 96px;
+  padding: 2px 8px;
+  border: 1px dashed var(--nexus-border-subtle);
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  color: var(--nexus-text-muted);
+  text-align: center;
+}
+
 /* 主题卡片（外观分组）：主窗口缩略图 + 名字 + 一句话描述。
    与 `.nexus-settings-option` 分开是必须的 —— 那个是行内小按钮，档位页签、导入导出、
    实时预览里的按钮都在用它，改成卡片形状会把编辑器一起带歪。 */

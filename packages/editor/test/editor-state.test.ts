@@ -70,14 +70,16 @@ describe('CodeMirror 6 Source Editor Core Logic', () => {
       expect(state.doc.toString()).toBe('Step 1 -> Step 2');
     });
 
-    it('includes required keybindings for undo, redo, and search', () => {
+    it('保留撤销 / 重做，把查找 / 替换让给宿主', () => {
       const keys = editorKeybindings.map((k) => k.key).filter(Boolean);
 
       expect(keys).toContain('Mod-z');
-      expect(keys).toContain('Mod-f');
-      expect(keys).toContain('Mod-h');
-      expect(keys).toContain('Mod-Shift-f');
       expect(keys).toContain('Escape');
+      // 查找 / 替换归宿主：编辑器里再留一份会让「在设置页改了绑定、光标在编辑器里时仍是旧键
+      // 生效」—— CM 的 keymap 先跑并 `preventDefault()`，宿主收不到事件。
+      expect(keys).not.toContain('Mod-f');
+      expect(keys).not.toContain('Mod-h');
+      expect(keys).not.toContain('Mod-Shift-f');
     });
   });
 

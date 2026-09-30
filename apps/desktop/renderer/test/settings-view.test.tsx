@@ -3,8 +3,10 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BUILT_IN_PRESETS, BUILT_IN_SCHEMES, DEFAULT_THEME_CHOICE } from '@nexus/theme';
+import { formatShortcut } from '@nexus/command';
 import { translate } from '@nexus/i18n';
 import { SettingsView } from '../src/settings/SettingsView.js';
+import { REMAPPABLE_ACTIONS, resolveShortcut } from '../src/keybindings.js';
 import {
   FIELDS,
   SECTIONS,
@@ -108,11 +110,11 @@ describe('设置视图 · 左栏', () => {
     container.remove();
   });
 
-  it('八组全显示，四组标 planned、通用 / 编辑器 / 外观 / 数据可用', () => {
+  it('八组全显示，三组标 planned、其余可用', () => {
     renderSettings();
 
     expect(navItems()).toHaveLength(SECTIONS.length);
-    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(4);
+    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(3);
 
     const available = navItems().filter(
       (item) => item.dataset.availability === 'available'
@@ -121,6 +123,7 @@ describe('设置视图 · 左栏', () => {
       'general',
       'editor',
       'appearance',
+      'keybindings',
       'data'
     ]);
   });
@@ -862,6 +865,136 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改）', () => 
     });
 
     expect(settings.get('general.externalChange')).toBe('prompt');
+  });
+});
+
+/**
+ * 快捷键分组（`KeybindingsSection.tsx`）。它不是通用字段表 —— 一行一条动作，带捕获、
+ * 取消绑定、恢复默认、跨行冲突检测 —— 所以判据也全是这张表自己的 `data-*`。
+ *
+ * 捕获走 `window` 的**捕获阶段**，所以这里必须把按键派发到 `window` 上（不是某个元素）。
+ */
+describe('设置视图 · 快捷键', () => {
+  beforeEach(() => {
+    settings.set('keybindings.overrides', {});
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    settings.set('keybindings.overrides', {});
+  });
+
+  /** 派发一次按键。捕获监听挂在 window 上，所以要派到 window。 */
+  function pressKey(init: KeyboardEventInit): void {
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+    });
+  }
+
+  function captureButton(actionId: string): HTMLButtonElement | null {
+    return container.querySelector<HTMLButtonElement>(`[data-keybinding-input="${actionId}"]`);
+  }
+
+  it('渲染可重映射动作表与只读的固定键清单', () => {
+    renderSettings('keybindings');
+
+    expect(container.querySelectorAll('[data-keybinding]')).toHaveLength(REMAPPABLE_ACTIONS.length);
+    expect(container.querySelector('[data-keybinding="save"]')).not.toBeNull();
+    expect(container.querySelector('[data-keybinding-input="save"]')).not.toBeNull();
+    // 固定键没有捕获入口 —— 画一个点了没反应的按钮比不画更糟。
+    expect(container.querySelector('[data-keybinding-input="undo"]')).toBeNull();
+    expect(container.querySelector('.nexus-settings-keybinding-fixed-list')).not.toBeNull();
+  });
+
+  it('未改过时显示默认组合键，且不画「恢复默认」', () => {
+    renderSettings('keybindings');
+
+    expect(captureButton('save')?.textContent).toBe(formatShortcut('Mod-S'));
+    expect(container.querySelector('[data-keybinding-reset="save"]')).toBeNull();
+    // 没有任何覆盖项时「全部重置」也不该出现。
+    expect(container.querySelector('[data-keybinding-reset-all]')).toBeNull();
+  });
+
+  it('捕获新组合键写进存档，按钮与「恢复默认」跟着出现', () => {
+    renderSettings('keybindings');
+
+    act(() => captureButton('save')?.click());
+    expect(captureButton('save')?.dataset.capturing).toBe('true');
+
+    pressKey({ ctrlKey: true, shiftKey: true, key: 'K' });
+
+    expect(settings.get('keybindings.overrides')).toEqual({ save: 'Mod-Shift-k' });
+    expect(captureButton('save')?.dataset.capturing).toBe('false');
+    expect(captureButton('save')?.textContent).toBe(formatShortcut('Mod-Shift-k'));
+    expect(container.querySelector('[data-keybinding-reset="save"]')).not.toBeNull();
+    expect(container.querySelector('[data-keybinding-reset-all]')).not.toBeNull();
+  });
+
+  it('Escape 取消捕获，不写盘', () => {
+    renderSettings('keybindings');
+
+    act(() => captureButton('save')?.click());
+    pressKey({ key: 'Escape' });
+
+    expect(settings.get('keybindings.overrides')).toEqual({});
+    expect(captureButton('save')?.dataset.capturing).toBe('false');
+  });
+
+  it('只按修饰键不算一次输入，继续等真正的键', () => {
+    renderSettings('keybindings');
+
+    act(() => captureButton('save')?.click());
+    pressKey({ ctrlKey: true, key: 'Control' });
+
+    expect(captureButton('save')?.dataset.capturing).toBe('true');
+    expect(settings.get('keybindings.overrides')).toEqual({});
+  });
+
+  it('与别的动作撞车时**拒绝**并就地说明被谁占用', () => {
+    renderSettings('keybindings');
+
+    act(() => captureButton('save')?.click());
+    pressKey({ ctrlKey: true, key: 'N' });
+
+    expect(settings.get('keybindings.overrides')).toEqual({});
+    expect(captureButton('save')?.dataset.capturing).toBe('false');
+    const conflict = container.querySelector('[data-keybinding-conflict="save"]');
+    expect(conflict?.textContent).toContain(translate(localeManager.locale, 'cmd.newFile'));
+  });
+
+  it('取消绑定显示「未设置」，且生效表里查不到它', () => {
+    renderSettings('keybindings');
+
+    act(() => container.querySelector<HTMLButtonElement>('[data-keybinding-clear="save"]')?.click());
+
+    expect(settings.get('keybindings.overrides')).toEqual({ save: '' });
+    expect(resolveShortcut('save')).toBeUndefined();
+    expect(captureButton('save')?.textContent).toBe(
+      translate(localeManager.locale, 'settings.keybindings.unbound')
+    );
+  });
+
+  it('恢复默认把覆盖项**删掉**，而不是写成当前默认值', () => {
+    settings.set('keybindings.overrides', { save: 'Mod-Shift-k' });
+    renderSettings('keybindings');
+
+    act(() => container.querySelector<HTMLButtonElement>('[data-keybinding-reset="save"]')?.click());
+
+    expect(settings.get('keybindings.overrides')).toEqual({});
+    expect(resolveShortcut('save')).toBe('Mod-S');
+  });
+
+  it('全部重置一次清掉所有覆盖项', () => {
+    settings.set('keybindings.overrides', { save: 'Mod-Shift-k', 'new-file': '' });
+    renderSettings('keybindings');
+
+    act(() => container.querySelector<HTMLButtonElement>('[data-keybinding-reset-all]')?.click());
+
+    expect(settings.get('keybindings.overrides')).toEqual({});
   });
 });
 

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { canChangeMode, choiceWithMode, type ThemeMode } from '@nexus/theme';
+import type { KeybindingTable } from '@nexus/command';
 import { applyThemeChoice, localeManager, settings, themeManager } from './platform.js';
+import { keybindingTable } from './keybindings.js';
 import type { SettingPath, SettingValue } from './settings/store.js';
 
 /**
@@ -25,6 +27,18 @@ export function useSetting<P extends SettingPath>(
   const value = useSettingValue(path);
   const setValue = useCallback((next: SettingValue<P>) => settings.set(path, next), [path]);
   return [value, setValue];
+}
+
+/**
+ * 生效的快捷键表。**订阅覆盖项**，所以在设置窗口改完绑定后，命令面板与菜单里的标签会跟着换
+ * —— 不订阅的话它们会一直显示旧组合键，直到别的原因触发一次重渲染。
+ *
+ * 返回值按覆盖项**引用**缓存（见 `keybindingTable`），所以对象身份只在真的改了绑定时才变，
+ * 可以直接当 `useMemo` 的依赖用。
+ */
+export function useKeybindingTable(): KeybindingTable {
+  useSettingValue('keybindings.overrides');
+  return keybindingTable();
 }
 
 export function useTheme() {

@@ -16,6 +16,11 @@ import {
   type UserTheme
 } from '@nexus/theme';
 import {
+  parseKeybindingOverrides,
+  serializeKeybindingOverrides,
+  type KeybindingOverrides
+} from '@nexus/command';
+import {
   PANEL_DEFAULT_WIDTH,
   PANEL_WIDTH_STORAGE_KEY,
   clampPanelWidth
@@ -230,7 +235,24 @@ export const SETTING_DEFS = {
    */
   'editor.wordCount': toggleSetting(EDITOR_WORD_COUNT_STORAGE_KEY),
 
-  'editor.codeBlockLineNumbers': toggleSetting(CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY)
+  'editor.codeBlockLineNumbers': toggleSetting(CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY),
+
+  /**
+   * 快捷键覆盖表：命令 id → 规格串，值是空串表示**显式取消绑定**。
+   *
+   * 存**差量**而不是整表：默认绑定随版本变（新增命令、调整默认值），存整表会让老存档把新版本
+   * 的默认值永久钉死在旧值上。差量下未覆盖的项自动跟上默认值。
+   *
+   * 空表写空串（与 `appearance.userThemes` 同一套：`set` 的落盘路径只有一条）。
+   * 解析与序列化都在 `@nexus/command` —— 那层不认识 localStorage，只认字符串。
+   */
+  'keybindings.overrides': defineSetting<KeybindingOverrides>({
+    storageKey: 'nexus-keybindings',
+    fallback: {},
+    // 坏 JSON / 坏项一律丢掉，不抛：存档是用户能改的，读初值抛错会白屏。
+    parse: parseKeybindingOverrides,
+    serialize: serializeKeybindingOverrides
+  })
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;
