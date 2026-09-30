@@ -46,6 +46,13 @@ export const EditorIcon = (
   </svg>
 );
 
+/** 文件与链接：文件夹。**不用「文档纸」** —— 那与编辑器分组的铅笔太像，两枚图标读起来是一件事。 */
+export const FilesIcon = (
+  <svg {...PROPS}>
+    <path d="M3 7.5A2 2 0 0 1 5 5.5h3.5a2 2 0 0 1 1.6.8l1.1 1.5H19a2 2 0 0 1 2 2v7.7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </svg>
+);
+
 /** 外观：调色盘。四个色点代表「配色是一组选择」，不是装饰。 */
 export const AppearanceIcon = (
   <svg {...PROPS}>

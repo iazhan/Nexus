@@ -87,12 +87,21 @@ describe('设置窗口', () => {
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('.nexus-settings-nav [data-section]')).map((el) => el.getAttribute('data-section'))`
       )
-    ).toEqual(['general', 'editor', 'appearance', 'keybindings', 'plugins', 'sync', 'data']);
+    ).toEqual([
+      'general',
+      'editor',
+      'files',
+      'appearance',
+      'keybindings',
+      'plugins',
+      'sync',
+      'data'
+    ]);
     expect(
       await app.evaluate<number>(
         `document.querySelectorAll('.nexus-settings-nav [data-availability="planned"]').length`
       )
-    ).toBe(6);
+    ).toBe(5);
     // 独立窗口没有「返回工作区」这个键了 —— 关窗归标题栏与 Escape
     expect(await app.evaluate<boolean>(`!!document.querySelector('[data-settings-back]')`)).toBe(
       false

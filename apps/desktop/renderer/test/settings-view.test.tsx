@@ -22,6 +22,7 @@ import {
   settings,
   themeManager
 } from '../src/platform.js';
+import { PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH } from '../src/workspace/panel-width.js';
 
 /**
  * 设置本体与 Appearance 分组的渲染（P4-03 / P4-04）。
@@ -107,24 +108,28 @@ describe('设置视图 · 左栏', () => {
     container.remove();
   });
 
-  it('七组全显示，六组标 planned、只有 appearance 可用', () => {
+  it('八组全显示，五组标 planned、通用 / 编辑器 / 外观可用', () => {
     renderSettings();
 
     expect(navItems()).toHaveLength(SECTIONS.length);
-    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(5);
 
     const available = navItems().filter(
       (item) => item.dataset.availability === 'available'
     );
-    expect(available.map((item) => item.dataset.section)).toEqual(['appearance']);
+    expect(available.map((item) => item.dataset.section)).toEqual([
+      'general',
+      'editor',
+      'appearance'
+    ]);
   });
 
   it('未实现的分组**可以点**（点不动比空态更糟），内容区给空态', () => {
-    renderSettings('general');
+    renderSettings('files');
 
     expect(container.querySelector('[data-availability="planned"]')).not.toBeNull();
     expect(container.querySelector('.nexus-settings-empty')).not.toBeNull();
-    expect(container.querySelector('[data-theme-option]')).toBeNull();
+    expect(container.querySelector('[data-field]')).toBeNull();
   });
 
   it('选中的分组只有一个，判据是 aria-selected', () => {
@@ -437,15 +442,19 @@ describe('设置视图 · Appearance', () => {
   });
 
   /**
-   * 「无保存 / 无恢复默认」的判据用**按钮的种类**而不是文案：页面里每个按钮都必须落进一份
-   * 已知清单（导航项 / 模式段控 / 预设卡 / 复制 / 新建 / 开主题窗口 / 导入导出）。文案会随语言变，
-   * 多一个按钮却是结构性的 —— 出现 `other` 就意味着有人往设置页里塞了提交类控件，必须显式解释。
+   * 判据用**按钮的种类**而不是文案：页面里每个按钮都必须落进一份已知清单（导航项 / 模式段控 /
+   * 预设卡 / 复制 / 新建 / 开主题窗口 / 导入导出 / 字段重置）。文案会随语言变，多一个按钮却是
+   * 结构性的 —— 出现 `other` 就意味着有人往设置页里塞了提交类控件，必须显式解释。
    *
    * 「返回工作区」那一类**已随独立窗口一并删掉**：窗口自己有标题栏关闭键，Escape 也能关，
    * 再留一个页内返回键就是第三个关闭入口。编辑器那一整片控件（档位页签、取色器、预览）也**不在
    * 这里了** —— 它们跟着主题窗口一起搬走，清单里因此不再有 `tier` / `preview` 两类。
+   *
+   * **逐项重置有，全局「恢复默认」没有。** 重置键只画在 `resetValue` 非空、且当前值已偏离它的
+   * 字段上（见 `FieldRow.tsx`）；外观这一页的两个轴都是枚举，一个重置键都不该有 ——
+   * 所以下面那条 0 是断言，不是省略。
    */
-  it('页面里没有保存 / 提交 / 恢复默认控件', () => {
+  it('页面里没有保存 / 提交 / 全局恢复默认控件', () => {
     // 先挂一个用户主题：它要出现在预设列表里，不这么做「每张卡一枚复制键」的条数就对不上。
     duplicateTheme('nexus-light');
     renderSettings();
@@ -471,6 +480,7 @@ describe('设置视图 · Appearance', () => {
       if (button.dataset.themeImportButton !== undefined || button.dataset.themeExport) {
         return 'transfer';
       }
+      if (button.dataset.fieldReset !== undefined) return 'reset';
       return 'other';
     });
 
@@ -489,16 +499,18 @@ describe('设置视图 · Appearance', () => {
     expect(kinds.filter((kind) => kind === 'paste')).toHaveLength(1);
     // 这一份用户主题是从两变体预设 fork 出来的，没有「同名互补」的另一套可合并。
     expect(kinds.filter((kind) => kind === 'merge')).toHaveLength(0);
+    // 外观这一页全是枚举（模式 / 预设），一个重置键都不该有。
+    expect(kinds.filter((kind) => kind === 'reset')).toHaveLength(0);
   });
 
   /**
-   * 七个分组各有图标，且**七个图形两两不同** —— 同一套里出现两枚一样的，用户就得回头读文字
+   * 每个分组都有图标，且**图形两两不同** —— 同一套里出现两枚一样的，用户就得回头读文字
    * 才能区分，那图标等于没加。
    *
    * 配色（默认 muted / 悬停 secondary / 选中 accent）是 CSS 的事，happy-dom 解不出自定义属性，
    * 所以这里只断言结构：每个分组都有一枚、尺寸一致、都是装饰性的（`aria-hidden`）。
    */
-  it('七个分组各有图标，图形两两不同', () => {
+  it('八个分组各有图标，图形两两不同', () => {
     renderSettings();
 
     const items = Array.from(
@@ -516,6 +528,79 @@ describe('设置视图 · Appearance', () => {
     });
 
     expect(new Set(shapes).size).toBe(SECTIONS.length);
+  });
+});
+
+/**
+ * 通用字段行（`FieldRow.tsx`）。
+ *
+ * 分组内容由 `FIELDS` 派生，不再是每个分组一份手写 JSX —— 这条链路里，面板宽度是第一个
+ * 消费者，也是「数值项给逐项重置」的第一个样本。
+ */
+describe('设置视图 · Editor', () => {
+  beforeEach(() => {
+    settings.set('editor.panelWidth', PANEL_DEFAULT_WIDTH);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    settings.set('editor.panelWidth', PANEL_DEFAULT_WIDTH);
+  });
+
+  it('编辑器分组渲染字段表里的字段（mermaid 开关 + 面板宽度）', () => {
+    renderSettings('editor');
+
+    expect(container.querySelector('[data-field="editor.mermaidClickToReveal"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="editor.panelWidth"]')).not.toBeNull();
+  });
+
+  it('改面板宽度立刻写进存档 —— 主窗口据此跟随，没有保存按钮', () => {
+    renderSettings('editor');
+
+    const input = container.querySelector<HTMLInputElement>('[data-field-input="editor.panelWidth"]');
+    act(() => setInputValue(input as HTMLInputElement, '320'));
+
+    expect(settings.get('editor.panelWidth')).toBe(320);
+  });
+
+  it('输入越界值被夹住，输入框跟着显示夹取后的值', () => {
+    renderSettings('editor');
+
+    const input = container.querySelector<HTMLInputElement>('[data-field-input="editor.panelWidth"]');
+    act(() => setInputValue(input as HTMLInputElement, '9999'));
+
+    expect(settings.get('editor.panelWidth')).toBe(PANEL_MAX_WIDTH);
+    expect(input?.value).toBe(String(PANEL_MAX_WIDTH));
+  });
+
+  it('值就是默认值时不画重置键 —— 重置一个已经是默认值的项没有意义', () => {
+    renderSettings('editor');
+
+    expect(container.querySelector('[data-field-reset="editor.panelWidth"]')).toBeNull();
+  });
+
+  it('值偏离默认值时画重置键，点它回到默认值', () => {
+    settings.set('editor.panelWidth', 360);
+    renderSettings('editor');
+
+    const reset = container.querySelector<HTMLButtonElement>('[data-field-reset="editor.panelWidth"]');
+    expect(reset).not.toBeNull();
+
+    act(() => reset?.click());
+
+    expect(settings.get('editor.panelWidth')).toBe(PANEL_DEFAULT_WIDTH);
+    expect(container.querySelector('[data-field-reset="editor.panelWidth"]')).toBeNull();
+  });
+
+  it('枚举项不画重置键 —— 再点一次原来那一项就回去了', () => {
+    renderSettings('general');
+
+    expect(container.querySelector('[data-field="general.locale"]')).not.toBeNull();
+    expect(container.querySelector('[data-field-reset="general.locale"]')).toBeNull();
   });
 });
 
@@ -854,7 +939,7 @@ describe('设置视图 · 键盘', () => {
     container.remove();
   });
 
-  it('上下键在七项之间移动焦点', () => {
+  it('上下键在八项之间移动焦点', () => {
     renderSettings();
     const items = navItems();
     items[0]?.focus();

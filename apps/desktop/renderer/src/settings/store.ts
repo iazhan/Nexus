@@ -15,6 +15,11 @@ import {
   THEME_STORAGE_KEY,
   type UserTheme
 } from '@nexus/theme';
+import {
+  PANEL_DEFAULT_WIDTH,
+  PANEL_WIDTH_STORAGE_KEY,
+  clampPanelWidth
+} from '../workspace/panel-width.js';
 
 /** 一个设置项的定义。**不含 `path`** —— 表键就是它，两处各写一遍迟早对不上。 */
 export interface SettingDef<T> {
@@ -40,8 +45,11 @@ function defineSetting<T>(def: SettingDef<T>): SettingDef<T> {
 const DEFAULT_SECTION = 'appearance';
 
 /**
- * 全部设置项。**加一项只改这里** —— P4-02 的 `FieldDef` 表引用这些 path，菜单投影也读它。
- * 本期只接主题（`locale` / mermaid 偏好 / 面板宽度都不迁，理由见 `docs/phase-4-plan.md` §5.1）。
+ * 全部设置项。**加一项只改这里** —— `registry.ts` 的 `FieldDef` 表引用这些 path，菜单投影也读它。
+ *
+ * `locale` 与 mermaid 偏好**不在这里**：它们各有自己的管理器（`localeManager` /
+ * `mermaidPreviewPreference`），字段表的访问器是适配器。设置页不关心值存在哪里 ——
+ * `FieldAccessor` 那三个动作就是为此而设的，所以「搬进 store」只是形状统一，是纯风险。
  */
 export const SETTING_DEFS = {
   'appearance.theme': defineSetting<string>({
@@ -74,6 +82,23 @@ export const SETTING_DEFS = {
     // 坏**项**丢掉而不是拒整份：一份里坏了一条不该让其余几套主题一起消失。
     parse: parseUserThemes,
     serialize: (value) => (value.length === 0 ? '' : serializeUserThemes(value))
+  }),
+  /**
+   * 侧栏面板宽度。**磁盘键沿用 `nexus-panel-width`** —— 这次只是换了读写入口，格式一个字没动，
+   * 老存档照常读得回来（越界值由 `parse` 夹取）。
+   *
+   * 它是「数值项给逐项重置」的第一个消费者：拖窄之后手感找不回来时，设置页里那个重置键是
+   * 唯一的救援入口 —— 双击把手也能恢复，但那个交互只有已经知道的人才会用。
+   */
+  'editor.panelWidth': defineSetting<number>({
+    storageKey: PANEL_WIDTH_STORAGE_KEY,
+    fallback: PANEL_DEFAULT_WIDTH,
+    // 空串要单独判：`Number('')` 是 0，夹取后变成 160（最小值），而不是回落到默认的 240。
+    parse: (raw) => {
+      if (raw === null || raw.trim() === '') return PANEL_DEFAULT_WIDTH;
+      return clampPanelWidth(Number(raw));
+    },
+    serialize: (value) => String(clampPanelWidth(value))
   })
 };
 

@@ -1,7 +1,8 @@
 import React, { useCallback, useRef } from 'react';
 import { useLocale } from '../hooks.js';
-import { SECTIONS, sectionById, type SectionId } from './registry.js';
+import { SECTIONS, fieldsOfSection, sectionById, type SectionId } from './registry.js';
 import { AppearanceSection } from './AppearanceSection.js';
+import { FieldList } from './FieldRow.js';
 
 export interface SettingsViewProps {
   section: SectionId;
@@ -14,6 +15,10 @@ export interface SettingsViewProps {
  *
  * 未实现的分组**可点、可进入**，内容区给空态。让它们点不动（`disabled`）就等于「点了没反应」，
  * 那是比空态更糟的反馈；而把它们从导航里删掉，每加一个分组都要改导航结构。
+ *
+ * 内容区只有两处分派：`appearance` 走专用组件（主题卡片网格不是通用控件能表达的），其余
+ * `available` 分组一律走 `FieldList` —— 字段按 `section` 从 `FIELDS` 里取，所以「加一个字段」
+ * 不用改这里。
  */
 export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSection }) => {
   const { t } = useLocale();
@@ -84,12 +89,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSec
       </nav>
 
       <div className="nexus-settings-content">
-        {current?.availability === 'available' ? (
-          <AppearanceSection />
-        ) : (
+        {current?.availability !== 'available' ? (
           <div className="nexus-settings-empty" data-availability="planned">
             <p className="nexus-settings-empty-text">{t('settings.planned')}</p>
           </div>
+        ) : section === 'appearance' ? (
+          /* 主题卡片网格不是通用控件能表达的，走专用组件；其余分组全是普通字段。 */
+          <AppearanceSection />
+        ) : (
+          <section className="nexus-settings-section" data-section={section}>
+            <h2 className="nexus-settings-section-title">{t(current.titleKey)}</h2>
+            <FieldList fields={fieldsOfSection(section)} />
+          </section>
         )}
       </div>
     </div>

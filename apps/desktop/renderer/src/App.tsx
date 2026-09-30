@@ -30,8 +30,7 @@ import { MenuBar, type MenuBarMenu } from './MenuBar.js';
 import { WindowControls } from './WindowControls.js';
 import { DarkIcon, LightIcon } from './components/theme-icons.js';
 import { formatShortcut, matchesShortcut } from './shortcut.js';
-import { mermaidPreviewPreference } from './platform.js';
-import { commandRegistry } from './platform.js';
+import { commandRegistry, mermaidPreviewPreference, settings } from './platform.js';
 import { useTheme, useLocale } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
 import { WorkspaceStore } from './workspace/store.js';
@@ -48,12 +47,7 @@ import { resolveWikiLink } from './workspace/wikilink.js';
 import { classifyOpenTarget } from './workspace/open-target.js';
 import { ViewerRendererRegistry } from './viewer/registry.js';
 import { ViewerSurface } from './viewer/ViewerSurface.js';
-import {
-  PANEL_DEFAULT_WIDTH,
-  clampPanelWidth,
-  loadPanelWidth,
-  savePanelWidth
-} from './workspace/panel-width.js';
+import { PANEL_DEFAULT_WIDTH, clampPanelWidth } from './workspace/panel-width.js';
 import { ActivityBar } from './shell/ActivityBar.js';
 import {
   INITIAL_ACTIVITY_STATE,
@@ -190,10 +184,11 @@ export const App: React.FC = () => {
   /**
    * 侧栏宽度。默认 240px，可拖拽调整（范围见 `panel-width.ts`）。
    *
-   * 写入 localStorage 的时机是**松开鼠标**，不是拖拽过程中 —— 否则每移动一像素
-   * 就落一次盘，拖一下能写几百次。
+   * 权威值在 `SettingsStore`（`editor.panelWidth`）而不是组件 state —— 设置窗口要能改它，
+   * 而跨窗口同步走的就是 store 的广播（`platform.ts` 的 `resyncFromStorage`）。组件里这份是
+   * **拖拽中的临时值**：拖拽时不写盘（每移动一像素落一次盘，拖一下能写几百次），松手才同步回去。
    */
-  const [panelWidth, setPanelWidth] = useState(loadPanelWidth);
+  const [panelWidth, setPanelWidth] = useState(() => settings.get('editor.panelWidth'));
   const [isResizing, setIsResizing] = useState(false);
 
   const handleResizeStart = useCallback(
@@ -227,7 +222,11 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!isResizing) {
-      savePanelWidth(panelWidth);
+      // 只在真的不同时写：`settings.set` 每次都落盘并广播，而这个 effect 在 panelWidth 每次
+      // 变化后都会跑 —— 不判一下，「从别的窗口同步进来的值」会被原样再广播出去一轮。
+      if (settings.get('editor.panelWidth') !== panelWidth) {
+        settings.set('editor.panelWidth', panelWidth);
+      }
       return;
     }
 
@@ -237,6 +236,15 @@ export const App: React.FC = () => {
       document.body.classList.remove('nexus-resizing');
     };
   }, [isResizing, panelWidth]);
+
+  /** 设置窗口里改了宽度（或另一个窗口拖了把手）→ 主窗口跟上。 */
+  useEffect(
+    () =>
+      settings.subscribe('editor.panelWidth', () => {
+        setPanelWidth(settings.get('editor.panelWidth'));
+      }),
+    []
+  );
   /**
    * Ctrl+左键跳转失败的可见反馈。
    *

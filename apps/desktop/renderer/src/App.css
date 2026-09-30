@@ -2166,6 +2166,135 @@ body.nexus-resizing {
   font-weight: 500;
 }
 
+/* 通用字段行（`FieldRow.tsx`）：标签 + 重置键 + 控件。
+   重置键只在当前值不等于默认值时出现，所以不能给它占位 —— 标签 flex 吃掉剩余宽度。 */
+.nexus-settings-field-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nexus-settings-field-head .nexus-settings-field-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.nexus-settings-field-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--nexus-text-muted);
+  cursor: pointer;
+}
+
+.nexus-settings-field-reset:hover {
+  border-color: var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-settings-field-reset:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 1px;
+}
+
+/* 数值输入：单位是覆盖层而不是 `<input>` 的兄弟，否则它会被算进输入框宽度。 */
+.nexus-settings-number {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 132px;
+}
+
+.nexus-settings-number-input {
+  width: 100%;
+  padding: 6px 32px 6px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-settings-number-input:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 0;
+}
+
+.nexus-settings-number-unit {
+  position: absolute;
+  right: 10px;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+  pointer-events: none;
+}
+
+.nexus-settings-select,
+.nexus-settings-text {
+  width: 100%;
+  max-width: 280px;
+  padding: 6px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-settings-select:focus-visible,
+.nexus-settings-text:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 0;
+}
+
+/* 开关自己画：系统 checkbox 在 Windows 上是一块方蓝底，与这套「1px 描边 + 小圆角」接不上。 */
+.nexus-settings-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 10px;
+  background-color: var(--nexus-bg-surface);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.nexus-settings-switch-on {
+  border-color: var(--nexus-accent-indicator);
+  background-color: var(--nexus-accent-indicator);
+}
+
+.nexus-settings-switch-knob {
+  position: absolute;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: var(--nexus-text-muted);
+  transition: transform 120ms ease-out, background-color 120ms ease-out;
+}
+
+.nexus-settings-switch-on .nexus-settings-switch-knob {
+  background-color: var(--nexus-bg-surface);
+  transform: translateX(14px);
+}
+
+.nexus-settings-switch:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 2px;
+}
+
 /* 主题卡片（外观分组）：主窗口缩略图 + 名字 + 一句话描述。
    与 `.nexus-settings-option` 分开是必须的 —— 那个是行内小按钮，档位页签、导入导出、
    实时预览里的按钮都在用它，改成卡片形状会把编辑器一起带歪。 */

@@ -25,17 +25,24 @@ import {
   AppearanceIcon,
   DataIcon,
   EditorIcon,
+  FilesIcon,
   GeneralIcon,
   KeybindingsIcon,
   PluginsIcon,
   SyncIcon
 } from '../components/section-icons.js';
 import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
+import {
+  PANEL_DEFAULT_WIDTH,
+  PANEL_MAX_WIDTH,
+  PANEL_MIN_WIDTH
+} from '../workspace/panel-width.js';
 import type { MenuBarItem } from '../MenuBar.js';
 
 export type SectionId =
   | 'general'
   | 'editor'
+  | 'files'
   | 'appearance'
   | 'keybindings'
   | 'plugins'
@@ -54,8 +61,13 @@ export interface SectionDef {
 }
 
 /**
- * 七个分组，顺序与 `nexus-ui-ux-blueprint.md` §14.1 一致。本期只有 `appearance` 是 `available`。
- * **不要把未做的分组从数组里删掉** —— 左栏是导航结构，缺项应该是空态而不是消失。
+ * 八个分组，**数组顺序即左栏顺序**。
+ *
+ * `files` 是后加的第八组：它管「文件落在哪、链接怎么写」，与 `editor` 同属「文档本身」，
+ * 所以排在 `editor` 之后、`appearance` 这类界面项之前。
+ *
+ * `availability` 落在数据上而不是组件里的分支 —— 未实现的分组**可点、可进入**，内容区给空态。
+ * 把它们从数组里删掉（每加一组都要改导航结构）或禁用（「点了没反应」）都更糟。
  */
 export const SECTIONS: readonly SectionDef[] = [
   {
@@ -63,48 +75,55 @@ export const SECTIONS: readonly SectionDef[] = [
     titleKey: 'settings.section.general',
     icon: GeneralIcon,
     order: 1,
-    availability: 'planned'
+    availability: 'available'
   },
   {
     id: 'editor',
     titleKey: 'settings.section.editor',
     icon: EditorIcon,
     order: 2,
+    availability: 'available'
+  },
+  {
+    id: 'files',
+    titleKey: 'settings.section.files',
+    icon: FilesIcon,
+    order: 3,
     availability: 'planned'
   },
   {
     id: 'appearance',
     titleKey: 'settings.section.appearance',
     icon: AppearanceIcon,
-    order: 3,
+    order: 4,
     availability: 'available'
   },
   {
     id: 'keybindings',
     titleKey: 'settings.section.keybindings',
     icon: KeybindingsIcon,
-    order: 4,
+    order: 5,
     availability: 'planned'
   },
   {
     id: 'plugins',
     titleKey: 'settings.section.plugins',
     icon: PluginsIcon,
-    order: 5,
+    order: 6,
     availability: 'planned'
   },
   {
     id: 'sync',
     titleKey: 'settings.section.sync',
     icon: SyncIcon,
-    order: 6,
+    order: 7,
     availability: 'planned'
   },
   {
     id: 'data',
     titleKey: 'settings.section.data',
     icon: DataIcon,
-    order: 7,
+    order: 8,
     availability: 'planned'
   }
 ];
@@ -157,6 +176,17 @@ export interface FieldDef {
    * 两者都写会让「静态表是唯一真相」这句话失效。
    */
   optionsOf?: (t: (key: string) => string) => readonly FieldOption[];
+  /** 数值控件的取值域与步长。只在 `control: 'number'` 时有意义。 */
+  min?: number;
+  max?: number;
+  step?: number;
+  /** 数值控件的单位后缀（`px` / `%`）。纯展示，不参与解析 —— 值在 `accessor` 里是字符串。 */
+  unit?: string;
+  /**
+   * 重置目标。**有它才画重置键** —— 判据是「重置的代价是否高于手动还原」：数值项被拖到 160
+   * 之后再想回到 240 只能靠手感，给；枚举项再点一次原来那张卡就回来了，不给。
+   */
+  resetValue?: string;
   accessor: FieldAccessor;
   /** 是否投影进菜单。投影的是**所有** `menu: true` 的字段，不按分组过滤。 */
   menu?: boolean;
@@ -302,12 +332,45 @@ export const MERMAID_FIELD: FieldDef = {
   menu: true
 };
 
+/**
+ * 侧栏面板宽度。**目前唯一一个数值项**，也是「逐项重置」的第一个消费者。
+ *
+ * 写入口是裸的 `settings.set`（不像主题那样要一个具名函数）：这个值不驱动别的东西 ——
+ * 主窗口订阅了 `editor.panelWidth`，改完自己会跟上。
+ */
+export const PANEL_WIDTH_FIELD: FieldDef = {
+  id: 'editor.panelWidth',
+  section: 'editor',
+  labelKey: 'settings.editor.panelWidth',
+  descriptionKey: 'settings.editor.panelWidthDescription',
+  control: 'number',
+  min: PANEL_MIN_WIDTH,
+  max: PANEL_MAX_WIDTH,
+  step: 10,
+  unit: 'px',
+  resetValue: String(PANEL_DEFAULT_WIDTH),
+  accessor: {
+    read: () => String(settings.get('editor.panelWidth')),
+    write: (value) => {
+      // 空串与非数字都不写：`Number('')` 是 0，写进去会被夹成最小值 ——
+      // 表现是「清空输入框就把侧栏缩到底」。
+      if (value.trim() === '') return;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return;
+      settings.set('editor.panelWidth', parsed);
+    },
+    subscribe: (listener) => settings.subscribe('editor.panelWidth', listener)
+  },
+  menu: false
+};
+
 /** 全部字段。**加一项只改这里** —— 菜单投影与设置页内容区都从它派生。 */
 export const FIELDS: readonly FieldDef[] = [
   THEME_MODE_FIELD,
   THEME_PRESET_FIELD,
   LOCALE_FIELD,
-  MERMAID_FIELD
+  MERMAID_FIELD,
+  PANEL_WIDTH_FIELD
 ];
 
 export function fieldsOfSection(section: SectionId): readonly FieldDef[] {
