@@ -14,7 +14,7 @@ import {
   type UserTheme
 } from '@nexus/theme';
 import { SettingsStore } from './settings/store.js';
-import { EDITOR_CSS_VARS, editorFontStack } from './settings/editor-typography.js';
+import { EDITOR_CSS_VARS, codeLineNumbersDisplay, editorFontStack } from './settings/editor-typography.js';
 
 export const commandRegistry = new CommandRegistry();
 export const localeManager = new LocaleManager();
@@ -42,9 +42,12 @@ export const themeManager = new ThemeManager(
   savedUserThemes
 );
 
-// 暴露给冒烟测试与调试（与 App 里的 `window.nexusSession` 同一套接缝）
+// 暴露给冒烟测试与调试（与 App 里的 `window.nexusSession` 同一套接缝）。
+// `nexusSettings` 让真机用例能走**真实**的写盘 + 广播路径改任意设置，而不是只改 `localStorage`
+// —— 后者绕开了订阅链，测不出「改了设置界面没跟着变」这类问题。
 if (typeof window !== 'undefined') {
   (window as unknown as { nexusLocale?: LocaleManager }).nexusLocale = localeManager;
+  (window as unknown as { nexusSettings?: SettingsStore }).nexusSettings = settings;
 }
 
 /** 读存档里的语言。读不到（或值不认识）时返回 `null`，交给调用方决定要不要动。 */
@@ -309,16 +312,19 @@ export function resyncFromStorage(): void {
 
   mermaidPreviewPreference.reload();
 
-  // 排版五项走 `settings.reload()` 那条订阅（见下），这里不必重复调 —— 但**必须**留一行说明
+  // 外观六项走 `settings.reload()` 那条订阅（见下），这里不必重复调 —— 但**必须**留一行说明
   // 为什么：漏掉订阅的人会以为它靠这里同步。
 }
 
 /**
- * 把编辑器排版设置写进 `documentElement` 的 CSS 变量。
+ * 把编辑器外观设置写进 `documentElement` 的 CSS 变量。
  *
  * 为什么走 CSS 变量而不是重建 CodeMirror 主题：`EditorView.theme()` 的值只在**构造时**求值，
  * 改字号得 reconfigure 整个 theme compartment，还要保住光标与滚动位置。变量是纯 CSS 层，
- * 五个设置项一个 effect 都不用加。
+ * 六个设置项一个 effect 都不用加。
+ *
+ * 代码块行号也在这里：它改的是伪元素的 `display`，与字号同属「编辑器长什么样」，
+ * 分两个函数只会让「改了设置没反应」多一种排查方向。
  *
  * **在模块加载时调一次、并在这里订阅**，不交给 `App.tsx`：订阅放在消费方，将来多一个渲染
  * 编辑器的窗口就要多记一次；放在这里，谁 import `platform` 谁就已经接好了。模块加载时就跑
@@ -326,7 +332,7 @@ export function resyncFromStorage(): void {
  *
  * 主题窗口与设置窗口也跑这段（同一个 bundle），对它们无害：那两个窗口没有编辑器。
  */
-export function applyEditorTypography(): void {
+export function applyEditorAppearance(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement.style;
 
@@ -338,18 +344,23 @@ export function applyEditorTypography(): void {
   );
   root.setProperty(EDITOR_CSS_VARS.contentWidth, settings.get('editor.contentWidth'));
   root.setProperty(EDITOR_CSS_VARS.fontFamily, editorFontStack(settings.get('editor.fontFamily')));
+  root.setProperty(
+    EDITOR_CSS_VARS.codeLineNumbers,
+    codeLineNumbersDisplay(settings.get('editor.codeBlockLineNumbers'))
+  );
 }
 
-applyEditorTypography();
+applyEditorAppearance();
 
 for (const path of [
   'editor.fontSize',
   'editor.lineHeight',
   'editor.paragraphSpacing',
   'editor.contentWidth',
-  'editor.fontFamily'
+  'editor.fontFamily',
+  'editor.codeBlockLineNumbers'
 ] as const) {
-  settings.subscribe(path, applyEditorTypography);
+  settings.subscribe(path, applyEditorAppearance);
 }
 
 /**

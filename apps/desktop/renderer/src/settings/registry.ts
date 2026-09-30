@@ -515,6 +515,29 @@ export const FONT_FAMILY_FIELD: FieldDef = {
 };
 
 /**
+ * 代码块行号。
+ *
+ * 与上面几项不同，它**没有 DOM 之外的落点** —— 渲染由 `packages/editor` 的
+ * `.cm-visual-code-content-line[data-code-line-number]::before` 负责，开关只切那个伪元素的
+ * `display`。所以这里除了写 store 什么都不用做：变量由 `platform.ts` 统一写。
+ *
+ * `menu: false`：行号是「翻代码时偶尔想收起来」的东西，不值得占一格菜单。
+ */
+export const CODE_BLOCK_LINE_NUMBERS_FIELD: FieldDef = {
+  id: 'editor.codeBlockLineNumbers',
+  section: 'editor',
+  labelKey: 'settings.editor.codeBlockLineNumbers',
+  descriptionKey: 'settings.editor.codeBlockLineNumbersDescription',
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('editor.codeBlockLineNumbers')),
+    write: (value) => settings.set('editor.codeBlockLineNumbers', value === 'true'),
+    subscribe: (listener) => settings.subscribe('editor.codeBlockLineNumbers', listener)
+  },
+  menu: false
+};
+
+/**
  * 当前工作区根。轻量模式（只打开了一个文件）下没有工作区，`data` 组里依赖它的动作据此禁用 ——
  * 让按钮点得动、点了什么都不发生，比禁用加一行原因更糟。
  */
@@ -579,6 +602,7 @@ export const FIELDS: readonly FieldDef[] = [
   LINE_HEIGHT_FIELD,
   PARAGRAPH_SPACING_FIELD,
   CONTENT_WIDTH_FIELD,
+  CODE_BLOCK_LINE_NUMBERS_FIELD,
   PANEL_WIDTH_FIELD,
   REBUILD_INDEX_FIELD,
   OPEN_HISTORY_DIR_FIELD

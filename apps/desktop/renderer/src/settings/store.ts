@@ -31,6 +31,7 @@ import {
   EDITOR_FONT_SIZE,
   EDITOR_LINE_HEIGHT,
   EDITOR_PARAGRAPH_SPACING,
+  CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY,
   parseNumberSetting,
   serializeNumberSetting,
   type NumberSettingSpec
@@ -61,7 +62,7 @@ const DEFAULT_SECTION = 'appearance';
 
 /**
  * 数值项的样板：夹取规则只在 `editor-typography.ts` 写一份，这里只负责接上。
- * 六个排版 / 行为项里有三个是数值，各写一遍 parse 必然有一处漏夹。
+ * 七个外观 / 行为项里有三个是数值，各写一遍 parse 必然有一处漏夹。
  */
 function numberSetting(spec: NumberSettingSpec) {
   return defineSetting<number>({
@@ -173,7 +174,20 @@ export const SETTING_DEFS = {
     EDITOR_FONT_FAMILY_STORAGE_KEY,
     EDITOR_FONT_FAMILY_DEFAULT,
     EDITOR_FONT_FAMILIES.map((family) => family.value)
-  )
+  ),
+
+  /**
+   * 代码块行号。判据同 `general.autoSave`：**只有显式的 `'false'` 算关**。
+   *
+   * 行号是读代码时的定位依据，关掉之后 `::before` 整块消失、没有别的入口把它找回来；
+   * 存档里一个写坏的字符就静默改变外观，代价和收益不对等。默认值是开 —— 与改版前一致。
+   */
+  'editor.codeBlockLineNumbers': defineSetting<boolean>({
+    storageKey: CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY,
+    fallback: true,
+    parse: (raw) => raw !== 'false',
+    serialize: (value) => String(value)
+  })
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;

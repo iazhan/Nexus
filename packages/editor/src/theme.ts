@@ -4,9 +4,9 @@ import { tags as t } from "@lezer/highlight";
 
 // Nexus Unified Theme using CSS Variables (Design Tokens)
 //
-// 排版三项（字号 / 字体 / 行高）与段落间距走 `--nx-editor-*` 而不是主题 token：它们是**用户偏好**，
-// 不是主题的一部分 —— 换主题不该把字号重置回去。变量由宿主（App.css 的 `:root` 给默认值、
-// 渲染进程按设置覆盖）提供，包内只引用。
+// 排版四项（字号 / 字体 / 行高 / 段间距）、内容宽度与代码块行号开关走 `--nx-editor-*` 而不是主题
+// token：它们是**用户偏好**，不是主题的一部分 —— 换主题不该把字号或行号重置回去。变量由宿主
+// （App.css 的 `:root` 给默认值、渲染进程按设置覆盖）提供，包内只引用。
 //
 // 字号是**基准**：标题与行内元素一律用 `em`，所以改这一个值整篇一起缩放。
 export const nexusBaseTheme = EditorView.theme({
@@ -358,7 +358,8 @@ export const nexusBaseTheme = EditorView.theme({
   },
   ".cm-visual-code-content-line[data-code-line-number]::before": {
     content: "attr(data-code-line-number)",
-    display: "inline-block",
+    // 行号的显示开关。`none` 让整个伪元素盒子不生成，左侧留白一起收掉。
+    display: "var(--nx-editor-code-line-numbers, inline-block)",
     minWidth: "2.5ch",
     marginRight: "12px",
     paddingRight: "8px",

@@ -540,20 +540,21 @@ describe('设置视图 · Appearance', () => {
  */
 describe('设置视图 · Editor', () => {
   /**
-   * 排版项会被写进 `documentElement` 的样式，而那是**跨用例共享**的全局状态 ——
+   * 外观项会被写进 `documentElement` 的样式，而那是**跨用例共享**的全局状态 ——
    * 不还原的话「改了字号」这条会污染后面所有读变量的用例。
    */
-  function resetTypography(): void {
+  function resetEditorAppearance(): void {
     settings.set('editor.panelWidth', PANEL_DEFAULT_WIDTH);
     settings.set('editor.fontSize', 14);
     settings.set('editor.lineHeight', 1.6);
     settings.set('editor.paragraphSpacing', 0);
     settings.set('editor.contentWidth', 'none');
     settings.set('editor.fontFamily', 'default');
+    settings.set('editor.codeBlockLineNumbers', true);
   }
 
   beforeEach(() => {
-    resetTypography();
+    resetEditorAppearance();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -562,13 +563,14 @@ describe('设置视图 · Editor', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    resetTypography();
+    resetEditorAppearance();
   });
 
-  it('编辑器分组渲染字段表里的字段（mermaid 开关 + 面板宽度）', () => {
+  it('编辑器分组渲染字段表里的字段（mermaid 开关 + 排版 + 面板宽度）', () => {
     renderSettings('editor');
 
     expect(container.querySelector('[data-field="editor.mermaidClickToReveal"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="editor.codeBlockLineNumbers"]')).not.toBeNull();
     expect(container.querySelector('[data-field="editor.panelWidth"]')).not.toBeNull();
   });
 
@@ -622,7 +624,7 @@ describe('设置视图 · Editor', () => {
    * 判据取注册表里的 `resetValue`，因为重置键就是照它画的：两者不一致时，
    * 「重置」会把人送回一个从未存在过的样子。
    */
-  it('排版项的默认值就是改版前的观感（14 / 1.6 / 0 / 跟随窗口 / 等宽）', () => {
+  it('外观项的默认值就是改版前的观感（14 / 1.6 / 0 / 跟随窗口 / 等宽 / 行号开）', () => {
     const byId = new Map(FIELDS.map((field) => [field.id, field]));
 
     expect(byId.get('editor.fontSize')?.resetValue).toBe('14');
@@ -633,6 +635,7 @@ describe('设置视图 · Editor', () => {
     expect(settings.get('editor.paragraphSpacing')).toBe(0);
     expect(settings.get('editor.contentWidth')).toBe('none');
     expect(settings.get('editor.fontFamily')).toBe('default');
+    expect(settings.get('editor.codeBlockLineNumbers')).toBe(true);
     expect(settings.get('general.autoSave')).toBe(true);
   });
 
@@ -692,6 +695,32 @@ describe('设置视图 · Editor', () => {
     expect(document.documentElement.style.getPropertyValue('--nx-editor-content-width')).toBe(
       '880px'
     );
+  });
+
+  /**
+   * 代码块行号是**唯一一个没有 DOM 落点的外观项**：数字由 `packages/editor` 的 `::before`
+   * 用 `attr(data-code-line-number)` 画，设置只能切那个伪元素的 `display`。所以「改了没反应」
+   * 与「变量没写对」在这里是同一件事 —— 断言取变量值，不取开关的选中态。
+   */
+  it('关掉代码块行号写进存档，并把 display 变量切成 none', () => {
+    renderSettings('editor');
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[data-field-input="editor.codeBlockLineNumbers"]'
+    );
+    expect(toggle?.getAttribute('aria-checked')).toBe('true');
+    expect(
+      document.documentElement.style.getPropertyValue('--nx-editor-code-line-numbers')
+    ).toBe('inline-block');
+
+    act(() => toggle?.click());
+
+    expect(settings.get('editor.codeBlockLineNumbers')).toBe(false);
+    // `none` 让整个 `::before` 盒子不生成 —— 左侧留白一起收掉，正文贴回边框。
+    expect(document.documentElement.style.getPropertyValue('--nx-editor-code-line-numbers')).toBe(
+      'none'
+    );
+    expect(toggle?.getAttribute('aria-checked')).toBe('false');
   });
 });
 

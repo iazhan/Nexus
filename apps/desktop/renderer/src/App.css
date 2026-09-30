@@ -13,6 +13,7 @@
   --nx-editor-line-height: 1.6;
   --nx-editor-paragraph-spacing: 0px;
   --nx-editor-content-width: none;
+  --nx-editor-code-line-numbers: inline-block;
 }
 
 /*

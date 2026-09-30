@@ -67,4 +67,22 @@ describe('Editor Syntax Highlighting Theme', () => {
     view.destroy();
     parent.remove();
   });
+
+  /**
+   * 代码块行号的显示开关。
+   *
+   * 写死 `inline-block` 就等于「这个开关永远关不掉」，而设置页里它看起来仍然是个开关 ——
+   * 静默失效，只有盯着看才发现。断言取生成的 CSS 文本，因为 `EditorView.theme()` 的值
+   * 只在构造时求值，测试拿不到 spec 对象。
+   */
+  it('代码块行号的 display 走变量，而不是写死 inline-block', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({ parent, extensions: [nexusBaseTheme] });
+    const styles = Array.from(document.querySelectorAll('style')).map(s => s.textContent).join('\n');
+
+    expect(styles).toContain('var(--nx-editor-code-line-numbers');
+    view.destroy();
+    parent.remove();
+  });
 });

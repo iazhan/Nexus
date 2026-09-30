@@ -157,6 +157,20 @@ describe('设置窗口', () => {
       )
     ).toBe('18px');
 
+    // ④c′ 开关型的外观项走同一条链。行号没有 DOM 落点（数字是 `::before` 画的），
+    //     所以只能断言变量 —— 变量变了编辑器那边就一定变，渲染由 CSS 保证。
+    //     先读当前存档再点，不假定初始值是「开」：user-data-dir 不按用例隔离。
+    const lineNumbersBefore = await app.evaluate<string>(
+      `localStorage.getItem('nexus-editor-code-block-line-numbers') ?? 'true'`
+    );
+    const expectedLineNumberVar = lineNumbersBefore === 'true' ? 'none' : 'inline-block';
+    await app.click('[data-field-input="editor.codeBlockLineNumbers"]');
+    expect(
+      await app.evaluate<string>(
+        `document.documentElement.style.getPropertyValue('--nx-editor-code-line-numbers')`
+      )
+    ).toBe(expectedLineNumberVar);
+
     // ④d 数据分组的两个动作在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
     //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」
     //     这两件事只有真机验证得到，renderer 用例里那个 `window.nexus` 是打桩的。
@@ -193,6 +207,11 @@ describe('设置窗口', () => {
         `document.documentElement.style.getPropertyValue('--nx-editor-font-size')`
       )
     ).toBe('18px');
+    expect(
+      await app.evaluate<string>(
+        `document.documentElement.style.getPropertyValue('--nx-editor-code-line-numbers')`
+      )
+    ).toBe(expectedLineNumberVar);
 
     // ⑥ 单例：再触发一次不会开出第二个设置窗口。
     //    这里走 `evaluate` 直接调桥、不派发按键 —— 设置窗口持有焦点时主窗口的
@@ -221,7 +240,7 @@ describe('设置窗口', () => {
     // 或「停在数据分组」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。
     // 走 `localStorage` 直接清，不绕 UI。
     await app.evaluate(
-      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-settings-section');`
+      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-settings-section');`
     );
   }, 120000);
 });

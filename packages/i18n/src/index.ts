@@ -194,6 +194,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.contentWidthDescription':
       'Caps how wide a line can get and centres the text. Narrower columns are easier to read on a wide screen.',
     'settings.editor.contentWidth.none': 'Fill the window',
+    'settings.editor.codeBlockLineNumbers': 'Code block line numbers',
+    'settings.editor.codeBlockLineNumbersDescription':
+      'Number the lines down the left side of every code block.',
     'settings.data.rebuildIndex': 'Index',
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
@@ -602,6 +605,8 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.contentWidthDescription':
       '限制每行的最大宽度并把正文居中。宽屏上窄一些的栏更好读。',
     'settings.editor.contentWidth.none': '跟随窗口',
+    'settings.editor.codeBlockLineNumbers': '代码块行号',
+    'settings.editor.codeBlockLineNumbersDescription': '在代码块左侧逐行显示行号。',
     'settings.data.rebuildIndex': '索引',
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',

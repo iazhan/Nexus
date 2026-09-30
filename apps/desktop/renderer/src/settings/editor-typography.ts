@@ -1,19 +1,19 @@
 /**
- * 编辑器排版的取值域与磁盘键。**纯数据，不碰 DOM、不碰 store。**
+ * 编辑器外观设置的取值域与磁盘键。**纯数据，不碰 DOM、不碰 store。**
  *
  * 为什么要有这个文件：一个数值项有三处需要它的范围 —— `store.ts` 的 `parse` 要夹取、
  * `registry.ts` 的控件要 `min` / `max` / `step` / `resetValue`、`platform.ts` 要写 CSS 变量。
  * 三处各写一遍，改范围时漏掉一处不会报错，只会让「输入框允许 20、存档夹到 18」这种
  * 半生效状态长期存在。`panel-width.ts` 是同一个形状的先例。
  *
- * **三条默认值一律等于本批次之前的实际观感**（字号 14 / 行高 1.6 / 段间距 0 / 宽度跟随窗口 /
- * 等宽字体）。加设置项不是改默认样式 —— 装上这一版就该和上一版长得一模一样。
+ * **默认值一律等于本批次之前的实际观感**（字号 14 / 行高 1.6 / 段间距 0 / 宽度跟随窗口 /
+ * 等宽字体 / 行号开）。加设置项不是改默认样式 —— 装上这一版就该和上一版长得一模一样。
  *
  * 段间距默认 **0** 而不是调研里写的 8：这里的空行本身就占一个行高（约 22px），再加 8px
  * 是**改变**所有既有文档的排版，而不是给它一个可调项。
  *
  * 变量前缀是 `--nx-` 不是 `--nexus-`：后者是主题 token 的命名空间（由 `ThemeManager` 注入，
- * 归审计脚本管），而排版是用户偏好 —— 换主题不该把字号重置回去。见 `App.css` 头部。
+ * 归审计脚本管），而这些是用户偏好 —— 换主题不该把字号或行号重置回去。见 `App.css` 头部。
  */
 
 /** 一个数值项的完整取值域。`step` 只给控件用，不参与夹取。 */
@@ -55,6 +55,7 @@ export const EDITOR_PARAGRAPH_SPACING: NumberSettingSpec = {
 
 export const EDITOR_CONTENT_WIDTH_STORAGE_KEY = 'nexus-editor-content-width';
 export const EDITOR_FONT_FAMILY_STORAGE_KEY = 'nexus-editor-font-family';
+export const CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY = 'nexus-editor-code-block-line-numbers';
 export const AUTO_SAVE_STORAGE_KEY = 'nexus-auto-save';
 
 /** 磁盘字符串 → 数值。空串与非数字**回落到默认值**，不是夹到最小值（`Number('')` 是 0）。 */
@@ -110,11 +111,25 @@ export function editorFontStack(value: string): string {
   return EDITOR_FONT_FAMILIES.find((family) => family.value === value)?.stack ?? 'var(--font-mono)';
 }
 
-/** 排版变量名。`App.css` 的 `:root` 给出与上表一致的默认值，渲染进程按设置覆盖。 */
+/**
+ * 代码块行号的开关值。
+ *
+ * 写的是 `display` 而不是 `content`：行号是 `::before` 的生成内容，`content` 里要做
+ * 「显示数字 / 不显示」只能靠 `attr()` 与 `var()` 嵌套，取值来自伪元素上的属性，
+ * 这条路不保证解析。`display` 是普通属性，`none` 直接让整个伪元素盒子不生成 ——
+ * 顺带把左侧那截留白（`minWidth` + `marginRight` + `paddingRight`）一起收掉，
+ * 正文自然贴回左边框，不会留一条空槽。
+ */
+export function codeLineNumbersDisplay(visible: boolean): string {
+  return visible ? 'inline-block' : 'none';
+}
+
+/** 外观变量名。`App.css` 的 `:root` 给出与上表一致的默认值，渲染进程按设置覆盖。 */
 export const EDITOR_CSS_VARS = {
   fontSize: '--nx-editor-font-size',
   fontFamily: '--nx-editor-font-family',
   lineHeight: '--nx-editor-line-height',
   paragraphSpacing: '--nx-editor-paragraph-spacing',
-  contentWidth: '--nx-editor-content-width'
+  contentWidth: '--nx-editor-content-width',
+  codeLineNumbers: '--nx-editor-code-line-numbers'
 } as const;
