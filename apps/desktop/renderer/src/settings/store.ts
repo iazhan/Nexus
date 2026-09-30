@@ -56,6 +56,9 @@ import {
   EXTERNAL_CHANGE_STORAGE_KEY,
   parseNumberSetting,
   serializeNumberSetting,
+  UI_ZOOM_DEFAULT,
+  UI_ZOOM_OPTIONS,
+  UI_ZOOM_STORAGE_KEY,
   type NumberSettingSpec
 } from './preference-specs.js';
 
@@ -261,6 +264,18 @@ export const SETTING_DEFS = {
     parse: parseKeybindingOverrides,
     serialize: serializeKeybindingOverrides
   }),
+
+  /**
+   * 界面缩放。**档位字符串**（`'100'` / `'125'`…），不是倍率 —— 倍率在写进 `webFrame`
+   * 那一刻才算（`ui-zoom.ts` 的 `uiZoomFactor`），存档里存的是用户看到的那个数。
+   *
+   * 与 `editor.fontSize` 的区别是刻意的：那个只改文档正文，这个把整个窗口一起缩放。
+   */
+  'appearance.uiZoom': choiceSetting(
+    UI_ZOOM_STORAGE_KEY,
+    UI_ZOOM_DEFAULT,
+    UI_ZOOM_OPTIONS
+  ),
 
   /**
    * 附件存放位置。**这一项与下面两项是「先有功能、再有设置项」的顺序** —— 粘贴图片落盘

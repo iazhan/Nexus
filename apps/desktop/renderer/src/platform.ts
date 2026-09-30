@@ -371,6 +371,27 @@ for (const path of [
 }
 
 /**
+ * 把界面缩放应用到**当前窗口**。
+ *
+ * 走 `window.nexus.setUiZoom` 而不是 CSS：缩放是布局视口的属性（`webFrame.setZoomFactor`），
+ * 用 `transform: scale()` 仿一个会让所有命中测试与 `getBoundingClientRect` 一起偏掉。
+ *
+ * **每个窗口各调一次**（值来自同一份存档）：设置窗口、主题窗口都是独立的 `webContents`，
+ * 缩放是它们各自的属性。本文件被三个窗口共用，所以「谁 import platform 谁就已经接好了」。
+ *
+ * 首帧之前的那一次在 preload（`preload/ui-zoom.ts`）—— 这里跑在 React 首次渲染之前，
+ * 用来兜住「存档里的档位认不出来」这类 preload 与 renderer 判据不一致的情形。
+ */
+export function applyUiZoom(): void {
+  if (typeof window === 'undefined') return;
+  window.nexus?.setUiZoom?.(settings.get('appearance.uiZoom'));
+}
+
+applyUiZoom();
+
+settings.subscribe('appearance.uiZoom', applyUiZoom);
+
+/**
  * 本窗口刚改了本机偏好：让主进程广播给别的窗口。
  *
  * 三个写入口（`SettingsStore.set` / 语言 / mermaid 偏好）都要调它 —— 漏一个的症状是

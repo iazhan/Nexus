@@ -264,11 +264,67 @@ describe('设置窗口', () => {
     await app.click('.nexus-activity-icon[data-activity="settings"]');
     await app.waitForPageCount(SETTINGS_WINDOW_URL_MARKER, 1, 15000);
 
+    // ⑨ 界面缩放：**每个窗口各自应用**，所以这条链比主题那条更长 —— 广播 → 两个窗口各自的
+    //    `applyUiZoom` → 各自的 `webFrame`。判据取 `window.innerWidth`：缩放改的是**布局视口**，
+    //    档位翻一倍视口就该明显变窄。换个 `data-*` 只能证明代码跑了，证明不了窗口真的重排了。
+    //
+    //    量之前先等宽度稳定：`setZoomFactor` 之后的重排不是同步完成的，直接读会拿到旧值。
+    const stableWidth = async (): Promise<number> => {
+      let previous = await app.evaluate<number>('window.innerWidth');
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const next = await app.evaluate<number>('window.innerWidth');
+        if (next === previous) return next;
+        previous = next;
+      }
+      return previous;
+    };
+
+    // 基准在主窗口里量，档位也在本窗口里复位 —— `set()` 的订阅是同步的，量到的就是 100% 的宽度。
+    // user-data-dir 不按用例隔离，初始档位不能假定是 100%。
+    await app.evaluate(
+      `(() => { window.nexusSettings.set('appearance.uiZoom', '100'); return true; })()`
+    );
+    const mainBaseWidth = await stableWidth();
+
+    await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
+    // 窗口会停在存档里的上次分组（第 ⑤ 步点过 `data`），而缩放字段在外观分组 ——
+    // 不切分组就等字段，等的是「当前内容区里永远不出现的节点」。
+    await app.click('.nexus-settings-nav [data-section="appearance"]');
+    await app.waitForSelector('[data-field-input="appearance.uiZoom"]', 10000);
+    await app.evaluate(
+      `(() => { window.nexusSettings.set('appearance.uiZoom', '100'); return true; })()`
+    );
+    const settingsBaseWidth = await stableWidth();
+
+    // 走 UI 改档位（不是直接写桥）：这条链路要验的是「设置页那个下拉框真的接对了」。
+    await app.evaluate(`(() => {
+      const select = document.querySelector('[data-field-input="appearance.uiZoom"]');
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      setter.call(select, '200');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    expect(await app.evaluate<string>(`localStorage.getItem('nexus-ui-zoom') ?? ''`)).toBe('200');
+
+    const settingsZoomedWidth = await stableWidth();
+    expect(settingsZoomedWidth).toBeLessThan(settingsBaseWidth * 0.6);
+
+    // 主窗口也跟过来 —— 这才是「跨窗口」那条判据。
+    await app.attachToWindow(MAIN_WINDOW_URL_MARKER);
+    const mainZoomedWidth = await stableWidth();
+    expect(mainZoomedWidth).toBeLessThan(mainBaseWidth * 0.6);
+
+    // 复位：把窗口留在 200% 上，后面任何量尺寸的用例都会从一个没预期的布局起步。
+    await app.evaluate(
+      `(() => { window.nexusSettings.set('appearance.uiZoom', '100'); return true; })()`
+    );
+    expect(await stableWidth()).toBeGreaterThan(mainBaseWidth * 0.9);
+
     // 还原字号与上次停留的分组：Electron 的 user-data-dir **没有按用例隔离**，留一个 18px
     // 或「停在数据分组」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。
     // 走 `localStorage` 直接清，不绕 UI。
     await app.evaluate(
-      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-settings-section');`
+      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-settings-section'); localStorage.removeItem('nexus-ui-zoom');`
     );
   }, 120000);
 });

@@ -173,6 +173,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.action.failed': 'That did not work. See the log for details.',
     'settings.appearance.themeMode': 'Mode',
     'settings.appearance.themePreset': 'Theme',
+    'settings.appearance.uiZoom': 'Interface scale',
+    'settings.appearance.uiZoomDescription':
+      'Scales the whole window — panels, menus and the editor together. To change only the text inside documents, use the editor font size.',
     'settings.general.autoSave': 'Save automatically',
     'settings.general.autoSaveDescription':
       'Writes to disk shortly after you stop typing. Turning it off does not remove saving — use Ctrl+S or close the window.',
@@ -633,6 +636,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.action.failed': '操作失败，详情见日志。',
     'settings.appearance.themeMode': '模式',
     'settings.appearance.themePreset': '主题',
+    'settings.appearance.uiZoom': '界面缩放',
+    'settings.appearance.uiZoomDescription':
+      '把整个窗口一起缩放：面板、菜单与编辑器。只想改文档里的正文字号的话，用「编辑器 → 正文字号」。',
     'settings.general.autoSave': '自动保存',
     'settings.general.autoSaveDescription':
       '停止输入后自动写盘。关掉它不等于关掉保存能力 —— 仍可用 Ctrl+S，或关闭窗口时保存。',

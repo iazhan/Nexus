@@ -7,8 +7,11 @@
  * 半生效状态长期存在。`panel-width.ts` 是同一个形状的先例。
  *
  * 覆盖面是**本机偏好**：编辑器外观（排版 / 代码块行号 / 表格列宽）、通用行为
- * （自动保存开关与延迟、外部修改时怎么处理）与文件落盘（附件放哪、叫什么）。
+ * （自动保存开关与延迟、外部修改时怎么处理）、文件落盘（附件放哪、叫什么）与界面缩放。
  * 主题与用户主题**不在这里** —— 那是 `@nexus/theme` 的领域，存档形状由 `parseUserThemes` 负责。
+ *
+ * **界面缩放是唯一一处把取值域留在别处的**：它要在首帧之前生效，那份口径必须放在 preload
+ * 拿得到的地方（见 `preload/ui-zoom.ts` 的头注释），这里只转出并补上标签。
  *
  * **默认值一律等于加设置项之前的实际观感与行为**（字号 14 / 行高 1.6 / 段间距 0 / 宽度跟随窗口 /
  * 等宽字体 / 代码块行号开 / 表格列宽 auto / 自动保存开且延迟 800ms / 外部修改走 smart）。
@@ -22,6 +25,11 @@
  */
 
 import { DEFAULT_ATTACHMENT_DIRECTORY, DEFAULT_ATTACHMENT_NAME_TEMPLATE } from '@nexus/core';
+import {
+  UI_ZOOM_DEFAULT,
+  UI_ZOOM_OPTIONS,
+  UI_ZOOM_STORAGE_KEY
+} from '../../../preload/ui-zoom.js';
 
 /** 一个数值项的完整取值域。`step` 只给控件用，不参与夹取。 */
 export interface NumberSettingSpec {
@@ -194,6 +202,19 @@ export const ATTACHMENT_LOCATION_DEFAULT = 'document';
  */
 export const ATTACHMENT_DIRECTORY_DEFAULT = DEFAULT_ATTACHMENT_DIRECTORY;
 export const ATTACHMENT_NAME_TEMPLATE_DEFAULT = DEFAULT_ATTACHMENT_NAME_TEMPLATE;
+
+/**
+ * UI 缩放。**取值口径（磁盘键 / 档位 / 解析）住在 `preload/ui-zoom.ts`** —— 那个文件
+ * 要在首帧之前把缩放应用上去，所以它才是那份规则的所在地；这里只补一件它不需要的东西：
+ * 给档位配标签（`100%` 是给人看的，不是存档格式）。
+ *
+ * 与「编辑器 → 正文字号」是两件事：那个只改文档正文，这个把整个窗口一起缩放（面板、菜单、
+ * 编辑器）。两条路都要有 —— 高分屏上想把整个界面放大的人不该被迫只放大正文。
+ */
+export { UI_ZOOM_STORAGE_KEY, UI_ZOOM_OPTIONS, UI_ZOOM_DEFAULT };
+
+export const UI_ZOOM_OPTIONS_LABELLED: ReadonlyArray<{ value: string; label: string }> =
+  UI_ZOOM_OPTIONS.map((value) => ({ value, label: `${value}%` }));
 
 /**
  * 代码块行号的开关值。

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BUILT_IN_PRESETS, BUILT_IN_SCHEMES, DEFAULT_THEME_CHOICE } from '@nexus/theme';
 import { formatShortcut } from '@nexus/command';
 import { translate } from '@nexus/i18n';
@@ -533,6 +533,74 @@ describe('设置视图 · Appearance', () => {
     });
 
     expect(new Set(shapes).size).toBe(SECTIONS.length);
+  });
+});
+
+/**
+ * 界面缩放。
+ *
+ * 它由 `AppearanceSection` 亲自渲染（外观分组是手写组件），但**判据仍然走通用字段行**的
+ * `data-*` —— 控件本身是 `FieldRow`，只是挂在哪由分组决定。
+ *
+ * 「应用缩放」不在字段的 `write` 里，而是 `platform.ts` 的订阅；所以这里要断言的是
+ * **桥被调到了**，而不只是存档写了。
+ */
+describe('设置视图 · 界面缩放', () => {
+  let setUiZoom: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    settings.set('appearance.uiZoom', '100');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    setUiZoom = vi.fn();
+    (window as unknown as { nexus: unknown }).nexus = { setUiZoom };
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    delete (window as unknown as { nexus?: unknown }).nexus;
+    settings.set('appearance.uiZoom', '100');
+  });
+
+  it('外观分组渲染出界面缩放，默认 100%', () => {
+    renderSettings('appearance');
+
+    const select = container.querySelector<HTMLSelectElement>(
+      '[data-field-input="appearance.uiZoom"]'
+    );
+    expect(select).not.toBeNull();
+    expect(select?.value).toBe('100');
+    expect(settings.get('appearance.uiZoom')).toBe('100');
+  });
+
+  it('改档位写进存档，并把倍率交给桥', () => {
+    renderSettings('appearance');
+
+    const select = container.querySelector<HTMLSelectElement>(
+      '[data-field-input="appearance.uiZoom"]'
+    );
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      setter?.call(select, '125');
+      select?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(settings.get('appearance.uiZoom')).toBe('125');
+    // 桥收的是**档位字符串**，不是倍率 —— 换算那一步只有一份，在 `preload/ui-zoom.ts`
+    // 里（renderer 侧的 `uiZoomFactor` 也是从那里转出来的）。
+    expect(setUiZoom).toHaveBeenCalledWith('125');
+  });
+
+  it('存档里是认不出的档位时回落 100%', () => {
+    // 存档是用户能改的：留一个渲染不出来的档位，表现是下拉框一个都不选中。
+    localStorage.setItem('nexus-ui-zoom', '1000');
+    settings.reload();
+
+    expect(settings.get('appearance.uiZoom')).toBe('100');
+    localStorage.removeItem('nexus-ui-zoom');
   });
 });
 

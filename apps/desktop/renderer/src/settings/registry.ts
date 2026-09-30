@@ -48,7 +48,8 @@ import {
   EDITOR_LINE_HEIGHT,
   EDITOR_PARAGRAPH_SPACING,
   EDITOR_TABLE_LAYOUT_OPTIONS,
-  EXTERNAL_CHANGE_OPTIONS
+  EXTERNAL_CHANGE_OPTIONS,
+  UI_ZOOM_OPTIONS_LABELLED
 } from './preference-specs.js';
 import type { MenuBarItem } from '../MenuBar.js';
 
@@ -371,6 +372,31 @@ export const LOCALE_FIELD: FieldDef = {
     subscribe: (listener) => localeManager.subscribe(listener)
   },
   menu: true
+};
+
+/**
+ * 界面缩放。**进设置页、不进菜单** —— 它不是「现在想大一点」这种即时动作，是装机时定一次的事。
+ *
+ * 与主题两轴一样，它由 `AppearanceSection` 亲自渲染（`FieldRow` 那套通用控件在这里只是
+ * 一个小组件），所以字段表里这一项的意义是**给设置页一个可渲染的定义**，而不是被
+ * `FieldList` 自动扫出来。
+ *
+ * 应用缩放**不在这里的 `write` 里**：那件事归 `platform.ts` 的订阅（本窗口改与另一个窗口
+ * 广播两条路都要走到），字段只负责读写存档。
+ */
+export const UI_ZOOM_FIELD: FieldDef = {
+  id: 'appearance.uiZoom',
+  section: 'appearance',
+  labelKey: 'settings.appearance.uiZoom',
+  descriptionKey: 'settings.appearance.uiZoomDescription',
+  control: 'select',
+  options: UI_ZOOM_OPTIONS_LABELLED,
+  accessor: {
+    read: () => settings.get('appearance.uiZoom'),
+    write: (value) => settings.set('appearance.uiZoom', value),
+    subscribe: (listener) => settings.subscribe('appearance.uiZoom', listener)
+  },
+  menu: false
 };
 
 export const MERMAID_FIELD: FieldDef = {
@@ -800,6 +826,7 @@ export const ATTACHMENT_NAME_TEMPLATE_FIELD: FieldDef = {
 export const FIELDS: readonly FieldDef[] = [
   THEME_MODE_FIELD,
   THEME_PRESET_FIELD,
+  UI_ZOOM_FIELD,
   LOCALE_FIELD,
   MERMAID_FIELD,
   AUTO_SAVE_FIELD,

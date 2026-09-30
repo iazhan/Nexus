@@ -117,6 +117,13 @@ export interface NexusBridge {
    */
   openThemeWindow: () => Promise<void>;
   /**
+   * 应用界面缩放。值是 `ui-zoom.ts` 里的**档位字符串**（`'100'` / `'125'`…），
+   * 不是倍率 —— 取值域的校验在那份口径里，这条桥只负责把值交给 `webFrame`。
+   *
+   * 同步方法（返回 `void`）：它只是设置当前窗口的缩放，没有可等的 IO。
+   */
+  setUiZoom: (value: string) => void;
+  /**
    * 「本窗口刚改了本机偏好」。主进程收到后广播给**其他**窗口，让它们重读存档。
    *
    * 单向 `send` 而不是 `invoke`：广播没有返回值，也不该让写盘路径去等一个 IPC 往返。
