@@ -39,6 +39,13 @@ export const IPC_CHANNELS = {
   openHistoryDirectory: 'nexus:open-history-directory',
   /** 在系统文件管理器里打开该工作区的索引库目录（在 `userData` 下）。不存在时返回 `false`。 */
   openIndexDirectory: 'nexus:open-index-directory',
+  /**
+   * 该工作区的索引库**文件**路径（`.db`）。设置页把它当只读值显示。
+   *
+   * 与上面那条是同一个库的两半 —— 两者都由主进程的 `index-path.ts` 算出，所以
+   * 「显示的位置」与「打开的位置」不会分家。
+   */
+  getIndexPath: 'nexus:get-index-path',
   setDirty: 'nexus:set-dirty',
   requestSaveAndClose: 'nexus:request-save-and-close',
   readyToClose: 'nexus:ready-to-close',

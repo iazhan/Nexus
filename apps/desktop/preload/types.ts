@@ -102,6 +102,17 @@ export interface NexusBridge {
    * 目录不存在（这个工作区还没建过索引）时返回 `false`，而不是抛异常。
    */
   openIndexDirectory: (rootPath: string) => Promise<boolean>;
+  /**
+   * 该工作区的索引库**文件**路径（`.db`，在 `userData` 下）。
+   *
+   * 与 `openIndexDirectory` 是同一个库的两半：那个把文件管理器开到它所在的目录，这个把
+   * 路径交给界面显示 —— 用户想知道「索引到底落在哪」时，光能打开目录是不够的
+   * （目录里是一堆哈希名，看不出哪个是本工作区的）。
+   *
+   * 目录还没建过索引时**照样返回路径**：它是工作区路径的纯函数，值不依赖文件是否存在。
+   * 工作区未授权时主进程抛异常，不返回空串 —— 路径里含 `userData`，不该对任意输入给出来。
+   */
+  getIndexPath: (rootPath: string) => Promise<string | null>;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;

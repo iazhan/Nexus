@@ -9,6 +9,7 @@ import {
   SETTINGS_WINDOW_URL_MARKER,
   type ElectronAppInstance
 } from './smoke-harness.js';
+import { indexPathForWorkspace } from '../electron/index-path.js';
 
 /**
  * 设置窗口的真机接线。
@@ -282,6 +283,38 @@ describe('设置窗口', () => {
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-field-blocked]').length`)
     ).toBe(0);
+
+    // ④d′ 索引那一项的**只读值**：显示的是主进程算出的库文件路径。
+    //     这一条要三样东西同时成立才过：preload 暴露了 `getIndexPath`、主进程在设置窗口的
+    //     会话里认这个工作区、`FieldRow` 把值画出来了。renderer 用例里那个 `window.nexus`
+    //     是打桩的，证明不了前两样。
+    await app.waitForSelector('[data-field-readonly="data.openIndexDirectory"]', 10000);
+    const shownIndexPath = await app.evaluate<string>(
+      `document.querySelector('[data-field-readonly="data.openIndexDirectory"]').textContent`
+    );
+    // ① 形状：绝对路径、落在 `workspace-index` 下、文件名是 16 位十六进制加 `.db`。
+    expect(shownIndexPath).toMatch(/[\\/]workspace-index[\\/][0-9a-f]{16}\.db$/);
+    // ② 它是**本工作区**那一个：文件名与纯函数按主进程授权的那条根算出的摘要一致。
+    //    只比 basename 不比整串 —— 前缀是 `userData`，用例看不见它，硬拼一个出来只会
+    //    把「路径分隔符规范化」这类无关差异变成红灯。
+    const authorizedRoot = await app.evaluate<string[]>(`window.nexus.getWorkspaceRoots()`);
+    expect(path.basename(shownIndexPath)).toBe(
+      path.basename(indexPathForWorkspace('userData', authorizedRoot[0] as string))
+    );
+    // ③ 最硬的一条：**建库真的建在这儿**。①② 只证明「同一个函数算了两遍」，
+    //    这一条才证明 `openIndexStore` 与设置页走的是同一条路径。索引是进工作区时
+    //    侧栏预热建的（用的是启动参数里的原始路径，大小写与这里的根不同），
+    //    所以这一条同时是「归一化真的生效」的哨兵 —— 归一没做时它会红，而
+    //    ①② 都照样绿。给它一个上限等库文件落盘。
+    const deadline = Date.now() + 15000;
+    while (!fs.existsSync(shownIndexPath) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(fs.existsSync(shownIndexPath)).toBe(true);
+    // 只读值只画这一处：别的动作字段跟着多一行路径时是接线接错了。
+    expect(
+      await app.evaluate<number>(`document.querySelectorAll('[data-field-readonly]').length`)
+    ).toBe(1);
 
     // ④e 文件与链接分组：五项都由 `FIELDS` 派生渲染，这里只钉住「注册表里加了一项，
     //     真窗口里就真的多一个控件」—— 少一条 `FieldDef` 时 renderer 用例与真机用例

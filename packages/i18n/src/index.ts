@@ -267,7 +267,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.openHistoryDirectoryAction': 'Open history folder',
     'settings.data.openIndexDirectory': 'Search index',
     'settings.data.openIndexDirectoryDescription':
-      'The index lives in the app data folder, not in your workspace. Open it to see how large it got or to delete it and rebuild from scratch.',
+      'The index lives in the app data folder, not in your workspace. The file below is this workspace’s index — open its folder to see how large it got, or to delete it and rebuild from scratch.',
     'settings.data.openIndexDirectoryAction': 'Open index folder',
     'settings.data.needsWorkspace': 'Open a workspace to use this.',
     'settings.keybindings.remappable': 'Keyboard shortcuts',
@@ -755,7 +755,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.openHistoryDirectoryAction': '打开历史目录',
     'settings.data.openIndexDirectory': '搜索索引',
     'settings.data.openIndexDirectoryDescription':
-      '索引放在应用数据目录里，不在工作区中。打开它可以看它有多大，或删掉重建。',
+      '索引放在应用数据目录里，不在工作区中。下面这个文件就是本工作区的索引 —— 打开它所在的目录可以看它有多大，或删掉重建。',
     'settings.data.openIndexDirectoryAction': '打开索引目录',
     'settings.data.needsWorkspace': '打开一个工作区后才能使用。',
     'settings.keybindings.remappable': '快捷键',

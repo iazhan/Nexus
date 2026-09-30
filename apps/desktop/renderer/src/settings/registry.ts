@@ -245,6 +245,18 @@ export interface FieldDef {
    * 它开着的期间工作区不会变（换工作区要重开主窗口）。
    */
   probe?: () => Promise<string | null>;
+  /**
+   * 只读值：这一行在控件上方显示的一行文本，用户改不了。
+   *
+   * **异步**，因为它要问主进程 —— 索引库落在 `userData` 下，那个路径只有主进程算得出。
+   * 与 `probe` 同一套纪律：挂载时取一次，取不到（或没有工作区）就**不画那一行**，
+   * 而不是画一个空框。设置窗口是短命窗口，它开着的期间工作区不会变，所以不重取。
+   *
+   * 它**不是** `accessor` 的只读版：`accessor` 那套读 / 写 / 订阅是给「用户能改的值」用的，
+   * 而只读值没有写入口。混进去会让「这个字段有没有值」这个判据变含糊 —— 菜单投影正是
+   * 按 `accessor` 有无来决定能不能读的。
+   */
+  readonlyValue?: () => Promise<string | null>;
   /** `action` 按钮的文案键。缺省用 `labelKey`。 */
   actionLabelKey?: string;
   /** 是否投影进菜单。投影的是**所有** `menu: true` 的字段，不按分组过滤。 */
@@ -872,13 +884,18 @@ export const OPEN_HISTORY_DIR_FIELD: FieldDef = {
 };
 
 /**
- * 打开索引库目录。
+ * 打开索引库目录 + 显示它的位置。
  *
  * 索引落在 `%APPDATA%` 而不是工作区里（ADR-0003 判过：索引是可重建的派生数据，不该污染
  * 用户的目录）。副作用是**用户根本找不到它** —— 于是「索引出问题时想看一眼 / 想删掉重建」
- * 只能靠猜路径。这个入口就是补那一格。
+ * 只能靠猜路径。这一项补的就是那一格，而且是**两半**：
  *
- * 目录名里是工作区路径的哈希，用户看不懂是正常的：这里只负责把文件管理器打开到那儿。
+ * * 只读值（`readonlyValue`）把**文件路径**显示出来。目录里是一堆哈希名，只说「在某个目录下」
+ *   等于没说 —— 用户要能一眼认出哪个是本工作区的。
+ * * 按钮把文件管理器开到它所在的**目录**：那是「删掉重建」时真正要动手的地方。
+ *
+ * 两半都由主进程的 `index-path.ts` 算出，所以「显示的位置」与「打开的位置」不会分家。
+ * 这也解释了为什么它们是**一个字段**而不是两个：它们说的是同一件事，拆开会让两者漂移。
  */
 export const OPEN_INDEX_DIR_FIELD: FieldDef = {
   id: 'data.openIndexDirectory',
@@ -888,6 +905,11 @@ export const OPEN_INDEX_DIR_FIELD: FieldDef = {
   control: 'action',
   actionLabelKey: 'settings.data.openIndexDirectoryAction',
   probe: workspaceProbe,
+  readonlyValue: async () => {
+    const root = await currentWorkspaceRoot();
+    if (!root) return null;
+    return (await window.nexus?.getIndexPath(root)) ?? null;
+  },
   run: async () => {
     const root = await currentWorkspaceRoot();
     if (!root) return;

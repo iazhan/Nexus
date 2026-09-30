@@ -11,6 +11,10 @@
  * 控件覆盖 `radio / select / toggle / number / text / action`。`preset` **不在这里**：
  * 那是主题卡片网格（专用组件）。
  *
+ * 除控件之外还有一行**只读值**（`FieldDef.readonlyValue`）：说明下面、控件上面的一段文本，
+ * 用来把「某个只有主进程算得出的东西」显示出来（索引库路径）。它不是一个控件 ——
+ * 没有选中态、没有写入口，所以不走 `controlFor` 那条 switch。
+ *
  * 重置键的显隐判据是 `resetValue` 且**当前值不等于它** —— 见 `FieldDef.resetValue` 的注释。
  */
 
@@ -56,6 +60,39 @@ function useFieldValue(field: FieldDef): string {
   );
   const getSnapshot = useCallback(() => field.accessor?.read() ?? '', [field]);
   return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+/**
+ * 只读值（`FieldDef.readonlyValue`）。与 `ActionControl` 里那段探测同一个形状：
+ * 挂载时取一次，失败与「没有值」都表现为**不画那一行** —— 一行空白比一行 `undefined` 好。
+ *
+ * 刻意**不重试、不给刷新键**：这个值是工作区路径的纯函数，设置窗口开着的期间它不会变。
+ * 加一个刷新键只会让人以为它是个会过期的缓存。
+ */
+function useReadonlyValue(field: FieldDef): string | null {
+  const [value, setValue] = useState<string | null>(null);
+
+  useEffect(() => {
+    const read = field.readonlyValue;
+    if (!read) {
+      setValue(null);
+      return;
+    }
+    let alive = true;
+    void read().then(
+      (next) => {
+        if (alive) setValue(next);
+      },
+      () => {
+        if (alive) setValue(null);
+      }
+    );
+    return () => {
+      alive = false;
+    };
+  }, [field]);
+
+  return value;
 }
 
 const NumberControl: React.FC<{ field: FieldDef; label: string; value: string }> = ({
@@ -363,6 +400,7 @@ function controlFor(field: FieldDef, label: string, t: Translate, value: string)
 export const FieldRow: React.FC<{ field: FieldDef }> = ({ field }) => {
   const { t } = useLocale();
   const value = useFieldValue(field);
+  const readonlyValue = useReadonlyValue(field);
   const label = t(field.labelKey);
   const description = field.descriptionKey ? t(field.descriptionKey) : null;
   const resettable = field.resetValue !== undefined && value !== field.resetValue;
@@ -385,6 +423,13 @@ export const FieldRow: React.FC<{ field: FieldDef }> = ({ field }) => {
         ) : null}
       </div>
       {description ? <p className="nexus-settings-field-description">{description}</p> : null}
+      {/* 只读值排在说明**下面**、控件上面：它是对说明里那句「落在哪」的具体回答，
+          离说明近、离按钮也近。它不可选、不可改，所以是一段文本而不是输入框。 */}
+      {readonlyValue !== null ? (
+        <p className="nexus-settings-field-readonly" data-field-readonly={field.id}>
+          {readonlyValue}
+        </p>
+      ) : null}
       {controlFor(field, label, t, value)}
     </div>
   );

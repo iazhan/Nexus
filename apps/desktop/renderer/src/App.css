@@ -2158,6 +2158,22 @@ body.nexus-resizing {
   color: var(--nexus-text-muted);
 }
 
+/* 只读值（`FieldDef.readonlyValue`）：路径这类「用户改不了、但需要看得见」的一段文本。
+   做成有边框的块而不是裸文本 —— 裸文本会被当成说明的一部分，而它的内容是**数据**。
+   等宽字体 + `word-break: break-all`：路径里没有空格，默认断行规则下它会横向撑破容器。 */
+.nexus-settings-field-readonly {
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 4px;
+  background-color: var(--nexus-bg-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--nexus-text-primary);
+  word-break: break-all;
+}
+
 .nexus-settings-options {
   display: flex;
   flex-wrap: wrap;

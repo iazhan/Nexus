@@ -11,8 +11,8 @@ import {
   type HistoryEntry,
   type Unsubscribe
 } from '@nexus/core';
-import { createHash } from 'node:crypto';
 import { FileService } from './file-service.js';
+import { indexDirectoryForWorkspace, indexPathForWorkspace } from './index-path.js';
 import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js';
 import { createElectronFileDialog } from './file-dialog.js';
 import { HistoryStore, HISTORY_DIR } from './history-store.js';
@@ -501,13 +501,17 @@ const sessions = new Map<number, WebContentsSession>();
  * 索引本来就是可以随时重建的派生数据。
  *
  * 文件名用工作区路径的哈希 —— 同一个工作区重复打开会复用同一个库，
- * 不同工作区不会互相覆盖。
+ * 不同工作区不会互相覆盖。**路径本身怎么算在 `index-path.ts`**（纯函数，可单测）；
+ * 这里只负责把 `userData` 接上去，它是 `app.getPath` 唯一的出现处。
  */
 const indexStores = new Map<number, { rootPath: string; store: IndexStore }>();
 
-function indexPathForWorkspace(rootPath: string): string {
-  const digest = createHash('sha256').update(rootPath).digest('hex').slice(0, 16);
-  return path.join(app.getPath('userData'), 'workspace-index', `${digest}.db`);
+function indexPathFor(rootPath: string): string {
+  return indexPathForWorkspace(app.getPath('userData'), rootPath);
+}
+
+function indexDirectoryFor(rootPath: string): string {
+  return indexDirectoryForWorkspace(app.getPath('userData'), rootPath);
 }
 
 function openIndexStore(webContentsId: number, rootPath: string): IndexStore {
@@ -524,7 +528,7 @@ function openIndexStore(webContentsId: number, rootPath: string): IndexStore {
     }
   }
 
-  const dbPath = indexPathForWorkspace(rootPath);
+  const dbPath = indexPathFor(rootPath);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   const store = IndexStore.open(dbPath);
@@ -667,6 +671,29 @@ ipcMain.handle(IPC_CHANNELS.openHistoryDirectory, async (event, rootPath: unknow
 });
 
 /**
+ * 该工作区的索引库**文件**路径。与下面那条是同一个库的两半：这个只把路径交出去，
+ * 不打开任何东西。
+ *
+ * **仍然要查授权** —— 返回值里含 `userData` 的绝对路径。不查的话，任何渲染进程都能
+ * 拿一个任意字符串问出「你的用户数据目录在哪」。
+ *
+ * 目录不存在也照常返回：路径是工作区路径的**纯函数**，索引还没建时它照样是
+ * 「将来会建在这里」，而那正是用户想知道的。这一点与 `openIndexDirectory` 刻意不同 ——
+ * 那个要真的打开一个目录，目录不在就没得开。
+ */
+ipcMain.handle(IPC_CHANNELS.getIndexPath, async (event, rootPath: unknown) => {
+  if (typeof rootPath !== 'string' || rootPath.trim() === '') return null;
+
+  const { service } = getOrCreateSession(event.sender);
+  const authorizedRoots = service.getWorkspaceRoots();
+  if (!authorizedRoots.some((root) => path.resolve(root) === path.resolve(rootPath))) {
+    throw new Error('getIndexPath: 该工作区尚未授权');
+  }
+
+  return indexPathFor(rootPath);
+});
+
+/**
  * 打开索引库目录。
  *
  * 与上面那条同一套纪律：**路径由主进程拼**，不接受渲染进程给的目录。索引落在 `userData` 下
@@ -684,7 +711,7 @@ ipcMain.handle(IPC_CHANNELS.openIndexDirectory, async (event, rootPath: unknown)
     throw new Error('openIndexDirectory: 该工作区尚未授权');
   }
 
-  const indexDir = path.dirname(indexPathForWorkspace(rootPath));
+  const indexDir = indexDirectoryFor(rootPath);
   if (!fs.existsSync(indexDir)) return false;
 
   const failure = await shell.openPath(indexDir);

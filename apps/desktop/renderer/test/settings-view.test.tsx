@@ -1389,16 +1389,32 @@ describe('设置视图 · 快捷键', () => {
 /**
  * 动作字段（`control: 'action'`）。它没有值，只有「能不能按」与「按完怎么了」两种状态 ——
  * 所以判据是 `disabled` 与两行回执，不是选中态。
+ *
+ * 索引那一项还多一条**只读值**（`FieldDef.readonlyValue`）：索引库落在 `userData` 下，
+ * 路径只有主进程算得出，所以它是一个**异步取一次**的文本行。判据是「画出来的字符串
+ * 就是桥给的那一个」—— 渲染进程自己拼一条看起来对的路径时，这一条会红。
  */
 describe('设置视图 · 动作字段', () => {
   const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
 
-  function stubBridge(roots: string[]): {
+  /** 桥给回来的索引库路径。故意用一条**渲染进程推不出来**的值（真路径里含 userData）。 */
+  const INDEX_PATH = 'C:/Users/tester/AppData/Roaming/Nexus/workspace-index/9f3a1c07b4e2d8a5.db';
+
+  function stubBridge(
+    roots: string[],
+    indexPath: string | null = INDEX_PATH
+  ): {
     rebuilds: string[];
     opened: string[];
     openedIndex: string[];
+    askedPaths: string[];
   } {
-    const calls = { rebuilds: [] as string[], opened: [] as string[], openedIndex: [] as string[] };
+    const calls = {
+      rebuilds: [] as string[],
+      opened: [] as string[],
+      openedIndex: [] as string[],
+      askedPaths: [] as string[]
+    };
     (window as unknown as { nexus: unknown }).nexus = {
       getWorkspaceRoots: () => Promise.resolve(roots),
       rebuildIndex: (rootPath: string) => {
@@ -1412,15 +1428,25 @@ describe('设置视图 · 动作字段', () => {
       openIndexDirectory: (rootPath: string) => {
         calls.openedIndex.push(rootPath);
         return Promise.resolve(true);
+      },
+      getIndexPath: (rootPath: string) => {
+        calls.askedPaths.push(rootPath);
+        return Promise.resolve(indexPath);
       }
     };
     return calls;
   }
 
-  /** 探测是异步的，要让 `probe` 的 Promise 落地再断言。 */
+  /**
+   * 探测与只读值都是异步的，要让它们的 Promise 链落地再断言。
+   *
+   * 三跳而不是一跳：只读值那条链是 `getWorkspaceRoots` → `getIndexPath` → `setState`，
+   * 每 `await` 一次吃掉一个微任务。少给几跳的表现是「只读值偶尔画不出来」，
+   * 而那种失败会随执行顺序变，最难查。
+   */
   async function settle(): Promise<void> {
     await act(async () => {
-      await Promise.resolve();
+      for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
     });
   }
 
@@ -1514,6 +1540,87 @@ describe('设置视图 · 动作字段', () => {
 
     expect(container.querySelector('[data-field-reset="data.rebuildIndex"]')).toBeNull();
     expect(container.querySelector('[data-field-reset="data.openHistoryDirectory"]')).toBeNull();
+  });
+
+  /**
+   * 只读值。判据是「画出来的就是桥给的那一条」而不是「画出了一条路径」——
+   * 渲染进程自己拼一条形似的路径（比如拿工作区根拼）时，只有前者会红。
+   */
+  it('索引那一项显示主进程给的库文件路径，并拿工作区根去问', async () => {
+    const calls = stubBridge(['E:/notes']);
+    renderSettings('data');
+    await settle();
+
+    const readonly = container.querySelector('[data-field-readonly="data.openIndexDirectory"]');
+    expect(readonly?.textContent).toBe(INDEX_PATH);
+    // 值不是渲染进程造的：它是拿当前工作区根问主进程要来的。
+    expect(calls.askedPaths).toEqual(['E:/notes']);
+  });
+
+  /** 只读值是**文本**，不是一个控件 —— 没有输入框、没有可点的东西。 */
+  it('只读值不画输入框，也不是按钮', async () => {
+    stubBridge(['E:/notes']);
+    renderSettings('data');
+    await settle();
+
+    expect(
+      container.querySelector('[data-field-input="data.openIndexDirectory"]')
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-field-readonly="data.openIndexDirectory"]')?.tagName
+    ).toBe('P');
+  });
+
+  /** 这一行只属于索引那一项。别的动作字段跟着多出一行路径时，是接线接错了。 */
+  it('同组另外两个动作字段没有只读值', async () => {
+    stubBridge(['E:/notes']);
+    renderSettings('data');
+    await settle();
+
+    expect(container.querySelectorAll('[data-field-readonly]')).toHaveLength(1);
+    expect(container.querySelector('[data-field-readonly="data.rebuildIndex"]')).toBeNull();
+    expect(container.querySelector('[data-field-readonly="data.openHistoryDirectory"]')).toBeNull();
+  });
+
+  /** 没有工作区时连那一行也不画 —— 而不是画一个空框。 */
+  it('没有工作区时不画只读值', async () => {
+    stubBridge([]);
+    renderSettings('data');
+    await settle();
+
+    expect(container.querySelector('[data-field-readonly]')).toBeNull();
+  });
+
+  /**
+   * 主进程说「这条路径我算不出来」时（返回 `null`）同样不画。
+   * 画一行 `null` 或空串都会让用户以为索引坏了。
+   */
+  it('桥返回空时不画只读值', async () => {
+    stubBridge(['E:/notes'], null);
+    renderSettings('data');
+    await settle();
+
+    expect(container.querySelector('[data-field-readonly]')).toBeNull();
+  });
+
+  /**
+   * 取路径失败不该把整页拖垮：这一行是附加信息，没有它按钮照样能用。
+   * 断言到「按钮还在且可按」这一层 —— 只断言「没抛异常」的话，React 把子树卸载掉也算过。
+   */
+  it('取路径失败时只丢那一行，按钮照常可用', async () => {
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve(['E:/notes']),
+      getIndexPath: () => Promise.reject(new Error('boom')),
+      openIndexDirectory: () => Promise.resolve(true)
+    };
+    renderSettings('data');
+    await settle();
+
+    expect(container.querySelector('[data-field-readonly]')).toBeNull();
+    expect(
+      container.querySelector<HTMLButtonElement>('[data-field-action="data.openIndexDirectory"]')
+        ?.disabled
+    ).toBe(false);
   });
 });
 
