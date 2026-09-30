@@ -781,9 +781,16 @@ ipcMain.handle(IPC_CHANNELS.writeFile, async (event, filePath: string, content: 
   await session.service.writeFile(filePath, content);
 });
 
-ipcMain.handle(IPC_CHANNELS.saveAs, async (event, content: string) => {
+/**
+ * 另存为。`defaultPath` 决定对话框停在哪个目录（`files.newDocumentLocation`），
+ * 收 `unknown` 后自己判类型 —— 它跨了进程边界，编译期形状不作数。
+ */
+ipcMain.handle(IPC_CHANNELS.saveAs, async (event, content: string, defaultPath?: unknown) => {
   const session = getOrCreateSession(event.sender);
-  return await session.service.saveAs(content);
+  return await session.service.saveAs(
+    content,
+    typeof defaultPath === 'string' && defaultPath.length > 0 ? defaultPath : null
+  );
 });
 
 /**

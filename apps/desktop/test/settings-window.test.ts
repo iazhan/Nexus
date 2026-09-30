@@ -103,7 +103,8 @@ describe('设置窗口', () => {
       )
     ).toBe(2);
     // 数据分组这一批转可用：里面是两个动作（重建索引 / 打开历史目录）。
-    // 文件与链接分组随「粘贴图片落盘」转可用（附件存放位置 / 子目录名 / 命名模板）。
+    // 文件与链接分组随「粘贴图片落盘」转可用（附件存放位置 / 子目录名 / 命名模板），
+    // 后又加了「新建文档默认位置」。
     expect(
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('.nexus-settings-nav [data-availability="available"]')).map((el) => el.getAttribute('data-section'))`
@@ -215,6 +216,26 @@ describe('设置窗口', () => {
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-field-blocked]').length`)
     ).toBe(0);
+
+    // ④e 文件与链接分组：四项都由 `FIELDS` 派生渲染，这里只钉住「注册表里加了一项，
+    //     真窗口里就真的多一个控件」—— 少一条 `FieldDef` 时 renderer 用例与真机用例
+    //     会一起漏，因为两边读的是同一个 `FIELDS`。
+    await app.click('.nexus-settings-nav [data-section="files"]');
+    // 这一项是 `radio`，它画的是 `data-field-option` 而不是 `data-field-input`。
+    await app.waitForSelector(
+      '[data-field-option="files.newDocumentLocation:document"]',
+      10000
+    );
+    expect(
+      await app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('[data-field]')).map((el) => el.dataset.field)`
+      )
+    ).toEqual([
+      'files.attachmentLocation',
+      'files.attachmentDirectory',
+      'files.attachmentNameTemplate',
+      'files.newDocumentLocation'
+    ]);
 
     // ⑤ 跨窗口同步：切回主窗口，它也换过来了。
     //    这条是独立窗口方案最容易漏的地方 —— 两个渲染进程各有一份 `SettingsStore`，

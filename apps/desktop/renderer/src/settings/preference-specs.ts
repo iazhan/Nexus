@@ -203,6 +203,45 @@ export const ATTACHMENT_LOCATION_DEFAULT = 'document';
 export const ATTACHMENT_DIRECTORY_DEFAULT = DEFAULT_ATTACHMENT_DIRECTORY;
 export const ATTACHMENT_NAME_TEMPLATE_DEFAULT = DEFAULT_ATTACHMENT_NAME_TEMPLATE;
 
+export const NEW_DOCUMENT_LOCATION_STORAGE_KEY = 'nexus-new-document-location';
+
+/**
+ * 新建文档的默认位置。**它决定的是「第一次保存时对话框停在哪个目录」**，不是「文件立刻写到哪」——
+ * 新建出来的是一份未命名文档，落盘时机仍然是用户按保存那一刻。
+ *
+ * 这个区别必须写在描述文案里：叫「默认位置」很容易被读成「新建即写盘」，
+ * 那样用户会以为 `Ctrl+N` 之后磁盘上已经多了个文件（实际没有）。
+ *
+ * 两个选项而不是「任意目录」：任意目录要先有一个目录选择器（系统对话框），
+ * 而它只服务这一项；`document` / `workspace` 覆盖了绝大多数情况，
+ * 剩下的人按一次对话框里的「上一级」即可。
+ */
+/**
+ * 两个取值提成常量：`newDocumentDirectory`（`renderer/src/paths.ts`）要按它分支，
+ * 而分支里写裸字符串等于把同一个字面量写两遍 —— 改一处、另一处静默失效，
+ * 症状是「选了工作区根目录，对话框还是停在文档旁边」。
+ */
+export const NEW_DOCUMENT_LOCATION_DOCUMENT = 'document';
+export const NEW_DOCUMENT_LOCATION_WORKSPACE = 'workspace';
+
+export const NEW_DOCUMENT_LOCATION_OPTIONS: ReadonlyArray<{ value: string; labelKey: string }> = [
+  {
+    value: NEW_DOCUMENT_LOCATION_DOCUMENT,
+    labelKey: 'settings.files.newDocumentLocation.document'
+  },
+  {
+    value: NEW_DOCUMENT_LOCATION_WORKSPACE,
+    labelKey: 'settings.files.newDocumentLocation.workspace'
+  }
+];
+
+/**
+ * `document` 是默认，也是这一版之前的实际观感：那时对话框没有 `defaultPath`，由系统决定停在哪。
+ * 「与当前文档同目录」是最保守的替代 —— 它至少是用户刚才在的地方，而不是一个随机目录。
+ * 轻量模式下没有工作区，选 `workspace` 会回落到同一处。
+ */
+export const NEW_DOCUMENT_LOCATION_DEFAULT = NEW_DOCUMENT_LOCATION_DOCUMENT;
+
 /**
  * UI 缩放。**取值口径（磁盘键 / 档位 / 解析）住在 `preload/ui-zoom.ts`** —— 那个文件
  * 要在首帧之前把缩放应用上去，所以它才是那份规则的所在地；这里只补一件它不需要的东西：

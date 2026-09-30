@@ -30,7 +30,13 @@ export interface NexusBridge {
   copyText: (text: string) => Promise<boolean>;
   readFile: (filePath: string) => Promise<string>;
   writeFile: (filePath: string, content: string) => Promise<void>;
-  saveAs: (content: string) => Promise<string>;
+  /**
+   * 另存为，返回用户选中的路径（取消时抛 `CANCELLED`，由调用方 catch）。
+   *
+   * `defaultPath` 只决定对话框**打开时停在哪个目录**（`files.newDocumentLocation`
+   * 的落地处），不限制能去哪 —— 它是给「新建文档第一次保存」用的默认起点。
+   */
+  saveAs: (content: string, defaultPath?: string | null) => Promise<string>;
   /**
    * 把粘贴进来的图片写到文档目录（或其子目录）下，返回**实际落盘的绝对路径**。
    *

@@ -49,6 +49,7 @@ import {
   EDITOR_PARAGRAPH_SPACING,
   EDITOR_TABLE_LAYOUT_OPTIONS,
   EXTERNAL_CHANGE_OPTIONS,
+  NEW_DOCUMENT_LOCATION_OPTIONS,
   UI_ZOOM_OPTIONS_LABELLED
 } from './preference-specs.js';
 import type { MenuBarItem } from '../MenuBar.js';
@@ -780,6 +781,27 @@ export const ATTACHMENT_LOCATION_FIELD: FieldDef = {
 };
 
 /**
+ * 新建文档的默认位置。放在 `files` 组**最后**：它管的是「新文档从哪儿开始」，
+ * 与上面三项「已有文档的附件往哪儿放」是两条时间线，混在一起读会以为它们相关。
+ *
+ * 用 `radio` 与第一项一致（两个选项，短语长度相当）。
+ */
+export const NEW_DOCUMENT_LOCATION_FIELD: FieldDef = {
+  id: 'files.newDocumentLocation',
+  section: 'files',
+  labelKey: 'settings.files.newDocumentLocation',
+  descriptionKey: 'settings.files.newDocumentLocationDescription',
+  control: 'radio',
+  options: NEW_DOCUMENT_LOCATION_OPTIONS,
+  accessor: {
+    read: () => settings.get('files.newDocumentLocation'),
+    write: (value) => settings.set('files.newDocumentLocation', value),
+    subscribe: (listener) => settings.subscribe('files.newDocumentLocation', listener)
+  },
+  menu: false
+};
+
+/**
  * 附件子目录名。**与上一项是两个字段而不是「一项带一个输入框」** —— 控件表只认一个
  * `control`，而「单选 + 输入」这种复合控件在 `FieldDef` 里表达不出来。拆成两项的代价是
  * 它在 `attachmentLocation` 选「与文档同目录」时仍然可编辑。
@@ -844,6 +866,7 @@ export const FIELDS: readonly FieldDef[] = [
   ATTACHMENT_LOCATION_FIELD,
   ATTACHMENT_DIRECTORY_FIELD,
   ATTACHMENT_NAME_TEMPLATE_FIELD,
+  NEW_DOCUMENT_LOCATION_FIELD,
   PANEL_WIDTH_FIELD,
   REBUILD_INDEX_FIELD,
   OPEN_HISTORY_DIR_FIELD,

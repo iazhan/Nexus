@@ -54,6 +54,9 @@ import {
   EXTERNAL_CHANGE_DEFAULT,
   EXTERNAL_CHANGE_OPTIONS,
   EXTERNAL_CHANGE_STORAGE_KEY,
+  NEW_DOCUMENT_LOCATION_DEFAULT,
+  NEW_DOCUMENT_LOCATION_OPTIONS,
+  NEW_DOCUMENT_LOCATION_STORAGE_KEY,
   parseNumberSetting,
   serializeNumberSetting,
   UI_ZOOM_DEFAULT,
@@ -315,7 +318,21 @@ export const SETTING_DEFS = {
     parse: (raw) =>
       raw === null || raw.trim() === '' ? ATTACHMENT_NAME_TEMPLATE_DEFAULT : raw,
     serialize: (value) => value
-  })
+  }),
+
+  /**
+   * 新建文档的默认位置。**它只决定保存对话框的起点**，不决定文件写到哪 ——
+   * 新建出来的仍是内存里的未命名文档，落盘时机还是用户按保存那一刻。
+   *
+   * 之所以做成设置项而不是写死「与当前文档同目录」：从轻量模式（只开了一个文件）新建时，
+   * 「当前文档同目录」与「工作区根」是**两个都说得通、但用户偏好不同**的答案 ——
+   * 有人希望草稿就近放，有人希望全进工作区。写死哪一个都会让另一半人不顺手。
+   */
+  'files.newDocumentLocation': choiceSetting(
+    NEW_DOCUMENT_LOCATION_STORAGE_KEY,
+    NEW_DOCUMENT_LOCATION_DEFAULT,
+    NEW_DOCUMENT_LOCATION_OPTIONS.map((option) => option.value)
+  )
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;

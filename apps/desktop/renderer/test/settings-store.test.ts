@@ -93,6 +93,20 @@ describe('设置存储 · 读初值', () => {
     expect(new SettingsStore().get('settings.lastSection')).toBe('appearance');
   });
 
+  /**
+   * 枚举项与主题那条判据**相反**：主题认不出就原样留着（保住用户的选择），
+   * 而枚举项认不出必须回落 —— 它的值会被拿去查表（`options` / 分支判断），
+   * 留一个表外的字符串只会让下游某个 `switch` 落进没有 `default` 的分支。
+   */
+  it('枚举项认不出的存档值回落到默认，不留表外的字符串', () => {
+    const key = SETTING_DEFS['files.newDocumentLocation'].storageKey;
+    localStorage.setItem(key, 'somewhere-else');
+    expect(new SettingsStore().get('files.newDocumentLocation')).toBe('document');
+
+    localStorage.setItem(key, 'workspace');
+    expect(new SettingsStore().get('files.newDocumentLocation')).toBe('workspace');
+  });
+
   it('构造后不再看外部对磁盘的改动 —— store 是权威', () => {
     const store = new SettingsStore();
     localStorage.setItem(THEME_STORAGE_KEY, DARK);

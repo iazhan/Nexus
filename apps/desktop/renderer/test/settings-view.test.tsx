@@ -938,7 +938,7 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改）', () => 
 });
 
 /**
- * 文件与链接分组（本批只做附件那三项）。
+ * 文件与链接分组（本批只做附件那三项 + 新建文档默认位置）。
  *
  * 这一组的判据不只是「渲染出来了」：**默认值必须等于加设置项之前的行为**（与文档同目录），
  * 而两个文本框的空串会被 `parse` 落回默认值 —— 那条只有真敲一遍才看得出。
@@ -948,6 +948,7 @@ describe('设置视图 · 文件与链接', () => {
     settings.set('files.attachmentLocation', 'document');
     settings.set('files.attachmentDirectory', 'assets');
     settings.set('files.attachmentNameTemplate', 'pasted-{timestamp}');
+    settings.set('files.newDocumentLocation', 'document');
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -959,18 +960,37 @@ describe('设置视图 · 文件与链接', () => {
     settings.set('files.attachmentLocation', 'document');
     settings.set('files.attachmentDirectory', 'assets');
     settings.set('files.attachmentNameTemplate', 'pasted-{timestamp}');
+    settings.set('files.newDocumentLocation', 'document');
   });
 
-  it('三项都渲染出来，默认值是「与文档同目录 / assets / pasted-{timestamp}」', () => {
+  it('四项都渲染出来，默认值是「与文档同目录 / assets / pasted-{timestamp} / 与当前文档同目录」', () => {
     renderSettings('files');
 
     expect(container.querySelector('[data-field="files.attachmentLocation"]')).not.toBeNull();
     expect(container.querySelector('[data-field="files.attachmentDirectory"]')).not.toBeNull();
     expect(container.querySelector('[data-field="files.attachmentNameTemplate"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="files.newDocumentLocation"]')).not.toBeNull();
 
     expect(settings.get('files.attachmentLocation')).toBe('document');
     expect(settings.get('files.attachmentDirectory')).toBe('assets');
     expect(settings.get('files.attachmentNameTemplate')).toBe('pasted-{timestamp}');
+    expect(settings.get('files.newDocumentLocation')).toBe('document');
+  });
+
+  it('改新建文档默认位置写进存档', () => {
+    renderSettings('files');
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[data-field-option="files.newDocumentLocation:workspace"]')
+        ?.click();
+    });
+    expect(settings.get('files.newDocumentLocation')).toBe('workspace');
+
+    // 枚举项不画重置键，与同组的附件存放位置一致。
+    expect(
+      container.querySelector('[data-field-reset="files.newDocumentLocation"]')
+    ).toBeNull();
   });
 
   it('改存放位置写进存档（枚举项不画重置键）', () => {

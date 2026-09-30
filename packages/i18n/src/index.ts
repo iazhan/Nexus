@@ -230,6 +230,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.files.attachmentNameTemplate': 'Attachment name',
     'settings.files.attachmentNameTemplateDescription':
       'Name without the extension, which comes from the file itself. {timestamp}, {date} and {time} are filled in at the moment you paste.',
+    'settings.files.newDocumentLocation': 'New document location',
+    'settings.files.newDocumentLocationDescription':
+      'Where the save dialog starts the first time you save a new document. Nothing is written until you save.',
+    'settings.files.newDocumentLocation.document': 'Folder of the current document',
+    'settings.files.newDocumentLocation.workspace': 'Workspace root',
     'settings.data.rebuildIndex': 'Index',
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
@@ -691,6 +696,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.files.attachmentNameTemplate': '附件命名模板',
     'settings.files.attachmentNameTemplateDescription':
       '不含扩展名 —— 扩展名取自文件本身。粘贴时会把 {timestamp}、{date}、{time} 换成当时的时间。',
+    'settings.files.newDocumentLocation': '新建文档默认位置',
+    'settings.files.newDocumentLocationDescription':
+      '新建的文档第一次保存时，对话框停在哪个目录。没按保存之前不会写任何东西到磁盘。',
+    'settings.files.newDocumentLocation.document': '与当前文档同目录',
+    'settings.files.newDocumentLocation.workspace': '工作区根目录',
     'settings.data.rebuildIndex': '索引',
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',

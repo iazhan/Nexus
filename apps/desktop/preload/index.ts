@@ -87,8 +87,8 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.writeFile, filePath, content);
   },
 
-  saveAs: (content: string): Promise<string> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.saveAs, content);
+  saveAs: (content: string, defaultPath?: string | null): Promise<string> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.saveAs, content, defaultPath ?? null);
   },
 
   saveAttachment: (request: SaveAttachmentRequest): Promise<string> => {

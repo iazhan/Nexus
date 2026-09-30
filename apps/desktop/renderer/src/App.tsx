@@ -65,6 +65,7 @@ import {
   type ActivityId
 } from './shell/activity-bar-state.js';
 import { projectMenuItems } from './settings/registry.js';
+import { getDocumentDirectory, getFileName, newDocumentDirectory } from './paths.js';
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
 
@@ -114,19 +115,6 @@ const SAVE_STATE_TONE: Record<EditorSaveState, string> = {
   'external-changed': 'conflict',
   deleted: 'deleted'
 };
-
-function getDocumentDirectory(filePath: string | null): string | null {
-  if (!filePath) return null;
-  const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
-  if (lastSlash === -1) return null;
-  return filePath.slice(0, lastSlash);
-}
-
-/** 取路径最后一段（文件名）。同时兼容 `/` 与 `\` —— 工作区路径可能来自任一侧。 */
-function getFileName(filePath: string | null): string {
-  if (!filePath) return '';
-  return filePath.replace(/^.*[\\/]/, '');
-}
 
 /**
  * 菜单项上显示的快捷键文案。**每次调用现读**当前生效表，所以取消绑定的项会当场变成
@@ -285,6 +273,19 @@ export const App: React.FC = () => {
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
+   * 「新建文档第一次保存时对话框停在哪」的一半答案（另一半是工作区根）。
+   *
+   * 为什么需要记：`Ctrl+N` 之后 `filePath` 就变成 `null` 了，等到按保存时**已经没有**
+   * 「当前文档」可问。所以要在有路径的时候把它记下来，而不是在需要的时候去取。
+   *
+   * 用 effect 跟着 `filePath` 走而不是在 `handleNewFile` 里赋值：这样
+   * 「打开文件 → 新建 → 保存」与「打开工作区 → 新建 → 保存」走同一条路径，
+   * 而且「关掉标签页补空白文档」那种非用户发起的情形也顺带覆盖到了。
+   * 只在拿到**目录**时更新 —— 换成未命名文档时 `filePath` 变 `null`，不该把记住的清掉。
+   */
+  const lastDocumentDirectoryRef = useRef<string | null>(null);
+
+  /**
    * 自动保存在设置里被关掉时，**把已经排上的那一次撤掉**。
    *
    * 只判断「要不要排新的」是不够的：用户改完字（计时器已排上）再去关自动保存，那一枪照样会响，
@@ -380,6 +381,12 @@ export const App: React.FC = () => {
   const filePath = activeDocument?.filePath ?? null;
   const saveState = activeDocument?.saveState ?? 'clean';
   const saveError = activeDocument?.saveError ?? null;
+
+  // 记住最近一次「有路径的文档」所在的目录，供新建文档保存时作默认位置（见 ref 处的注释）。
+  useEffect(() => {
+    const directory = getDocumentDirectory(filePath);
+    if (directory) lastDocumentDirectoryRef.current = directory;
+  }, [filePath]);
 
   /** 状态栏字数的显隐。走 `useSettingValue` 而不是 `settings.get`：后者不会在改设置时重渲染。 */
   const showCharacterCount = useSettingValue('editor.wordCount');
@@ -515,10 +522,24 @@ export const App: React.FC = () => {
     return queued;
   }, []);
 
+  /**
+   * 新建文档第一次保存时，对话框停在哪个目录（`files.newDocumentLocation`）。
+   *
+   * 判断本身在 `paths.ts` 的 `newDocumentDirectory` 里 —— 放那儿是为了能单测，
+   * 这里只负责把三个来源凑齐（设置值、工作区根、记住的目录）。
+   */
+  const newDocumentDefaultPath = useCallback((): string | null => {
+    return newDocumentDirectory(
+      settings.get('files.newDocumentLocation'),
+      workspaceRoot,
+      lastDocumentDirectoryRef.current
+    );
+  }, [workspaceRoot]);
+
   const performSaveAs = useCallback(async (currentSource: string): Promise<boolean> => {
     try {
       if (!window.nexus?.saveAs) return false;
-      const chosenPath = await window.nexus.saveAs(currentSource);
+      const chosenPath = await window.nexus.saveAs(currentSource, newDocumentDefaultPath());
       if (!chosenPath) return false;
       setFilePath(chosenPath);
       const sourceStillCurrent = session.getSnapshot().source === currentSource;
@@ -537,7 +558,7 @@ export const App: React.FC = () => {
       updateSaveState('error');
       return false;
     }
-  }, [session, updateSaveState]);
+  }, [session, updateSaveState, newDocumentDefaultPath]);
 
   // Save implementation
   const saveFile = useCallback((_options: { immediate?: boolean } = {}): Promise<boolean> => {

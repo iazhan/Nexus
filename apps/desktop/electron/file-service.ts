@@ -671,13 +671,19 @@ export class FileService {
 
   /**
    * 另存为文件：通过对话框选择新路径，原子写入并将其纳入 allowed file boundary。
+   *
+   * `defaultPath` 是对话框**打开时停在哪**（`files.newDocumentLocation` 的落地处）。
+   * 只影响起点，不限制选择范围 —— 保存对话框本来就可以去任何地方，这里没有加边界的理由：
+   * 用户显式选中的路径随后由 `allowedPaths` 纳入，与改版前一致。
    */
-  async saveAs(content: string): Promise<string> {
+  async saveAs(content: string, defaultPath?: string | null): Promise<string> {
     if (!this.dialog) {
       throw new FileServiceError('IO_ERROR', '未注入 FileDialog，无法打开保存对话框');
     }
 
-    const chosen = await this.dialog.saveFile();
+    const chosen = await this.dialog.saveFile(
+      defaultPath ? { defaultPath } : undefined
+    );
     if (!chosen) {
       throw new FileServiceError('CANCELLED', '用户取消了另存为');
     }

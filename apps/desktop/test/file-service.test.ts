@@ -331,6 +331,46 @@ describe('FileService & atomicWriteFile', () => {
     });
   });
 
+  /**
+   * `defaultPath` 是「新建文档默认位置」的落地处：它只决定对话框**停在哪**。
+   *
+   * 判据取「`saveFile` 收到了什么」而不是「文件写到了哪」—— 对话框在测试里是假的，
+   * 写盘路径由 mock 决定，与 defaultPath 无关。真正要钉住的是**参数有没有透传**。
+   */
+  describe('saveAs 把默认目录透传给对话框', () => {
+    it('给了 defaultPath 时应原样传给 saveFile', async () => {
+      const saveTarget = path.join(tempDir, 'draft.md');
+      const mockDialog: FileDialog = {
+        openFile: vi.fn().mockResolvedValue(null),
+        saveFile: vi.fn().mockResolvedValue(saveTarget)
+      };
+      const service = new FileService({ dialog: mockDialog });
+
+      await service.saveAs('# Draft', tempDir);
+
+      expect(mockDialog.saveFile).toHaveBeenCalledWith({ defaultPath: tempDir });
+    });
+
+    it('没给 defaultPath 时不传选项对象，保持加设置项之前的行为', async () => {
+      const saveTarget = path.join(tempDir, 'draft.md');
+      const mockDialog: FileDialog = {
+        openFile: vi.fn().mockResolvedValue(null),
+        saveFile: vi.fn().mockResolvedValue(saveTarget)
+      };
+      const service = new FileService({ dialog: mockDialog });
+
+      await service.saveAs('# Draft');
+      expect(mockDialog.saveFile).toHaveBeenLastCalledWith(undefined);
+
+      // 空串与 null 都按「没给」处理 —— 它们都不是可用的目录。
+      await service.saveAs('# Draft', '');
+      expect(mockDialog.saveFile).toHaveBeenLastCalledWith(undefined);
+
+      await service.saveAs('# Draft', null);
+      expect(mockDialog.saveFile).toHaveBeenLastCalledWith(undefined);
+    });
+  });
+
   describe('atomicWriteFile 正常保存与清理', () => {
     it('直接调用 atomicWriteFile 应成功落盘并清除临时文件', async () => {
       const targetPath = path.join(tempDir, 'atomic-test.md');
