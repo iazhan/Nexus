@@ -26,13 +26,18 @@ import {
   writeRecentWorkspace
 } from './recent-workspace.js';
 import { IndexStore } from './index-store.js';
-import { indexWorkspace } from './indexer.js';
+import { deriveTitle, indexWorkspace } from './indexer.js';
+import { rewriteReferencesInSource } from './link-rewrite.js';
 import { createProcessorRegistry } from './processor/index.js';
 import {
   DELETE_MODES,
   IPC_CHANNELS,
   type DeleteMode,
   type FileWatchIpcPayload,
+  type RenameFileChange,
+  type RenameFileRequest,
+  type RenameFileResult,
+  type RenameFileSkip,
   type WindowRole,
   type WindowState
 } from '../ipc/channels.js';
@@ -707,6 +712,200 @@ ipcMain.handle(IPC_CHANNELS.deleteFile, async (event, filePath: unknown, mode: u
   if (resolved === 'permanent') {
     forgetHistory(event, filePath);
   }
+});
+
+/**
+ * 校验渲染进程传来的重命名请求。**认不出的字段一律按最保守的一档处理，不猜。**
+ */
+function requireRenameRequest(value: unknown): RenameFileRequest {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('renameFile: 请求格式不正确');
+  }
+
+  const request = value as Partial<RenameFileRequest>;
+  if (typeof request.filePath !== 'string' || request.filePath.length === 0) {
+    throw new Error('renameFile: filePath 必须是非空字符串');
+  }
+  if (typeof request.newName !== 'string' || request.newName.trim().length === 0) {
+    throw new Error('renameFile: newName 必须是非空字符串');
+  }
+
+  return {
+    filePath: request.filePath,
+    newName: request.newName,
+    // 认不出的值回落 **false** ＝ 不改正文。这是一次「改别人文件」的动作，
+    // 失败方向必须是「不做」—— 与 `DeleteMode` 认不出落 `trash` 是同一条判据。
+    updateLinks: request.updateLinks === true,
+    skipPaths: Array.isArray(request.skipPaths)
+      ? request.skipPaths.filter((item): item is string => typeof item === 'string')
+      : [],
+    dryRun: request.dryRun === true
+  };
+}
+
+/** 绝对路径 → 工作区相对路径（正斜杠）。没有工作区或在工作区之外时返回 `null`。 */
+function relativeInWorkspace(root: string | null, filePath: string): string | null {
+  if (!root) return null;
+  const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
+  if (!relativePath || relativePath.startsWith('..')) return null;
+  return relativePath;
+}
+
+/**
+ * 重命名一个文件，并按需回写指向它的引用。
+ *
+ * ## 一条通道同时承担「试算」与「执行」
+ *
+ * `dryRun: true` 时只读盘、算计划、原样返回，**一个字节都不写**。分两条通道的话，
+ * 「预览用的计划」与「执行时重算的计划」会变成两份可能漂的代码，而它们必须完全一致
+ * —— 用户看到的和实际发生的对不上，比不给预览更糟。
+ *
+ * ## 回写的三条不变量要求（蓝图 §10.2 的口径）
+ *
+ * ① **语义不变** —— 改的是写法不是指向，判定用 `resolveWikiLink`（与「能不能跳转」
+ * 同一套），附件用 `resolveWorkspacePath`（与索引期同一套）。
+ * ② **可预览** —— `dryRun` 把每篇的 `before` / `after` 全文交给渲染进程画 diff。
+ * ③ **可回退** —— 写盘前 `recordHistory`，改前的内容进版本历史；历史目录跟着改名搬。
+ *
+ * ## 两处「不做什么」
+ *
+ * - **索引只改被改名那一行，不重算被回写文档的正文。** 后者与「用户自己编辑并保存」
+ *   是同一件事，而那条路径同样不重算（索引在侧栏挂载 / 手动重建时才刷新）。
+ *   为改名单独引入第二种刷新机制会让「索引什么时候是准的」变得说不清。
+ *   被改名那一行必须改 —— 它的 `path` 已经指向一个不存在的文件了。
+ * - **索引还没建过时不回写。** 没有文档列表就判定不了「这条引用指向谁」，
+ *   而猜着改正是这条功能最该避免的失败方式。
+ */
+ipcMain.handle(IPC_CHANNELS.renameFile, async (event, raw: unknown) => {
+  const request = requireRenameRequest(raw);
+  const session = getOrCreateSession(event.sender);
+  const store = getIndexStore(event.sender.id);
+  const root = session.workspaceRoot;
+
+  // 目标路径先算出来（含全部校验，不改盘）—— 预览要看到的就是它
+  const targetPath = await session.service.resolveRenameTarget(request.filePath, request.newName);
+
+  const fromRelative = relativeInWorkspace(root, request.filePath);
+  const toRelative = relativeInWorkspace(root, targetPath);
+  const documents = store?.listDocuments() ?? [];
+  const skipKeys = new Set(request.skipPaths.map((item) => item.toLowerCase()));
+
+  const changes: RenameFileChange[] = [];
+  const skipped: RenameFileSkip[] = [];
+
+  if (request.updateLinks && fromRelative !== null && toRelative !== null) {
+    for (const document of documents) {
+      // 附件没有正文可改
+      if (document.type !== 'markdown') continue;
+
+      let before: string;
+      try {
+        before = await session.service.readFile(document.path);
+      } catch {
+        // 读不动就跳过（权限、扫描途中被删）—— 不改比改错好
+        continue;
+      }
+
+      const rewritten = rewriteReferencesInSource(
+        before,
+        document.relativePath,
+        fromRelative,
+        toRelative,
+        documents
+      );
+
+      for (const target of rewritten.unresolved) {
+        skipped.push({ relativePath: document.relativePath, reason: 'unresolved', target });
+      }
+      if (rewritten.count === 0) continue;
+
+      // 有未保存修改的文档**照样读、照样算计划**，只是不写盘。这样报告才准确 ——
+      // 否则「N 篇文档有未保存的修改」里会混进一堆本来就没有引用的文档，
+      // 而「读」是只读的，没有任何风险。
+      if (skipKeys.has(document.path.toLowerCase())) {
+        skipped.push({ relativePath: document.relativePath, reason: 'dirty' });
+        continue;
+      }
+
+      changes.push({
+        path: document.path,
+        relativePath: document.relativePath,
+        before,
+        after: rewritten.text
+      });
+    }
+  }
+
+  if (request.dryRun) {
+    const plan: RenameFileResult = { renamed: null, changes, skipped };
+    return plan;
+  }
+
+  // 真的改：先改名 → 再搬历史 → 最后逐篇写回。
+  const renamedPath = await session.service.renameFile(request.filePath, request.newName);
+
+  // 历史按相对路径组织，改名后不搬目录的话「可回退」这条路自己就断了。
+  // 必须在写回之前：被改名那篇自己的快照要落在**新**路径下。
+  if (root && fromRelative !== null && toRelative !== null && fromRelative !== toRelative) {
+    try {
+      new HistoryStore(root).rename(fromRelative, toRelative);
+    } catch (err) {
+      console.error('[Nexus Shell] 搬历史目录失败（不影响改名）:', err);
+    }
+  }
+
+  const applied: RenameFileChange[] = [];
+
+  for (const change of changes) {
+    // 被改名的那一篇已经换了路径，写回要落到新路径上
+    const target =
+      change.path.toLowerCase() === request.filePath.toLowerCase() ? renamedPath : change.path;
+
+    let current: string;
+    try {
+      current = await session.service.readFile(target);
+    } catch {
+      skipped.push({ relativePath: change.relativePath, reason: 'changed' });
+      continue;
+    }
+
+    // 预览之后、执行之前被别人改了 —— 跳过。防的是「预览开着的时候用户在别的
+    // 编辑器里改了那篇文档」，而这条校验的成本极低（内容本来就在手里）。
+    if (current !== change.before) {
+      skipped.push({ relativePath: change.relativePath, reason: 'changed' });
+      continue;
+    }
+
+    try {
+      // 传 `after` 而不是 `current`：`recordHistory` 的语义是「即将写入 `content`，
+      // 先把盘上的旧内容留一份」。传 `current` 会命中它自己的「内容没变」短路，
+      // 一个快照都不会留 —— 那正是「可回退」这一条悄悄失效的方式。
+      recordHistory(session, target, change.after);
+      await session.service.writeFile(target, change.after);
+      applied.push(change);
+    } catch (err) {
+      console.error('[Nexus Shell] 回写引用失败:', err);
+      skipped.push({ relativePath: change.relativePath, reason: 'failed' });
+    }
+  }
+
+  // 索引那一行**就地**改，`id` 保持不变（见 `IndexStore.renameDocument`）。
+  // 不改的话树、标签页、图谱都还指着旧路径，而旧路径已经不存在了。
+  const newName = path.basename(renamedPath);
+  if (store && toRelative !== null) {
+    store.renameDocument(request.filePath, renamedPath, toRelative, newName, deriveTitle(newName));
+  }
+
+  const result: RenameFileResult = {
+    renamed: {
+      from: request.filePath,
+      to: renamedPath,
+      relativePath: toRelative ?? newName
+    },
+    changes: applied,
+    skipped
+  };
+  return result;
 });
 
 /**

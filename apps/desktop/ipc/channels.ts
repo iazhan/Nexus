@@ -26,6 +26,14 @@ export const IPC_CHANNELS = {
    * 都要过工作区边界。合起来会让一条通道既可能写坏文件也可能删掉文件。
    */
   deleteFile: 'nexus:delete-file',
+  /**
+   * 重命名一个文件（同目录、只改基名），并按需回写指向它的引用。
+   *
+   * 一条通道同时承担「试算」与「执行」两件事，用请求里的 `dryRun` 分开：预览要看到的
+   * 是**将要发生什么**，而那只有主进程算得出来（它手里才有索引与磁盘）。分成两条通道
+   * 会让「预览用的计划」与「执行时重算的计划」成为两份可能漂的代码。
+   */
+  renameFile: 'nexus:rename-file',
   watchFile: 'nexus:watch-file',
   unwatchFile: 'nexus:unwatch-file',
   fileWatchEvent: 'nexus:file-watch-event',
@@ -170,6 +178,74 @@ export type DeleteMode = 'trash' | 'permanent';
 
 /** 上面那个值的全部合法取值，主进程用它校验跨进程传来的 `unknown`。 */
 export const DELETE_MODES: readonly DeleteMode[] = ['trash', 'permanent'];
+
+/**
+ * 一次重命名请求。
+ *
+ * 形状定义在这里而不是 `electron/` 里：它是**跨进程的契约**，`NexusBridge`（preload）
+ * 与主进程两侧都要用它（同 `SaveAttachmentRequest` 的理由）。
+ */
+export interface RenameFileRequest {
+  /** 被改名文件的绝对路径。 */
+  filePath: string;
+  /** 新名字，**只含基名**（不含目录）。目录由主进程取原文件的目录 —— 见 `renameFile`。 */
+  newName: string;
+  /**
+   * 是否回写指向它的引用（`files.updateLinksOnRename`）。
+   *
+   * **随请求传参，不走宿主设置通道。** `syncHostSettings` 存在的理由是「**主进程主动
+   * 发起**的行为需要知道设置值」（索引扫描、历史修剪）—— 那些行为没有请求可依附。
+   * 重命名是渲染进程请求的，参数跟着请求走；顺手塞进 `HostSettings` 会让「谁在发起」
+   * 这条判据模糊掉。
+   */
+  updateLinks: boolean;
+  /**
+   * 不要动的文档（绝对路径）。渲染进程把**有未保存修改**的那些放进来。
+   *
+   * 回写它们等于跟用户的缓冲区打架：主进程改完盘，用户一保存就把回写覆盖回去 ——
+   * 那次回写白做，而且用户看不到任何异常。
+   *
+   * 必填（可以是空数组）：主进程要据此逐项校验，可选字段会逼出「undefined 算不算空」
+   * 这种没有正确答案的判断。
+   */
+  skipPaths: readonly string[];
+  /** `true` ＝ 只算计划、不落盘，给预览用。必填，理由同上。 */
+  dryRun: boolean;
+}
+
+/** 一篇将要（或已经）被改写的文档。`before` / `after` 是**全文**，预览画 diff 用。 */
+export interface RenameFileChange {
+  path: string;
+  relativePath: string;
+  before: string;
+  after: string;
+}
+
+/**
+ * 没能自动更新的一处。
+ *
+ * - `dirty` —— 渲染进程说这篇有未保存的修改，跳过了；
+ * - `changed` —— 预览之后、执行之前，这篇的内容在磁盘上变了（别的编辑器写的），跳过；
+ * - `unresolved` —— 认出来它指向被改名的那一个，但**写不出来**（名字里有 `]` `|` 之类）；
+ * - `failed` —— 写盘本身失败了（占用、权限）。
+ *
+ * 四种都要**如实报给用户**：静默跳过等于「链接自己断了」，而用户刚被告知过会一起改。
+ */
+export type RenameSkipReason = 'dirty' | 'changed' | 'unresolved' | 'failed';
+
+export interface RenameFileSkip {
+  relativePath: string;
+  reason: RenameSkipReason;
+  /** 仅 `unresolved`：认出来却写不出来的引用原文。 */
+  target?: string;
+}
+
+export interface RenameFileResult {
+  /** `dryRun` 时是 `null` —— 文件还没改。 */
+  renamed: { from: string; to: string; relativePath: string } | null;
+  changes: RenameFileChange[];
+  skipped: RenameFileSkip[];
+}
 
 /**
  * 索引库文件的文件系统事实。

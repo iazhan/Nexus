@@ -89,6 +89,30 @@ export interface ViewerDocument extends WorkspaceDocumentBase {
  */
 export type WorkspaceDocument = EditorDocument | ViewerDocument;
 
+/**
+ * 保存态里表示「内存里的缓冲区与磁盘不同步」的那四个。
+ *
+ * `deleted` 与 `readonly` 不在其中：前者文件已经不在盘上，后者是附件 —— 附件没有正文。
+ */
+const UNSAVED_STATES: readonly EditorSaveState[] = [
+  'dirty',
+  'saving',
+  'error',
+  'external-changed'
+];
+
+/**
+ * 这份文档有没有「磁盘上没有、只在内存里」的内容。
+ *
+ * **两处消费方共用这一条判据**：关标签页前要不要先落盘（`App.tsx` 的
+ * `handleCloseTab`）、改名回写时要跳过哪些文档（`workspace/rename.ts`）。
+ * 两处各写一遍的话，将来加一个保存态就会漏掉一处，而漏掉的那处症状是
+ * 「改了没保存的内容被覆盖」—— 所以放在这里，与文档形状同一个模块。
+ */
+export function hasUnsavedChanges(document: Pick<WorkspaceDocument, 'saveState'>): boolean {
+  return UNSAVED_STATES.includes(document.saveState);
+}
+
 export interface WorkspaceSnapshot {
   documents: readonly WorkspaceDocument[];
   activeId: string | null;

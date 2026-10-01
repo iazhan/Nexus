@@ -522,3 +522,148 @@ describe('工作区侧栏：右键删除入口与刷新', () => {
     expect(container.textContent).toContain('added.md');
   });
 });
+
+/**
+ * 内联改名的**分支**：哪一行变成输入框、提交时带的是哪个路径。
+ *
+ * 输入框自己的键盘矩阵在 `inline-rename.test.tsx` 里，这里只验侧栏这一侧：
+ * 判据用 `renamingPath` 去比对**绝对路径**（不是相对路径、不是名字）——
+ * 用错一个，症状是「点了重命名，变成输入框的是另一行」。
+ */
+describe('工作区侧栏：内联改名', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    delete (window as unknown as { nexus?: unknown }).nexus;
+    vi.restoreAllMocks();
+  });
+
+  async function mountSidebar(options: {
+    documents: IndexedDocument[];
+    renamingPath?: string | null;
+    onRenameCommit?: (filePath: string, newName: string) => void;
+    onRenameCancel?: () => void;
+  }): Promise<void> {
+    (window as unknown as { nexus: unknown }).nexus = {
+      rebuildIndex: vi.fn(async () => ({ ...OK_RESULT, scanned: options.documents.length })),
+      listIndexedDocuments: vi.fn(async () => options.documents)
+    };
+
+    await act(async () => {
+      root.render(
+        <WorkspaceSidebar
+          rootPath="/vault"
+          activeFilePath={null}
+          onOpenFile={vi.fn()}
+          renamingPath={options.renamingPath}
+          onRenameCommit={options.onRenameCommit}
+          onRenameCancel={options.onRenameCancel}
+        />
+      );
+    });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (container.querySelector('.nexus-workspace-sidebar')?.getAttribute('data-phase') === 'ready') {
+        return;
+      }
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+    throw new Error(`侧栏没有进入 ready：${container.innerHTML}`);
+  }
+
+  function input(): HTMLInputElement {
+    const element = container.querySelector<HTMLInputElement>('.nexus-tree-rename-input');
+    if (!element) throw new Error('没找到内联改名输入框');
+    return element;
+  }
+
+  function type(value: string): void {
+    const element = input();
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    act(() => {
+      setter?.call(element, value);
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  function press(key: string): void {
+    act(() => {
+      input().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+  }
+
+  it('笔记行命中 renamingPath 时换成输入框，初值是文件名（含扩展名）', async () => {
+    await mountSidebar({ documents: [doc('notes/dma.md')], renamingPath: '/vault/notes/dma.md' });
+
+    expect(input().value).toBe('dma.md');
+    // 那一行的按钮被替换掉，不是叠在上面 —— 叠着的话点一下会打开文件
+    expect(
+      container.querySelectorAll('.nexus-sidebar-section[data-section="notes"] .nexus-tree-file')
+    ).toHaveLength(0);
+  });
+
+  it('附件行走同一个入口（D6：附件一起做）', async () => {
+    await mountSidebar({ documents: [doc('assets/logo.png')], renamingPath: '/vault/assets/logo.png' });
+
+    expect(input().value).toBe('logo.png');
+    expect(container.querySelectorAll('.nexus-attachment-item')).toHaveLength(0);
+  });
+
+  it('路径对不上时一行都不换（用相对路径或名字比对就会错在这里）', async () => {
+    await mountSidebar({ documents: [doc('notes/dma.md')], renamingPath: 'notes/dma.md' });
+
+    expect(container.querySelector('.nexus-tree-rename-input')).toBeNull();
+    expect(container.querySelectorAll('.nexus-tree-file')).toHaveLength(1);
+  });
+
+  it('renamingPath 为 null 时不画输入框（默认状态）', async () => {
+    await mountSidebar({ documents: [doc('notes/dma.md')], renamingPath: null });
+
+    expect(container.querySelector('.nexus-tree-rename-input')).toBeNull();
+  });
+
+  it('提交时把绝对路径与新名字一起上报', async () => {
+    const onRenameCommit = vi.fn();
+    await mountSidebar({
+      documents: [doc('notes/dma.md')],
+      renamingPath: '/vault/notes/dma.md',
+      onRenameCommit
+    });
+
+    type('dma-2.md');
+    press('Enter');
+
+    // 路径是**绝对**路径：主进程要靠它做边界校验，相对路径过不去。
+    expect(onRenameCommit).toHaveBeenCalledWith('/vault/notes/dma.md', 'dma-2.md');
+  });
+
+  it('Escape 只取消，不上报提交', async () => {
+    const onRenameCommit = vi.fn();
+    const onRenameCancel = vi.fn();
+    await mountSidebar({
+      documents: [doc('notes/dma.md')],
+      renamingPath: '/vault/notes/dma.md',
+      onRenameCommit,
+      onRenameCancel
+    });
+
+    type('dma-2.md');
+    press('Escape');
+
+    expect(onRenameCancel).toHaveBeenCalledTimes(1);
+    expect(onRenameCommit).not.toHaveBeenCalled();
+  });
+});

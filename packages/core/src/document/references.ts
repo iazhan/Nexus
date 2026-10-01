@@ -1,5 +1,6 @@
 import { documentTypeForPath } from './extensions.js';
 import { normalizeWikilinkTarget } from './links.js';
+import { relativePathFrom } from './citation.js';
 
 /**
  * 从 Markdown 源码里扫出**它引用了哪些附件**（Phase 3 / P3-10）。
@@ -42,9 +43,13 @@ export interface AttachmentReferences {
  * 取舍：不处理嵌套方括号（为它写括号配平器会把「扫引用」变成半个 parser）；支持
  * `<...>` 与 `"title"`；不支持引用式链接 `[text][ref]`（要两趟解析，漏掉只是「不进
  * 索引」，将来补是纯新增）。`i` 标志只对 HTML 那半边有用。
+ *
+ * `d` 标志（`hasIndices`）是给回写用的：`rewriteAttachmentReferences()` 必须知道
+ * **每个分组在源码里的位置**才能只换目标那一小段。加上它不影响 `attachmentReferences()`
+ * —— 那边只用分组的值。
  */
 const REFERENCE_PATTERN =
-  /!?\[[^\]]*\]\(\s*(?:<([^>\n]*)>|([^)\s]*))|<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  /!?\[[^\]]*\]\(\s*(?:<([^>\n]*)>|([^)\s]*))|<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gid;
 
 /** `[[目标]]` 或 `[[目标|别名]]`。与 `indexer.ts` 的 `WIKILINK_PATTERN` 同形。 */
 const WIKILINK_PATTERN = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g;
@@ -146,4 +151,186 @@ function splitSegments(relativePath: string): string[] {
 function isAttachmentPath(filePath: string): boolean {
   const documentType = documentTypeForPath(filePath);
   return documentType !== null && documentType !== 'markdown';
+}
+
+/** 一次回写的结果。`text` 没改动时与入参**同一个字符串**（调用方可以拿 `===` 快速判断）。 */
+export interface ReferenceRewrite {
+  readonly text: string;
+  /** 真正改了几处 */
+  readonly count: number;
+  /**
+   * 认出来指向被改名对象、却**写不出来**的引用原文。
+   *
+   * 交给调用方如实报出（「N 处引用无法自动更新」），不要静默吞掉 ——
+   * 用户看不到清单的话，只会以为链接自己断了。
+   */
+  readonly skipped: readonly string[];
+}
+
+/**
+ * 把一篇 Markdown 里**所有指向 `from` 的附件引用**改成指向 `to`；其余一个字节都不动。
+ *
+ * 与 `rewriteWikiLinkTarget()` 分工一致：判定用 `resolveWorkspacePath()`（与索引期
+ * 「这篇引用了哪些附件」同一个函数），变换只负责把写法原样保留下来。
+ *
+ * **判定大小写不敏感**：Windows 上 `Assets/Logo.png` 与 `assets/logo.png` 是同一个
+ * 文件，而 `resolveWorkspacePath()` 保留写法的原始大小写。比较由这里统一做，
+ * 新写法一律用 `to` 的真实大小写。
+ *
+ * 顺带说明「为什么不用 `attachmentReferences()` 找候选」：那个函数只返回**去重后的
+ * 路径集合**，没有位置信息；回写必须知道每一处在源码里的 `[start, end)` 才能只换目标
+ * 那一小段。两者共用同一条 `REFERENCE_PATTERN`，所以「扫得出」与「改得到」不会脱节。
+ */
+export function rewriteAttachmentReferences(
+  source: string,
+  sourceRelativePath: string,
+  from: string,
+  to: string
+): ReferenceRewrite {
+  const edits: { start: number; end: number; replacement: string }[] = [];
+  const skipped: string[] = [];
+  const fromKey = from.toLowerCase();
+
+  for (const match of source.matchAll(REFERENCE_PATTERN)) {
+    const indices = match.indices;
+    if (indices === undefined) continue;
+
+    for (const group of [1, 2, 3, 4, 5] as const) {
+      const written = match[group];
+      const span = indices[group];
+      if (written === undefined || span === undefined) continue;
+
+      const resolved = resolveWorkspacePath(sourceRelativePath, written);
+      if (resolved === null || resolved.toLowerCase() !== fromKey) continue;
+
+      // 分组 1 是 `<...>` **里面**那一段。`rewriteAttachmentTarget()` 的入参/返回值都是
+      // 「整个目标怎么写」（含尖括号），所以这里把尖括号拼回去、替换范围也一起圈进来 ——
+      // 否则会写出 `<<a.png>>` 这种语法坏掉的正文。
+      const wrapped = group === 1;
+      const rawTarget = wrapped ? `<${written}>` : written;
+
+      const replacement = rewriteAttachmentTarget(rawTarget, sourceRelativePath, from, to);
+      if (replacement === null) {
+        skipped.push(rawTarget);
+        continue;
+      }
+      if (replacement === rawTarget) continue;
+
+      edits.push({
+        start: wrapped ? span[0] - 1 : span[0],
+        end: wrapped ? span[1] + 1 : span[1],
+        replacement
+      });
+    }
+  }
+
+  if (edits.length === 0) return { text: source, count: 0, skipped };
+
+  // 从后往前替换：前面的编辑不会让后面记录的偏移失效。
+  edits.sort((a, b) => a.start - b.start);
+  let text = source;
+  for (let index = edits.length - 1; index >= 0; index -= 1) {
+    const edit = edits[index]!;
+    text = text.slice(0, edit.start) + edit.replacement + text.slice(edit.end);
+  }
+
+  return { text, count: edits.length, skipped };
+}
+
+/**
+ * 把**一处**附件引用改成指向 `to`；认不出来或写不出来返回 `null`。
+ *
+ * 保留的东西（一条都不能丢，丢了就是静默改语义）：
+ *
+ * | 用户写的 | 保留 |
+ * | --- | --- |
+ * | `../assets/logo.png` | 相对基准是**文档所在目录**，改完按新路径重算 |
+ * | `/assets/logo.png` | 前导 `/` = 工作区根（Obsidian 的 vault 根写法），不改写成相对 |
+ * | `<assets/my logo.png>` | 尖括号包裹 |
+ * | `assets/my%20logo.png` | 原来是百分号编码的，新路径继续编码 |
+ * | `attachments/stm32.pdf#page=342` | 锚点与查询串（切第一个 `#` 或 `?` 之后的全部） |
+ *
+ * 新名字里含空格时**补上**尖括号 —— 原来没包裹是因为原来没空格，不是用户表达过
+ * 「不要包裹」。
+ */
+export function rewriteAttachmentTarget(
+  raw: string,
+  sourceRelativePath: string,
+  from: string,
+  to: string
+): string | null {
+  const resolved = resolveWorkspacePath(sourceRelativePath, raw);
+  if (resolved === null || resolved.toLowerCase() !== from.toLowerCase()) return null;
+
+  let body = raw.trim();
+  const wrapped = body.startsWith('<') && body.endsWith('>');
+  if (wrapped) body = body.slice(1, -1).trim();
+
+  // `resolveWorkspacePath` 先切 `#` 再切 `?`，所以后缀要从**最先出现的那个**开始，
+  // 否则 `a.png?v=2#x` 会被切成两段、中间那段凭空消失。
+  const suffixIndex = firstIndexOfAny(body, '#?');
+  const suffix = suffixIndex >= 0 ? body.slice(suffixIndex) : '';
+  const writtenPath = (suffixIndex >= 0 ? body.slice(0, suffixIndex) : body).trim();
+  if (writtenPath.length === 0) return null;
+
+  const decoded = decodePath(writtenPath);
+  const encoded = decoded !== writtenPath;
+
+  let nextPath: string;
+  if (decoded.startsWith('/')) {
+    nextPath = `/${to}`;
+  } else {
+    const relative = relativeFromDirectory(directoryOf(sourceRelativePath), to);
+    if (relative === null) return null;
+    nextPath = relative;
+    // 用户写了 `./a.png` 就别给他换成 `a.png` —— 改的是指向，不是排版。
+    // 新路径本来就以 `../` 开头时不能再加（`./../x` 只会更难读）。
+    if (decoded.startsWith('./') && !nextPath.startsWith('../')) nextPath = `./${nextPath}`;
+  }
+
+  const out = encoded ? encodePath(nextPath) : nextPath;
+  // `<` `>` 在 Windows 上是合法文件名字符，但写进 `<...>` 或裸写都会破坏语法 ——
+  // 宁可让链接断掉（可见的 not-found），也不要写出一段解析不回来的正文。
+  if (/[<>\r\n]/.test(out)) return null;
+
+  return (wrapped || /\s/.test(out) ? `<${out}>` : out) + suffix;
+}
+
+/** 第一个 `#` 或 `?` 的下标；都没有返回 -1。 */
+function firstIndexOfAny(text: string, chars: string): number {
+  for (let index = 0; index < text.length; index += 1) {
+    if (chars.includes(text[index]!)) return index;
+  }
+  return -1;
+}
+
+/** 百分号解码；非法序列（`100%.png`）原样返回 —— 与 `resolveWorkspacePath` 同一口径。 */
+function decodePath(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+/** 重新编码。`encodeURI` 不碰 `/` 与 `.`，正好是路径里该留的那两个。 */
+function encodePath(text: string): string {
+  return encodeURI(text);
+}
+
+/** `notes/dma.md` → `notes`；根目录下的文档返回空串。 */
+function directoryOf(relativePath: string): string {
+  const segments = splitSegments(relativePath);
+  return segments.slice(0, -1).join('/');
+}
+
+/**
+ * 从 `directory`（工作区相对）到 `target`（工作区相对）的相对路径。
+ *
+ * 复用 `relativePathFrom()`（它要**绝对路径**）而不是另写一份：给两边拼同一个假根
+ * 即可。它与 `resolveWorkspacePath()` 是同一套 `..` 语义的两半 —— 各写一份必然漂。
+ */
+function relativeFromDirectory(directory: string, target: string): string | null {
+  const fakeRoot = 'X:/';
+  return relativePathFrom(fakeRoot + directory, fakeRoot + target);
 }

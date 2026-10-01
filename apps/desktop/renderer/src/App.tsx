@@ -15,7 +15,8 @@ import {
   formatAttachmentReference,
   isViewerDocumentType,
   parsePageAnchor,
-  relativePathFrom
+  relativePathFrom,
+  resolveWikiLink
 } from '@nexus/core';
 import {
   MarkdownDocumentSession,
@@ -45,9 +46,12 @@ import { useTheme, useLocale, useSettingValue, useKeybindingTable } from './hook
 import { CommandPalette } from './CommandPalette.js';
 import { ContextMenu, type ContextMenuItem } from './components/ContextMenu.js';
 import { parseDeleteMode } from './settings/preference-specs.js';
-import { WorkspaceStore } from './workspace/store.js';
+import type { RenameFileResult } from '../../ipc/channels.js';
+import { WorkspaceStore, hasUnsavedChanges } from './workspace/store.js';
 import { TabBar } from './workspace/TabBar.js';
 import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
+import { RenamePreview } from './workspace/RenamePreview.js';
+import { describeSkips, unsavedPaths } from './workspace/rename.js';
 import { OutlinePanel } from './workspace/OutlinePanel.js';
 import { SearchPanel } from './workspace/SearchPanel.js';
 import { PluginsPanel } from './workspace/PluginsPanel.js';
@@ -55,7 +59,6 @@ import { TagsPanel } from './workspace/TagsPanel.js';
 import { GraphPanel } from './workspace/GraphPanel.js';
 import { HistoryPanel } from './workspace/HistoryPanel.js';
 import { QuickOpen } from './workspace/QuickOpen.js';
-import { resolveWikiLink } from './workspace/wikilink.js';
 import { classifyOpenTarget } from './workspace/open-target.js';
 import { ViewerRendererRegistry } from './viewer/registry.js';
 import { ViewerSurface } from './viewer/ViewerSurface.js';
@@ -193,6 +196,46 @@ export const App: React.FC = () => {
   const [fileMenu, setFileMenu] = useState<{ filePath: string; x: number; y: number } | null>(
     null
   );
+
+  /**
+   * 正在内联改名的文件（绝对路径）。`null` ＝ 没在改名。
+   *
+   * 由 `App` 持有而不是侧栏自己持有：发起改名的入口是右键菜单，而菜单在 `App` 手里。
+   * 侧栏只负责「这个路径的那一行画成输入框」。
+   */
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+
+  /**
+   * 改名确认屏的数据。`null` ＝ 没开着。
+   *
+   * 只在**有引用要改**时才有值（零改动直接做完，见 `handleRenameRequest`），
+   * 所以它的存在本身就意味着「这一次会动别人的文件」。
+   *
+   * `skipPaths` 与 `updateLinks` 是**试算那一刻**的值，跟着预览一起存下来：
+   * 用户点确认时执行的那一步必须与试算用同一套参数，否则「看到的」与「做到的」
+   * 会是两件事（设置窗口是可以在预览开着的时候改这一项的）。
+   */
+  const [renamePreview, setRenamePreview] = useState<{
+    filePath: string;
+    newName: string;
+    skipPaths: string[];
+    updateLinks: boolean;
+    plan: RenameFileResult;
+  } | null>(null);
+
+  /**
+   * watcher 的强制重装信号。
+   *
+   * watcher 的生死**只由下面那个 effect 管**（卸旧的、装新的都在它里面，靠
+   * `[activeEditor, filePath, session, updateSaveState]` 这几个依赖驱动）。
+   * 改名是唯一一个需要在「依赖还没变」的时候就先把旧 watcher 卸掉的场合 ——
+   * 改盘之前不卸的话，旧 watcher 会把「文件不在了」报成 `deleted`，界面于是显示
+   * 「文件被删除」，而那只是我们自己改的名。
+   *
+   * 成功路径上不需要它（`filePath` 变了，effect 自己会重跑）；它是给**失败**路径用的：
+   * 那时路径没变，不 bump 的话这篇文档就永远没人监听了。
+   */
+  const [watchRevision, setWatchRevision] = useState(0);
 
   /**
    * 索引跑完后 bump 版本号。
@@ -867,7 +910,10 @@ export const App: React.FC = () => {
         unwatchRef.current = null;
       }
     };
-  }, [activeEditor, filePath, session, updateSaveState]);
+    // `watchRevision` 不是「这次该监听谁」的一部分，它是「请重装一遍」的信号 ——
+    // 改名失败时路径没变、其余依赖也没变，只能靠它把卸掉的 watcher 装回来。
+    // 见 `applyRename` 里那段「先卸后改盘」。
+  }, [activeEditor, filePath, session, updateSaveState, watchRevision]);
 
   // Document loader
   const loadDocument = useCallback(async () => {
@@ -1058,13 +1104,9 @@ export const App: React.FC = () => {
       const document = store.getDocuments().find((candidate) => candidate.id === id);
       if (!document) return;
 
-      const isUnsaved =
-        document.saveState === 'dirty' ||
-        document.saveState === 'saving' ||
-        document.saveState === 'error' ||
-        document.saveState === 'external-changed';
-
-      if (!isUnsaved) {
+      // 判据在 `workspace/rename.ts` 里只写一份：改名回写时「哪些文档不能动」
+      // 用的是同一条（缓冲区里有磁盘上没有的东西）。
+      if (!hasUnsavedChanges(document)) {
         closeDocumentAndEnsureEditor(id);
         return;
       }
@@ -1150,11 +1192,180 @@ export const App: React.FC = () => {
   );
 
   /**
+   * 重命名的**执行**（`dryRun: false`）。三处收尾都在这里。
+   *
+   * 试算与执行分成两步是有原因的：主进程在真正写盘之前会**重新读一遍**每篇文档、
+   * 逐篇比对 `before`，对不上就跳过（`reason: 'changed'`）—— 于是「预览开着的时候
+   * 用户在别的编辑器里改了那篇」不会让回写盖掉他的改动。
+   *
+   * `updateLinks` 由调用方传进来而不是这里现读：它决定试算里有哪些改动，
+   * 执行时必须用**同一个**值，否则用户看到的和做到的会是两件事。
+   */
+  const applyRename = useCallback(
+    async (
+      sourcePath: string,
+      newName: string,
+      skipPaths: readonly string[],
+      updateLinks: boolean
+    ) => {
+      const bridge = window.nexus;
+      if (!bridge?.renameFile) return;
+
+      // 先卸旧 watcher，**再**改盘。反过来的话，改名这件事本身会被旧 watcher 报成
+      // `deleted`，界面显示「文件被删除」—— 而那只是我们自己改的名。
+      //
+      // 但**只有正在监听的就是它时**才卸：`unwatchRef` 装的是**活动文档**的 watcher，
+      // 而被改名的可以是树上任意一行。无条件卸的话，改一个没打开的文件的
+      // 名字会把当前那篇的 watcher 卸掉 —— 而它的路径没变、effect 不会重跑，
+      // 那篇文档从此失联（外部改动再也不提示）。
+      const watched =
+        filePath !== null && filePath.toLowerCase() === sourcePath.toLowerCase();
+      if (watched) {
+        unwatchRef.current?.();
+        unwatchRef.current = null;
+      }
+
+      let result: RenameFileResult;
+      try {
+        result = await bridge.renameFile({
+          filePath: sourcePath,
+          newName,
+          updateLinks,
+          skipPaths,
+          dryRun: false
+        });
+      } catch (err) {
+        // 改盘失败，路径没变 —— 上面卸掉了就得让它装回来，否则那篇文档永远没人监听。
+        if (watched) setWatchRevision((previous) => previous + 1);
+        const detail = err instanceof Error ? err.message : String(err);
+        window.alert(t('workspace.renameFailed', { name: getFileName(sourcePath), detail }));
+        return;
+      }
+
+      const renamed = result.renamed;
+      if (!renamed) {
+        // `dryRun: false` 时主进程必定填它。这里只是给类型收窄，顺带当断言。
+        if (watched) setWatchRevision((previous) => previous + 1);
+        return;
+      }
+
+      // ① 换掉 store 里那条记录的路径（标签页标题、标题栏都读它）。
+      //    活动的就是它时 `filePath` 会变，watcher effect 于是自己重跑一遍、
+      //    用新路径装回 watcher —— **不要**在这里手工 watch，那会装出两个来。
+      const open = store.getDocuments().find((document) => document.filePath === sourcePath);
+      if (open) {
+        store.updateDocument(open.id, (document) => {
+          document.filePath = renamed.to;
+        });
+      }
+
+      // ② 被回写过的文档：新内容就在 `result.changes` 里，直接灌进会话 ——
+      //    不去等 watcher 报 `changed`。等它的话，关掉自动重载的用户会看到一片
+      //    「被外部修改」的横幅，而那次修改正是我们刚做的；开着自动重载的则白读一次盘。
+      for (const change of result.changes) {
+        // 被改名那一篇在 `changes` 里记的是**旧**路径（主进程先改名、再逐篇写回），
+        // 所以这里要映射到新路径上，否则它会漏掉。
+        const path =
+          change.path.toLowerCase() === renamed.from.toLowerCase() ? renamed.to : change.path;
+        const document = store.getDocuments().find((candidate) => candidate.filePath === path);
+        if (document?.kind !== 'editor') continue;
+
+        document.session.replaceSource(change.after);
+        // `initialContentRef` 是「最后一次从盘上读到的内容」，脏判定拿它比对 ——
+        // 不更新的话这次回写会被当成用户自己的编辑，文档立刻变脏。
+        if (store.getActiveId() === document.id) initialContentRef.current = change.after;
+        // `readonly` 保留：它是「这份文档不许写」的标记，与「内容是否同步」无关。
+        if (document.saveState !== 'readonly') store.setSaveState(document.id, 'clean');
+      }
+
+      // ③ 树与标签页都从**索引**读，一次 bump 两边都收到（批一建的机制）。
+      setDocumentRevision((previous) => previous + 1);
+
+      // 没改完的部分如实说出来：静默跳过等于「链接自己断了」，而用户刚被告知过会一起改。
+      const skipLines = describeSkips(result.skipped, t);
+      if (skipLines.length > 0) {
+        window.alert(
+          t('workspace.renamePartial', {
+            name: getFileName(renamed.to),
+            detail: skipLines.join('\n')
+          })
+        );
+      }
+    },
+    // `filePath` 是「当前监听的是谁」—— 决定要不要先卸 watcher，见上面那段注释。
+    [store, t, filePath]
+  );
+
+  /**
+   * 发起改名：先试算，有引用要改就把 diff 摆出来让用户点头（提案 §8 D5），
+   * 零改动直接做完。
+   *
+   * `files.updateLinksOnRename` 关掉时主进程根本不进回写循环，所以也走「零改动」
+   * 那条路 —— 关掉这一项的用户不该为了改个名被弹一次窗。
+   */
+  const handleRenameRequest = useCallback(
+    async (filePath: string, newName: string) => {
+      const bridge = window.nexus;
+      if (!bridge?.renameFile) return;
+
+      // 有未保存修改的文档交给主进程跳过**写**。它照样读、照样算进计划里 ——
+      // 只跳「写」不跳「算」，「N 篇文档有未保存的修改」这条回执才是准的。
+      const skipPaths = unsavedPaths(store.getDocuments());
+      // 试算与执行必须用同一个值，所以这里读一次、存进预览里带下去
+      const updateLinks = settings.get('files.updateLinksOnRename');
+
+      let plan: RenameFileResult;
+      try {
+        plan = await bridge.renameFile({ filePath, newName, updateLinks, skipPaths, dryRun: true });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        window.alert(t('workspace.renameFailed', { name: getFileName(filePath), detail }));
+        return;
+      }
+
+      if (plan.changes.length === 0) {
+        // 零改动：一屏「没有改动」的 diff 只是多一次点击。无法改写的那些
+        // （`unresolved`）由执行那一步的回执说出来，不会漏。
+        await applyRename(filePath, newName, skipPaths, updateLinks);
+        return;
+      }
+
+      setRenamePreview({ filePath, newName, skipPaths, updateLinks, plan });
+    },
+    [store, t, applyRename]
+  );
+
+  /** 内联输入框提交。**先把输入框收掉**再试算 —— 试算是异步的，那几百毫秒里不该还挂着输入框。 */
+  const handleRenameCommit = useCallback(
+    (filePath: string, newName: string) => {
+      setRenamingPath(null);
+      void handleRenameRequest(filePath, newName);
+    },
+    [handleRenameRequest]
+  );
+
+  /** Escape 或失焦：只是收起输入框，磁盘上什么都没发生。 */
+  const handleRenameCancel = useCallback(() => setRenamingPath(null), []);
+
+  /** 预览上点了「改名并更新」。 */
+  const handleRenameConfirm = useCallback(() => {
+    const pending = renamePreview;
+    if (!pending) return;
+    setRenamePreview(null);
+    void applyRename(pending.filePath, pending.newName, pending.skipPaths, pending.updateLinks);
+  }, [renamePreview, applyRename]);
+
+  /**
    * 右键菜单的菜单项。**每次打开时现算**而不是缓存：文案要跟着语言变，
    * 而语言是可以在窗口开着的时候切走的。
    */
   const fileMenuItems = useCallback(
     (filePath: string): ContextMenuItem[] => [
+      {
+        id: 'rename',
+        label: t('workspace.renameFile'),
+        onSelect: () => setRenamingPath(filePath)
+      },
       {
         id: 'delete',
         label: t('workspace.deleteFile'),
@@ -1936,6 +2147,9 @@ export const App: React.FC = () => {
               onIndexed={handleIndexed}
               revision={documentRevision}
               onFileContextMenu={handleFileContextMenu}
+              renamingPath={renamingPath}
+              onRenameCommit={handleRenameCommit}
+              onRenameCancel={handleRenameCancel}
             />
           </div>
           <div
@@ -2179,6 +2393,19 @@ export const App: React.FC = () => {
           items={fileMenuItems(fileMenu.filePath)}
           onClose={() => setFileMenu(null)}
           label={t('workspace.fileMenu')}
+        />
+      )}
+      {/* 改名确认屏。它要「摆出改了谁的什么」，所以自己也挂在外层（与菜单同理，
+          树容器会把它裁掉）。`fromName` 取 `filePath` 而不是从索引查 —— 右键那一刻
+          拿到的就是磁盘上的名字，而索引可能还没跟上。 */}
+      {renamePreview && (
+        <RenamePreview
+          fromName={getFileName(renamePreview.filePath)}
+          toName={renamePreview.newName}
+          changes={renamePreview.plan.changes}
+          skipped={renamePreview.plan.skipped}
+          onConfirm={handleRenameConfirm}
+          onCancel={() => setRenamePreview(null)}
         />
       )}
     </div>

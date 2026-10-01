@@ -278,6 +278,46 @@ export class IndexStore {
   }
 
   /**
+   * 文档改名后**就地**改它那一行，`id` 保持不变。
+   *
+   * ## 为什么不能用 `upsertDocument()`
+   *
+   * 那个函数的冲突判据是 `ON CONFLICT(path)`。路径变了它就不冲突 —— 于是它**插一行新的**，
+   * 旧行留在原地，而 `links.source_id` / `tags.source_id` 指向的是旧行。结果是反向链接与
+   * 图谱边一起丢，且没有任何报错。
+   *
+   * ## 为什么不能「删了重建」
+   *
+   * `removeDocuments()` 只删 `documents` 与 `search_fts`，**不删 `links` / `tags`**
+   * （见那里的实现）—— 同样留下孤儿行，还多付一次重建。
+   *
+   * ## 刻意不动的列
+   *
+   * `type` / `size_bytes` / `modified_at_ms` / `content_hash` / `extraction_status`
+   * 一个都不动：改名不改内容。附件的提取缓存按内容哈希走，改名不该让它失效。
+   *
+   * @returns 是否真的更新了一行 —— 索引里没有这篇文档时返回 `false`（索引还没建过，
+   *   或它本来就没被索引），调用方据此判断要不要顺带补一次索引。
+   */
+  renameDocument(
+    oldPath: string,
+    newPath: string,
+    newRelativePath: string,
+    newName: string,
+    newTitle: string
+  ): boolean {
+    const row = this.db.get(`SELECT id FROM documents WHERE path = ?`, [oldPath]);
+    const documentId = Number(row?.id ?? 0);
+    if (documentId <= 0) return false;
+
+    this.db.run(
+      `UPDATE documents SET path = ?, relative_path = ?, name = ?, title = ? WHERE id = ?`,
+      [newPath, newRelativePath, newName, newTitle, documentId]
+    );
+    return true;
+  }
+
+  /**
    * 写入或更新一篇文档。
    *
    * 同一事务里替换 FTS 行：先删旧的再插新的，避免同一文档留下两份索引。

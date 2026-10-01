@@ -27,8 +27,18 @@ export {
 export {
   attachmentReferences,
   resolveWorkspacePath,
-  type AttachmentReferences
+  rewriteAttachmentReferences,
+  rewriteAttachmentTarget,
+  type AttachmentReferences,
+  type ReferenceRewrite
 } from './document/references.js';
+
+export {
+  resolveWikiLink,
+  rewriteWikiLinkTarget,
+  type WikiLinkStatus,
+  type WikiLinkResolution
+} from './document/wikilink.js';
 
 export {
   parsePageAnchor,

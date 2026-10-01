@@ -63,6 +63,7 @@ import {
   EXTERNAL_CHANGE_STORAGE_KEY,
   IGNORE_RULES_DEFAULT,
   IGNORE_RULES_STORAGE_KEY,
+  UPDATE_LINKS_ON_RENAME_STORAGE_KEY,
   HISTORY_RETENTION_DEFAULT,
   HISTORY_RETENTION_OPTIONS,
   HISTORY_RETENTION_STORAGE_KEY,
@@ -443,6 +444,18 @@ export const SETTING_DEFS = {
     DELETE_BEHAVIOR_DEFAULT,
     DELETE_BEHAVIOR_OPTIONS.map((option) => option.value)
   ),
+
+  /**
+   * 重命名文件时要不要把指向它的引用一起改掉。
+   *
+   * 用 `toggleSetting`（默认**开**、认不出回落**开**）：回落到这一项自己的默认值，
+   * 与「启动时恢复上次工作区」那类默认关的项方向相反但判据相同。
+   *
+   * 这一项**不走宿主设置通道** —— 与 `files.deleteBehavior` 一样随请求传参。
+   * 判据是 `syncHostSettings` 只服务「**主进程主动发起**的行为」（索引扫描、历史修剪），
+   * 而重命名是渲染进程请求的。加这一项时不要顺手往 `HostSettings` 里塞。
+   */
+  'files.updateLinksOnRename': toggleSetting(UPDATE_LINKS_ON_RENAME_STORAGE_KEY),
 
   /**
    * 版本历史每个文档保留几份。**`data` 组第一个带值的设置项** ——

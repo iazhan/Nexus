@@ -18,6 +18,8 @@ import {
   type DiagnosticsReport,
   type FileWatchIpcPayload,
   type HostSettings,
+  type RenameFileRequest,
+  type RenameFileResult,
   type SaveAttachmentRequest,
   type WindowState
 } from '../ipc/channels.js';
@@ -100,6 +102,10 @@ const bridge: NexusBridge = {
 
   deleteFile: (filePath: string, mode: DeleteMode): Promise<void> => {
     return ipcRenderer.invoke(IPC_CHANNELS.deleteFile, filePath, mode);
+  },
+
+  renameFile: (request: RenameFileRequest): Promise<RenameFileResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.renameFile, request);
   },
 
   authorizeWorkspace: (rootPath: string): Promise<string> => {

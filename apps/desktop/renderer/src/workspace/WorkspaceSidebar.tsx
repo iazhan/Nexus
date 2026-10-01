@@ -9,6 +9,7 @@ import {
   type AttachmentGroup
 } from './attachments.js';
 import { formatFileSize } from './file-size.js';
+import { InlineRename } from './InlineRename.js';
 import { formatTimestamp } from './time-format.js';
 import { buildFileTree, defaultExpandedDirectories, type FileTreeNode } from './tree.js';
 
@@ -39,6 +40,17 @@ export interface WorkspaceSidebarProps {
    * 而这里要处理的只是点状变化。与标签 / 图谱面板共用 `documentRevision` 这同一个信号。
    */
   revision?: number;
+  /**
+   * 正在内联改名的文件（绝对路径）。`null` ＝ 没有在改名。
+   *
+   * 由 `App` 持有而不是侧栏自己持有：发起改名的入口是右键菜单，而菜单在 `App` 手里。
+   * 侧栏只负责「这个路径的那一行画成输入框」。
+   */
+  renamingPath?: string | null;
+  /** 提交新名字（**只含基名**）。失败由 `App` 处理并提示。 */
+  onRenameCommit?: (filePath: string, newName: string) => void;
+  /** Escape 或失焦取消。 */
+  onRenameCancel?: () => void;
 }
 
 type IndexPhase = 'indexing' | 'ready' | 'error';
@@ -84,7 +96,10 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   onOpenFile,
   onIndexed,
   onFileContextMenu,
-  revision
+  revision,
+  renamingPath,
+  onRenameCommit,
+  onRenameCancel
 }) => {
   const { t } = useLocale();
   const [documents, setDocuments] = useState<IndexedDocument[]>([]);
@@ -241,6 +256,21 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
         }
 
         const isActive = node.path === activeFilePath;
+        // 改名中：这一行换成输入框。缩进照旧，否则输入框会「跳」到别的位置去。
+        if (node.path && node.path === renamingPath) {
+          return (
+            <li key={`f:${node.relativePath}`}>
+              <div className="nexus-tree-rename" style={{ paddingLeft: 8 + depth * 12 + 14 }}>
+                <InlineRename
+                  initialName={node.name}
+                  onCommit={(newName) => onRenameCommit?.(node.path!, newName)}
+                  onCancel={() => onRenameCancel?.()}
+                />
+              </div>
+            </li>
+          );
+        }
+
         return (
           <li key={`f:${node.relativePath}`}>
             <button
@@ -309,6 +339,22 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
               if (modifiedAt) tooltipLines.push(modifiedAt);
               if (extractionNote !== null) {
                 tooltipLines.push(t(`workspace.extraction.${extractionNote}`));
+              }
+
+              // 附件与笔记共用同一个改名入口（`renamingPath`）—— 用户视角里树上就是两行，
+              // 只给一行加「重命名」只会被理解成「附件那个没做」。
+              if (entry.document.path === renamingPath) {
+                return (
+                  <li key={entry.document.path}>
+                    <div className="nexus-tree-rename" style={{ paddingLeft: 8 + 14 }}>
+                      <InlineRename
+                        initialName={entry.document.name}
+                        onCommit={(newName) => onRenameCommit?.(entry.document.path, newName)}
+                        onCancel={() => onRenameCancel?.()}
+                      />
+                    </div>
+                  </li>
+                );
               }
 
               return (

@@ -255,8 +255,13 @@ async function extractReferencedAttachments(options: {
   return { extracted, errors };
 }
 
-/** 标题取文件名（去扩展名）—— 零解析依赖，且对任何 Markdown 都稳定。 */
-function deriveTitle(fileName: string): string {
+/**
+ * 标题取文件名（去扩展名）—— 零解析依赖，且对任何 Markdown 都稳定。
+ *
+ * 导出是给**改名**用的：改名后索引那一行的 `title` 必须跟着走，而口径只能有一份
+ * （两处各写一遍 `slice(0, -extname.length)` 迟早不一致，症状是「标题栏与索引对不上」）。
+ */
+export function deriveTitle(fileName: string): string {
   const extension = path.extname(fileName);
   return extension ? fileName.slice(0, -extension.length) : fileName;
 }

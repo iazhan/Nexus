@@ -155,12 +155,15 @@ describe('删除文件', () => {
     expect(await app.evaluate<number>(`document.querySelectorAll('.nexus-tab').length`)).toBe(2);
 
     await rightClickTreeRow(app, 'root.md');
+    // 「重命名」在批二加进来，排在前面 —— 顺序即 `App.tsx` 的 `fileMenuItems`。
+    // 这一条是**清单哨兵**：菜单里多一项少一项都该在这里被看见（顺带证明这一屏
+    // 不只是删除，两条入口共用同一个菜单）。
     expect(
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('[data-context-menu-item]'))
           .map((el) => el.dataset.contextMenuItem)`
       )
-    ).toEqual(['delete']);
+    ).toEqual(['rename', 'delete']);
 
     // 回收站那一档**不**确认（可逆的操作不该拿弹窗烦人），所以这里不装 confirm 也不会卡住。
     await app.click('[data-context-menu-item="delete"]');

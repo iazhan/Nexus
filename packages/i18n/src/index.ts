@@ -70,6 +70,21 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.deleteConfirm':
       'Delete "{name}" permanently? Its version history is removed as well, and this cannot be undone.',
     'workspace.deleteFailed': 'Could not delete "{name}": {detail}',
+    // 重命名。`renameDialog*` 是「会改写别人的文件」那一屏 —— 它存在的意义就是把
+    // 这件事摆在明面上，所以文案要说清「改的是写法不是语义」与「改前内容进了历史」。
+    'workspace.renameFile': 'Rename',
+    'workspace.renameDialogTitle': 'Update links?',
+    'workspace.renameDialogIntro':
+      'Renaming will rewrite the references below so they keep pointing at the same document. Only the spelling changes, never the meaning, and the previous content is saved to version history.',
+    'workspace.renameDialogCount': '{count} documents will be updated',
+    'workspace.renameApply': 'Rename and update',
+    'workspace.renameCancel': 'Cancel',
+    'workspace.renameFailed': 'Could not rename "{name}": {detail}',
+    'workspace.renameSkipDirty': '{count} documents have unsaved changes; their links were left alone',
+    'workspace.renameSkipChanged': '{count} documents changed on disk since the preview; they were left alone',
+    'workspace.renameSkipUnresolved': '{count} references could not be rewritten safely',
+    'workspace.renameSkipFailed': '{count} documents could not be written',
+    'workspace.renamePartial': 'Renamed to "{name}", but some references were not updated:\n{detail}',
     'tab.untitled': 'Untitled',
     'tab.close': 'Close {name}',
     'tab.discardConfirm': 'Discard unsaved changes in "{name}"?',
@@ -280,6 +295,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       'Files are deleted from the right-click menu in the workspace tree. Move to trash can be undone, and the version history of that document is kept. Delete permanently removes the file together with its version history, and cannot be undone.',
     'settings.files.deleteBehavior.trash': 'Move to trash',
     'settings.files.deleteBehavior.permanent': 'Delete permanently',
+    'settings.files.updateLinksOnRename': 'Update links when renaming',
+    'settings.files.updateLinksOnRenameDescription':
+      'Renaming a file from the right-click menu rewrites the references that point at it — only the spelling changes, never the meaning, and you see a diff before anything is written. Previous content is saved to version history. Turn this off to leave every document untouched; links then break and show as not found.',
     'settings.data.rebuildIndex': 'Index',
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
@@ -604,6 +622,19 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.deleteFile': '删除',
     'workspace.deleteConfirm': '永久删除「{name}」？它的版本历史也会一起删掉，不可恢复。',
     'workspace.deleteFailed': '删除「{name}」失败：{detail}',
+    'workspace.renameFile': '重命名',
+    'workspace.renameDialogTitle': '要一起更新链接吗',
+    'workspace.renameDialogIntro':
+      '重命名会改写下面这些文档里指向它的引用，让它们继续指向同一篇。改的只是写法、不是语义，改动前的内容会进版本历史，随时可以回退。',
+    'workspace.renameDialogCount': '将改写 {count} 篇文档',
+    'workspace.renameApply': '改名并更新',
+    'workspace.renameCancel': '取消',
+    'workspace.renameFailed': '重命名「{name}」失败：{detail}',
+    'workspace.renameSkipDirty': '{count} 篇文档有未保存的修改，其中的链接没有动',
+    'workspace.renameSkipChanged': '{count} 篇文档在预览之后被改动过，没有动',
+    'workspace.renameSkipUnresolved': '{count} 处引用无法安全改写',
+    'workspace.renameSkipFailed': '{count} 篇文档写入失败',
+    'workspace.renamePartial': '已改名为「{name}」，但有几处引用没有更新：\n{detail}',
     'tab.untitled': '未命名',
     'tab.close': '关闭 {name}',
     'tab.discardConfirm': '「{name}」有未保存的内容，确定丢弃吗？',
@@ -799,6 +830,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       '删除文件的入口在工作区树的右键菜单里。「移到系统回收站」可以找回，该文档的版本历史也留着；「永久删除」会连版本历史一起删掉，不可恢复。',
     'settings.files.deleteBehavior.trash': '移到系统回收站',
     'settings.files.deleteBehavior.permanent': '永久删除',
+    'settings.files.updateLinksOnRename': '重命名时自动更新链接',
+    'settings.files.updateLinksOnRenameDescription':
+      '从右键菜单重命名文件时，指向它的引用会跟着改写 —— 只改写法、不改语义，改之前会先让你看到 diff。改动前的内容会进版本历史。关掉后一个字的正文都不动，但链接会断掉、显示为未找到。',
     'settings.data.rebuildIndex': '索引',
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',

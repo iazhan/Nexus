@@ -3,10 +3,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { resolveWikiLink } from '@nexus/core';
 import { FileService } from '../electron/file-service.js';
 import { IndexStore } from '../electron/index-store.js';
 import { indexWorkspace } from '../electron/indexer.js';
-import { resolveWikiLink } from '../renderer/src/workspace/wikilink.js';
 
 /**
  * P2-09 收官验收第二条：移动和重命名不会破坏可解析链接（蓝图 §10.2）。
@@ -21,6 +21,12 @@ import { resolveWikiLink } from '../renderer/src/workspace/wikilink.js';
  *
  * 这是 Phase 2 的收官验收之一 —— 它把「链接解析不改原文」这条架构不变量
  * 变成可执行的断言。
+ *
+ * **注意这条不变量的主语是 Resolver，不是「永远没人改」。** 用户显式发起的重命名
+ * **会**改写引用（批二加的引用回写，见 `rename-file.test.ts` 与
+ * `docs/rename-and-link-rewrite-proposal.md`）。本文件里的移动用的是裸
+ * `fsPromises.rename`，走的不是那条流程 —— 这正是它能断言「一个字都没被改写」的原因。
+ * 别把它读成「任何情况下 `[[...]]` 都不许改」。
  */
 describe('P2-09 验收：移动/重命名不破坏可解析链接', () => {
   let tempDir: string;

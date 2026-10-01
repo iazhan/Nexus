@@ -502,6 +502,35 @@ export function parseDeleteMode(raw: string | null | undefined): DeleteMode {
     : DELETE_BEHAVIOR_DEFAULT;
 }
 
+/**
+ * 重命名文件时要不要把指向它的引用一起改掉。
+ *
+ * **默认开**，与原文一致（`docs/settings-module-research.md` §5.2 D 组：P2-09 已保证
+ * 「移动/重命名不破坏链接」，暴露成可关项）。默认值本身不在这里 —— 开关项的默认值
+ * 由 `store.ts` 选哪个样板（`toggleSetting` / `toggleSettingOff`）表达，与
+ * `general.autoSave`、`editor.lineNumbers` 同形，不另立一个没人读的常量。
+ *
+ * 关掉的含义是「只改名，不动任何正文」—— 给「我不信任自动改写」的用户一条退路。
+ * 代价写在描述里：关掉之后链接会**断**（显示为未找到），而那是**可见**的，
+ * 比静默改错强。
+ *
+ * ## 这里**没有** `parseXxx` 收窄函数，是刻意的
+ *
+ * 本项的取值本来就是布尔（`toggleSetting`），`settings.get()` 拿到手就是 `boolean`，
+ * 不需要 `parseDeleteMode` 那种「字符串 → 枚举」的收窄 —— 那个函数存在的理由是
+ * `DeleteMode` 比 `string` 窄。
+ *
+ * 更要紧的是**失败方向**：本项的两端是「改正文 / 不改正文」，看起来「不改」更保守，
+ * 于是很容易顺手写成「认不出的值回落 `false`」。但那是错的 ——
+ * 项目里只有一条判据，`toggleSetting` / `toggleSettingOff` 各自的注释里写着：
+ * **回落到这一项自己的默认值**。默认开的回落到开、默认关的回落到关。
+ * 「认不出就往保守那侧倒」只对**会删数据**的项成立（`parseHistoryRetention` 的「不清理」、
+ * `DEFAULT_HOST_SETTINGS` 比设置项默认档更保守），而回写引用不删数据 ——
+ * 改前内容进版本历史（§10.2 的「可回退」），改动本身还有 diff 预览要用户点头。
+ * 所以这一项走 `toggleSetting`，认不出＝开，与本项默认一致。
+ */
+export const UPDATE_LINKS_ON_RENAME_STORAGE_KEY = 'nexus-update-links-on-rename';
+
 export const HISTORY_RETENTION_STORAGE_KEY = 'nexus-history-retention';
 
 /**

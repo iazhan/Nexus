@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { documentTypeForPath, type IndexedDocument } from '@nexus/core';
-import { resolveWikiLink } from '../src/workspace/wikilink.js';
+import {
+  documentTypeForPath,
+  resolveWikiLink,
+  rewriteWikiLinkTarget,
+  type IndexedDocument
+} from '../src/index.js';
 
 function doc(relativePath: string): IndexedDocument {
   const name = relativePath.split('/').pop() ?? relativePath;
@@ -128,5 +132,89 @@ describe('WikiLink 解析：附件（Phase 3 / P3-04）', () => {
   it('不在白名单里的扩展名不会凭空命中 Markdown', () => {
     // `[[readme.txt]]` 不该命中 `readme.md` —— 用户写出 `.txt` 显然不是想链接 Markdown
     expect(resolveWikiLink('readme.txt', [doc('readme.md')]).status).toBe('not-found');
+  });
+});
+
+/**
+ * 锚点（`[[dma#性能]]`）不参与「指向哪一篇」的判断。
+ *
+ * 全仓还没有「跳到某个标题」的能力，所以这里只保证**解析得出文档**：切掉 `#…` 再取候选。
+ * 不切的话点一下会报「链接解析失败」，比打开到文档顶部更糟。
+ */
+describe('WikiLink 解析：锚点', () => {
+  const ONE = [doc('dma.md')];
+
+  it('带锚点时按锚点前的路径解析', () => {
+    expect(resolveWikiLink('dma#性能', ONE).document?.relativePath).toBe('dma.md');
+    expect(resolveWikiLink('notes/dma#性能', [doc('notes/dma.md')]).document?.relativePath).toBe(
+      'notes/dma.md'
+    );
+  });
+
+  it('锚点里的内容不影响解析结果', () => {
+    expect(resolveWikiLink('dma#', ONE).status).toBe('resolved');
+    expect(resolveWikiLink('dma#a#b', ONE).status).toBe('resolved');
+    expect(resolveWikiLink('dma.md#性能', ONE).document?.relativePath).toBe('dma.md');
+  });
+
+  it('只有锚点（文档内跳转）解析不到文档', () => {
+    expect(resolveWikiLink('#性能', ONE).status).toBe('not-found');
+  });
+});
+
+/**
+ * 回写：把「指向被改名那一篇」的写法改对，**保留用户写目标的方式**。
+ *
+ * 这个函数不做判定（判定在 `resolveWikiLink`），所以这里只管「四种写法各自怎么变」。
+ */
+describe('rewriteWikiLinkTarget', () => {
+  const from = 'notes/dma.md';
+  const to = 'notes/dma2.md';
+
+  it('只写名字 → 只写新名字', () => {
+    expect(rewriteWikiLinkTarget('dma', from, to)).toBe('dma2');
+  });
+
+  it('写工作区相对路径 → 换路径段', () => {
+    expect(rewriteWikiLinkTarget('notes/dma', from, to)).toBe('notes/dma2');
+  });
+
+  it('显式写了扩展名 → 保留这个意图', () => {
+    expect(rewriteWikiLinkTarget('dma.md', from, to)).toBe('dma2.md');
+    expect(rewriteWikiLinkTarget('notes/dma.md', from, to)).toBe('notes/dma2.md');
+  });
+
+  it('锚点原样', () => {
+    expect(rewriteWikiLinkTarget('dma#性能', from, to)).toBe('dma2#性能');
+    expect(rewriteWikiLinkTarget('notes/dma.md#a#b', from, to)).toBe('notes/dma2.md#a#b');
+  });
+
+  it('大小写按磁盘上的真名写，不去猜用户的排版意图', () => {
+    expect(rewriteWikiLinkTarget('DMA', from, to)).toBe('dma2');
+    expect(rewriteWikiLinkTarget('NOTES/DMA.MD', from, to)).toBe('notes/dma2.md');
+  });
+
+  it('文档在根目录时「全路径」与「基名」重合，也要判对', () => {
+    expect(rewriteWikiLinkTarget('dma.md', 'dma.md', 'dma2.md')).toBe('dma2.md');
+    expect(rewriteWikiLinkTarget('dma', 'dma.md', 'dma2.md')).toBe('dma2');
+  });
+
+  it('附件被 wikilink 引用时同样只换写法', () => {
+    expect(rewriteWikiLinkTarget('stm32', 'stm32.pdf', 'banner.pdf')).toBe('banner');
+    expect(rewriteWikiLinkTarget('stm32.pdf', 'stm32.pdf', 'banner.pdf')).toBe('banner.pdf');
+  });
+
+  it('写不出安全语法时返回 null，不硬改', () => {
+    // `]` 会让 wikilink 提前结束、`|` 会被当成别名分隔符
+    expect(rewriteWikiLinkTarget('dma', from, 'notes/a]b.md')).toBeNull();
+    expect(rewriteWikiLinkTarget('dma', from, 'notes/a|b.md')).toBeNull();
+  });
+
+  it('四种写法都认不出时返回 null', () => {
+    // wikilink 的路径段是**工作区根相对**的，`../` 这种写法解析阶段本来就匹配不到
+    expect(rewriteWikiLinkTarget('../dma', from, to)).toBeNull();
+    expect(rewriteWikiLinkTarget('其它/dma', from, to)).toBeNull();
+    expect(rewriteWikiLinkTarget('', from, to)).toBeNull();
+    expect(rewriteWikiLinkTarget('#性能', from, to)).toBeNull();
   });
 });

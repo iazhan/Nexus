@@ -1244,6 +1244,47 @@ export const DELETE_BEHAVIOR_FIELD: FieldDef = {
 };
 
 /**
+ * 重命名时自动更新链接。
+ *
+ * **这一项与 `files.deleteBehavior` 是同一个误判的产物**：原文说「P2-09 已保证
+ * 『移动/重命名不破坏链接』，暴露成可关项」—— 但 P2-09 保证的是「Resolver 不改原文」，
+ * 而不是「有个回写能力可以关掉」。加这一项之前全仓**没有重命名动作**，
+ * 所以同样是「先造能力再造设置项」。
+ *
+ * `menu: false`：与删除行为一致 —— 它的入口在工作区树的右键菜单里，
+ * 菜单栏里放一个「重命名时是否更新链接」的勾选项没有可验证的对象。
+ */
+export const UPDATE_LINKS_ON_RENAME_FIELD: FieldDef = {
+  id: 'files.updateLinksOnRename',
+  section: 'files',
+  labelKey: 'settings.files.updateLinksOnRename',
+  descriptionKey: 'settings.files.updateLinksOnRenameDescription',
+  keywords: [
+    '重命名',
+    '改名',
+    '链接',
+    '引用',
+    '回写',
+    '更新',
+    'rename',
+    'wikilink',
+    'link',
+    'update',
+    'rewrite',
+    'refactor'
+  ],
+  control: 'toggle',
+  // `FieldAccessor` 收发的是**字符串**（设置页与 `SettingsStore` 之间的老契约，
+  // 见 `AUTO_SAVE_FIELD` 与 `FieldAccessor` 的定义），所以布尔项在两侧各转一次。
+  accessor: {
+    read: () => String(settings.get('files.updateLinksOnRename')),
+    write: (value) => settings.set('files.updateLinksOnRename', value === 'true'),
+    subscribe: (listener) => settings.subscribe('files.updateLinksOnRename', listener)
+  },
+  menu: false
+};
+
+/**
  * 附件子目录名。**与上一项是两个字段而不是「一项带一个输入框」** —— 控件表只认一个
  * `control`，而「单选 + 输入」这种复合控件在 `FieldDef` 里表达不出来。拆成两项的代价是
  * 它在 `attachmentLocation` 选「与文档同目录」时仍然可编辑。
@@ -1320,6 +1361,7 @@ export const FIELDS: readonly FieldDef[] = [
   ATTACHMENT_NAME_TEMPLATE_FIELD,
   NEW_DOCUMENT_LOCATION_FIELD,
   DELETE_BEHAVIOR_FIELD,
+  UPDATE_LINKS_ON_RENAME_FIELD,
   PANEL_WIDTH_FIELD,
   REBUILD_INDEX_FIELD,
   HISTORY_RETENTION_FIELD,

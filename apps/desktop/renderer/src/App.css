@@ -1597,6 +1597,25 @@ body.nexus-resizing {
   color: var(--nexus-text-primary);
 }
 
+/* 内联改名那一行。上下 padding 与 `.nexus-tree-item` 对齐（4px + 13px 字），
+   否则点「重命名」的瞬间整棵树会跳一下。`padding-left` 由行内 style 按缩进给。 */
+.nexus-tree-rename {
+  padding: 4px 8px;
+}
+
+/* 用「透明底 + 强调色下划线」而不是画一个方框输入框：这一行仍在树里，
+   画成方框会让它在上下都是纯文本行的环境里显得像另一个控件。 */
+.nexus-tree-rename-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--nexus-accent-indicator);
+  background: transparent;
+  color: var(--nexus-text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
 .nexus-tree-chevron {
   display: flex;
   align-items: center;
@@ -4106,6 +4125,144 @@ body.nexus-resizing {
 
 .nexus-dialog {
   outline: none;
+}
+
+/* 改名确认屏（`RenamePreview`）。公共外壳（遮罩 / 焦点陷阱 / Escape / 焦点归还）
+   在 `.nexus-dialog-backdrop` 与 `Dialog.tsx` 里，这里只管这一屏自己的尺寸与排版。
+   `max-height` + 内部滚动列表：一篇文档的改动行可能很长，不封顶会把按钮顶出窗口。 */
+.nexus-rename-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(560px, 100%);
+  max-height: min(70vh, 640px);
+  padding: 16px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); /* @constant 抬升阴影，与主题无关 */
+  overflow: hidden;
+}
+
+.nexus-rename-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 「旧 → 新」。旧名划掉而不是只做灰：一眼要能看出改的是哪一头。 */
+.nexus-rename-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.nexus-rename-old {
+  color: var(--nexus-text-muted);
+  text-decoration: line-through;
+}
+
+.nexus-rename-arrow {
+  color: var(--nexus-text-muted);
+}
+
+.nexus-rename-new {
+  font-weight: 600;
+}
+
+.nexus-rename-intro,
+.nexus-rename-count {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-rename-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+}
+
+.nexus-rename-item + .nexus-rename-item {
+  border-top: 1px solid var(--nexus-border-subtle);
+}
+
+/* 文件名当这一段的标题，用画布色压一层 —— 一屏里有好几篇时要能一眼分段 */
+.nexus-rename-file {
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: var(--nexus-bg-canvas);
+  word-break: break-all;
+}
+
+.nexus-rename-diff {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.nexus-rename-diff > li {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.nexus-rename-skips {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 与冲突横幅那组按钮同形（见 `.nexus-conflict-reload-btn`）——
+   同一窗口里的两个次要按钮不该长得不一样。 */
+.nexus-rename-button {
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--nexus-border-default);
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+  transition: background-color 0.15s ease;
+}
+
+.nexus-rename-button:hover {
+  background-color: var(--nexus-bg-surface-active);
+}
+
+.nexus-rename-button-primary {
+  background-color: var(--nexus-accent-solid);
+  color: var(--nexus-accent-contrast);
+  border-color: var(--nexus-accent-solid);
+}
+
+.nexus-rename-button-primary:hover {
+  background-color: var(--nexus-accent-solid-hover);
 }
 
 /* 实时预览：只用真组件与真类名，这里只负责容器与尺寸。

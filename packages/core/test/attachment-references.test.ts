@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { attachmentReferences, resolveWorkspacePath } from '../src/index.js';
+import {
+  attachmentReferences,
+  resolveWorkspacePath,
+  rewriteAttachmentReferences,
+  rewriteAttachmentTarget
+} from '../src/index.js';
 
 /** 简写：只关心解析出的路径。 */
 function paths(source: string, sourceRelativePath = 'notes/dma.md'): readonly string[] {
@@ -200,5 +205,169 @@ describe('attachmentReferences', () => {
       ]);
       expect(refs.wikilinkTargets).toEqual(['stm32.pdf']);
     });
+  });
+});
+
+/**
+ * 附件引用的回写（批二）。
+ *
+ * 判定用 `resolveWorkspacePath()`（与索引期「这篇引用了哪些附件」同一个函数），
+ * 变换只负责**把用户写目标的方式原样保留**：相对基准、尖括号、百分号编码、锚点、
+ * 引号风格一个都不动，只换路径那一小段。
+ *
+ * 默认场景：源码是 `notes/dma.md`，所以 `assets/logo.png` 解析成 `notes/assets/logo.png`。
+ */
+describe('rewriteAttachmentTarget', () => {
+  const source = 'notes/dma.md';
+  const from = 'notes/assets/logo.png';
+  const to = 'notes/assets/logo2.png';
+
+  it('文档相对写法：只换文件名，前缀不动', () => {
+    expect(rewriteAttachmentTarget('assets/logo.png', source, from, to)).toBe('assets/logo2.png');
+  });
+
+  it('显式的 `./` 保留 —— 改的是指向，不是排版', () => {
+    expect(rewriteAttachmentTarget('./assets/logo.png', source, from, to)).toBe(
+      './assets/logo2.png'
+    );
+  });
+
+  it('相对基准是**文档所在目录**，跨目录时重新算', () => {
+    const from2 = 'assets/logo.png';
+    const to2 = 'assets/logo2.png';
+    expect(rewriteAttachmentTarget('../assets/logo.png', source, from2, to2)).toBe(
+      '../assets/logo2.png'
+    );
+  });
+
+  it('前导 `/` 是工作区根，写法保留（不改成相对）', () => {
+    expect(
+      rewriteAttachmentTarget(
+        '/assets/logo.png',
+        source,
+        'assets/logo.png',
+        'assets/logo2.png'
+      )
+    ).toBe('/assets/logo2.png');
+  });
+
+  it('尖括号包裹原样保留', () => {
+    expect(
+      rewriteAttachmentTarget(
+        '<assets/my logo.png>',
+        source,
+        'notes/assets/my logo.png',
+        'notes/assets/my logo2.png'
+      )
+    ).toBe('<assets/my logo2.png>');
+  });
+
+  it('新名字带空格时**补上**尖括号（原来没包裹只是因为原来没空格）', () => {
+    expect(rewriteAttachmentTarget('assets/logo.png', source, from, 'notes/assets/my logo.png')).toBe(
+      '<assets/my logo.png>'
+    );
+  });
+
+  it('原来是百分号编码的，新路径继续编码', () => {
+    expect(
+      rewriteAttachmentTarget(
+        'assets/my%20logo.png',
+        source,
+        'notes/assets/my logo.png',
+        'notes/assets/my logo2.png'
+      )
+    ).toBe('assets/my%20logo2.png');
+  });
+
+  it('锚点与查询串原样，且 `#` / `?` 混用时从最先出现的那个开始', () => {
+    expect(
+      rewriteAttachmentTarget(
+        'attachments/stm32.pdf#page=342',
+        source,
+        'notes/attachments/stm32.pdf',
+        'notes/attachments/stm32-v2.pdf'
+      )
+    ).toBe('attachments/stm32-v2.pdf#page=342');
+    expect(rewriteAttachmentTarget('assets/logo.png?v=2', source, from, to)).toBe(
+      'assets/logo2.png?v=2'
+    );
+    expect(rewriteAttachmentTarget('assets/logo.png?v=2#x', source, from, to)).toBe(
+      'assets/logo2.png?v=2#x'
+    );
+  });
+
+  it('指向的不是被改名的那个就返回 null', () => {
+    expect(rewriteAttachmentTarget('assets/other.png', source, from, to)).toBeNull();
+    expect(rewriteAttachmentTarget('https://example.com/logo.png', source, from, to)).toBeNull();
+    expect(rewriteAttachmentTarget('data:image/png;base64,AA', source, from, to)).toBeNull();
+  });
+
+  it('大小写不敏感（Windows 上就是同一个文件），新写法用磁盘上的真名', () => {
+    expect(rewriteAttachmentTarget('Assets/Logo.png', source, from, to)).toBe('assets/logo2.png');
+  });
+});
+
+describe('rewriteAttachmentReferences', () => {
+  const source = 'notes/dma.md';
+  const from = 'notes/assets/logo.png';
+  const to = 'notes/assets/logo2.png';
+
+  /** 简写：只要改写后的正文。 */
+  function rewrite(text: string): string {
+    return rewriteAttachmentReferences(text, source, from, to).text;
+  }
+
+  it('只换目标那一小段，其余一个字节都不动', () => {
+    const text = '# 标题\n\n![原理图](assets/logo.png "说明")\n\n正文。\n';
+    expect(rewrite(text)).toBe('# 标题\n\n![原理图](assets/logo2.png "说明")\n\n正文。\n');
+  });
+
+  it('Markdown 链接与 HTML img 都改', () => {
+    expect(rewrite('[下载](assets/logo.png)')).toBe('[下载](assets/logo2.png)');
+    expect(rewrite('<img src="assets/logo.png" width="200">')).toBe(
+      '<img src="assets/logo2.png" width="200">'
+    );
+    expect(rewrite("<img src='assets/logo.png'>")).toBe("<img src='assets/logo2.png'>");
+    expect(rewrite('<img src=assets/logo.png width=100>')).toBe(
+      '<img src=assets/logo2.png width=100>'
+    );
+  });
+
+  it('一行里多处、以及重复引用，全都改', () => {
+    expect(rewrite('![a](assets/logo.png) 和 ![b](assets/logo.png)')).toBe(
+      '![a](assets/logo2.png) 和 ![b](assets/logo2.png)'
+    );
+  });
+
+  it('从后往前替换 —— 前面改了不会让后面记录的偏移失效', () => {
+    // 第一处改完会**变长**（`a.png` → `very-long-name.png`），若从前往后替换，
+    // 第二处的偏移就会错位。这个用例专门盯这个。
+    const text = '![x](<a.png>) ![y](a.png)';
+    const result = rewriteAttachmentReferences(
+      text,
+      source,
+      'notes/a.png',
+      'notes/very-long-name.png'
+    );
+    expect(result.text).toBe('![x](<very-long-name.png>) ![y](very-long-name.png)');
+    expect(result.count).toBe(2);
+  });
+
+  it('指向别处的引用不动，返回值与入参同一个字符串', () => {
+    const text = '![a](assets/other.png) 见 https://example.com/logo.png';
+    const result = rewriteAttachmentReferences(text, source, from, to);
+    expect(result.text).toBe(text);
+    expect(result.count).toBe(0);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it('没有引用要改时 text 与入参同一个引用（调用方可以拿 === 判断）', () => {
+    const text = '没有引用的正文';
+    expect(rewriteAttachmentReferences(text, source, from, to).text).toBe(text);
+  });
+
+  it('wikilink 形式的附件引用不在这里处理（走 rewriteWikiLinkTarget）', () => {
+    const text = '见 [[assets/logo.png]]。';
+    expect(rewriteAttachmentReferences(text, source, from, to).count).toBe(0);
   });
 });

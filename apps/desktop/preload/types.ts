@@ -14,6 +14,8 @@ import type {
   DeleteMode,
   DiagnosticsReport,
   HostSettings,
+  RenameFileRequest,
+  RenameFileResult,
   SaveAttachmentRequest,
   WindowState
 } from '../ipc/channels.js';
@@ -60,6 +62,17 @@ export interface NexusBridge {
    * 主进程拒绝目录（只能删文件）与工作区之外的路径 —— 两者都抛错，不静默跳过。
    */
   deleteFile: (filePath: string, mode: DeleteMode) => Promise<void>;
+  /**
+   * 重命名一个文件（同目录、只改基名），并按需回写指向它的引用。
+   *
+   * `dryRun: true` 时**一个字节都不写**，只返回「会改成什么、哪几篇会跟着变」——
+   * 预览画的就是它。`dryRun` 与执行走的是**同一条**通道，所以「看到的」与
+   * 「发生的」不会漂成两份代码。
+   *
+   * `updateLinks` 与 `skipPaths` 都**随请求传参**，不走宿主设置通道：那条通道服务的是
+   * 「主进程主动发起的行为」，而重命名是渲染进程请求的。
+   */
+  renameFile: (request: RenameFileRequest) => Promise<RenameFileResult>;
   watchFile: (filePath: string, listener: FileWatchListener) => Unsubscribe;
   /**
    * 授权一个工作区根目录，该目录下的文件随即可读写。返回规范化后的绝对路径。

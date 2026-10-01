@@ -902,4 +902,160 @@ describe('FileService & atomicWriteFile', () => {
       expect(unlink).not.toHaveBeenCalled();
     });
   });
+
+  /**
+   * 重命名：同目录、只改基名、不改扩展名。
+   *
+   * 三条边界里最要紧的是「**目标已存在就拒绝**」—— 静默覆盖会让那篇文档从磁盘上消失，
+   * 而它可能连历史快照都没有（从没保存过第二次）。其余几条与删除同源：
+   * 只改文件不改目录、越界拒绝、符号链接逃逸拒绝。
+   *
+   * `resolveRenameTarget` 单独测，因为预览要靠它 —— 它必须**一个字节都不写**。
+   */
+  describe('重命名文件：边界 + 不覆盖 + 扩展名固定', () => {
+    it('正常改名：新路径有文件、旧路径没了，返回新绝对路径', async () => {
+      const target = path.join(tempDir, 'dma.md');
+      await fsPromises.writeFile(target, '# DMA', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      const renamed = await service.renameFile(target, 'dma2.md');
+
+      expect(renamed).toBe(path.resolve(path.join(tempDir, 'dma2.md')));
+      await expect(fsPromises.readFile(renamed, 'utf-8')).resolves.toBe('# DMA');
+      await expect(fsPromises.stat(target)).rejects.toThrow();
+    });
+
+    it('目标已存在就拒绝，两边都不动', async () => {
+      const source = path.join(tempDir, 'a.md');
+      const existing = path.join(tempDir, 'b.md');
+      await fsPromises.writeFile(source, '# A', 'utf-8');
+      await fsPromises.writeFile(existing, '# B', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expectFileServiceError(service.renameFile(source, 'b.md'), 'IO_ERROR');
+
+      // 覆盖掉的话 `b.md` 的内容就变成 `# A` 了 —— 那条断言才是这条用例的重点
+      await expect(fsPromises.readFile(existing, 'utf-8')).resolves.toBe('# B');
+      await expect(fsPromises.readFile(source, 'utf-8')).resolves.toBe('# A');
+    });
+
+    it('只差大小写时放行 —— Windows 上那就是它自己，不是「已存在」', async () => {
+      const target = path.join(tempDir, 'dma.md');
+      await fsPromises.writeFile(target, '# DMA', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      const renamed = await service.renameFile(target, 'DMA.md');
+
+      expect(path.basename(renamed)).toBe('DMA.md');
+      await expect(fsPromises.readdir(tempDir)).resolves.toContain('DMA.md');
+    });
+
+    it('改扩展名被拒 —— 改名不是格式转换', async () => {
+      const target = path.join(tempDir, 'note.md');
+      await fsPromises.writeFile(target, '# Note', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expectFileServiceError(service.renameFile(target, 'note.txt'), 'IO_ERROR');
+      await expect(fsPromises.readFile(target, 'utf-8')).resolves.toBe('# Note');
+    });
+
+    it('名字里有非法字符 / 空 / `.` / `..` 一律拒绝', async () => {
+      const target = path.join(tempDir, 'note.md');
+      await fsPromises.writeFile(target, '# Note', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      for (const bad of ['', '   ', 'a/b.md', 'a\\b.md', 'a:b.md', 'a?b.md', 'a|b.md', '.', '..']) {
+        await expectFileServiceError(service.renameFile(target, bad), 'IO_ERROR');
+      }
+
+      // 以点或空格结尾的名字 Windows 会**静默**吃掉，同样拒绝。
+      // 注意 `note .md` 不在拒绝之列 —— 空格在扩展名**之前**，那是合法名字。
+      await expectFileServiceError(service.renameFile(target, 'note.'), 'IO_ERROR');
+      await expectFileServiceError(service.renameFile(target, 'note '), 'IO_ERROR');
+
+      await expect(fsPromises.readFile(target, 'utf-8')).resolves.toBe('# Note');
+    });
+
+    it('目录不能被重命名', async () => {
+      const dir = path.join(tempDir, 'a-directory');
+      await fsPromises.mkdir(dir, { recursive: true });
+
+      const rename = vi.fn();
+      const service = new FileService({
+        allowedPaths: [dir],
+        fsAdapter: createMockFsAdapter({ rename })
+      });
+
+      await expectFileServiceError(service.renameFile(dir, 'b-directory'), 'IO_ERROR');
+      expect(rename).not.toHaveBeenCalled();
+    });
+
+    it('未授权路径抛 OUT_OF_BOUNDS，文件没被动过', async () => {
+      const target = path.join(tempDir, 'unauthorized.md');
+      await fsPromises.writeFile(target, '# Nope', 'utf-8');
+
+      const rename = vi.fn();
+      const service = new FileService({ fsAdapter: createMockFsAdapter({ rename }) });
+
+      await expectFileServiceError(service.renameFile(target, 'renamed.md'), 'OUT_OF_BOUNDS');
+      expect(rename).not.toHaveBeenCalled();
+    });
+
+    it('指向区外的符号链接改不动（realpath 逃逸）', async () => {
+      const linkPath = path.join(tempDir, 'link.md');
+      await fsPromises.writeFile(linkPath, '# Link', 'utf-8');
+      const escapeTarget = path.join(os.tmpdir(), 'nexus-rename-escape.md');
+
+      const rename = vi.fn();
+      const adapter = createMockFsAdapter({
+        rename,
+        realpath: async (p) => (p === path.resolve(linkPath) ? escapeTarget : p)
+      });
+
+      const service = new FileService({ allowedPaths: [linkPath], fsAdapter: adapter });
+      await service.authorizeWorkspace(tempDir);
+
+      await expectFileServiceError(service.renameFile(linkPath, 'other.md'), 'OUT_OF_BOUNDS');
+      expect(rename).not.toHaveBeenCalled();
+    });
+
+    it('新名字与旧名字完全相同时直接返回，不白跑一次 rename', async () => {
+      const target = path.join(tempDir, 'same.md');
+      await fsPromises.writeFile(target, '# Same', 'utf-8');
+
+      const rename = vi.fn();
+      const service = new FileService({
+        allowedPaths: [target],
+        fsAdapter: createMockFsAdapter({ rename })
+      });
+
+      await expect(service.renameFile(target, 'same.md')).resolves.toBe(path.resolve(target));
+      expect(rename).not.toHaveBeenCalled();
+    });
+
+    it('resolveRenameTarget 只算路径、不落盘（预览靠它）', async () => {
+      const target = path.join(tempDir, 'preview.md');
+      await fsPromises.writeFile(target, '# Preview', 'utf-8');
+
+      const rename = vi.fn();
+      const service = new FileService({ fsAdapter: createMockFsAdapter({ rename }) });
+      await service.authorizeWorkspace(tempDir);
+
+      const planned = await service.resolveRenameTarget(target, 'preview2.md');
+
+      expect(planned).toBe(path.resolve(path.join(tempDir, 'preview2.md')));
+      expect(rename).not.toHaveBeenCalled();
+      await expect(fsPromises.readFile(target, 'utf-8')).resolves.toBe('# Preview');
+    });
+  });
 });

@@ -145,6 +145,49 @@ export class HistoryStore {
     return fs.readFileSync(file, 'utf8');
   }
 
+  /**
+   * 文档改名后，把它的历史目录一起搬过去。
+   *
+   * **不搬的话「可回退」这条路自己就断了**：历史是按**相对路径**组织的
+   * （`directoryFor`），改名后 `list(新路径)` 找不到任何东西，而用户刚刚才因为
+   * 「要改写别人的文件」被承诺过「改前的内容进了版本历史」。
+   *
+   * 三种情形都不算错，一律安静处理：
+   *
+   * - 旧路径没有历史（没存过）→ 什么都不用做；
+   * - 新路径已经有历史目录（同名文档曾存在过、它的历史因为「移到回收站」留了下来）
+   *   → **逐条并过去**，不覆盖同名条目。合并而不是丢弃：两边都是「这篇文档曾经的样子」，
+   *   而 `record()` 本来就按内容哈希去重，并过来不会产生重复内容。
+   * - 搬不动（权限、占用）→ 不抛。文件那边已经改完名了，为一个历史目录把整次改名
+   *   报成失败只会让用户重试，而重试会撞上「旧路径不存在」。与 `trim` / `forget`
+   *   同一条纪律：历史是附加能力，它出问题不该影响主流程。
+   */
+  rename(fromRelativePath: string, toRelativePath: string): void {
+    const from = this.directoryFor(fromRelativePath);
+    const to = this.directoryFor(toRelativePath);
+    if (from === to) return;
+
+    try {
+      if (!fs.existsSync(from)) return;
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+
+      if (fs.existsSync(to)) {
+        for (const name of fs.readdirSync(from)) {
+          const target = path.join(to, name);
+          if (fs.existsSync(target)) continue;
+          fs.renameSync(path.join(from, name), target);
+        }
+        fs.rmSync(from, { recursive: true, force: true });
+      } else {
+        fs.renameSync(from, to);
+      }
+    } catch {
+      return;
+    }
+
+    this.pruneEmptyAncestors(path.dirname(from));
+  }
+
   /** 历史目录的绝对路径。UI 要展示「历史存在哪」时用。 */
   public directoryFor(relativePath: string): string {
     return path.join(this.workspaceRoot, HISTORY_DIR, ...relativePath.split('/'));
@@ -173,11 +216,21 @@ export class HistoryStore {
       return;
     }
 
+    this.pruneEmptyAncestors(path.dirname(directory));
+  }
+
+  /**
+   * 从 `start` 起向上收空目录，到历史根为止。
+   *
+   * `rmdirSync` 在非空时抛 —— 那正好是「到这儿为止」的信号，不需要先判空。
+   * 越出历史根就停（`startsWith` 那半个条件），免得把工作区自己的空目录也收掉。
+   */
+  private pruneEmptyAncestors(start: string): void {
     const root = path.join(this.workspaceRoot, HISTORY_DIR);
-    let current = path.dirname(directory);
+    let current = start;
+
     while (current !== root && current.startsWith(root)) {
       try {
-        // `rmdirSync` 在非空时抛 —— 那正好是「到这儿为止」的信号，不需要先判空。
         fs.rmdirSync(current);
       } catch {
         return;

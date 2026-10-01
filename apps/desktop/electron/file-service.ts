@@ -331,6 +331,53 @@ function isNotFoundError(err: unknown): boolean {
   return getErrorCode(err) === 'ENOENT';
 }
 
+/**
+ * Windows 上文件名不允许出现的字符。
+ *
+ * `:` 与 `?` `*` 在 NTFS 上是保留字符，`<` `>` `"` 是历史遗留的保留字符，`|` 同上。
+ * 不区分平台地一律拒绝：这是**用户敲进来的名字**，跨平台一致比「在 Linux 上能建出来」
+ * 有用得多，而且这个应用的目标平台就是 Windows。
+ *
+ * 控制字符（0x00–0x1F）**不写进这个字符组**：写进去会被 `no-control-regex` 拦下，
+ * 而为一个判断加 `eslint-disable` 不如按码点判来得直白（同
+ * `renderer/src/settings/preference-specs.ts` 里那处过滤）。
+ */
+const ILLEGAL_NAME_CHARS = /[<>:"/\\|?*]/;
+
+/** 名字里有没有非法字符。控制字符单独按码点判，见上。 */
+function hasIllegalNameChar(name: string): boolean {
+  if (ILLEGAL_NAME_CHARS.test(name)) return true;
+  for (const char of name) {
+    if (char.charCodeAt(0) <= 0x1f) return true;
+  }
+  return false;
+}
+
+/**
+ * 校验用户敲进来的新名字。
+ *
+ * 只做「这个名字能不能成为一个文件名」，不碰扩展名 —— 那条是 `renameFile` 的职责，
+ * 因为要跟旧名字比才有意义。
+ *
+ * 拒绝空、`.`、`..`：`path.join(目录, '..')` 会跑到父目录去，那不是改名。
+ * 拒绝结尾的 `.` 与空格：Windows 会**静默**把它们吃掉，于是「改成 `a .md`」在资源
+ * 管理器里看起来是 `a.md`、在这里又是另一个名字 —— 与其解释不如直接拒绝。
+ */
+function assertRenameableName(name: string, filePath: string): void {
+  if (name.length === 0) {
+    throw new FileServiceError('IO_ERROR', '文件名不能为空', filePath);
+  }
+  if (name === '.' || name === '..') {
+    throw new FileServiceError('IO_ERROR', `文件名不能是 ${name}`, filePath);
+  }
+  if (hasIllegalNameChar(name)) {
+    throw new FileServiceError('IO_ERROR', '文件名不能包含 < > : " / \\ | ? * 等字符', filePath);
+  }
+  if (name.endsWith('.') || name.endsWith(' ')) {
+    throw new FileServiceError('IO_ERROR', '文件名不能以点或空格结尾', filePath);
+  }
+}
+
 function wrapIoError(action: string, filePath: string, err: unknown): FileServiceError {
   if (err instanceof FileServiceError) {
     return err;
@@ -727,6 +774,94 @@ export class FileService {
     }
 
     await this.trash.trashItem(normalizedPath);
+  }
+
+  /**
+   * 算出改名后的绝对路径，**并做完全部校验**，但不碰磁盘。
+   *
+   * 单独暴露出来是给**预览**用的：渲染进程要先把「会改成什么、哪些引用会跟着改」画出来，
+   * 那需要在真正改名之前就知道目标路径。`renameFile` 内部也走这里 ——
+   * 目标路径怎么拼、哪些名字不能要，只有这一份判据。
+   *
+   * 代价是执行时会再校验一遍。那是刻意的：两次调用之间可能有人建了同名文件，
+   * 而「不覆盖别人的文件」这条比省一次 `stat` 重要得多。
+   */
+  async resolveRenameTarget(filePath: string, newName: string): Promise<string> {
+    const normalizedPath = this.normalizePath(filePath);
+    this.checkBoundary(normalizedPath);
+    await this.assertNoSymlinkEscape(normalizedPath);
+
+    const info = await this.fsAdapter.stat(normalizedPath);
+    if (!info.isFile()) {
+      throw new FileServiceError('IO_ERROR', '只能重命名文件，不能重命名目录', normalizedPath);
+    }
+
+    const name = newName.trim();
+    assertRenameableName(name, normalizedPath);
+
+    const currentName = path.basename(normalizedPath);
+    const targetPath = path.join(path.dirname(normalizedPath), name);
+    if (targetPath === normalizedPath) return normalizedPath;
+
+    if (path.extname(name).toLowerCase() !== path.extname(currentName).toLowerCase()) {
+      throw new FileServiceError(
+        'IO_ERROR',
+        `不能改扩展名：${currentName} → ${name}`,
+        normalizedPath
+      );
+    }
+
+    // 同目录下按理同根，但 `path.join` 对奇怪输入的处理不值得信任 —— 判据自己再走一遍
+    this.checkBoundary(targetPath);
+
+    // Windows 大小写不敏感：只差大小写时 `stat` 说的「已存在」就是它自己，放行。
+    if (targetPath.toLowerCase() !== normalizedPath.toLowerCase()) {
+      try {
+        await this.fsAdapter.stat(targetPath);
+        throw new FileServiceError('IO_ERROR', `目标已存在：${name}`, targetPath);
+      } catch (err) {
+        if (err instanceof FileServiceError) throw err;
+        if (!isNotFoundError(err)) throw wrapIoError('检查目标是否存在失败', targetPath, err);
+      }
+    }
+
+    return targetPath;
+  }
+
+  /**
+   * 重命名一个文件：**同目录、只改基名、不改扩展名**。返回新的绝对路径。
+   *
+   * ## 为什么只收「新名字」而不是「新路径」
+   *
+   * 调用方（树内联改名）手里只有用户敲进去的那一个名字，没有目录的概念。让它去拼路径
+   * 就等于把「目录从哪来」这条规则复制到渲染进程，而**目录必须由这里定** ——
+   * 一旦将来允许移动到别的目录，改的是这一个地方。
+   *
+   * ## 三条边界，与 `deleteFile` 同源
+   *
+   * - `checkBoundary` + `assertNoSymlinkEscape`：源文件必须已授权、且不是逃出工作区的
+   *   符号链接。目标也查一次。
+   * - **只改文件，不改目录。**
+   * - **目标已存在就拒绝，不静默覆盖。** 这是这条通道后果最重的一条：覆盖掉的那篇
+   *   文档在磁盘上就没有了，而它可能连历史快照都没有（从没保存过第二次）。
+   *
+   * ## 为什么固定扩展名
+   *
+   * `a.md` → `a.txt` 不是改名，是格式转换，而转换要处理「文档类型变了」的一整串连锁
+   * （标签页类型、附件分组、索引 `type` 列、提取缓存）。改名这条通道不背那个责任。
+   */
+  async renameFile(filePath: string, newName: string): Promise<string> {
+    const normalizedPath = this.normalizePath(filePath);
+    const targetPath = await this.resolveRenameTarget(normalizedPath, newName);
+    if (targetPath === normalizedPath) return normalizedPath;
+
+    try {
+      await this.fsAdapter.rename(normalizedPath, targetPath);
+    } catch (err) {
+      throw wrapIoError('重命名失败', normalizedPath, err);
+    }
+
+    return targetPath;
   }
 
   /**

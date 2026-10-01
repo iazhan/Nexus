@@ -323,3 +323,91 @@ describe('版本历史 · 删除文档时一并清掉', () => {
     expect(() => store.forget('notes/never-saved.md')).not.toThrow();
   });
 });
+
+/**
+ * 文档改名时把历史目录一起搬过去。
+ *
+ * **不搬的话「可回退」这条路自己就断了** —— 历史按相对路径组织，改名后
+ * `list(新路径)` 什么都找不到，而用户刚刚才因为「要改写别人的文件」被承诺过
+ * 「改前的内容进了版本历史」。所以这不是可选项。
+ */
+describe('版本历史 · 改名时一起搬', () => {
+  let workspace: string;
+  let store: HistoryStore;
+
+  beforeEach(() => {
+    workspace = createTempDir('nexus-history-rename-');
+    store = new HistoryStore(workspace);
+  });
+
+  afterEach(() => {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  function fileCount(relativePath: string): number {
+    return fs.readdirSync(store.directoryFor(relativePath)).length;
+  }
+
+  function contents(relativePath: string): string[] {
+    return store.list(relativePath).map((entry) => store.read(relativePath, entry));
+  }
+
+  it('改名后按新路径能读回同样的历史，旧路径空了', () => {
+    store.record('notes/dma.md', 'A');
+    store.record('notes/dma.md', 'B');
+    // 排序：时间戳精度是秒，同一秒内写的几条 `savedAt` 相同，`list` 对并列不做保证
+    // （落在 `readdir` 顺序上）。所以这里比集合，不比顺序。
+    const before = contents('notes/dma.md').sort();
+
+    store.rename('notes/dma.md', 'notes/dma2.md');
+
+    expect(contents('notes/dma2.md').sort()).toEqual(before);
+    expect(fs.existsSync(store.directoryFor('notes/dma.md'))).toBe(false);
+    expect(store.list('notes/dma.md')).toEqual([]);
+  });
+
+  it('搬到别的目录时父目录会被建出来', () => {
+    store.record('a.md', 'A');
+
+    store.rename('a.md', 'deep/nested/b.md');
+
+    expect(contents('deep/nested/b.md')).toEqual(['A']);
+  });
+
+  it('旧位置空掉的祖先目录收干净，历史根保住', () => {
+    store.record('notes/deep/dma.md', 'A');
+
+    store.rename('notes/deep/dma.md', 'dma2.md');
+
+    expect(contents('dma2.md')).toEqual(['A']);
+    expect(fs.existsSync(path.join(workspace, '.nexus', 'history', 'notes'))).toBe(false);
+    expect(fs.existsSync(path.join(workspace, '.nexus', 'history'))).toBe(true);
+  });
+
+  it('新路径已经有历史时逐条并过去，两边都不丢', () => {
+    // 真实来路：`b.md` 曾经存在过，被「移到回收站」删掉后历史留了下来，
+    // 现在 `a.md` 改名成了 `b.md`。
+    store.record('a.md', 'A1');
+    store.record('a.md', 'A2');
+    store.record('b.md', 'B1');
+
+    store.rename('a.md', 'b.md');
+
+    expect(contents('b.md').sort()).toEqual(['A1', 'A2', 'B1']);
+    expect(fileCount('b.md')).toBe(3);
+    expect(fs.existsSync(store.directoryFor('a.md'))).toBe(false);
+  });
+
+  it('从来没有过历史的文档，改名不抛错也不留下空目录', () => {
+    expect(() => store.rename('never-saved.md', 'renamed.md')).not.toThrow();
+    expect(fs.existsSync(store.directoryFor('renamed.md'))).toBe(false);
+  });
+
+  it('同一路径改名（只差大小写）时什么都不做', () => {
+    store.record('dma.md', 'A');
+
+    store.rename('dma.md', 'dma.md');
+
+    expect(contents('dma.md')).toEqual(['A']);
+  });
+});
