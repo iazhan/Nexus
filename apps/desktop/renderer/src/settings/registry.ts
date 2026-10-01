@@ -54,6 +54,7 @@ import {
   EDITOR_PARAGRAPH_SPACING,
   EDITOR_TABLE_LAYOUT_OPTIONS,
   EXTERNAL_CHANGE_OPTIONS,
+  LINK_FORMAT_OPTIONS,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   UI_ZOOM_OPTIONS_LABELLED
 } from './preference-specs.js';
@@ -1206,8 +1207,16 @@ export const NEW_DOCUMENT_LOCATION_FIELD: FieldDef = {
 };
 
 /**
- * 删除文件走回收站还是永久删除。在 `FIELDS` 里排 `files` 组最后 —— 它是这一组里
- * **唯一不可逆**的一项，与前面几项「东西放哪、叫什么」不是同一类问题。
+ * 删除文件走回收站还是永久删除。**`files` 组里唯一不可逆的一项** —— 与同组那些
+ * 「东西放哪、叫什么、链接怎么写」不是同一类问题，所以它**该**排在这一组最后。
+ *
+ * ⚠️ 现状**不是**最后：批二把 `files.updateLinksOnRename` 追加在了它后面，批三又追加了
+ * `files.linkFormat`（`FIELDS` 里是 `…newDocumentLocation, deleteBehavior,
+ * updateLinksOnRename, linkFormat`）。这条注释原来写的是「排最后」，那两批都没跟上它。
+ *
+ * 这里**没有**顺手调回去：改 `FIELDS` 顺序会改动设置页的可见顺序，而那是别的批次的地盘，
+ * 顺序本身也不影响任何行为。要调的话是两步 —— 把它挪到这一组末尾，并同步
+ * `apps/desktop/test/settings-window.test.ts` 里那份按 `FIELDS` 顺序比对的字段清单。
  *
  * 用 `radio` 与同组其他两项一致（两个选项，短语长度相当）。
  *
@@ -1280,6 +1289,52 @@ export const UPDATE_LINKS_ON_RENAME_FIELD: FieldDef = {
     read: () => String(settings.get('files.updateLinksOnRename')),
     write: (value) => settings.set('files.updateLinksOnRename', value === 'true'),
     subscribe: (listener) => settings.subscribe('files.updateLinksOnRename', listener)
+  },
+  menu: false
+};
+
+/**
+ * 从工作区树复制链接时，写成哪种样子。
+ *
+ * **这一项与上面那两项不是同一类问题**：`updateLinksOnRename` 决定**已有的**引用要不要
+ * 跟着改名改写，`deleteBehavior` 决定东西怎么没的 —— 而这一项只决定**新写出来的**一条
+ * 链接长什么样，一个字的正文都不碰。所以它的描述文案里不能出现「影响已有链接」，
+ * 那会与相邻的 `updateLinksOnRename` 撞车（调研表里两者本就相邻）。
+ *
+ * `radio` 与同组的 `newDocumentLocation` / `deleteBehavior` 一致：三个选项、短语长度相当。
+ * 不用 `select` —— 那一档留给档位多到画不下的项（如 `data.historyRetention` 的五个档）。
+ *
+ * `menu: false`：它的入口在工作区树的右键菜单里，菜单栏里放一个「链接写成什么格式」
+ * 没有可验证的对象。
+ */
+export const LINK_FORMAT_FIELD: FieldDef = {
+  id: 'files.linkFormat',
+  section: 'files',
+  labelKey: 'settings.files.linkFormat',
+  descriptionKey: 'settings.files.linkFormatDescription',
+  keywords: [
+    '链接',
+    '引用',
+    '格式',
+    '写法',
+    'wikilink',
+    '双链',
+    '路径',
+    '相对',
+    '复制',
+    'link',
+    'format',
+    'style',
+    'path',
+    'relative',
+    'copy'
+  ],
+  control: 'radio',
+  options: LINK_FORMAT_OPTIONS,
+  accessor: {
+    read: () => settings.get('files.linkFormat'),
+    write: (value) => settings.set('files.linkFormat', value),
+    subscribe: (listener) => settings.subscribe('files.linkFormat', listener)
   },
   menu: false
 };
@@ -1362,6 +1417,7 @@ export const FIELDS: readonly FieldDef[] = [
   NEW_DOCUMENT_LOCATION_FIELD,
   DELETE_BEHAVIOR_FIELD,
   UPDATE_LINKS_ON_RENAME_FIELD,
+  LINK_FORMAT_FIELD,
   PANEL_WIDTH_FIELD,
   REBUILD_INDEX_FIELD,
   HISTORY_RETENTION_FIELD,

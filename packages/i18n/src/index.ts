@@ -85,6 +85,18 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.renameSkipUnresolved': '{count} references could not be rewritten safely',
     'workspace.renameSkipFailed': '{count} documents could not be written',
     'workspace.renamePartial': 'Renamed to "{name}", but some references were not updated:\n{detail}',
+    // 复制链接。成功也留回执 —— 从树里复制时焦点在树上，编辑器里什么都不出现，
+    // 静默就等于「点了没反应」。`copyLinkDone` 里带上**真正写出去的那串文本**，
+    // 用户一眼就能看出当前是哪种写法。三条失败各说各的下一步。
+    'workspace.copyLink': 'Copy link',
+    'workspace.copyLinkDone': 'Copied {text}',
+    'workspace.copyLinkFailed': 'Could not write to the clipboard',
+    'workspace.copyLinkNoDocument':
+      'Open a document first — a Markdown link is written relative to the document you are in.',
+    'workspace.copyLinkNotInWorkspace':
+      'That document is not on the same drive as the current one, so there is no relative path to write.',
+    'workspace.copyLinkUnescapable':
+      'The name contains characters a Wiki link cannot express. Switch the link format to Markdown in settings.',
     'tab.untitled': 'Untitled',
     'tab.close': 'Close {name}',
     'tab.discardConfirm': 'Discard unsaved changes in "{name}"?',
@@ -298,6 +310,12 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.files.updateLinksOnRename': 'Update links when renaming',
     'settings.files.updateLinksOnRenameDescription':
       'Renaming a file from the right-click menu rewrites the references that point at it — only the spelling changes, never the meaning, and you see a diff before anything is written. Previous content is saved to version history. Turn this off to leave every document untouched; links then break and show as not found.',
+    'settings.files.linkFormat': 'Link format when copying',
+    'settings.files.linkFormatDescription':
+      'Which spelling to use when you copy a link to a document from the sidebar. It only affects the link you are copying right now — nothing already written in your documents is touched. A name-only link is the shortest, but it cannot tell two same-named documents apart; pick a full path if you have those.',
+    'settings.files.linkFormat.wikilink': 'Wiki link, name only',
+    'settings.files.linkFormat.wikilink-path': 'Wiki link, full path',
+    'settings.files.linkFormat.markdown': 'Markdown link',
     'settings.data.rebuildIndex': 'Index',
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
@@ -635,6 +653,16 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.renameSkipUnresolved': '{count} 处引用无法安全改写',
     'workspace.renameSkipFailed': '{count} 篇文档写入失败',
     'workspace.renamePartial': '已改名为「{name}」，但有几处引用没有更新：\n{detail}',
+    // 复制链接。成功也留回执 —— 从树里复制时焦点在树上，编辑器里什么都不出现，
+    // 静默就等于「点了没反应」。`copyLinkDone` 里带上**真正写出去的那串文本**，
+    // 用户一眼就能看出当前是哪种写法。三条失败各说各的下一步。
+    'workspace.copyLink': '复制链接',
+    'workspace.copyLinkDone': '已复制 {text}',
+    'workspace.copyLinkFailed': '写入剪贴板失败',
+    'workspace.copyLinkNoDocument': '请先打开一篇文档 —— Markdown 链接要相对当前文档来写。',
+    'workspace.copyLinkNotInWorkspace': '这篇文档与当前文档不在同一个盘，写不出相对路径。',
+    'workspace.copyLinkUnescapable':
+      '文件名里有 WikiLink 表达不了的字符，请在设置里把链接格式换成 Markdown。',
     'tab.untitled': '未命名',
     'tab.close': '关闭 {name}',
     'tab.discardConfirm': '「{name}」有未保存的内容，确定丢弃吗？',
@@ -833,6 +861,12 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.files.updateLinksOnRename': '重命名时自动更新链接',
     'settings.files.updateLinksOnRenameDescription':
       '从右键菜单重命名文件时，指向它的引用会跟着改写 —— 只改写法、不改语义，改之前会先让你看到 diff。改动前的内容会进版本历史。关掉后一个字的正文都不动，但链接会断掉、显示为未找到。',
+    'settings.files.linkFormat': '复制链接时的写法',
+    'settings.files.linkFormatDescription':
+      '从侧栏右键复制一条指向该文档的链接时用哪种写法。只影响此刻复制出来的那一条，正文里已经写下的一律不动。只写名字最短，但同名文档不止一篇时认不出是哪一篇；有这种情况就选完整路径。',
+    'settings.files.linkFormat.wikilink': 'WikiLink，只写名字',
+    'settings.files.linkFormat.wikilink-path': 'WikiLink，写完整路径',
+    'settings.files.linkFormat.markdown': 'Markdown 链接',
     'settings.data.rebuildIndex': '索引',
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',

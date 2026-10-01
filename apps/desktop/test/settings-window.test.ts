@@ -473,7 +473,7 @@ describe('设置窗口', () => {
       await app.evaluate<number>(`document.querySelectorAll('[data-field-readonly]').length`)
     ).toBe(2);
 
-    // ④e 文件与链接分组：七项都由 `FIELDS` 派生渲染，这里只钉住「注册表里加了一项，
+    // ④e 文件与链接分组：八项都由 `FIELDS` 派生渲染，这里只钉住「注册表里加了一项，
     //     真窗口里就真的多一个控件」—— 少一条 `FieldDef` 时 renderer 用例与真机用例
     //     会一起漏，因为两边读的是同一个 `FIELDS`。
     //
@@ -481,6 +481,8 @@ describe('设置窗口', () => {
     //     `memory/build-and-test.md`）—— 加 `FieldDef` 的那一批里如果没有它，
     //     就会像 `files.deleteBehavior`（批一）那样漏到下一次全量才被发现。
     //     顺序即 `FIELDS` 里的顺序，末尾两项也是按那个顺序追加的。
+    //
+    //     判据：**加 `FieldDef` 时先 `grep` 这个数组**（批一、批二、批三各漏过一次）。
     await app.click('.nexus-settings-nav [data-section="files"]');
     // 这一项是 `radio`，它画的是 `data-field-option` 而不是 `data-field-input`。
     await app.waitForSelector(
@@ -498,7 +500,8 @@ describe('设置窗口', () => {
       'files.attachmentNameTemplate',
       'files.newDocumentLocation',
       'files.deleteBehavior',
-      'files.updateLinksOnRename'
+      'files.updateLinksOnRename',
+      'files.linkFormat'
     ]);
 
     // ④f 设置搜索。

@@ -420,6 +420,27 @@ body {
   border-bottom-color: var(--nexus-status-error-border);
 }
 
+/*
+ * 「复制链接」回执。
+ *
+ * 不复用 `.nexus-warning-banner`：那条的底色是 `--nexus-status-warning-bg`，
+ * 用一条黄条说「复制成功」会把「出问题了」这个信号稀释掉。而主题里**没有**
+ * `status-success-bg` 这个 token（`packages/theme/src/contrast.ts` 上写着
+ * 「success 没有状态底色 token，所以它只剩通用背景这一组承载面」），
+ * 所以这里用通用背景 + success 文字色 —— 这一对**被对比度测试覆盖过**，不是临时挑的。
+ */
+.nexus-copy-link-notice {
+  display: flex;
+  align-items: center;
+  padding: 6px 16px;
+  font-size: 12px;
+  line-height: 1.4;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-status-success-text);
+  border-bottom: 1px solid var(--nexus-status-success-border);
+  flex-shrink: 0;
+}
+
 .nexus-conflict-actions,
 .nexus-save-error-actions {
   display: flex;

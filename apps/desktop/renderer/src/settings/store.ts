@@ -64,6 +64,9 @@ import {
   IGNORE_RULES_DEFAULT,
   IGNORE_RULES_STORAGE_KEY,
   UPDATE_LINKS_ON_RENAME_STORAGE_KEY,
+  LINK_FORMAT_DEFAULT,
+  LINK_FORMATS,
+  LINK_FORMAT_STORAGE_KEY,
   HISTORY_RETENTION_DEFAULT,
   HISTORY_RETENTION_OPTIONS,
   HISTORY_RETENTION_STORAGE_KEY,
@@ -456,6 +459,17 @@ export const SETTING_DEFS = {
    * 而重命名是渲染进程请求的。加这一项时不要顺手往 `HostSettings` 里塞。
    */
   'files.updateLinksOnRename': toggleSetting(UPDATE_LINKS_ON_RENAME_STORAGE_KEY),
+
+  /**
+   * 复制链接时写成哪种样子。
+   *
+   * 用 `choiceSetting` 而不是 `defineSetting`：取值是**有限的枚举**，认不出的值必须回落
+   * 默认档（它要拿去查表，见 `buildDocumentLink` 的三个分支）。
+   *
+   * 与相邻的 `files.updateLinksOnRename` 一样**不走宿主设置通道** —— 复制链接是渲染进程
+   * 自己的动作，主进程不需要知道它。判据仍是「`syncHostSettings` 只服务主进程主动发起的行为」。
+   */
+  'files.linkFormat': choiceSetting(LINK_FORMAT_STORAGE_KEY, LINK_FORMAT_DEFAULT, LINK_FORMATS),
 
   /**
    * 版本历史每个文档保留几份。**`data` 组第一个带值的设置项** ——

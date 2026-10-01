@@ -28,7 +28,10 @@ import {
   DEFAULT_ATTACHMENT_DIRECTORY,
   DEFAULT_ATTACHMENT_NAME_TEMPLATE,
   HISTORY_RETENTION_DEFAULT,
-  HISTORY_RETENTION_OPTIONS
+  HISTORY_RETENTION_OPTIONS,
+  LINK_FORMAT_DEFAULT,
+  LINK_FORMATS,
+  type LinkFormat
 } from '@nexus/core';
 import {
   UI_ZOOM_DEFAULT,
@@ -530,6 +533,34 @@ export function parseDeleteMode(raw: string | null | undefined): DeleteMode {
  * 所以这一项走 `toggleSetting`，认不出＝开，与本项默认一致。
  */
 export const UPDATE_LINKS_ON_RENAME_STORAGE_KEY = 'nexus-update-links-on-rename';
+
+export const LINK_FORMAT_STORAGE_KEY = 'nexus-link-format';
+
+/**
+ * 从工作区树复制一条指向某篇文档的链接时，写成哪种样子。
+ *
+ * **取值域（三档、默认档、解析规则）在 `@nexus/core` 的 `document/link-format.ts`**，
+ * 这里只转出 —— 那三档要和「写链接」的 `buildDocumentLink` 以及「读链接」的解析器住在
+ * 同一个包里。两处各写一份的话，「设置页说写路径、实际写出来的是名字」不会报错，
+ * 与 `files.historyRetention` 是同一条理由（那份口径在 `history/retention.ts`）。
+ *
+ * ## 它管的是**新写出来的**链接，不动已有正文
+ *
+ * 只影响「复制链接」那一刻生成什么。与批二的 `files.updateLinksOnRename` 分工不同 ——
+ * 那一项决定**已有的**引用要不要跟着改名改写。所以这一项的描述文案里不能出现
+ * 「会影响已有链接」这种话，那是另一项的事（调研表里两者本就相邻，很容易写串）。
+ *
+ * ## 三档的标签由取值**推**出来，不另抄一份带 labelKey 的列表
+ *
+ * 抄一份的后果是 core 加了第四档、设置页静默少一个选项，而少一个选项不会有任何报错。
+ * `FieldDef.options` 在这个项目里本来就是顺序的唯一来源（见最高频结论 13），
+ * 这里让「取值」继续当那唯一来源。
+ */
+export const LINK_FORMAT_OPTIONS: ReadonlyArray<{ value: LinkFormat; labelKey: string }> =
+  LINK_FORMATS.map((value) => ({ value, labelKey: `settings.files.linkFormat.${value}` }));
+
+/** 取值域与默认档转出给 `store.ts` —— 口径在 core，理由见上。 */
+export { LINK_FORMAT_DEFAULT, LINK_FORMATS };
 
 export const HISTORY_RETENTION_STORAGE_KEY = 'nexus-history-retention';
 

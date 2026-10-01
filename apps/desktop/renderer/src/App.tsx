@@ -9,11 +9,13 @@ import React, {
 import type { FileDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
 import {
   attachmentExtension,
+  buildDocumentLink,
   countDocumentCharacters,
   documentTitleOf,
   expandAttachmentName,
   formatAttachmentReference,
   isViewerDocumentType,
+  parseLinkFormat,
   parsePageAnchor,
   relativePathFrom,
   resolveWikiLink
@@ -52,6 +54,7 @@ import { TabBar } from './workspace/TabBar.js';
 import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
 import { RenamePreview } from './workspace/RenamePreview.js';
 import { describeSkips, unsavedPaths } from './workspace/rename.js';
+import { copyLinkFailureKey } from './workspace/copy-link.js';
 import { OutlinePanel } from './workspace/OutlinePanel.js';
 import { SearchPanel } from './workspace/SearchPanel.js';
 import { PluginsPanel } from './workspace/PluginsPanel.js';
@@ -135,6 +138,15 @@ function shortcutLabel(commandId: string): string | undefined {
   return spec ? formatShortcut(spec) : undefined;
 }
 
+/**
+ * 「复制链接」回执停留多久。
+ *
+ * 4 秒：够读完一串 `[dma](../notes/dma.md)`，又不至于久到下一次复制时还挂着上一条
+ * （连续复制同一个文件时，`setCopyLinkNotice` 收到同一个字符串不会触发 effect，
+ * 所以那条回执会按**第一次**的时间退场 —— 这是可接受的：用户已经看到了）。
+ */
+const COPY_LINK_NOTICE_MS = 4000;
+
 export const App: React.FC = () => {
   const { resolvedTheme, themeChoice, setTheme, modeSwitchable } = useTheme();
   const { locale, setLocale, t } = useLocale();
@@ -204,6 +216,18 @@ export const App: React.FC = () => {
    * 侧栏只负责「这个路径的那一行画成输入框」。
    */
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
+
+  /**
+   * 「复制链接」刚写出去的那串文本。`null` ＝ 没显示。
+   *
+   * 存的是**文本本身**而不是一句「已复制」：写法由 `files.linkFormat` 决定，而设置页
+   * 在另一个窗口里，用户没有别的地方能确认「刚才到底复制成了什么样子」。
+   *
+   * 成功也留回执（不是只在失败时说话）—— 与 VS Code 的 Copy Path 那种「静默」是有前提的：
+   * 那条路复制完立刻就能粘进编辑器，而这里从树里复制，焦点在树上、编辑器里什么都不出现，
+   * 静默就等于「这个菜单项点了没反应」。几秒后自己消失，不占地方。
+   */
+  const [copyLinkNotice, setCopyLinkNotice] = useState<string | null>(null);
 
   /**
    * 改名确认屏的数据。`null` ＝ 没开着。
@@ -1355,9 +1379,82 @@ export const App: React.FC = () => {
     void applyRename(pending.filePath, pending.newName, pending.skipPaths, pending.updateLinks);
   }, [renamePreview, applyRename]);
 
+  // 回执自己退场。挂在 state 上而不是在 `handleCopyLink` 里 `setTimeout` ——
+  // 后者在连续复制两次时会留下两个定时器，先到的那个把**后一次**的回执提前抹掉。
+  useEffect(() => {
+    if (copyLinkNotice === null) return;
+    const timer = window.setTimeout(() => setCopyLinkNotice(null), COPY_LINK_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [copyLinkNotice]);
+
+  /**
+   * 树右键「复制链接」。
+   *
+   * 四条纪律：
+   *
+   * - **写法由设置决定，不由这里决定。** 这里只把「目标文档 + 当前文档」交给
+   *   `buildDocumentLink`；三档取值的语义全在 `@nexus/core`（`link-format.ts`），
+   *   连「认不出的存档值回落哪一档」也在那边，界面不重复一份判断。
+   * - **两种格式的相对基准不一样，所以要喂两个不同的东西。** wikilink 的路径段是
+   *   **工作区根相对**（这里算的 `relativePath`），Markdown 链接是**当前文档目录相对**
+   *   （`buildDocumentLink` 自己从 `filePath` 推）。混用会写出一条**指向别处且不报错**的
+   *   链接 —— 这是提案 §4.2 单列出来的一条。
+   * - **写不出来要说出来**，三种原因各一条话（见 `copy-link.ts`）。静默什么都不做，
+   *   用户会以为这个菜单项是摆设。
+   * - **`copyText` 的返回值是「真写进剪贴板了吗」，不是「复制的是不是你要的」。**
+   *   主进程只对非字符串返回 `false`，所以它挡不住「格式选错了」——那件事只能靠回执里的
+   *   原文让用户自己看见。
+   */
+  const handleCopyLink = useCallback(
+    async (targetPath: string) => {
+      const bridge = window.nexus;
+      if (!bridge?.copyText) return;
+
+      // 工作区根相对路径。树上的行就是从索引里画的，而索引里那个 `relativePath` 也是
+      // `path.relative(root, file)` 再转正斜杠 —— 与 `relativePathFrom` 同一件事，
+      // 所以这里就地算，不必为它多跑一次 `listIndexedDocuments` 的 IPC 往返。
+      const relativePath =
+        workspaceRoot === null ? null : relativePathFrom(workspaceRoot, targetPath);
+      if (relativePath === null) {
+        window.alert(t(copyLinkFailureKey('not-in-workspace')));
+        return;
+      }
+
+      const result = buildDocumentLink(
+        { path: targetPath, relativePath },
+        parseLinkFormat(settings.get('files.linkFormat')),
+        filePath
+      );
+      if (!result.ok) {
+        window.alert(t(copyLinkFailureKey(result.reason)));
+        return;
+      }
+
+      // 桥自己抛（主进程 handler 出错时 `invoke` 会 reject）与它返回 `false` 是同一件事
+      // —— 「没写进剪贴板」。两条都收敛到一个分支，用户看到的是一句一样的话。
+      let copied = false;
+      try {
+        copied = await bridge.copyText(result.text);
+      } catch {
+        copied = false;
+      }
+      if (!copied) {
+        window.alert(t('workspace.copyLinkFailed'));
+        return;
+      }
+      setCopyLinkNotice(result.text);
+    },
+    // `workspaceRoot` 与 `filePath` 都是这一项要用的：前者算工作区根相对路径，
+    // 后者是 Markdown 档的基准。漏进依赖数组会让菜单项用上一次的基准拼路径。
+    [workspaceRoot, filePath, t]
+  );
+
   /**
    * 右键菜单的菜单项。**每次打开时现算**而不是缓存：文案要跟着语言变，
    * 而语言是可以在窗口开着的时候切走的。
+   *
+   * `copy-link` 排在 `rename` 与 `delete` **之间**：`delete` 是唯一不可逆的一项，
+   * 留在最后是这类菜单的通例；`copy-link` 与 `rename` 都不改别人的东西，放一组。
    */
   const fileMenuItems = useCallback(
     (filePath: string): ContextMenuItem[] => [
@@ -1367,13 +1464,18 @@ export const App: React.FC = () => {
         onSelect: () => setRenamingPath(filePath)
       },
       {
+        id: 'copy-link',
+        label: t('workspace.copyLink'),
+        onSelect: () => void handleCopyLink(filePath)
+      },
+      {
         id: 'delete',
         label: t('workspace.deleteFile'),
         danger: true,
         onSelect: () => void handleDeleteFile(filePath)
       }
     ],
-    [handleDeleteFile, t]
+    [handleDeleteFile, handleCopyLink, t]
   );
 
   /**
@@ -2022,6 +2124,14 @@ export const App: React.FC = () => {
           >
             {t('banner.dismiss')}
           </button>
+        </div>
+      )}
+
+      {/* 复制链接回执。`role="status"` 而不是 `alert`：这是一条「事情成了」的通知，
+          抢断朗读没有道理 —— 三条**失败**的路都走了 `window.alert`，那才是要打断的。 */}
+      {copyLinkNotice && (
+        <div className="nexus-copy-link-notice" role="status" data-copy-link-notice="">
+          <span>{t('workspace.copyLinkDone', { text: copyLinkNotice })}</span>
         </div>
       )}
 

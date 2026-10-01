@@ -193,8 +193,8 @@ describe('重命名文件与引用回写', () => {
     })()`);
 
     /* ── 第一轮：笔记。有引用要改，所以先弹确认屏 ── */
-    // 菜单里两项，顺序与 `fileMenuItems` 一致
-    expect(await openRowMenu(app, 'dma.md')).toEqual(['rename', 'delete']);
+    // 菜单里三项，顺序与 `fileMenuItems` 一致
+    expect(await openRowMenu(app, 'dma.md')).toEqual(['rename', 'copy-link', 'delete']);
     // 输入框的初值是**带扩展名**的完整文件名：改名不是格式转换，扩展名固定
     expect(await startRename(app)).toBe('dma.md');
 
@@ -246,7 +246,7 @@ describe('重命名文件与引用回写', () => {
     );
 
     /* ── 第二轮：附件（D6）。引用写法是 `![](...)`，与 `[[...]]` 完全两套规则 ── */
-    expect(await openRowMenu(app, 'logo.png')).toEqual(['rename', 'delete']);
+    expect(await openRowMenu(app, 'logo.png')).toEqual(['rename', 'copy-link', 'delete']);
     expect(await startRename(app)).toBe('logo.png');
     await commitInlineRename(app, 'logo2.png');
     await app.waitForSelector('#nexus-rename-preview', 15000);

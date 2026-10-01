@@ -27,6 +27,7 @@ import {
   themeManager
 } from '../src/platform.js';
 import { PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH } from '../src/workspace/panel-width.js';
+import { LINK_FORMAT_DEFAULT, LINK_FORMATS } from '../src/settings/preference-specs.js';
 
 /**
  * 设置本体与 Appearance 分组的渲染（P4-03 / P4-04）。
@@ -1599,6 +1600,73 @@ describe('设置视图 · 文件与链接', () => {
     act(() => reset?.click());
 
     expect(settings.get('files.attachmentDirectory')).toBe('assets');
+  });
+});
+
+/**
+ * 链接格式（批三）。与同组的删除行为一样是**单选**，但方向相反 ——
+ * 那一项认不出要往「不做」那侧倒，这一项认不出回落到**默认档**（＝加这一项之前的观感），
+ * 因为值只是「写链接用哪种写法」，没有不可逆的后果。
+ *
+ * 三档的取值与顺序都由 `@nexus/core` 的 `LINK_FORMATS` 定，这一层只验「注册表把它接对了」：
+ * 存档键、默认档、每个取值都有一枚控件。
+ */
+describe('设置视图 · 链接格式', () => {
+  beforeEach(() => {
+    settings.set('files.linkFormat', LINK_FORMAT_DEFAULT);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    settings.set('files.linkFormat', LINK_FORMAT_DEFAULT);
+  });
+
+  function option(value: string): HTMLElement | null {
+    return container.querySelector<HTMLElement>(`[data-field-option="files.linkFormat:${value}"]`);
+  }
+
+  it('三档都渲染，顺序即 LINK_FORMATS，默认选中只写名字那一档', () => {
+    renderSettings('files');
+
+    expect(
+      Array.from(container.querySelectorAll('[data-field-option^="files.linkFormat:"]')).map(
+        (el) => el.getAttribute('data-field-option')
+      )
+    ).toEqual(LINK_FORMATS.map((value) => `files.linkFormat:${value}`));
+
+    expect(option(LINK_FORMAT_DEFAULT)?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('三档的文案各不相同、且都不是没翻译的词典键', () => {
+    renderSettings('files');
+
+    const labels = LINK_FORMATS.map((value) => option(value)?.textContent ?? '');
+    expect(labels.every((label) => label.length > 0)).toBe(true);
+    expect(new Set(labels).size).toBe(LINK_FORMATS.length);
+    expect(labels.some((label) => label.startsWith('settings.files.linkFormat'))).toBe(false);
+  });
+
+  it('改链接格式写进存档（枚举项不画重置键）', () => {
+    renderSettings('files');
+
+    act(() => option('markdown')?.click());
+
+    expect(settings.get('files.linkFormat')).toBe('markdown');
+    expect(container.querySelector('[data-field-reset="files.linkFormat"]')).toBeNull();
+  });
+
+  it('存档里是认不出的链接格式时回落默认档', () => {
+    // `settings.get` 读的是构造时建好的缓存，所以必须先写盘再新建一个 store ——
+    // 直接 `settings.set` 会被 `parse` 收窄，测不出「读坏值」那条路。
+    localStorage.setItem('nexus-link-format', 'shortest');
+    settings.reload();
+    renderSettings('files');
+
+    expect(option(LINK_FORMAT_DEFAULT)?.getAttribute('aria-checked')).toBe('true');
   });
 });
 

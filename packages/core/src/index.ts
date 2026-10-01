@@ -41,6 +41,20 @@ export {
 } from './document/wikilink.js';
 
 export {
+  LINK_FORMATS,
+  LINK_FORMAT_DEFAULT,
+  LINK_FORMAT_WIKILINK,
+  LINK_FORMAT_WIKILINK_PATH,
+  LINK_FORMAT_MARKDOWN,
+  buildDocumentLink,
+  parseLinkFormat,
+  type LinkFormat,
+  type LinkTargetDocument,
+  type LinkBuildFailure,
+  type LinkBuildResult
+} from './document/link-format.js';
+
+export {
   parsePageAnchor,
   pageAnchorOf,
   relativePathFrom,
