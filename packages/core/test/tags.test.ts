@@ -139,6 +139,53 @@ describe('extractTags：代码里的 `#` 不是标签', () => {
   it('双反引号包裹的行内代码也跳过', () => {
     expect(names('``#not-a-tag`` 与 #yes')).toEqual(['yes']);
   });
+
+  it('缩进代码块（4 空格）也跳过', () => {
+    const source = ['正文', '', '    #include <stdio.h>', '    #define MAX 8', '', '#real'].join(
+      '\n'
+    );
+    expect(names(source)).toEqual(['real']);
+  });
+
+  it('tab 缩进的代码块同样跳过', () => {
+    expect(names(['正文', '', '\t#include <stdio.h>', '', '#real'].join('\n'))).toEqual(['real']);
+  });
+
+  it('列表项里的代码块（缩进围栏）跳过', () => {
+    const source = [
+      '- 步骤：',
+      '',
+      '    ```c',
+      '    #include <a.h>',
+      '    ```',
+      '',
+      '#real'
+    ].join('\n');
+    expect(names(source)).toEqual(['real']);
+  });
+
+  it('列表项里的缩进代码块跳过', () => {
+    const source = ['- 步骤：', '', '    #include <a.h>', '', '#real'].join('\n');
+    expect(names(source)).toEqual(['real']);
+  });
+
+  it('引用块里的围栏跳过', () => {
+    const source = ['> ```c', '> #include <a.h>', '> ```', '', '#real'].join('\n');
+    expect(names(source)).toEqual(['real']);
+  });
+
+  it('引用块里的行内代码跳过', () => {
+    expect(names('> 写 `#include` 就行')).toEqual([]);
+  });
+
+  it('缩进不足 4 的行不是代码块', () => {
+    expect(names('正文\n\n  缩进两格 #dma')).toEqual(['dma']);
+  });
+
+  it('段落续行里的缩进不算代码块 —— 缩进代码块不能打断段落', () => {
+    // CommonMark 的规则。这条挡住「见到缩进就跳」的过度实现。
+    expect(names('正文第一行\n    正文第二行 #tag')).toEqual(['tag']);
+  });
 });
 
 describe('extractTags：frontmatter 块不算正文', () => {

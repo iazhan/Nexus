@@ -142,10 +142,19 @@ describe('索引器写进 tags 表的内容', () => {
     ]);
   });
 
-  it('代码块里的 `#` 不进索引', async () => {
+  it('代码块里的 `#` 不进索引 —— 围栏与缩进两种写法', async () => {
     await write(
       'b.md',
-      ['```c', '#include <stdio.h>', '#define MAX 8', '```', '', '#real'].join('\n')
+      [
+        '```c',
+        '#include <stdio.h>',
+        '#define MAX 8',
+        '```',
+        '',
+        '    #include <a.h>',
+        '',
+        '#real'
+      ].join('\n')
     );
 
     await indexWorkspace({ service, store, rootPath: workspace });

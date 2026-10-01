@@ -39,11 +39,13 @@ import type {
  * 且纯数字不算（`#1984` 无效）。**表结构一个字没改**，但 `tags` 表的内容变了，而
  * 「内容没变就跳过」的判据（`contentHash`）会让那些文件永远留着重扫前的旧标签 ——
  * 只有版本号能把它们逼出来。这就是「改判据也要 +1」的原因。
+ * v7（0.55.1）：v6 只跳过了**行首围栏**，于是 `    #include <stdio.h>` 这类缩进代码块、
+ * 以及列表项 / 引用块里的代码块照旧被收成标签。同样是派生内容变了，同样要 +1。
  * 注意这里**没有迁移脚本** —— 索引是派生数据，重建成本是几秒扫盘，
  * 而迁移脚本会长期背着「派生数据的格式」这个不该背的包袱（见文件头注释）。
- * 所以「schema v6 的 migration」在本项目里的含义就是「把版本号改掉」。
+ * 所以「schema v7 的 migration」在本项目里的含义就是「把版本号改掉」。
  */
-const SCHEMA_VERSION = '6';
+const SCHEMA_VERSION = '7';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS meta (
