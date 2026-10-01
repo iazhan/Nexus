@@ -56,6 +56,7 @@ import {
   EXTERNAL_CHANGE_OPTIONS,
   LINK_FORMAT_OPTIONS,
   NEW_DOCUMENT_LOCATION_OPTIONS,
+  OUTLINE_LEVEL_OPTIONS,
   UI_ZOOM_OPTIONS_LABELLED
 } from './preference-specs.js';
 import type { MenuBarItem } from '../MenuBar.js';
@@ -788,6 +789,31 @@ export const CONTENT_WIDTH_FIELD: FieldDef = {
 };
 
 /**
+ * 大纲面板显示到第几级标题。
+ *
+ * 用 `select` 而不是 `radio`：四个档位的文案都是「只显示 1–2 级」这种整句话，横排放不下；
+ * 而它又是一个**低频**偏好，不值得为它占掉四行卡片的高度。
+ *
+ * 它是设置项而不是视图状态：与折叠不同，「我只看大标题」是跨文档、跨会话都成立的阅读习惯，
+ * 每次打开都要重设一遍就不叫偏好了。
+ */
+export const OUTLINE_LEVEL_FIELD: FieldDef = {
+  id: 'editor.outlineLevel',
+  section: 'editor',
+  labelKey: 'settings.editor.outlineLevel',
+  descriptionKey: 'settings.editor.outlineLevelDescription',
+  keywords: ['大纲', '目录', '标题', '层级', '级别', 'outline', 'heading', 'level', 'toc'],
+  control: 'select',
+  options: OUTLINE_LEVEL_OPTIONS,
+  accessor: {
+    read: () => settings.get('editor.outlineLevel'),
+    write: (value) => settings.set('editor.outlineLevel', value),
+    subscribe: (listener) => settings.subscribe('editor.outlineLevel', listener)
+  },
+  menu: false
+};
+
+/**
  * 编辑器字体。**值域是开放的**（三档预设 + 任意家族名），所以 `control: 'font'` 而不是
  * `select` —— 这里那份 `options` 只承担一件事：把 `default` / `sans` / `serif` 这三个**键**
  * 翻译成人话，控件靠它决定输入框里显示什么、以及用户选中的显示名该写回哪个键。
@@ -1419,6 +1445,7 @@ export const FIELDS: readonly FieldDef[] = [
   UPDATE_LINKS_ON_RENAME_FIELD,
   LINK_FORMAT_FIELD,
   PANEL_WIDTH_FIELD,
+  OUTLINE_LEVEL_FIELD,
   REBUILD_INDEX_FIELD,
   HISTORY_RETENTION_FIELD,
   OPEN_HISTORY_DIR_FIELD,

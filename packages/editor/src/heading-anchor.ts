@@ -92,13 +92,12 @@ export function resolveHeadingAnchor(source: string, anchor: string): number | n
 }
 
 /**
- * 把光标落到目标标题上，并让该标题行成为**视口第一行**——行号也完整可见。
- * 返回 `false` 表示锚点未命中，调用方应自行决定降级行为。
+ * 把光标落到目标偏移上，并让该行成为**视口第一行**——行号也完整可见。
+ *
+ * **凡是「跳到某一行」都要走这里**，包括文档内锚点（`revealHeadingAnchor`）和
+ * 大纲面板。原因全在下面那两处：`y: 'start'` 与 `alignLineBoxToTop`。
  */
-export function revealHeadingAnchor(view: EditorView, anchor: string): boolean {
-  const from = resolveHeadingAnchor(view.state.doc.toString(), anchor);
-  if (from === null) return false;
-
+export function revealHeadingAt(view: EditorView, from: number): void {
   // 先聚焦再滚动：聚焦会让投影展开目标行的标记（行高可能微调），
   // 滚动必须发生在那之后，落点才准。
   view.focus();
@@ -108,10 +107,23 @@ export function revealHeadingAnchor(view: EditorView, anchor: string): boolean {
     // 必须显式给 `y: 'start'`。CM 默认策略是 `'nearest'`，只做**最小滚动**：
     // 目标在视口下方时它只会滚到"刚好可见"，也就是贴在视口**底边**——
     // 用户看到的正是"跳过去的行跑到页面最后一行"。
+    //
+    // 也别图省事写成 `scrollIntoView: true`：那是 `{ y: 'nearest' }` 的简写，
+    // 同一个坑换一身衣服。
     effects: EditorView.scrollIntoView(from, { y: 'start', yMargin: 0 })
   });
 
   alignLineBoxToTop(view, from);
+}
+
+/**
+ * 解析 `#anchor` 并跳转；返回 `false` 表示锚点未命中，调用方应自行决定降级行为。
+ */
+export function revealHeadingAnchor(view: EditorView, anchor: string): boolean {
+  const from = resolveHeadingAnchor(view.state.doc.toString(), anchor);
+  if (from === null) return false;
+
+  revealHeadingAt(view, from);
   return true;
 }
 

@@ -91,8 +91,22 @@ describe('CodeMirror 6 Source Editor Core Logic', () => {
       expect(info).toEqual({
         line: 1,
         column: 1,
-        selectedTextLength: 0
+        selectedTextLength: 0,
+        head: 0
       });
+    });
+
+    it('reports the caret offset alongside line and column', () => {
+      // `head` 是给「和文档区间比大小」用的（大纲判当前在第几节），
+      // 它必须和 line/column 说的是同一个位置
+      const doc = 'Line 1\nLine 2\nLine 3';
+      const state = createSourceEditorState({ doc }).update({
+        selection: EditorSelection.cursor(12)
+      }).state;
+
+      const info = getSelectionInfo(state);
+      expect(info.head).toBe(12);
+      expect(doc.slice(0, info.head)).toBe('Line 1\nLine ');
     });
 
     it('calculates correct line and column on subsequent lines', () => {

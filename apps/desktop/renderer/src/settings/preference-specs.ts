@@ -669,6 +669,43 @@ export function codeLineNumbersDisplay(visible: boolean): string {
   return visible ? 'inline-block' : 'none';
 }
 
+/**
+ * 大纲面板显示到第几级标题。
+ *
+ * 存字符串而不是数字：`'all'` 是「不过滤」，和 `'1'` 不在一个量纲上 —— 用 `0` 表示「全部」
+ * 会让读的人以为是「0 级」。
+ */
+export const OUTLINE_LEVEL_STORAGE_KEY = 'nexus-outline-level';
+
+export const OUTLINE_LEVELS = ['all', '1', '2', '3'] as const;
+export type OutlineLevel = (typeof OUTLINE_LEVELS)[number];
+
+/** 默认不过滤 ＝ 加这一项之前的行为。 */
+export const OUTLINE_LEVEL_DEFAULT: OutlineLevel = 'all';
+
+export const OUTLINE_LEVEL_OPTIONS: ReadonlyArray<{ value: OutlineLevel; labelKey: string }> =
+  OUTLINE_LEVELS.map((value) => ({
+    value,
+    labelKey: `settings.editor.outlineLevel.${value}`
+  }));
+
+/**
+ * 值域 → 消费者要的 `maxLevel`（`null` ＝ 不过滤）。
+ *
+ * 转换放在值域旁边而不是大纲里：`'all'` 这个字面量的含义是值域的一部分，让每个消费者
+ * 各写一遍 `level === 'all' ? ...` 就是把这同一个判断抄到每一处。
+ *
+ * 入参是 `string` 而不是 `OutlineLevel`：设置值从 store 出来时就是宽泛的字符串
+ * （`choiceSetting` 的值类型是 `string`），在这里收窄一次，好过在每个调用点断言一遍。
+ * **认不出的档位按「不过滤」处理** —— 与这一项的默认值同向：一个坏字节不该把大纲藏掉一半。
+ */
+export function outlineLevelToMaxLevel(level: string): number | null {
+  if (level === 'all') return null;
+
+  const parsed = Number(level);
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
 /** 外观变量名。`App.css` 的 `:root` 给出与上表一致的默认值，渲染进程按设置覆盖。 */
 export const EDITOR_CSS_VARS = {
   fontSize: '--nx-editor-font-size',

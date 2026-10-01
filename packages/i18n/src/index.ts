@@ -138,6 +138,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'activity.extensions': 'Extensions',
     'activity.settings': 'Settings',
     'outline.empty': 'This document has no headings yet.',
+    'outline.insertHeading': 'Add a heading',
+    'outline.collapse': 'Collapse',
+    'outline.expand': 'Expand',
     'backlinks.title': 'Backlinks',
     'backlinks.empty': 'Nothing links here yet.',
     'tags.empty': 'No tags yet. Write #tag in a document.',
@@ -286,6 +289,13 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.contentWidthDescription':
       'Caps how wide a line can get and centres the text. Narrower columns are easier to read on a wide screen.',
     'settings.editor.contentWidth.none': 'Fill the window',
+    'settings.editor.outlineLevel': 'Outline depth',
+    'settings.editor.outlineLevelDescription':
+      'How many heading levels the outline panel lists. This only changes the panel — the document itself is untouched.',
+    'settings.editor.outlineLevel.all': 'All levels',
+    'settings.editor.outlineLevel.1': 'Top level only',
+    'settings.editor.outlineLevel.2': 'Top 2 levels',
+    'settings.editor.outlineLevel.3': 'Top 3 levels',
     'settings.editor.tableLayout': 'Table columns',
     'settings.editor.tableLayoutDescription':
       'How column widths are decided. Auto sizes them to their content (wide tables scroll sideways); equal makes every column the same width.',
@@ -726,6 +736,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'activity.extensions': '插件',
     'activity.settings': '设置',
     'outline.empty': '这份文档还没有标题。',
+    'outline.insertHeading': '添加标题',
+    'outline.collapse': '折叠',
+    'outline.expand': '展开',
     'backlinks.title': '反向链接',
     'backlinks.empty': '还没有文档链接到这里。',
     'tags.empty': '还没有标签。在文档里写 #标签 即可。',
@@ -860,6 +873,13 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.contentWidthDescription':
       '限制每行的最大宽度并把正文居中。宽屏上窄一些的栏更好读。',
     'settings.editor.contentWidth.none': '跟随窗口',
+    'settings.editor.outlineLevel': '大纲层级',
+    'settings.editor.outlineLevelDescription':
+      '大纲面板列出到第几级标题。只改面板，文档本身不动。',
+    'settings.editor.outlineLevel.all': '全部层级',
+    'settings.editor.outlineLevel.1': '只显示 1 级',
+    'settings.editor.outlineLevel.2': '只显示 1–2 级',
+    'settings.editor.outlineLevel.3': '只显示 1–3 级',
     'settings.editor.tableLayout': '表格列宽',
     'settings.editor.tableLayoutDescription':
       '列宽怎么定。自适应按内容给宽（宽表格会撑出横向滚动），均分让各列等宽。',

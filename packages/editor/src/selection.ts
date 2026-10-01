@@ -12,6 +12,7 @@ export function getSelectionInfo(state: EditorState): EditorSelectionInfo {
   return {
     line: line.number,
     column: main.head - line.from + 1,
-    selectedTextLength: Math.abs(main.to - main.from)
+    selectedTextLength: Math.abs(main.to - main.from),
+    head: main.head
   };
 }

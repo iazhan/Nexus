@@ -44,6 +44,13 @@ export interface EditorSelectionInfo {
   line: number;
   column: number;
   selectedTextLength: number;
+  /**
+   * 光标在源码里的偏移（主 selection 的 `head`）。
+   *
+   * 与 `line`/`column` 并列而不是从它们反推：调用方要的是**一个能直接和文档区间比大小的
+   * 位置**（大纲拿它判「当前在第几节」），而「第几行第几列」在 CRLF 与软换行下都还要再算一次。
+   */
+  head: number;
 }
 
 export type MarkdownMarkerType =

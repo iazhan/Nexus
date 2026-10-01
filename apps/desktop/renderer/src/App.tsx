@@ -25,6 +25,7 @@ import {
   openSearchPanel,
   resolveRelativePath,
   revealHeadingAnchor,
+  revealHeadingAt,
   ExtensionHost,
   MATH_EXTENSION_ID,
   MERMAID_EXTENSION_ID,
@@ -402,8 +403,17 @@ export const App: React.FC = () => {
   const [selection, setSelection] = useState<EditorSelectionInfo>({
     line: 1,
     column: 1,
-    selectedTextLength: 0
+    selectedTextLength: 0,
+    head: 0
   });
+
+  /**
+   * 当前编辑器视图。只给**需要几何计算**的宿主用（大纲判「当前在第几节」）。
+   *
+   * 不从 `window.nexusActiveView` 现读：那个全局没有变化通知，而切 surface
+   * （Source ↔ Visual）会重建 view —— 拿不到「换了一个」这个事件，就只能在旧 view 上算。
+   */
+  const [activeView, setActiveView] = useState<EditorView | null>(null);
 
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
@@ -579,18 +589,15 @@ export const App: React.FC = () => {
    * （见 `document-surface.ts` 里那段注释），所以只调 `session.dispatch` 的话
    * 光标在 session 里确实移了、视口却纹丝不动 —— 表现就是「点了大纲没反应」。
    *
-   * `changes` 为空：跳转不该产生一条可撤销的编辑历史，
-   * 否则点几次大纲之后 Ctrl+Z 要按好几次才能撤销真正的编辑。
+   * 滚动落点交给 `revealHeadingAt`，与文档内锚点跳转共用同一条路径：
+   * 那边已经解决了「目标只滚到视口底边」和「行号被行盒顶出视口」两个问题，
+   * 在这里另写一遍 `scrollIntoView: true` 只会把同一只虫子再养一遍。
    */
   const handleOutlineJump = useCallback((offset: number) => {
     const view = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
     if (!view) return;
 
-    view.dispatch({
-      changes: [],
-      selection: { anchor: offset, head: offset },
-      scrollIntoView: true
-    });
+    revealHeadingAt(view, offset);
   }, []);
 
   // 下面三个 setter 保持与原 useState 完全相同的签名，所以全文件几十处调用点
@@ -2485,6 +2492,8 @@ export const App: React.FC = () => {
                 onJump={handleOutlineJump}
                 filePath={filePath}
                 onOpenFile={handleOpenWorkspaceFile}
+                view={activeView}
+                cursorOffset={selection.head}
               />
             ) : (
               <p className="nexus-panel-placeholder">{t('workspace.pickFile')}</p>
@@ -2638,6 +2647,7 @@ export const App: React.FC = () => {
             locale={locale}
             onChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
+            onViewReady={setActiveView}
             className="nexus-editor-full"
           />
         </ErrorBoundary>

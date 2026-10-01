@@ -73,6 +73,9 @@ import {
   NEW_DOCUMENT_LOCATION_DEFAULT,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   NEW_DOCUMENT_LOCATION_STORAGE_KEY,
+  OUTLINE_LEVELS,
+  OUTLINE_LEVEL_DEFAULT,
+  OUTLINE_LEVEL_STORAGE_KEY,
   RESTORE_LAST_WORKSPACE_STORAGE_KEY,
   WORKSPACE_SHOW_IMAGES_STORAGE_KEY,
   parseEditorFontFamily,
@@ -318,6 +321,18 @@ export const SETTING_DEFS = {
     EDITOR_CONTENT_WIDTH_STORAGE_KEY,
     EDITOR_CONTENT_WIDTH_DEFAULT,
     EDITOR_CONTENT_WIDTH_OPTIONS.map((option) => option.value)
+  ),
+
+  /**
+   * 大纲面板显示到第几级。**默认 `all`** ＝ 与加这一项之前完全一致（那时根本没有过滤）。
+   *
+   * `choiceSetting` 而不是 `defineSetting`：值域是四个固定档位，读到不认识的档位必须回落到
+   * 默认 —— 留着它会让大纲拿一个 `Number()` 出来是 `NaN` 的 maxLevel，过滤结果不可预测。
+   */
+  'editor.outlineLevel': choiceSetting(
+    OUTLINE_LEVEL_STORAGE_KEY,
+    OUTLINE_LEVEL_DEFAULT,
+    OUTLINE_LEVELS
   ),
 
   /**

@@ -210,6 +210,27 @@ describe('设置窗口', () => {
       )
     ).toBe(tableLayoutNext);
 
+    // ④c″b 大纲层级：`select` 控件，值落在自己的存档键上。
+    //       应用点（大纲真的被过滤了）由 `renderer/test/outline-panel.test.tsx` 覆盖 ——
+    //       真机这一层要打开文档、再切到大纲面板才看得见，不是本用例的职责。
+    await app.waitForSelector('[data-field-input="editor.outlineLevel"]', 10000);
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('[data-field-input="editor.outlineLevel"]').tagName`
+      )
+    ).toBe('SELECT');
+    await app.evaluate(`(() => {
+      const select = document.querySelector('[data-field-input="editor.outlineLevel"]');
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      setter.call(select, '2');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    expect(await app.evaluate<string>(`localStorage.getItem('nexus-outline-level') ?? ''`)).toBe('2');
+    // 还原：user-data-dir 不按用例隔离，留着一个过滤档位会影响后面的步骤
+    await app.evaluate(
+      `(() => { window.nexusSettings.set('editor.outlineLevel', 'all'); return true; })()`
+    );
+
     // ④c″′ 编辑器三项**默认关**的开关（打字机模式 / Vim 键位 / 拼写检查）。
     //      三项都没有 DOM 落点，所以真机里能钉的是「整条链通不通」：注册表里的 `FieldDef`
     //      → 真窗口里的 `role="switch"` → store → localStorage。行为判据在

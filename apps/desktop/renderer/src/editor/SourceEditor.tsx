@@ -19,6 +19,7 @@ import {
   type MarkdownDocumentSession,
   type SessionEditorViewHandle,
   type EditorScrollAnchor,
+  type EditorView,
   type LinkNavigator,
   type WorkspaceImageProvider,
   type WorkspaceAssetEntry
@@ -61,6 +62,14 @@ export interface SourceEditorProps {
   locale?: string;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
+  /**
+   * 视图建好 / 销毁时回调，给宿主一个**显式的 view 引用**。
+   *
+   * 为什么不能靠 `window.nexusActiveView`：那个全局没有变化通知，而 view 会在切 surface
+   * （Source ↔ Visual）时重建。需要 view 来做滚动相关计算的宿主（大纲的「当前在第几节」）
+   * 得知道它什么时候换了一个。
+   */
+  onViewReady?: (view: EditorView | null) => void;
   className?: string;
 }
 
@@ -83,6 +92,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   locale,
   onChange,
   onSelectionChange,
+  onViewReady,
   className
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -123,6 +133,9 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   // 变化时重建。包一层 ref 转发，打开选择器时用的永远是最新那一个。
   const workspaceImagesRef = useRef(workspaceImages);
   workspaceImagesRef.current = workspaceImages;
+
+  const onViewReadyRef = useRef(onViewReady);
+  onViewReadyRef.current = onViewReady;
 
   useEffect(() => {
     return session.subscribe((snapshot, transaction) => {
@@ -175,6 +188,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
     if (typeof window !== 'undefined') {
       (window as any).nexusActiveView = handle.view;
     }
+    onViewReadyRef.current?.(handle.view);
     onSelectionChangeRef.current?.(getSelectionInfo(handle.view.state));
 
     // 切 surface 时把焦点还给编辑器：旧 view 一销毁，焦点就落到 body，新 view 不聚焦则
@@ -193,6 +207,9 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       if (typeof window !== 'undefined' && (window as any).nexusActiveView === handle.view) {
         (window as any).nexusActiveView = null;
       }
+      // 与上面那行 `nexusActiveView` 的清理同一个位置、同一个理由：
+      // 留着已销毁的 view，宿主下一次读它就会抛。
+      onViewReadyRef.current?.(null);
       if (handleRef.current === handle) {
         handleRef.current = null;
       }
