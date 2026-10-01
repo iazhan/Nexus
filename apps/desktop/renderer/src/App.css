@@ -2381,6 +2381,57 @@ body.nexus-resizing {
   outline-offset: 0;
 }
 
+/* 字体下拉（`control: 'font'`）：输入框 + 自绘候选列表。
+   为什么自绘：Chromium 的 `<datalist>` 只在**输入时**弹建议，点输入框本体不弹 ——
+   原生控件在这里的可用性不够。列表不是按钮（哨兵按 `<button>` 归类），是 `role="option"`。 */
+.nexus-settings-font {
+  position: relative;
+  width: 100%;
+  max-width: 280px;
+}
+
+.nexus-settings-font-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 500;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  background-color: var(--nexus-bg-surface);
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); /* @constant 抬升阴影，与主题无关 */
+}
+
+/* 往上弹。设置内容区是 `overflow: auto`，贴着窗口下半部分时往下弹会被裁掉 ——
+   裁掉的是列表的下半截，而用户只会觉得「选项少了」。 */
+.nexus-settings-font-list-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.nexus-settings-font-option {
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--nexus-text-primary);
+  cursor: pointer;
+}
+
+.nexus-settings-font-option-active {
+  background-color: var(--nexus-selection-bg);
+}
+
+.nexus-settings-font-empty {
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
 /* 开关组（`control: 'group'`）：一行一个「名字 + 开关」。
    每个成员复用的是下面那套单项开关的药丸样式 —— 组里的一项就是一个普通开关，
    另画一套只会让两处的圆角与动画各漂各的。 */

@@ -895,11 +895,12 @@ describe('设置视图 · Editor', () => {
   /**
    * 编辑器字体（`control: 'font'`）。
    *
-   * 与别的控件不同的是**值域开放**：三档预设只是值域里的三个值，用户还能填任意家族名。
-   * 所以用例分两头 —— 预设那三个**键**仍要能选中（老存档里存的就是它们），任意家族名也要
-   * 能一路落到存档与 CSS 变量上。
+   * 与别的控件不同的地方有两处：**值域开放**（三档预设只是其中三个值，用户还能填任意家族名），
+   * 以及**候选列表是自己画的**（原生 `<datalist>` 只在输入时弹建议，点输入框本体不弹 ——
+   * 反馈就是「字体下拉框没有可选项」）。所以用例要覆盖「点一下就展开」这条，它正是当初换掉
+   * 原生控件的原因。
    *
-   * 判据不写文案：预设的显示名从**控件自己画出来的候选表**里取，取到什么就点什么。
+   * 判据不写文案：预设的显示名从**控件自己画出来的列表**里取，取到什么就点什么。
    */
   describe('编辑器字体', () => {
     function fontInput(): HTMLInputElement {
@@ -908,62 +909,119 @@ describe('设置视图 · Editor', () => {
       ) as HTMLInputElement;
     }
 
-    function candidates(): HTMLOptionElement[] {
-      return Array.from(
-        container.querySelectorAll<HTMLOptionElement>(
-          '[data-field-candidates="editor.fontFamily"] option'
-        )
-      );
+    function options(): HTMLLIElement[] {
+      return Array.from(container.querySelectorAll<HTMLLIElement>('[data-font-option]'));
     }
 
-    it('是自由输入框 + 候选表，不是下拉', () => {
+    function optionNamed(name: string): HTMLLIElement | null {
+      return container.querySelector<HTMLLIElement>(`[data-font-option="${name}"]`);
+    }
+
+    /** 聚焦输入框 = 展开候选。React 的 `onFocus` 走原生 `focusin`（会冒泡）。 */
+    function openList(): void {
+      act(() => {
+        fontInput().dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      });
+    }
+
+    /** 选项是 `<li role="option">`，按下就走 `onMouseDown`（`click` 在真实浏览器里到不了）。 */
+    function pick(name: string): void {
+      const target = optionNamed(name);
+      act(() => target?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    }
+
+    it('点一下输入框就展开候选列表，而且列表里没有按钮', () => {
       renderSettings('editor');
 
-      expect(fontInput().tagName).toBe('INPUT');
-      expect(container.querySelector('select[data-field-input="editor.fontFamily"]')).toBeNull();
-      // 候选表靠 `list` 属性挂上去 —— 少一个字符就是一个画不出来、又不报错的下拉。
-      expect(fontInput().getAttribute('list')).toBe(
-        container.querySelector('[data-field-candidates="editor.fontFamily"]')?.id
-      );
+      expect(options()).toHaveLength(0);
+
+      openList();
+
+      expect(options().length).toBeGreaterThan(20);
+      // 设置页那份「每枚按钮都要落进已知清单」的哨兵按 `<button>` 归类 ——
+      // 选项是 `<li role="option">`，所以这里一个按钮都不该有。
+      expect(
+        container.querySelectorAll('.nexus-settings-field[data-field="editor.fontFamily"] button')
+      ).toHaveLength(0);
     });
 
-    it('候选表里既有三档预设的显示名，也有精选清单里的家族名', () => {
+    it('候选里既有三档预设的显示名，也有精选清单里的家族名', () => {
       renderSettings('editor');
+      openList();
 
-      const values = candidates().map((option) => option.value);
+      const names = options().map((option) => option.dataset.fontOption ?? '');
 
-      expect(values).toContain('KaiTi');
-      expect(values).toContain('Microsoft YaHei');
-      // 预设排在最前 —— 它们是唯一「一定可用」的几个值。
-      expect(values.slice(0, 3)).not.toContain('default');
-      expect(values).toHaveLength(new Set(values).size);
+      expect(names).toContain('KaiTi');
+      expect(names).toContain('Microsoft YaHei');
+      // 预设排在最前，且显示的是**译文**而不是键 —— 键是内部表示。
+      expect(names.slice(0, 3)).not.toContain('default');
+      expect(names).toHaveLength(new Set(names).size);
+    });
+
+    it('打字会按名字过滤候选', () => {
+      renderSettings('editor');
+      openList();
+
+      act(() => setInputValue(fontInput(), 'kai'));
+
+      expect(options().map((option) => option.dataset.fontOption)).toEqual(['KaiTi']);
+    });
+
+    it('过滤后一个都不匹配时给一行说明，而不是一个空框', () => {
+      renderSettings('editor');
+      openList();
+
+      act(() => setInputValue(fontInput(), 'zzz-not-a-font'));
+
+      expect(options()).toHaveLength(0);
+      expect(container.querySelector('.nexus-settings-font-empty')).not.toBeNull();
     });
 
     it('默认档在输入框里显示的是显示名，不是内部键 default', () => {
       renderSettings('editor');
+      openList();
 
-      expect(fontInput().value).toBe(candidates()[0].value);
+      const first = options()[0]?.dataset.fontOption;
+
       expect(fontInput().value).not.toBe('default');
+      expect(fontInput().value).toBe(first);
     });
 
-    it('选预设的显示名写回的是它的键', () => {
-      settings.set('editor.fontFamily', 'KaiTi');
+    it('点候选写进存档，并把字体栈写到 documentElement 上', () => {
       renderSettings('editor');
+      openList();
 
-      act(() => setInputValue(fontInput(), candidates()[0].value));
-
-      expect(settings.get('editor.fontFamily')).toBe('default');
-    });
-
-    it('输入家族名写进存档，并把字体栈写到 documentElement 上', () => {
-      renderSettings('editor');
-
-      act(() => setInputValue(fontInput(), 'KaiTi'));
+      pick('KaiTi');
 
       expect(settings.get('editor.fontFamily')).toBe('KaiTi');
       // 兜底链必须在：只有拉丁字形的字体后面要接界面那套栈，否则中文掉到默认衬线字体。
       expect(document.documentElement.style.getPropertyValue('--nx-editor-font-family')).toBe(
         '"KaiTi", var(--font-family)'
+      );
+      // 选完列表就收起来，输入框回填的是刚选的那个名字。
+      expect(options()).toHaveLength(0);
+      expect(fontInput().value).toBe('KaiTi');
+    });
+
+    it('选预设的显示名写回的是它的键', () => {
+      settings.set('editor.fontFamily', 'KaiTi');
+      renderSettings('editor');
+      openList();
+
+      const first = options()[0].dataset.fontOption as string;
+      pick(first);
+
+      expect(settings.get('editor.fontFamily')).toBe('default');
+    });
+
+    it('输入家族名写进存档 —— 值域开放，不限于候选里的那些', () => {
+      renderSettings('editor');
+
+      act(() => setInputValue(fontInput(), 'Noto Serif SC'));
+
+      expect(settings.get('editor.fontFamily')).toBe('Noto Serif SC');
+      expect(document.documentElement.style.getPropertyValue('--nx-editor-font-family')).toBe(
+        '"Noto Serif SC", var(--font-family)'
       );
     });
 

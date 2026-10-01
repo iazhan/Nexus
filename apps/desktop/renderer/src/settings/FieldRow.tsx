@@ -319,22 +319,26 @@ const TextControl: React.FC<{ field: FieldDef; label: string; value: string }> =
 };
 
 /**
- * 字体家族：**自由输入框 + `<datalist>`**。
+ * 字体家族：**可搜索的下拉**（输入框 + 自绘候选列表）。
  *
- * 为什么不是「下拉选一个」：这台机器上能用哪些字体，静态表列不全 —— 枚举归
- * `localFontFamilies()`（`queryLocalFonts`）。它是异步的，而且**筛不出「哪些含中文字形」**
- * （`document.fonts.check` 对系统字体恒为真）。于是把两件事拆开：**输入框保证任意家族名
- * 都能用**，`<datalist>` 只负责给一份可搜索的候选 —— 它是浏览器原生控件，打字即过滤，
- * 不必自己写列表与键盘处理。
+ * **为什么不用 `<datalist>`**（当天做当天改掉）：Chromium 只在**输入时**才弹建议，
+ * 点输入框本体不弹，只有右端那个没有任何提示的小箭头能弹 —— 反馈就是「字体下拉框没有可选项」。
+ * 原生控件在这里的可用性不够，不是没接好。
  *
- * 候选顺序：三档预设的**显示名** → 精选清单 → 本机枚举。预设在最前，因为它们是唯一
- * 「一定可用」的几个值；本机枚举排在最后，因为它最不稳（拿不到就少一截）。
+ * **为什么不用 `<select>`**：能用的字体取决于这台机器装了什么，静态表列不全；而
+ * 「哪些字体有中文字形」在浏览器里**问不出来**（`document.fonts.check` 对系统字体恒为真，
+ * 连不存在的字体名也是），所以自动滤出一条干净清单做不到。于是把两件事拆开：
+ * **输入框保证任意家族名都能用**，列表只负责给一份可搜索的候选。
  *
- * **三档预设存的是键**（`default` / `sans` / `serif`），输入框里显示的却是它们的译文 ——
- * 让输入框里出现 `default` 这种键，用户不会知道那是什么。写回时按显示名反查回键。
+ * 候选顺序：三档预设的**显示名** → 精选清单 → 本机枚举（`localFontFamilies()`，
+ * 异步、拿不到就少一截）。预设在最前，因为它们是唯一「一定可用」的几个值。
+ *
+ * **三档预设存的是键**（`default` / `sans` / `serif`），输入框与列表里显示的是它们的译文 ——
+ * 让用户对着 `default` 猜是什么意思，或者把 `default` 当成字体名存下来，都是把内部表示漏出去。
  *
  * **不画按钮**：设置页有一份「每枚按钮都必须落进已知清单」的哨兵
- * （`settings-view.test.tsx`），多一枚按钮就要显式解释；而原生 `datalist` 已经够用。
+ * （`settings-view.test.tsx`）。选项因此是 `<li role="option">` —— 它们本来也不该是按钮，
+ * 按钮的语义是「按一下做一件事」，而这里是在一组值里挑一个。
  */
 const FontControl: React.FC<{ field: FieldDef; label: string; t: Translate; value: string }> = ({
   field,
@@ -344,17 +348,32 @@ const FontControl: React.FC<{ field: FieldDef; label: string; t: Translate; valu
 }) => {
   const presets = optionsOf(field, t);
 
-  /** 值 → 输入框里显示的文本。预设显示译文，其余原样。 */
+  /** 值 → 界面文本。预设显示译文，其余原样。 */
   const labelOf = (raw: string): string => {
     const preset = presets.find((option) => option.value === raw);
     return preset ? optionLabel(preset, t) : raw;
   };
 
+  /** 界面文本 → 值。选中预设的**译文**要写回它的键。 */
+  const valueOf = (text: string): string =>
+    presets.find((option) => optionLabel(option, t) === text)?.value ?? text;
+
   const [installed, setInstalled] = useState<readonly string[]>([]);
   const [draft, setDraft] = useState(() => labelOf(value));
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [flip, setFlip] = useState(false);
+  /**
+   * 这一次聚焦之后用户改过输入框没有。**不能拿「文本是否等于当前值的显示名」当判据** ——
+   * 这一项是边打字边写盘的（与设置页其它文本项一致），所以敲下第一个字符时 `draft` 就已经
+   * 等于新值的显示名了，那个判据恒为真，过滤永远不生效。
+   */
+  const [touched, setTouched] = useState(false);
   const editing = useRef(false);
+  const root = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLUListElement>(null);
 
-  // 本机枚举只在挂载时问一次，拿不到就是空数组（候选表少一截，输入框照用）。
+  // 本机枚举只在挂载时问一次，拿不到就是空数组（候选少一截，输入框照用）。
   useEffect(() => {
     let alive = true;
     void localFontFamilies().then((families) => {
@@ -381,6 +400,19 @@ const FontControl: React.FC<{ field: FieldDef; label: string; t: Translate; valu
     return out;
   }, [presets, t, installed]);
 
+  /**
+   * 过滤条件。**只有用户改过输入框才滤**：刚聚焦时框里是当前字体的名字，照它过滤只会剩一条 ——
+   * 用户点开是想看全部。清空输入框同样得到全部（空串匹配一切）。
+   */
+  const query = touched ? draft.trim().toLocaleLowerCase() : '';
+  const matches = useMemo(
+    () =>
+      query === ''
+        ? candidates
+        : candidates.filter((name) => name.toLocaleLowerCase().includes(query)),
+    [candidates, query]
+  );
+
   // 外部改了值（重置键、另一个窗口）→ 输入框跟上；**正在打字时不跟**，与 `TextControl` 同理。
   useEffect(() => {
     if (editing.current) return;
@@ -388,40 +420,139 @@ const FontControl: React.FC<{ field: FieldDef; label: string; t: Translate; valu
     setDraft(preset ? optionLabel(preset, t) : value);
   }, [value, presets, t]);
 
+  // 高亮项跟着键盘走时要让它可见，否则按了方向键看不出选中了什么。
+  useEffect(() => {
+    if (!open) return;
+    const node = list.current?.children[active];
+    if (node instanceof HTMLElement) node.scrollIntoView({ block: 'nearest' });
+  }, [open, active]);
+
   const listId = `nexus-font-candidates-${field.id}`;
 
+  function openList(): void {
+    const current = matches.findIndex((name) => name === labelOf(value));
+    setActive(current >= 0 ? current : 0);
+    // 设置内容区是 `overflow: auto`，往下弹会被裁掉 —— 贴着窗口下半部分时改成往上弹。
+    const rect = root.current?.getBoundingClientRect();
+    setFlip(rect !== undefined && rect.bottom + 260 > window.innerHeight);
+    setOpen(true);
+  }
+
+  function commit(name: string): void {
+    editing.current = false;
+    setTouched(false);
+    const next = valueOf(name);
+    field.accessor?.write(next);
+    // 显式回填而不等 store 的通知：写进去的值与原来相同时通知不会发，那时草稿会停在
+    // 用户敲了一半的文本上。
+    setDraft(labelOf(next));
+    setOpen(false);
+  }
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!open) {
+        openList();
+        return;
+      }
+      if (matches.length === 0) return;
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      setActive((current) => (current + delta + matches.length) % matches.length);
+      return;
+    }
+    if (event.key === 'Enter') {
+      if (!open || !matches[active]) return;
+      event.preventDefault();
+      commit(matches[active]);
+      return;
+    }
+    if (event.key === 'Escape' && open) {
+      // 必须 `preventDefault`：设置窗口的 Escape 关窗挂在 `window` 上，它只看
+      // `defaultPrevented`。不拦的话「关下拉」会连窗口一起关掉。
+      event.preventDefault();
+      setOpen(false);
+    }
+  }
+
   return (
-    <>
+    <div className="nexus-settings-font" ref={root}>
       <input
         type="text"
         className="nexus-settings-text"
-        list={listId}
         value={draft}
         aria-label={label}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-autocomplete="list"
+        aria-activedescendant={open && matches[active] ? `${listId}-${active}` : undefined}
+        autoComplete="off"
+        spellCheck={false}
         data-field-input={field.id}
         onFocus={() => {
           editing.current = true;
+          setTouched(false);
+          openList();
         }}
         onBlur={() => {
           editing.current = false;
+          setTouched(false);
+          setOpen(false);
           // 离开时回到**存档里的值**：空串被落回默认档，这里就显示默认档的译文，
           // 用户不必猜「我清空了，现在到底存的是什么」。
           setDraft(labelOf(value));
         }}
         onChange={(event) => {
           const next = event.target.value;
+          editing.current = true;
+          setTouched(true);
+          setActive(0);
           setDraft(next);
-          // 选中的是预设的**译文**就写回它的键，否则原样写 —— 值域是开放的，这一层不拦。
-          const preset = presets.find((option) => optionLabel(option, t) === next);
-          field.accessor?.write(preset ? preset.value : next);
+          setOpen(true);
+          // 值域是开放的，这一层不拦 —— 敲进去什么就存什么（预设的译文除外）。
+          field.accessor?.write(valueOf(next));
         }}
+        onKeyDown={onKeyDown}
       />
-      <datalist id={listId} data-field-candidates={field.id}>
-        {candidates.map((name) => (
-          <option key={name} value={name} />
-        ))}
-      </datalist>
-    </>
+      {open ? (
+        <ul
+          ref={list}
+          id={listId}
+          className={`nexus-settings-font-list${flip ? ' nexus-settings-font-list-up' : ''}`}
+          role="listbox"
+          aria-label={label}
+          data-field-candidates={field.id}
+        >
+          {matches.length === 0 ? (
+            <li className="nexus-settings-font-empty" role="presentation">
+              {t('settings.editor.fontFamilyNoMatch')}
+            </li>
+          ) : (
+            matches.map((name, index) => (
+              <li
+                key={name}
+                id={`${listId}-${index}`}
+                role="option"
+                aria-selected={index === active}
+                className={`nexus-settings-font-option${
+                  index === active ? ' nexus-settings-font-option-active' : ''
+                }`}
+                data-font-option={name}
+                // `preventDefault` 保住焦点：不拦的话输入框先失焦、列表先关，这一下点了个空。
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  commit(name);
+                }}
+                onMouseEnter={() => setActive(index)}
+              >
+                {name}
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+    </div>
   );
 };
 

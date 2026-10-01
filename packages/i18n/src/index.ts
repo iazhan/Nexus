@@ -211,6 +211,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.fontFamily.default': 'Monospace',
     'settings.editor.fontFamily.sans': 'Sans-serif',
     'settings.editor.fontFamily.serif': 'Serif',
+    'settings.editor.fontFamilyNoMatch': 'No font matches that name',
     'settings.editor.fontSize': 'Font size',
     'settings.editor.fontSizeDescription':
       'Base size of document text. Everything inside the document scales with it; the app chrome does not.',
@@ -717,6 +718,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.editor.fontFamily.default': '等宽',
     'settings.editor.fontFamily.sans': '无衬线',
     'settings.editor.fontFamily.serif': '衬线',
+    'settings.editor.fontFamilyNoMatch': '没有匹配的字体',
     'settings.editor.fontSize': '正文字号',
     'settings.editor.fontSizeDescription':
       '文档正文的基准字号。文档内的一切跟着缩放，应用界面不变。',
