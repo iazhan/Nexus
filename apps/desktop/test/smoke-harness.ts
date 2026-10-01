@@ -158,6 +158,14 @@ export const THEME_WINDOW_URL_MARKER = 'window=theme';
  */
 const tempDirs = new Set<string>();
 
+/**
+ * 测试临时目录的前缀。
+ *
+ * 这不只是命名习惯：`sweepStaleTempDirs()` 靠它认出「这是我们的残留」。
+ * `createTempDir` 会校验前缀，别绕过它。
+ */
+export const TEMP_DIR_PREFIX = 'nexus-';
+
 process.on('exit', () => {
   for (const dir of tempDirs) {
     try {
@@ -170,11 +178,65 @@ process.on('exit', () => {
 });
 
 /**
+ * 陈旧阈值：24 小时。
+ *
+ * 一次全量真机跑也就几十分钟，所以超过一天的 `nexus-*` 目录只可能来自被强杀的旧进程。
+ * 不能再压小 —— 压到分钟级就得论证「并行跑的另一批会不会刚好卡在边界上」，
+ * 而那件事没法证明。
+ */
+const STALE_TEMP_DIR_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 清掉 `%TEMP%` 里超过 `STALE_TEMP_DIR_AGE_MS` 的 `nexus-*` 残留目录，返回清掉的个数。
+ *
+ * 上面那个 `process.on('exit')` 只覆盖**正常退出**：批跑超时被 SIGTERM、或者手工
+ * `taskkill //F //IM electron.exe` 之后它根本不跑，那一批建的目录就永远留下了
+ * （实测攒到过 275 个 / 54.7 MB，而目录一多 `mkdtempSync` 本身也会变慢）。
+ * 所以每次跑测试先收一次昨天的账。
+ *
+ * 三条边界都是「宁可少删」：只删目录（`mkdtempSync` 只造目录）、只删前缀匹配的、
+ * 只删够旧的。够旧这条同时保证了并行跑的其他测试文件不受影响 —— 它们手里的目录
+ * 才几秒钟新。任何失败都吞掉：清理失败不该让测试变红。
+ */
+export function sweepStaleTempDirs(): number {
+  const root = os.tmpdir();
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return 0; // 读不到临时目录（沙箱、权限）就什么都不做
+  }
+
+  const cutoff = Date.now() - STALE_TEMP_DIR_AGE_MS;
+  let swept = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(TEMP_DIR_PREFIX)) continue;
+    const dir = path.join(root, entry.name);
+    if (tempDirs.has(dir)) continue; // 本进程自己建的，一定不删
+    try {
+      if (fs.statSync(dir).mtimeMs > cutoff) continue;
+      fs.rmSync(dir, { recursive: true, force: true });
+      swept++;
+    } catch {
+      // 删不掉（仍被占用、权限）就跳过，留给下一轮
+    }
+  }
+  return swept;
+}
+
+/**
  * 建一个测试用的临时目录，退出时自动清理。
  *
  * 用它替代裸的 `fs.mkdtempSync(path.join(os.tmpdir(), prefix))`。
+ * 前缀必须以 `TEMP_DIR_PREFIX` 开头，否则被强杀留下的目录没人收。
  */
 export function createTempDir(prefix: string): string {
+  if (!prefix.startsWith(TEMP_DIR_PREFIX)) {
+    throw new Error(
+      `createTempDir 的前缀必须以 "${TEMP_DIR_PREFIX}" 开头（收到 "${prefix}"），` +
+        '否则它不在 sweepStaleTempDirs 的清扫范围内'
+    );
+  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.add(dir);
   return dir;

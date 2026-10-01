@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { sweepStaleTempDirs } from './smoke-harness';
 
 /**
  * 索引库清理兜底。
@@ -35,6 +36,13 @@ function snapshot(dir: string): Set<string> {
 }
 
 export default function setup(): () => void {
+  // 第二道兜底：`%TEMP%` 里的测试临时目录。放在这里是因为 globalSetup **每次跑只执行一次**，
+  // 而 harness 自己的退出钩子只覆盖正常退出（理由见 `sweepStaleTempDirs` 的注释）。
+  const swept = sweepStaleTempDirs();
+  if (swept > 0) {
+    console.log(`[temp-cleanup] 清掉 ${swept} 个超期残留目录（${os.tmpdir()}）`);
+  }
+
   const dir = workspaceIndexDir();
   const before = snapshot(dir);
   console.log(`[index-cleanup] 兜底就绪：${dir}（现有 ${before.size} 项）`);
