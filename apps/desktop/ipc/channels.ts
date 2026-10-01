@@ -19,6 +19,13 @@ export const IPC_CHANNELS = {
    * 过一遍 `utf-8` 解码再编码**不是恒等变换**，PNG 会被改坏。
    */
   saveAttachment: 'nexus:save-attachment',
+  /**
+   * 删除一个文件。走回收站还是永久删除由 `DeleteMode` 决定（`files.deleteBehavior`）。
+   *
+   * 与 `saveAttachment` 分开而不是复用它：那是「写」，这是「删」，两者唯一的共同点是
+   * 都要过工作区边界。合起来会让一条通道既可能写坏文件也可能删掉文件。
+   */
+  deleteFile: 'nexus:delete-file',
   watchFile: 'nexus:watch-file',
   unwatchFile: 'nexus:unwatch-file',
   fileWatchEvent: 'nexus:file-watch-event',
@@ -146,6 +153,23 @@ export interface SaveAttachmentRequest {
 }
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
+
+/**
+ * 删一个文件时走哪条路。**两条分支的破坏性不同**，这是整个设计里唯一需要解释的东西：
+ *
+ * - `trash` —— 移到系统回收站。文件还在磁盘上，用户能从文件管理器找回来，
+ *   而且它所在路径上的版本历史也留着（路径对上时历史会跟着回来）。
+ * - `permanent` —— 真的没了，连同该文档的版本历史一起。
+ *
+ * 默认值必须是 `trash`（这也是 `files.deleteBehavior` 的默认档）。主进程收到认不出的值
+ * 一律按 `trash` 处理 —— 与 `parseHistoryRetention` 同一条判据：**会删数据的功能，
+ * 失败方向必须选「不删」**。这里认不出的值只可能来自一个坏掉的存档或一次手写的 IPC，
+ * 两种情形都没有理由让它升级成不可逆。
+ */
+export type DeleteMode = 'trash' | 'permanent';
+
+/** 上面那个值的全部合法取值，主进程用它校验跨进程传来的 `unknown`。 */
+export const DELETE_MODES: readonly DeleteMode[] = ['trash', 'permanent'];
 
 /**
  * 索引库文件的文件系统事实。

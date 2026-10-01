@@ -1706,6 +1706,54 @@ body.nexus-resizing {
   color: var(--nexus-status-error-text);
 }
 
+/* 上下文菜单原语（全仓第一个）。用 `position: fixed` 而不是 portal：调用点在
+   `.nexus-tree-scroll`（`overflow-y: auto`）里，绝对定位会被裁掉；fixed 的基准是视口，
+   不受祖先 overflow 影响（`.nexus-app-root` 那条 `overflow: hidden` 不建立包含块，
+   所以拦不住它）。尺寸与配色沿用 `.nexus-menu-dropdown` / `.nexus-menu-item` ——
+   两处都是「应用自己的菜单」，各画一套只会让内边距与圆角慢慢漂开。
+   z-index 取 900：在菜单栏下拉（500）之上、弹层遮罩（10000）之下。 */
+.nexus-context-menu {
+  position: fixed;
+  z-index: 900;
+  min-width: 160px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--nexus-bg-surface);
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); /* @constant 抬升阴影，与主题无关 */
+  /* 菜单自己拿焦点（`tabIndex={-1}`）来接键盘，但不画焦点环 ——
+     焦点环会围着整个菜单画一圈，看起来像「菜单本身被选中了」。 */
+  outline: none;
+}
+
+.nexus-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nexus-text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 高亮同时覆盖「鼠标悬停」与「键盘上下键」：两条路径都写 `data-context-menu-active`，
+   所以不需要单独的 `:hover` 规则 —— 鼠标移入会 `setActiveIndex`，属性跟着变。 */
+.nexus-context-menu-item[data-context-menu-active] {
+  background-color: var(--nexus-selection-bg);
+}
+
+/* 不可逆的动作。只换字色、不换底色 —— 底色是「这一项被选中了」的语义，
+   与「这一项很危险」是两回事；混用会让键盘走到它时看不出选中。 */
+.nexus-context-menu-item-danger {
+  color: var(--nexus-status-error-text);
+}
+
 /* 多标签页栏（P2-04）：只渲染「打开了几个文档」，不持有任何文档状态 */
 .nexus-tab-bar {
   display: flex;

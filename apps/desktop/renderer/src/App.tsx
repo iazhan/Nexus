@@ -43,6 +43,8 @@ import { DEFAULT_SHORTCUTS, REDO_SHORTCUT, resolveShortcut } from './keybindings
 import { commandRegistry, mermaidPreviewPreference, settings } from './platform.js';
 import { useTheme, useLocale, useSettingValue, useKeybindingTable } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
+import { ContextMenu, type ContextMenuItem } from './components/ContextMenu.js';
+import { parseDeleteMode } from './settings/preference-specs.js';
 import { WorkspaceStore } from './workspace/store.js';
 import { TabBar } from './workspace/TabBar.js';
 import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
@@ -180,6 +182,19 @@ export const App: React.FC = () => {
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
 
   /**
+   * 工作区树上的右键菜单。`null` ＝ 没开着。
+   *
+   * 只存「哪一个文件 + 鼠标在哪」，菜单项在渲染时现算 —— 这样「删除」与后面的
+   * 「重命名」「复制链接」共用同一个入口，各自只关心自己那一条。
+   *
+   * 坐标存的是 `clientX/clientY`（视口坐标），因为菜单是 `position: fixed` 的：
+   * 树容器是 `overflow-y: auto`，绝对定位的菜单会被裁掉。
+   */
+  const [fileMenu, setFileMenu] = useState<{ filePath: string; x: number; y: number } | null>(
+    null
+  );
+
+  /**
    * 索引跑完后 bump 版本号。
    *
    * 标签这类**由索引驱动**的面板会在启动时随其他面板一起挂载，那时索引还没建好，
@@ -191,6 +206,11 @@ export const App: React.FC = () => {
 
   const handleActivitySelect = useCallback((id: ActivityId) => {
     setActivity((previous) => toggleActivity(previous, id));
+  }, []);
+
+  /** 树上的右键：只记「哪个文件 + 鼠标在哪」，菜单项在渲染时现算。 */
+  const handleFileContextMenu = useCallback((filePath: string, x: number, y: number) => {
+    setFileMenu({ filePath, x, y });
   }, []);
 
   /**
@@ -1087,6 +1107,65 @@ export const App: React.FC = () => {
   );
 
   /**
+   * 删除一个文件（工作区树右键 → 删除）。
+   *
+   * 四条纪律：
+   *
+   * - **永久删除必须先确认**，而回收站那一档**不确认** —— 可逆的操作不该拿弹窗烦人，
+   *   何况回收站本身就是「后悔」的入口。两个档位的差别只在这一点上体现，用户才分得清。
+   * - 删的是**磁盘上的文件**，不只是关掉标签页。所以桥没接上时直接返回，不假装成功。
+   * - 失败**说出来**：不用 `setErrorMessage`，那个只在 `status === 'error'` 时渲染
+   *   （「文档打不开」那一屏），删除失败时状态是 `ready`，设了也没人看得见。
+   * - 删完要**同时**收掉三处痕迹：标签页、索引里的记录、树的列表。少一处就会出现
+   *   「文件没了但树里还在」。
+   */
+  const handleDeleteFile = useCallback(
+    async (filePath: string) => {
+      const bridge = window.nexus;
+      if (!bridge?.deleteFile) return;
+
+      const mode = parseDeleteMode(settings.get('files.deleteBehavior'));
+      if (mode === 'permanent') {
+        const name = getFileName(filePath);
+        if (!window.confirm(t('workspace.deleteConfirm', { name }))) return;
+      }
+
+      try {
+        await bridge.deleteFile(filePath, mode);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        window.alert(t('workspace.deleteFailed', { name: getFileName(filePath), detail }));
+        return;
+      }
+
+      // 它可能开着，也可能没开 —— 右键能删树上任意一个文件，不只当前这个。
+      const open = store.getDocuments().find((candidate) => candidate.filePath === filePath);
+      if (open) closeDocumentAndEnsureEditor(open.id);
+
+      // 索引里的记录由主进程在删除时一并去掉（两边是同一个动作的两半）；
+      // 这里只负责让**界面**重读一次 —— 与「索引跑完」共用同一个版本号信号。
+      setDocumentRevision((previous) => previous + 1);
+    },
+    [store, closeDocumentAndEnsureEditor, t]
+  );
+
+  /**
+   * 右键菜单的菜单项。**每次打开时现算**而不是缓存：文案要跟着语言变，
+   * 而语言是可以在窗口开着的时候切走的。
+   */
+  const fileMenuItems = useCallback(
+    (filePath: string): ContextMenuItem[] => [
+      {
+        id: 'delete',
+        label: t('workspace.deleteFile'),
+        danger: true,
+        onSelect: () => void handleDeleteFile(filePath)
+      }
+    ],
+    [handleDeleteFile, t]
+  );
+
+  /**
    * Ctrl/Cmd+左键的链接跳转策略。
    *
    * 编辑器只负责识别（命中哪个链接、href 是什么），"往哪去"在这里定：
@@ -1855,6 +1934,8 @@ export const App: React.FC = () => {
               activeFilePath={filePath}
               onOpenFile={handleOpenWorkspaceFile}
               onIndexed={handleIndexed}
+              revision={documentRevision}
+              onFileContextMenu={handleFileContextMenu}
             />
           </div>
           <div
@@ -2087,6 +2168,17 @@ export const App: React.FC = () => {
             void handleOpenWorkspaceFile(targetPath);
           }}
           onClose={() => setQuickOpenOpen(false)}
+        />
+      )}
+      {/* 挂在最外层而不是树里：树容器是 `overflow-y: auto`，菜单在那边会被裁掉。
+          菜单自己用 `position: fixed` 定位到鼠标处。 */}
+      {fileMenu && (
+        <ContextMenu
+          x={fileMenu.x}
+          y={fileMenu.y}
+          items={fileMenuItems(fileMenu.filePath)}
+          onClose={() => setFileMenu(null)}
+          label={t('workspace.fileMenu')}
         />
       )}
     </div>

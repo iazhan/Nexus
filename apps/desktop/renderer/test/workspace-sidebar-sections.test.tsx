@@ -361,3 +361,164 @@ describe('工作区侧栏：笔记树 + 附件区', () => {
     ]);
   });
 });
+
+/**
+ * 侧栏与「删除文件」的两处接线。
+ *
+ * 为什么放在这一层而不是真机：右键菜单**本身**的行为归 `context-menu.test.tsx`，
+ * 而「树上的行有没有把右键转成 `(路径, x, y)`」是纯接线，happy-dom 里几毫秒就能覆盖
+ * 笔记行 / 附件行 / 没接回调三种形状。真机那一层只负责证明「右键真能弹出来、删完树真的少了」。
+ *
+ * 第二条（`revision` 重读）防的是一个具体的毛病：**文件删了、树里还在**。
+ * `documentRevision` 此前只被标签页 / 图谱 / 插件几个面板消费，侧栏被跳过了。
+ */
+describe('工作区侧栏：右键删除入口与刷新', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    delete (window as unknown as { nexus?: unknown }).nexus;
+    vi.restoreAllMocks();
+  });
+
+  /** 装上桥，并等挂载那次索引跑完。 */
+  async function mountSidebar(options: {
+    documents: IndexedDocument[];
+    onFileContextMenu?: (filePath: string, x: number, y: number) => void;
+  }): Promise<void> {
+    (window as unknown as { nexus: unknown }).nexus = {
+      rebuildIndex: vi.fn(async () => ({ ...OK_RESULT, scanned: options.documents.length })),
+      listIndexedDocuments: vi.fn(async () => options.documents)
+    };
+
+    await act(async () => {
+      root.render(
+        <WorkspaceSidebar
+          rootPath="/vault"
+          activeFilePath={null}
+          onOpenFile={vi.fn()}
+          onFileContextMenu={options.onFileContextMenu}
+        />
+      );
+    });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (container.querySelector('.nexus-workspace-sidebar')?.getAttribute('data-phase') === 'ready') {
+        return;
+      }
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+    throw new Error(`侧栏没有进入 ready：${container.innerHTML}`);
+  }
+
+  /** 在某个选择器上派发右键，返回那个事件（用来断言 `defaultPrevented`）。 */
+  function rightClick(selector: string, x = 40, y = 60): MouseEvent {
+    const target = container.querySelector(selector);
+    if (!target) throw new Error(`找不到 ${selector}`);
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: x,
+      clientY: y
+    });
+    act(() => {
+      target.dispatchEvent(event);
+    });
+    return event;
+  }
+
+  it('笔记行右键上报绝对路径与视口坐标，并吃掉原生菜单', async () => {
+    const onFileContextMenu = vi.fn();
+    await mountSidebar({ documents: [doc('index.md')], onFileContextMenu });
+
+    const event = rightClick('.nexus-sidebar-section[data-section="notes"] .nexus-tree-file', 40, 60);
+
+    expect(onFileContextMenu).toHaveBeenCalledWith('/vault/index.md', 40, 60);
+    // 不 `preventDefault` 的话系统菜单会叠在我们的菜单上。
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('附件行右键同样上报', async () => {
+    const onFileContextMenu = vi.fn();
+    await mountSidebar({ documents: [doc('assets/logo.png')], onFileContextMenu });
+
+    rightClick('.nexus-attachment-item', 10, 20);
+
+    expect(onFileContextMenu).toHaveBeenCalledWith('/vault/assets/logo.png', 10, 20);
+  });
+
+  it('没接回调时不吃原生菜单 —— 别的地方用这个组件不该被改掉右键', async () => {
+    await mountSidebar({ documents: [doc('index.md')] });
+
+    const event = rightClick('.nexus-sidebar-section[data-section="notes"] .nexus-tree-file');
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  /**
+   * `revision` 变了才重读，**挂载那一次要跳过**。
+   *
+   * 不跳的话两个 effect 会抢：建索引那个还没 await 完，重读那个就先查了一次，
+   * 拿到的是旧列表 —— 谁后 resolve 谁说了算，结果是随机的。
+   * 所以这里同时钉两件事：挂载时只读一次；revision 变了才读第二次，且**用**了第二次的结果。
+   */
+  it('挂载只读一次列表，revision 变化才重读并采用新结果', async () => {
+    const first = [doc('index.md')];
+    // 新加的是**顶层**文件：默认展开只覆盖顶层目录，塞进 `notes/` 的话它会被折叠起来，
+    // 那样断言的就是「目录展开策略」而不是「列表有没有重读」。
+    const second = [doc('index.md'), doc('added.md')];
+    let call = 0;
+    const listIndexedDocuments = vi.fn(async () => {
+      const list = call === 0 ? first : second;
+      call += 1;
+      return list;
+    });
+
+    (window as unknown as { nexus: unknown }).nexus = {
+      rebuildIndex: vi.fn(async () => ({ ...OK_RESULT, scanned: 2 })),
+      listIndexedDocuments
+    };
+
+    await act(async () => {
+      root.render(
+        <WorkspaceSidebar rootPath="/vault" activeFilePath={null} onOpenFile={vi.fn()} revision={0} />
+      );
+    });
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (container.querySelector('.nexus-workspace-sidebar')?.getAttribute('data-phase') === 'ready') break;
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    expect(listIndexedDocuments).toHaveBeenCalledTimes(1);
+    expect(container.textContent).not.toContain('added.md');
+
+    await act(async () => {
+      root.render(
+        <WorkspaceSidebar rootPath="/vault" activeFilePath={null} onOpenFile={vi.fn()} revision={1} />
+      );
+    });
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (container.textContent?.includes('added.md')) break;
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    expect(listIndexedDocuments).toHaveBeenCalledTimes(2);
+    // 光「读了一次」不够 —— 读了不画，用户看到的还是旧树。
+    expect(container.textContent).toContain('added.md');
+  });
+});

@@ -64,6 +64,12 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.extraction.emptyShort': 'no text',
     'workspace.extraction.failed': 'Text extraction failed',
     'workspace.extraction.failedShort': 'failed',
+    // 工作区树右键菜单。`fileMenu` 是菜单的 aria-label，另外三条是菜单项与它的两个结果。
+    'workspace.fileMenu': 'File actions',
+    'workspace.deleteFile': 'Delete',
+    'workspace.deleteConfirm':
+      'Delete "{name}" permanently? Its version history is removed as well, and this cannot be undone.',
+    'workspace.deleteFailed': 'Could not delete "{name}": {detail}',
     'tab.untitled': 'Untitled',
     'tab.close': 'Close {name}',
     'tab.discardConfirm': 'Discard unsaved changes in "{name}"?',
@@ -269,6 +275,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.files.ignoreRules': 'Folders to ignore when scanning',
     'settings.files.ignoreRulesDescription':
       'One per line or comma-separated, matched by folder name or by path relative to the workspace root (drafts, notes/private). Dot-folders and node_modules, dist, out, build are always ignored. Rebuild the index to apply.',
+    'settings.files.deleteBehavior': 'When deleting a file',
+    'settings.files.deleteBehaviorDescription':
+      'Files are deleted from the right-click menu in the workspace tree. Move to trash can be undone, and the version history of that document is kept. Delete permanently removes the file together with its version history, and cannot be undone.',
+    'settings.files.deleteBehavior.trash': 'Move to trash',
+    'settings.files.deleteBehavior.permanent': 'Delete permanently',
     'settings.data.rebuildIndex': 'Index',
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
@@ -588,6 +599,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.extraction.emptyShort': '无文本',
     'workspace.extraction.failed': '文本提取失败',
     'workspace.extraction.failedShort': '失败',
+    // 工作区树右键菜单。文案里**不要写 `**`** —— 描述是纯文本渲染，星号会原样显示。
+    'workspace.fileMenu': '文件操作',
+    'workspace.deleteFile': '删除',
+    'workspace.deleteConfirm': '永久删除「{name}」？它的版本历史也会一起删掉，不可恢复。',
+    'workspace.deleteFailed': '删除「{name}」失败：{detail}',
     'tab.untitled': '未命名',
     'tab.close': '关闭 {name}',
     'tab.discardConfirm': '「{name}」有未保存的内容，确定丢弃吗？',
@@ -778,6 +794,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.files.ignoreRules': '扫描时忽略的目录',
     'settings.files.ignoreRulesDescription':
       '一行一条或用逗号分隔，按目录名或相对工作区根的路径匹配（如 drafts、notes/private）。点开头的目录与 node_modules、dist、out、build 始终忽略。改完要重建索引才生效。',
+    'settings.files.deleteBehavior': '删除文件时',
+    'settings.files.deleteBehaviorDescription':
+      '删除文件的入口在工作区树的右键菜单里。「移到系统回收站」可以找回，该文档的版本历史也留着；「永久删除」会连版本历史一起删掉，不可恢复。',
+    'settings.files.deleteBehavior.trash': '移到系统回收站',
+    'settings.files.deleteBehavior.permanent': '永久删除',
     'settings.data.rebuildIndex': '索引',
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',

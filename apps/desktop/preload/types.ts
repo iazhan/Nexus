@@ -11,6 +11,7 @@ import type {
   HistoryEntry
 } from '@nexus/core';
 import type {
+  DeleteMode,
   DiagnosticsReport,
   HostSettings,
   SaveAttachmentRequest,
@@ -49,6 +50,16 @@ export interface NexusBridge {
    * 所以最终文件名只有那边知道。渲染进程拿到之后再算相对路径写进 Markdown。
    */
   saveAttachment: (request: SaveAttachmentRequest) => Promise<string>;
+  /**
+   * 删除一个文件。`mode` 决定走系统回收站还是永久删除（`files.deleteBehavior`）。
+   *
+   * 渲染进程**不自己判断该用哪个模式**，它把设置值原样传下来；认不出的值由主进程
+   * 按回收站处理。这样「存档里一个坏值」最坏只是让永久删除退化成可恢复的删除，
+   * 而不是反过来。
+   *
+   * 主进程拒绝目录（只能删文件）与工作区之外的路径 —— 两者都抛错，不静默跳过。
+   */
+  deleteFile: (filePath: string, mode: DeleteMode) => Promise<void>;
   watchFile: (filePath: string, listener: FileWatchListener) => Unsubscribe;
   /**
    * 授权一个工作区根目录，该目录下的文件随即可读写。返回规范化后的绝对路径。

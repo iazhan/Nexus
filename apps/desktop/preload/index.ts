@@ -14,6 +14,7 @@ import type {
 } from '@nexus/core';
 import {
   IPC_CHANNELS,
+  type DeleteMode,
   type DiagnosticsReport,
   type FileWatchIpcPayload,
   type HostSettings,
@@ -95,6 +96,10 @@ const bridge: NexusBridge = {
 
   saveAttachment: (request: SaveAttachmentRequest): Promise<string> => {
     return ipcRenderer.invoke(IPC_CHANNELS.saveAttachment, request);
+  },
+
+  deleteFile: (filePath: string, mode: DeleteMode): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.deleteFile, filePath, mode);
   },
 
   authorizeWorkspace: (rootPath: string): Promise<string> => {

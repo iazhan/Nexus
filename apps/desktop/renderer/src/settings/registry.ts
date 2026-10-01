@@ -45,6 +45,7 @@ import {
   ATTACHMENT_LOCATION_OPTIONS,
   ATTACHMENT_NAME_TEMPLATE_DEFAULT,
   AUTO_SAVE_DELAY,
+  DELETE_BEHAVIOR_OPTIONS,
   EDITOR_CONTENT_WIDTH_OPTIONS,
   EDITOR_FONT_FAMILIES,
   EDITOR_FONT_FAMILY_DEFAULT,
@@ -1205,6 +1206,44 @@ export const NEW_DOCUMENT_LOCATION_FIELD: FieldDef = {
 };
 
 /**
+ * 删除文件走回收站还是永久删除。在 `FIELDS` 里排 `files` 组最后 —— 它是这一组里
+ * **唯一不可逆**的一项，与前面几项「东西放哪、叫什么」不是同一类问题。
+ *
+ * 用 `radio` 与同组其他两项一致（两个选项，短语长度相当）。
+ *
+ * 描述文案里**必须**说清两件事，否则用户没法预期：
+ * 1. 「永久删除」会连该文档的**版本历史一起删掉**（回收站那一档不会）；
+ * 2. 删除入口在工作区树的右键菜单里 —— 这一项本身不提供「现在删一个试试」的按钮，
+ *    而一个没有入口的设置项等于没法验证。
+ */
+export const DELETE_BEHAVIOR_FIELD: FieldDef = {
+  id: 'files.deleteBehavior',
+  section: 'files',
+  labelKey: 'settings.files.deleteBehavior',
+  descriptionKey: 'settings.files.deleteBehaviorDescription',
+  keywords: [
+    '删除',
+    '回收站',
+    '永久',
+    '不可恢复',
+    'delete',
+    'trash',
+    'recycle',
+    'bin',
+    'permanent',
+    'remove'
+  ],
+  control: 'radio',
+  options: DELETE_BEHAVIOR_OPTIONS,
+  accessor: {
+    read: () => settings.get('files.deleteBehavior'),
+    write: (value) => settings.set('files.deleteBehavior', value),
+    subscribe: (listener) => settings.subscribe('files.deleteBehavior', listener)
+  },
+  menu: false
+};
+
+/**
  * 附件子目录名。**与上一项是两个字段而不是「一项带一个输入框」** —— 控件表只认一个
  * `control`，而「单选 + 输入」这种复合控件在 `FieldDef` 里表达不出来。拆成两项的代价是
  * 它在 `attachmentLocation` 选「与文档同目录」时仍然可编辑。
@@ -1280,6 +1319,7 @@ export const FIELDS: readonly FieldDef[] = [
   ATTACHMENT_DIRECTORY_FIELD,
   ATTACHMENT_NAME_TEMPLATE_FIELD,
   NEW_DOCUMENT_LOCATION_FIELD,
+  DELETE_BEHAVIOR_FIELD,
   PANEL_WIDTH_FIELD,
   REBUILD_INDEX_FIELD,
   HISTORY_RETENTION_FIELD,

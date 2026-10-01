@@ -752,4 +752,154 @@ describe('FileService & atomicWriteFile', () => {
       await expectFileServiceError(service.statAsset(pngPath), 'OUT_OF_BOUNDS');
     });
   });
+
+  /**
+   * 删除文件：回收站 / 永久 两条分支 + 边界。
+   *
+   * 判据**不能**是「文件没了」—— 两条分支都让文件从原路径消失，那样写等于只测了一条。
+   * 所以这里断言的是**哪条分支被走了**：永久删除必须调 `fsAdapter.unlink` 且不碰回收站；
+   * 回收站必须调注入的 `TrashAdapter` 且**不调** `unlink`。回收站之所以能被这样观测，
+   * 正是因为它没有进 `FileSystemAdapter`（那个接口描述的是 `fs` 能做的事，而回收站是
+   * Electron 独有的能力），而是构造时注入的。
+   *
+   * 另一半是**失败方向**：认不出、没注入、路径越界、目标是目录 —— 一律「不删」。
+   * 其中最要紧的是「没注入回收站」那一条：静默降级成永久删除会让用户以为文件进了回收站，
+   * 其实再也找不回来。
+   */
+  describe('删除文件：回收站 / 永久 + 边界', () => {
+    it('永久删除走 unlink，不经过回收站', async () => {
+      const target = path.join(tempDir, 'doomed.md');
+      await fsPromises.writeFile(target, '# Doomed', 'utf-8');
+
+      const unlink = vi.fn();
+      const trashItem = vi.fn(async () => {});
+      const service = new FileService({
+        allowedPaths: [target],
+        fsAdapter: createMockFsAdapter({ unlink }),
+        trash: { trashItem }
+      });
+
+      await service.deleteFile(target, 'permanent');
+
+      expect(unlink).toHaveBeenCalledOnce();
+      expect(unlink).toHaveBeenCalledWith(path.resolve(target));
+      expect(trashItem).not.toHaveBeenCalled();
+    });
+
+    it('回收站走注入的 TrashAdapter，且**不**调 unlink', async () => {
+      const target = path.join(tempDir, 'recoverable.md');
+      await fsPromises.writeFile(target, '# Recoverable', 'utf-8');
+
+      const unlink = vi.fn();
+      const trashItem = vi.fn(async () => {});
+      const service = new FileService({
+        allowedPaths: [target],
+        fsAdapter: createMockFsAdapter({ unlink }),
+        trash: { trashItem }
+      });
+
+      await service.deleteFile(target, 'trash');
+
+      expect(trashItem).toHaveBeenCalledOnce();
+      expect(trashItem).toHaveBeenCalledWith(path.resolve(target));
+      // 顺手把文件真删掉，「还能找回」就是假的。
+      expect(unlink).not.toHaveBeenCalled();
+    });
+
+    it('不传 mode 时走回收站 —— 最保守的那一档是默认', async () => {
+      const target = path.join(tempDir, 'default-mode.md');
+      await fsPromises.writeFile(target, '# Default', 'utf-8');
+
+      const trashItem = vi.fn(async () => {});
+      const service = new FileService({ allowedPaths: [target], trash: { trashItem } });
+
+      await service.deleteFile(target);
+
+      expect(trashItem).toHaveBeenCalledOnce();
+    });
+
+    it('没注入回收站适配器时抛 IO_ERROR，且文件仍在', async () => {
+      const target = path.join(tempDir, 'no-trash.md');
+      await fsPromises.writeFile(target, '# Still here', 'utf-8');
+
+      const unlink = vi.fn();
+      const service = new FileService({
+        allowedPaths: [target],
+        fsAdapter: createMockFsAdapter({ unlink })
+      });
+
+      await expectFileServiceError(service.deleteFile(target, 'trash'), 'IO_ERROR');
+
+      expect(unlink).not.toHaveBeenCalled();
+      expect(fsPromises.stat(target)).resolves.toBeTruthy();
+    });
+
+    it('目录不能被删 —— 抛 IO_ERROR，而不是把整棵树递归删掉', async () => {
+      const dir = path.join(tempDir, 'a-directory');
+      await fsPromises.mkdir(dir, { recursive: true });
+      const inside = path.join(dir, 'inside.md');
+      await fsPromises.writeFile(inside, 'x', 'utf-8');
+
+      const unlink = vi.fn();
+      const trashItem = vi.fn(async () => {});
+      const service = new FileService({
+        allowedPaths: [dir],
+        fsAdapter: createMockFsAdapter({ unlink }),
+        trash: { trashItem }
+      });
+
+      await expectFileServiceError(service.deleteFile(dir, 'permanent'), 'IO_ERROR');
+
+      expect(unlink).not.toHaveBeenCalled();
+      expect(trashItem).not.toHaveBeenCalled();
+      expect(fsPromises.stat(inside)).resolves.toBeTruthy();
+    });
+
+    it('未授权路径抛 OUT_OF_BOUNDS，且文件没被动过', async () => {
+      const target = path.join(tempDir, 'unauthorized.md');
+      await fsPromises.writeFile(target, '# Unauthorized', 'utf-8');
+
+      const unlink = vi.fn();
+      const trashItem = vi.fn(async () => {});
+      const service = new FileService({
+        fsAdapter: createMockFsAdapter({ unlink }),
+        trash: { trashItem }
+      });
+
+      const err = await expectFileServiceError(
+        service.deleteFile(target, 'permanent'),
+        'OUT_OF_BOUNDS'
+      );
+      expect(err.path).toBe(path.resolve(target));
+      expect(unlink).not.toHaveBeenCalled();
+      expect(trashItem).not.toHaveBeenCalled();
+      expect(fsPromises.stat(target)).resolves.toBeTruthy();
+    });
+
+    it('工作区里指向区外的符号链接也删不掉（realpath 逃逸）', async () => {
+      const linkPath = path.join(tempDir, 'link.md');
+      await fsPromises.writeFile(linkPath, '# Link', 'utf-8');
+      // 目录**外**的落点。放在 tempDir 里会被 authorizeWorkspace 一并授权，测不出逃逸。
+      const escapeTarget = path.join(os.tmpdir(), 'nexus-escape-target.md');
+
+      const unlink = vi.fn();
+      const adapter = createMockFsAdapter({
+        unlink,
+        realpath: async (p) => (p === path.resolve(linkPath) ? escapeTarget : p)
+      });
+
+      const service = new FileService({
+        allowedPaths: [linkPath],
+        fsAdapter: adapter,
+        trash: { trashItem: vi.fn(async () => {}) }
+      });
+      // 字符串层面它就在白名单里，所以这一步必须先通过 —— 否则下面的 OUT_OF_BOUNDS
+      // 可能来自「压根没授权」，测不出 realpath 那一层。
+      await expect(service.readFile(linkPath)).resolves.toBe('# Link');
+
+      await service.authorizeWorkspace(tempDir);
+      await expectFileServiceError(service.deleteFile(linkPath, 'permanent'), 'OUT_OF_BOUNDS');
+      expect(unlink).not.toHaveBeenCalled();
+    });
+  });
 });

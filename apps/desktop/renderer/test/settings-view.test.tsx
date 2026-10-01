@@ -1432,6 +1432,7 @@ describe('设置视图 · 文件与链接', () => {
     settings.set('files.attachmentDirectory', 'assets');
     settings.set('files.attachmentNameTemplate', 'pasted-{timestamp}');
     settings.set('files.newDocumentLocation', 'document');
+    settings.set('files.deleteBehavior', 'trash');
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -1445,9 +1446,10 @@ describe('设置视图 · 文件与链接', () => {
     settings.set('files.attachmentDirectory', 'assets');
     settings.set('files.attachmentNameTemplate', 'pasted-{timestamp}');
     settings.set('files.newDocumentLocation', 'document');
+    settings.set('files.deleteBehavior', 'trash');
   });
 
-  it('五项都渲染出来，默认值是「空规则 / 与文档同目录 / assets / pasted-{timestamp} / 与当前文档同目录」', () => {
+  it('六项都渲染出来，默认值是「空规则 / 与文档同目录 / assets / pasted-{timestamp} / 与当前文档同目录 / 回收站」', () => {
     renderSettings('files');
 
     expect(container.querySelector('[data-field="files.ignoreRules"]')).not.toBeNull();
@@ -1455,12 +1457,63 @@ describe('设置视图 · 文件与链接', () => {
     expect(container.querySelector('[data-field="files.attachmentDirectory"]')).not.toBeNull();
     expect(container.querySelector('[data-field="files.attachmentNameTemplate"]')).not.toBeNull();
     expect(container.querySelector('[data-field="files.newDocumentLocation"]')).not.toBeNull();
+    expect(container.querySelector('[data-field="files.deleteBehavior"]')).not.toBeNull();
 
     expect(settings.get('files.ignoreRules')).toBe('');
     expect(settings.get('files.attachmentLocation')).toBe('document');
     expect(settings.get('files.attachmentDirectory')).toBe('assets');
     expect(settings.get('files.attachmentNameTemplate')).toBe('pasted-{timestamp}');
     expect(settings.get('files.newDocumentLocation')).toBe('document');
+    expect(settings.get('files.deleteBehavior')).toBe('trash');
+  });
+
+  /**
+   * 删除行为是这一组里唯一的「危险项」：两档不是「方便 / 不方便」而是「可逆 / 不可逆」。
+   * 所以判据有两条方向性的：
+   *   1. 默认档是**回收站**（加这一项之前没有删除功能，退回判据的本意 = 取最保守的一档）；
+   *   2. 存档里是认不出的值时也回落到回收站，而不是永久删除。
+   * 反过来意味着「存档里一个错字，用户点一下删除就再也找不回来」。
+   */
+  it('删除行为两档都渲染，默认选回收站', () => {
+    renderSettings('files');
+
+    expect(
+      container.querySelector('[data-field-option="files.deleteBehavior:trash"]')
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-field-option="files.deleteBehavior:permanent"]')
+    ).not.toBeNull();
+
+    const trash = container.querySelector<HTMLElement>(
+      '[data-field-option="files.deleteBehavior:trash"]'
+    );
+    expect(trash?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('改删除行为写进存档（枚举项不画重置键）', () => {
+    renderSettings('files');
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[data-field-option="files.deleteBehavior:permanent"]')
+        ?.click();
+    });
+
+    expect(settings.get('files.deleteBehavior')).toBe('permanent');
+    expect(container.querySelector('[data-field-reset="files.deleteBehavior"]')).toBeNull();
+  });
+
+  it('存档里是认不出的删除行为时回落回收站', () => {
+    // `settings.get` 读的是构造时建好的缓存，所以必须先写盘再新建一个 store ——
+    // 直接 `settings.set` 会被 `parse` 收窄，测不出「读坏值」那条路。
+    localStorage.setItem('nexus-delete-behavior', 'shred');
+    settings.reload();
+    renderSettings('files');
+
+    const trash = container.querySelector<HTMLElement>(
+      '[data-field-option="files.deleteBehavior:trash"]'
+    );
+    expect(trash?.getAttribute('aria-checked')).toBe('true');
   });
 
   /**

@@ -16,6 +16,7 @@ import { buildDiagnostics } from './diagnostics.js';
 import { indexDirectoryForWorkspace, indexPathForWorkspace } from './index-path.js';
 import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js';
 import { createElectronFileDialog } from './file-dialog.js';
+import { createElectronTrash } from './trash.js';
 import { HistoryStore, HISTORY_DIR } from './history-store.js';
 import { hostSettings, sanitizeHostSettings, updateHostSettings } from './host-settings.js';
 import {
@@ -28,7 +29,9 @@ import { IndexStore } from './index-store.js';
 import { indexWorkspace } from './indexer.js';
 import { createProcessorRegistry } from './processor/index.js';
 import {
+  DELETE_MODES,
   IPC_CHANNELS,
+  type DeleteMode,
   type FileWatchIpcPayload,
   type WindowRole,
   type WindowState
@@ -601,6 +604,29 @@ function historyTarget(
   return { session, root, relativePath };
 }
 
+/**
+ * 忘掉某文档的全部版本历史。**只该在永久删除之后调用** —— 回收站分支刻意不动历史，
+ * 那正是「可逆」的一半（文件恢复到同一路径时，历史也就跟着回来了）。
+ *
+ * 与 `recordHistory` 对称：那个在写盘前留一份，这个在删掉后全部忘掉。
+ *
+ * 注意它用的是 `historyTarget`，而那个函数只做路径运算、**不碰文件系统** ——
+ * 所以在这里「文件已经不存在了」不影响它算得出相对路径。
+ *
+ * 失败只记日志：文件已经删掉了，一个删不掉的历史目录不该把整次删除变成「失败」，
+ * 那会让用户重试，而重试只会撞上「文件不存在」。
+ */
+function forgetHistory(event: Electron.IpcMainInvokeEvent, documentPath: unknown): void {
+  const target = historyTarget(event, documentPath);
+  if (!target) return;
+
+  try {
+    new HistoryStore(target.root).forget(target.relativePath);
+  } catch (err) {
+    console.error('[Nexus Shell] 清理历史失败（不影响删除）:', err);
+  }
+}
+
 /** 参数不是合法条目时抛错 —— 静默返回空数组会让 UI 显示「没有历史」。 */
 function requireEntry(value: unknown): HistoryEntry {
   if (typeof value !== 'object' || value === null) {
@@ -646,6 +672,42 @@ ipcMain.handle(
     await session.service.writeFile(documentPath as string, content);
   }
 );
+
+/**
+ * 删除一个文件。`mode` 收 `unknown` 后自己校验 —— 跨了进程边界，编译期形状不作数。
+ *
+ * **认不出的值按回收站处理，而不是报错。** 报错会让一次误传变成「删不掉」，
+ * 而按回收站处理最坏也只是「用户以为永久删了、其实还能从回收站找回」——
+ * 两个方向里只有后者是可恢复的（同 `DeleteMode` 的注释、同 `parseHistoryRetention`）。
+ *
+ * 永久删除那一支会**连版本历史一起忘掉**：两条分支各自的语义要自洽，
+ * 「永久删除 = 什么都不留」。回收站分支刻意不动历史。
+ */
+ipcMain.handle(IPC_CHANNELS.deleteFile, async (event, filePath: unknown, mode: unknown) => {
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    throw new Error('deleteFile: filePath 必须是非空字符串');
+  }
+
+  const resolved: DeleteMode = DELETE_MODES.includes(mode as DeleteMode)
+    ? (mode as DeleteMode)
+    : 'trash';
+
+  const session = getOrCreateSession(event.sender);
+  await session.service.deleteFile(filePath, resolved);
+
+  // 索引里的记录一并去掉，否则树、标签、图谱都还认为它存在（**索引是派生数据**，
+  // 但派生的时机是「重建索引」，而删一个文件不该逼着用户重建一次全量）。
+  //
+  // `removeDocuments` 按**绝对路径精确匹配**，而这里收的就是索引自己写进去的那条路径
+  // —— 渲染进程是从 `listIndexedDocuments` 拿到的，两边字符串一致。
+  // 索引还没建过时 `getIndexStore` 返回 `null`，那时本来就没有记录要清。
+  getIndexStore(event.sender.id)?.removeDocuments([filePath]);
+
+  // 放在删除**之后**：删失败时历史必须原样留着，否则用户既没了文件也没了历史。
+  if (resolved === 'permanent') {
+    forgetHistory(event, filePath);
+  }
+});
 
 /**
  * 打开版本历史目录。**路径由主进程拼**，不接受渲染进程给的目录 —— 这里做的是「打开一个文件夹」，
@@ -786,6 +848,7 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
 
     const service = new FileService({
       dialog,
+      trash: createElectronTrash(),
       allowedPaths: launchContext.filePath ? [launchContext.filePath] : [],
       workspaceRoots: launchContext.workspaceRoot ? [launchContext.workspaceRoot] : [],
       assetRoots

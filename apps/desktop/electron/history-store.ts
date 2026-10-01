@@ -149,6 +149,42 @@ export class HistoryStore {
   public directoryFor(relativePath: string): string {
     return path.join(this.workspaceRoot, HISTORY_DIR, ...relativePath.split('/'));
   }
+
+  /**
+   * 忘掉某文档的全部历史，连同它那份镜像目录。
+   *
+   * **只该在「永久删除」时调用。** 理由不是「历史是派生的」—— 它不是（见类注释）——
+   * 而是两条删除分支各自的语义要自洽：移到回收站 = 还能找回来，所以历史留着
+   * （文档恢复到同一路径时，历史也就跟着回来了）；永久删除 = 什么都不留，所以历史一起没。
+   *
+   * 顺带把空掉的祖先目录收干净：历史目录**镜像工作区的目录结构**，删掉 `notes/dma.md/`
+   * 之后那个 `notes/` 空壳会一直留在文件管理器里，看起来像「工作区里还有个 notes」。
+   * 收到历史根为止，不越界。
+   *
+   * 失败**不抛**：与 `trim` 同一条纪律 —— 调用方那边文件已经删掉了，
+   * 一个删不掉的历史目录不该把整次删除变成「失败」，那会让用户重试，
+   * 而重试只会撞上「文件不存在」。
+   */
+  forget(relativePath: string): void {
+    const directory = this.directoryFor(relativePath);
+    try {
+      fs.rmSync(directory, { recursive: true, force: true });
+    } catch {
+      return;
+    }
+
+    const root = path.join(this.workspaceRoot, HISTORY_DIR);
+    let current = path.dirname(directory);
+    while (current !== root && current.startsWith(root)) {
+      try {
+        // `rmdirSync` 在非空时抛 —— 那正好是「到这儿为止」的信号，不需要先判空。
+        fs.rmdirSync(current);
+      } catch {
+        return;
+      }
+      current = path.dirname(current);
+    }
+  }
 }
 
 /**

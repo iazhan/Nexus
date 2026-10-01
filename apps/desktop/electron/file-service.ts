@@ -17,7 +17,7 @@ import {
   type WorkspaceScanResult
 } from '@nexus/core';
 import type { FileDialog } from './file-dialog.js';
-import type { SaveAttachmentRequest } from '../ipc/channels.js';
+import type { DeleteMode, SaveAttachmentRequest } from '../ipc/channels.js';
 
 /**
  * 文件句柄最小接口，便于测试 mock 与原子保存操作。
@@ -390,10 +390,23 @@ export interface ScanWorkspaceOptions {
   ignoreRules?: readonly string[];
 }
 
+/**
+ * 「移到系统回收站」这一动作的适配器。
+ *
+ * 抽一层而不是直接 `import { shell } from 'electron'`：`file-service.ts` 是**不 import
+ * electron 的纯模块**（`dialog` / `fsAdapter` 都靠注入），所以它在普通 node 测试里跑得起来。
+ * 回收站是同一条理由 —— 它也只是另一个「只有主进程才有的能力」。测试注入一个记账的假实现，
+ * 就能断言「这条分支真的走了回收站」，而不是断言「文件没了」（那对两条分支都成立）。
+ */
+export interface TrashAdapter {
+  trashItem(filePath: string): Promise<void>;
+}
+
 /** FileService 初始化配置。 */
 export interface FileServiceOptions {
   dialog?: FileDialog;
   fsAdapter?: FileSystemAdapter;
+  trash?: TrashAdapter;
   debounceMs?: number;
   allowedPaths?: string[];
   /** 启动时即授权的工作区根目录 */
@@ -420,6 +433,7 @@ export interface FileServiceOptions {
  */
 export class FileService {
   private readonly dialog?: FileDialog;
+  private readonly trash?: TrashAdapter;
   private readonly fsAdapter: FileSystemAdapter;
   private readonly debounceMs: number;
   private readonly forceBackupSwap: boolean;
@@ -436,6 +450,7 @@ export class FileService {
 
   constructor(options: FileServiceOptions = {}) {
     this.dialog = options.dialog;
+    this.trash = options.trash;
     this.fsAdapter = options.fsAdapter ?? new DefaultFileSystemAdapter();
     this.debounceMs = options.debounceMs ?? 50;
     this.forceBackupSwap = options.forceBackupSwap ?? false;
@@ -666,6 +681,52 @@ export class FileService {
       fsAdapter: this.fsAdapter,
       forceBackupSwap: this.forceBackupSwap
     });
+  }
+
+  /**
+   * 删除一个文件。走回收站还是永久删除由 `mode` 选，**默认回收站**。
+   *
+   * ## 为什么不把回收站做成 `unlink` 上的一个布尔开关
+   *
+   * `unlink` 只是「永久删除」那一半的底层原语。用户真正在选的是「删了还能不能找回来」，
+   * 而「找回来」这条能力**只有主进程有**（Electron 的 `shell.trashItem`，且它不在
+   * `FileSystemAdapter` 的语义里 —— 那个接口描述的是 `fs` 能做的事）。所以两条分支
+   * 是并列的两个实现，不是一个开关。
+   *
+   * ## 三条边界
+   *
+   * - **只删文件，不删目录。** 递归删除的语义（里面那些东西算谁的、要不要问）是另一个
+   *   决定，而树上现在也没有「删目录」这个入口。越界的一律**报错**而不是静默跳过 ——
+   *   静默跳过会让调用方以为删成功了。
+   * - **走 `checkBoundary`，与 `writeFile` 同一条判据。** 特意**不**用
+   *   `checkAssetBoundary`：`assetRoots` 是「只读的资源根」（轻量模式下文档所在的那层
+   *   目录），能读不等于能删，合并会把「打开一个 md 就能删掉同目录下任何文件」放开。
+   * - **符号链接照查。** 工作区里一个指向区外的 symlink 不能被这条通道删掉区外的目标；
+   *   `assertNoSymlinkEscape` 认的就是这件事。
+   *
+   * 没注入回收站实现时**报错，而不是退回永久删除** —— 那正好把用户选的「还能找回来」
+   * 变成不可逆，是这条通道最坏的一种失败方式。
+   */
+  async deleteFile(filePath: string, mode: DeleteMode = 'trash'): Promise<void> {
+    const normalizedPath = this.normalizePath(filePath);
+    this.checkBoundary(normalizedPath);
+    await this.assertNoSymlinkEscape(normalizedPath);
+
+    const info = await this.fsAdapter.stat(normalizedPath);
+    if (!info.isFile()) {
+      throw new FileServiceError('IO_ERROR', '只能删除文件，不能删除目录', normalizedPath);
+    }
+
+    if (mode === 'permanent') {
+      await this.fsAdapter.unlink(normalizedPath);
+      return;
+    }
+
+    if (!this.trash) {
+      throw new FileServiceError('IO_ERROR', '未注入回收站适配器，无法移到回收站', normalizedPath);
+    }
+
+    await this.trash.trashItem(normalizedPath);
   }
 
   /**

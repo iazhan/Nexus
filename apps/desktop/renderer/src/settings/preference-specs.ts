@@ -35,6 +35,7 @@ import {
   UI_ZOOM_OPTIONS,
   UI_ZOOM_STORAGE_KEY
 } from '../../../preload/ui-zoom.js';
+import { DELETE_MODES, type DeleteMode } from '../../../ipc/channels.js';
 
 /** 一个数值项的完整取值域。`step` 只给控件用，不参与夹取。 */
 export interface NumberSettingSpec {
@@ -462,6 +463,44 @@ export const IGNORE_RULES_STORAGE_KEY = 'nexus-ignore-rules';
  * 存档里留的就是用户写的样子。
  */
 export const IGNORE_RULES_DEFAULT = '';
+
+export const DELETE_BEHAVIOR_STORAGE_KEY = 'nexus-delete-behavior';
+
+/**
+ * 删除文件时走哪条路：系统回收站，还是永久删除。
+ *
+ * **加这一项之前根本没有删除功能**，所以「默认值必须等于加这一项之前的观感」这条判据
+ * 在这里没有可继承的对象，只能退回到它的本意：**取最保守的那一档**。两个取值不是
+ * 「方便 / 不方便」，而是「可逆 / 不可逆」，所以默认这一侧没有第二个候选。
+ *
+ * 两条分支的破坏性不同，这决定了它们各自的行为要自洽：
+ * - 回收站 —— 文件还能找回来，所以它的**版本历史也留着**（恢复到同一路径时历史跟着回来）。
+ * - 永久删除 —— 什么都不留，所以**版本历史一起没**，而且界面上必须先确认。
+ *
+ * 取值域的类型来自 `ipc/channels.ts` 的 `DeleteMode`：真正执行删除的是主进程，
+ * 它认不出的值一律按 `trash` 处理。渲染进程这边走 `choiceSetting`，认不出回落默认档 ——
+ * 两处方向一致，都是「失败就往可恢复的那一侧倒」。
+ */
+export const DELETE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: DeleteMode; labelKey: string }> = [
+  { value: 'trash', labelKey: 'settings.files.deleteBehavior.trash' },
+  { value: 'permanent', labelKey: 'settings.files.deleteBehavior.permanent' }
+];
+
+export const DELETE_BEHAVIOR_DEFAULT: DeleteMode = 'trash';
+
+/**
+ * 把存档里读出来的字符串收窄成 `DeleteMode`，认不出的一律给「回收站」。
+ *
+ * `choiceSetting` 的 `parse` 已经保证读出来只会是上面表里那两个之一，所以这个函数在
+ * **正常路径上永远走不到兜底分支**。它存在是为了类型：存档是字符串，而桥收的是
+ * `DeleteMode`；与其在调用点写一个 `as`，不如把收窄摆在一处，顺带让「认不出就选
+ * 可恢复的那一侧」这条规则在这条链路上也看得见（与主进程那一侧同一条）。
+ */
+export function parseDeleteMode(raw: string | null | undefined): DeleteMode {
+  return DELETE_MODES.includes(raw as DeleteMode)
+    ? (raw as DeleteMode)
+    : DELETE_BEHAVIOR_DEFAULT;
+}
 
 export const HISTORY_RETENTION_STORAGE_KEY = 'nexus-history-retention';
 

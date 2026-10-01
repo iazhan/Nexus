@@ -38,6 +38,9 @@ import {
   AUTO_SAVE_STORAGE_KEY,
   CODE_BLOCK_LINE_NUMBERS_STORAGE_KEY,
   CHROME_VISIBILITY,
+  DELETE_BEHAVIOR_DEFAULT,
+  DELETE_BEHAVIOR_OPTIONS,
+  DELETE_BEHAVIOR_STORAGE_KEY,
   STATUS_BAR_METRICS,
   EDITOR_CONTENT_WIDTH_DEFAULT,
   EDITOR_CONTENT_WIDTH_OPTIONS,
@@ -423,6 +426,23 @@ export const SETTING_DEFS = {
     parse: (raw) => raw ?? IGNORE_RULES_DEFAULT,
     serialize: (value) => value
   }),
+
+  /**
+   * 删除文件走回收站还是永久删除。
+   *
+   * `choiceSetting` 在这里是对的：两个取值构成一个**有限枚举**，认不出的值回落默认档
+   * 正是我们要的方向 —— 而默认档是「回收站」，也就是可恢复的那一侧。
+   * （与 `data.historyRetention` 的 `parseHistoryRetention` 同一条判据，只是那一项的
+   * 兜底值是「不清理」这个特殊的 `null`。）
+   *
+   * 不做归一化之外的加工：**删除本身发生在主进程**，这条设置只是被渲染进程读出来
+   * 原样传给桥（见 `parseDeleteMode`）。
+   */
+  'files.deleteBehavior': choiceSetting(
+    DELETE_BEHAVIOR_STORAGE_KEY,
+    DELETE_BEHAVIOR_DEFAULT,
+    DELETE_BEHAVIOR_OPTIONS.map((option) => option.value)
+  ),
 
   /**
    * 版本历史每个文档保留几份。**`data` 组第一个带值的设置项** ——

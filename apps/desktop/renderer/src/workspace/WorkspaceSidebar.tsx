@@ -24,6 +24,21 @@ export interface WorkspaceSidebarProps {
    * 所以必须由真正跑索引的这一方明确通知出去。
    */
   onIndexed?: () => void;
+  /**
+   * 在某一行上按了右键。**只上报位置与路径，不自己开菜单** ——
+   * 菜单项要做的事（删除、将来的重命名与复制链接）都要用文档 store 与 IPC 桥，
+   * 而那些都在 `App` 手里。侧栏保持「只渲染、只上报」的形状。
+   *
+   * 坐标是 `MouseEvent.clientX/clientY`（视口坐标）：菜单是 `position: fixed` 的。
+   */
+  onFileContextMenu?: (filePath: string, x: number, y: number) => void;
+  /**
+   * 外部知道「索引里的文档集合变了」时递增它（目前只有「删掉一个文件」会用）。
+   *
+   * 只**重读列表**，不重建索引 —— 重建是开工作区那一次的事（几百毫秒），
+   * 而这里要处理的只是点状变化。与标签 / 图谱面板共用 `documentRevision` 这同一个信号。
+   */
+  revision?: number;
 }
 
 type IndexPhase = 'indexing' | 'ready' | 'error';
@@ -67,7 +82,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   rootPath,
   activeFilePath,
   onOpenFile,
-  onIndexed
+  onIndexed,
+  onFileContextMenu,
+  revision
 }) => {
   const { t } = useLocale();
   const [documents, setDocuments] = useState<IndexedDocument[]>([]);
@@ -122,6 +139,35 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
       cancelled = true;
     };
   }, [rootPath]);
+
+  /**
+   * 文档集合变了（删掉了一个文件）时重读列表。
+   *
+   * 跳过挂载那一次：上面那个 effect 已经在建完索引后读过一遍，这里再读一次是白读 ——
+   * 而且它会**和上面那个抢**：索引还没建完就查，拿到的是旧列表，
+   * 谁后 resolve 谁说了算。跳过首跑，这个竞态就不存在。
+   */
+  const revisionSkippedRef = useRef(false);
+  useEffect(() => {
+    if (!revisionSkippedRef.current) {
+      revisionSkippedRef.current = true;
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await window.nexus?.listIndexedDocuments?.();
+        if (!cancelled && list) setDocuments(list);
+      } catch {
+        // 重读失败就保持原样：下一次开工作区会重建索引，不值得为它把侧栏打成错误态
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [revision]);
 
   const { notes, attachments } = useMemo(() => splitIndexedDocuments(documents), [documents]);
   const tree = useMemo(() => buildFileTree(notes), [notes]);
@@ -208,6 +254,13 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
               onClick={() => {
                 if (node.path) onOpenFile(node.path);
               }}
+              onContextMenu={(event) => {
+                // 没接 `onFileContextMenu` 时让浏览器出原生菜单：这个组件在别的用例里
+                // 也单独挂过，硬吞掉右键会让「右键没反应」变得无法解释。
+                if (!node.path || !onFileContextMenu) return;
+                event.preventDefault();
+                onFileContextMenu(node.path, event.clientX, event.clientY);
+              }}
             >
               <span className="nexus-tree-name">{node.name}</span>
             </button>
@@ -271,6 +324,11 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                     // 都是「要判断时才需要」的信息。行内只留一个短标记（见下）。
                     title={tooltipLines.join('\n')}
                     onClick={() => onOpenFile(entry.document.path)}
+                    onContextMenu={(event) => {
+                      if (!onFileContextMenu) return;
+                      event.preventDefault();
+                      onFileContextMenu(entry.document.path, event.clientX, event.clientY);
+                    }}
                   >
                     {/* 名字复用 `.nexus-tree-name`：附件行和笔记行都是「树里的一行」，
                         另起一个名字类只会让「按名字找条目」的查询多写一个选择器。 */}

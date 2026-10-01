@@ -255,3 +255,71 @@ describe('验收 4：.nexus 不参与索引', () => {
     expect(paths).toHaveLength(1);
   });
 });
+
+/**
+ * 永久删除一个文档时，它的版本历史**一起**没。
+ *
+ * 口径来自「两条分支各自自洽」：回收站那一档是「还能找回来」，所以历史留着（恢复到同一
+ * 路径时历史跟着回来）；永久删除是「什么都不留」，留着历史等于留了一份用户以为已经删掉的
+ * 副本 —— 那是**内容本身**，不是元数据。
+ *
+ * 三条判据，缺一条都会留下可见的毛病：
+ *   1. 该文档的历史目录真的没了；
+ *   2. 向上收空目录（`notes/deep/dma.md` 删掉后 `notes/deep/` 若空了不该留一个空壳）；
+ *   3. 别人的历史**不受影响**（收空目录收到一半撞上非空就停，不能连坐）。
+ */
+describe('版本历史 · 删除文档时一并清掉', () => {
+  let workspace: string;
+  let store: HistoryStore;
+
+  beforeEach(() => {
+    workspace = createTempDir('nexus-history-forget-');
+    store = new HistoryStore(workspace);
+  });
+
+  afterEach(() => {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('forget 之后该文档的历史目录不存在，list 也空了', () => {
+    store.record('notes/dma.md', 'A');
+    store.record('notes/dma.md', 'B');
+    expect(store.list('notes/dma.md')).toHaveLength(2);
+
+    store.forget('notes/dma.md');
+
+    expect(fs.existsSync(store.directoryFor('notes/dma.md'))).toBe(false);
+    expect(store.list('notes/dma.md')).toHaveLength(0);
+  });
+
+  it('向上收掉空掉的祖先目录', () => {
+    store.record('notes/deep/dma.md', 'A');
+    const deepDir = path.join(workspace, '.nexus', 'history', 'notes', 'deep');
+    expect(fs.existsSync(deepDir)).toBe(true);
+
+    store.forget('notes/deep/dma.md');
+
+    // `notes/` 下没有别的文档了，所以整条链都该收干净
+    expect(fs.existsSync(path.join(workspace, '.nexus', 'history', 'notes'))).toBe(false);
+    // 历史根自己不能跟着被收掉 —— 那会让下一次 record 找不到父目录。
+    expect(fs.existsSync(path.join(workspace, '.nexus', 'history'))).toBe(true);
+  });
+
+  it('同目录下还有别的文档时，祖先目录留着', () => {
+    store.record('notes/a.md', 'A');
+    store.record('notes/b.md', 'B');
+
+    store.forget('notes/a.md');
+
+    expect(fs.existsSync(store.directoryFor('notes/a.md'))).toBe(false);
+    // b 的历史还在，`notes/` 因此非空 —— 收空目录必须在非空处停下，不能连坐。
+    expect(store.list('notes/b.md')).toHaveLength(1);
+    expect(fs.existsSync(store.directoryFor('notes/b.md'))).toBe(true);
+  });
+
+  it('删一个从来没有过历史的文档不抛错', () => {
+    // 永久删除会无条件调它，所以「没历史」必须是正常路径而不是异常路径。
+    expect(() => store.forget('never-saved.md')).not.toThrow();
+    expect(() => store.forget('notes/never-saved.md')).not.toThrow();
+  });
+});
