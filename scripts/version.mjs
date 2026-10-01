@@ -6,6 +6,7 @@
  *   node scripts/version.mjs show              打印当前版本与各清单一致性
  *   node scripts/version.mjs check             校验一致性；已打 tag 时提示需要 bump
  *   node scripts/version.mjs check --staged    校验暂存区：源码变更是否伴随版本变更
+ *                                              （只动注释的源码文件不算行为变更）
  *   node scripts/version.mjs bump <kind>       推进版本：patch | minor | major
  *   node scripts/version.mjs set <x.y.z>       直接设定版本（用于首次对齐）
  *
@@ -168,6 +169,30 @@ async function git(args) {
   return stdout;
 }
 
+/**
+ * 该文件的暂存 diff 是否只动了注释与空白。
+ *
+ * 路径判据（`BEHAVIOR_PATH`）只认得出「碰了源码文件」，而版本规则的口径是「有没有改变
+ * 产品行为」—— 补一句注释命中路径却不动行为，不该推进版本。这里补上这半边。
+ *
+ * 判据是**整个文件**的增删行都落在注释与空白上：任何一行真代码都会让它退回「行为变更」。
+ * 新增文件一律算行为变更 —— 一个只有注释的新文件也是新模块。
+ */
+const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*)/;
+
+async function isCommentOnlyChange(file) {
+  const diff = await git(['diff', '--cached', '-U0', '--', file]);
+  if (/^new file mode/m.test(diff)) return false;
+
+  const changed = diff
+    .split('\n')
+    .filter((line) => /^[+-]/.test(line) && !/^(?:\+\+\+|---) /.test(line))
+    .map((line) => line.slice(1));
+
+  if (changed.length === 0) return false;
+  return changed.every((line) => line.trim().length === 0 || COMMENT_LINE.test(line));
+}
+
 /** 校验暂存区：有行为变更就必须同时有版本变更；两者都没有则放行。 */
 async function cmdCheckStaged() {
   const staged = (await git(['diff', '--cached', '--name-only']))
@@ -180,7 +205,15 @@ async function cmdCheckStaged() {
     return;
   }
 
-  const behaviorChanged = staged.filter((f) => BEHAVIOR_PATH.test(f) && !TEST_PATH.test(f));
+  const candidates = staged.filter((f) => BEHAVIOR_PATH.test(f) && !TEST_PATH.test(f));
+
+  const behaviorChanged = [];
+  const commentOnly = [];
+  for (const file of candidates) {
+    if (await isCommentOnlyChange(file)) commentOnly.push(file);
+    else behaviorChanged.push(file);
+  }
+
   const manifestFiles = staged.filter((f) => f.endsWith('package.json'));
 
   let versionChanged = false;
@@ -204,7 +237,11 @@ async function cmdCheckStaged() {
   }
 
   if (!versionChanged) {
-    console.log('暂存区无行为变更（仅文档/测试/工具），无需推进版本号');
+    const detail =
+      commentOnly.length > 0
+        ? `（${commentOnly.length} 个源码文件仅注释变化）`
+        : '（仅文档/测试/工具）';
+    console.log(`暂存区无行为变更${detail}，无需推进版本号`);
     return;
   }
 

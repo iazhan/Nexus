@@ -57,10 +57,11 @@ git tag v0.1.1
 
 `version:check:staged` 是「确保版本号与提交内容一致」的可执行版本：
 
-- 暂存区有 `apps/` / `packages/` 下的 `.ts` / `.tsx` / `.css`（**排除** `test/` 与 `*.test.ts(x)`）
+- 暂存区有 `apps/` / `packages/` 下的 `.ts` / `.tsx` / `.css`（**排除** `test/` 与 `*.test.ts(x)`，
+  以及 diff 只动了注释与空白的文件 —— 它不改变产品行为）
   但没有 `package.json` 的 version 变更 → **拦截**；
 - 只改了版本号、没有行为变更 → 提醒（放行）；
-- 只改了文档 / 测试 / 工具 → 放行。
+- 只改了文档 / 测试 / 工具 / 注释 → 放行。
 
 ## 提交时自动校验
 
