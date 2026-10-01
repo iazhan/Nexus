@@ -46,6 +46,24 @@ core · editor · markdown · theme · i18n · command · math · mermaid · des
 - **整行 ≤ 72 字符**（硬上限，保证 `git log --oneline` 不折行）
 - `subject` 部分建议 ≤ 50 字符
 
+**72 是怎么来的**：`git log --oneline` 打的是 `<7 位 hash> <标题>`，7 + 1 + 72 = 80 ——
+正好是标准终端的宽度。放宽它，`--oneline` 在 80 列下就会折行。
+
+**所以写紧了先看 scope，别怪 72。** 前缀吃掉的字符是实打实的：
+
+| 前缀 | 占用 | 留给 subject |
+| --- | ---: | ---: |
+| `fix(core): ` | 11 | 61 |
+| `feat(desktop): ` | 15 | 57 |
+| `feat(editor,desktop): ` | 22 | 50 |
+
+**scope 优先取一个。** 它回答的是「主要改在哪」，不是「碰过哪些文件」—— 后者
+`git show --stat` 会告诉你。多一个 scope 就少吃「scope 名 + 一个逗号」那么多字符
+（`editor,` = 7 个），而「subject ≤ 50」这条**软建议**在双 scope 下会变成**硬约束**，
+一点余量都没有 —— 实测两次里超了一次就是这么来的。
+
+真装不下时：标题只留主句，细节放 body（见「例外」）。
+
 ## 例子
 
 ```text

@@ -65,7 +65,19 @@ if (/[\u4e00-\u9fff]/.test(subject)) {
 }
 
 if (subject.length > MAX_SUBJECT_LINE) {
-  errors.push(`标题 ${subject.length} 字符，超过上限 ${MAX_SUBJECT_LINE}`);
+  // 超出时给一条能直接照做的路：**多 scope 是最常见的元凶** —— 每个 scope 连同逗号
+  // 要吃掉 7 个字符左右，而双 scope 时「subject 建议 50」正好等于剩余空间，
+  // 50 从建议变成了硬约束，一点余量都没有。
+  const declaredScope = SUBJECT_PATTERN.exec(subject)?.[2];
+  const scopes = declaredScope ? declaredScope.split(',') : [];
+  const hint =
+    scopes.length > 1
+      ? `；scope 有 ${scopes.length} 个，去掉一个（如 "${scopes[0]}"）能省 ${scopes[0].length + 1} 个字符`
+      : '';
+
+  errors.push(
+    `标题 ${subject.length} 字符，超出 ${subject.length - MAX_SUBJECT_LINE} 个${hint}`
+  );
 }
 
 const match = SUBJECT_PATTERN.exec(subject);
