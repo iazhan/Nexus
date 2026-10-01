@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import {
   launchElectronApp,
   createTempDir,
+  readFileTolerant,
   INDEXED_TEST_TIMEOUT_MS,
   MAIN_WINDOW_URL_MARKER,
   SETTINGS_WINDOW_URL_MARKER,
@@ -172,7 +173,7 @@ describe('历史快照上限（端到端）', () => {
     await app.attachToWindow(MAIN_WINDOW_URL_MARKER);
     await app.setSource('# 又一个新内容\n');
     const saved = await waitUntil(
-      () => fs.readFileSync(path.join(workspace, 'note.md'), 'utf8') === '# 又一个新内容\n',
+      () => readFileTolerant(path.join(workspace, 'note.md')) === '# 又一个新内容\n',
       15000
     );
     expect(saved, '自动保存应当写进磁盘').toBe(true);

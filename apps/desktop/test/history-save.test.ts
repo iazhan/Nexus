@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  readFileTolerant,
   INDEXED_TEST_TIMEOUT_MS,
   type ElectronAppInstance
 } from './smoke-harness.js';
@@ -27,6 +28,11 @@ async function waitUntil(check: () => boolean, timeoutMs: number): Promise<boole
  *
  * 断言里查的是**磁盘上的历史目录**而不是 IPC 返回 —— 这条链路的价值就在于
  * 「关掉应用之后那些内容还在」，只查内存状态证明不了这一点。
+ *
+ * 轮询里等落盘一律用 `readFileTolerant` 而不是裸 `readFileSync`：应用写盘走的是
+ * 原子替换，中间有一个「目标文件不存在」的窗口，裸读会偶发 ENOENT 把测试弄红
+ * （2026-10-01 全量并行跑时撞上过一次，单独跑却是 4/4 绿）。函数本身的说明在
+ * `smoke-harness.ts`。
  */
 describe('保存时留版本历史', () => {
   let workspace: string;
@@ -67,15 +73,21 @@ describe('保存时留版本历史', () => {
     await app.setSource('# 新内容\n');
 
     const saved = await waitUntil(
-      () => fs.readFileSync(documentPath, 'utf8') === '# 新内容\n',
+      () => readFileTolerant(documentPath) === '# 新内容\n',
       15000
     );
     expect(saved, '自动保存应当把新内容写进磁盘').toBe(true);
 
-    // 关键断言：旧内容留在了历史目录里
+    // 关键断言：旧内容留在了历史目录里。
+    // 等的是「目录里恰好一份快照」，不是「目录存在」—— `HistoryStore.record` 先
+    // `mkdirSync` 再 `writeFileSync`，只等目录会在两步之间读到空目录，`entries[0]`
+    // 就是 `undefined`（`readdirSync` 对空目录返回 `[]`，不抛）。
     const historyDirectory = path.join(workspace, '.nexus', 'history', 'note.md');
-    const appeared = await waitUntil(() => fs.existsSync(historyDirectory), 10000);
-    expect(appeared, `历史目录应当出现: ${historyDirectory}`).toBe(true);
+    const appeared = await waitUntil(
+      () => fs.existsSync(historyDirectory) && fs.readdirSync(historyDirectory).length === 1,
+      10000
+    );
+    expect(appeared, `历史目录应当出现且恰好一份快照: ${historyDirectory}`).toBe(true);
 
     const entries = fs.readdirSync(historyDirectory);
     expect(entries).toHaveLength(1);
@@ -123,7 +135,7 @@ describe('保存时留版本历史', () => {
     // 改成版本二 → 版本一进历史
     await app.setSource('# 版本二\n');
     const saved = await waitUntil(
-      () => fs.readFileSync(documentPath, 'utf8') === '# 版本二\n',
+      () => readFileTolerant(documentPath) === '# 版本二\n',
       15000
     );
     expect(saved, '自动保存应当写进磁盘').toBe(true);
@@ -139,7 +151,7 @@ describe('保存时留版本历史', () => {
     );
 
     const restored = await waitUntil(
-      () => fs.readFileSync(documentPath, 'utf8') === '# 版本一\n',
+      () => readFileTolerant(documentPath) === '# 版本一\n',
       10000
     );
     expect(restored, '恢复应当把旧版本写回磁盘').toBe(true);
@@ -170,7 +182,7 @@ describe('保存时留版本历史', () => {
     // 保存新内容 → 旧内容进历史，面板里就有一条可显示的时间
     await app.setSource('# 新\n');
     const saved = await waitUntil(
-      () => fs.readFileSync(documentPath, 'utf8') === '# 新\n',
+      () => readFileTolerant(documentPath) === '# 新\n',
       15000
     );
     expect(saved, '自动保存应当写进磁盘').toBe(true);
