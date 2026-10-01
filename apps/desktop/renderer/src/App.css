@@ -1,13 +1,22 @@
 /* 命名空间：`--nexus-*` 是主题 token（由 ThemeManager 注入，审计脚本只看这一族），
    `--nx-*` 是应用自己的布局 / 运行期变量，两者不可混用前缀。 */
 :root {
+  /* 界面中文的**唯一定义处** —— 界面栈与等宽栈都引这一个变量，不再各写一份。
+     为什么必须显式写：两条栈的拉丁字体（打包的 Inter / JetBrains Mono）都只有拉丁字形，
+     中文全靠这里兜底；不写就走浏览器的平台兜底，各平台给什么不可控。
+     曾经的实况是等宽那边只列了 `"Sarasa Mono SC"` —— 2026-10-01 真机实测
+     （`CSS.getPlatformFontsForNode`）：`--font-family` 命中 `Microsoft YaHei`，
+     `--font-mono` 却命中了 **NSimSun（新宋体）**，同一个界面上侧栏是雅黑、状态栏计数是新宋体。
+     苹方排在雅黑前面不是笔误：macOS 的系统 UI 中文就是苹方，而雅黑只在装了 Office 的 mac 上
+     存在，把它提前会让 mac 用户看到非原生的中文字形；Windows 上没有苹方，直接落到雅黑。
+     代价（已确认）：中文不再保证 2:1 等宽，代码块里中文与 ASCII 对不齐。 */
+  --font-cjk: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC";
   /* 界面字体与等宽字体。**前两个是打包进来的**（由入口模块 import 字体包），不再靠用户机器上装没装 ——
      在此之前 `JetBrains Mono` / `Fira Code` 只是栈里的名字：装了才是它，没装就是 Consolas，
-     同一份代码在不同机器上观感不同。两者都只有拉丁字形，中文落到后面的显式候选；
-     不写这几项，中文走的是浏览器兜底，各平台给什么不可控。
+     同一份代码在不同机器上观感不同。两者都只有拉丁字形，中文落到上面的 `--font-cjk`。
      打包字体从产物 `assets/` 加载（`'self'`），CSP 不需要 `font-src`。 */
-  --font-family: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Fira Code", Consolas, Monaco, "Sarasa Mono SC", monospace;
+  --font-family: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, var(--font-cjk), sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Fira Code", Consolas, Monaco, var(--font-cjk), monospace;
   /* 与 Electron 主进程 titleBarOverlay.height 保持一致 */
   --nx-header-height: 42px;
   /* 编辑器排版。这里只是**初值**（与 settings/editor-typography.ts 的默认档一致），
@@ -1164,7 +1173,11 @@ body.nexus-resizing {
 }
 
 .nexus-history-hash {
-  font-family: ui-monospace, monospace;
+  /* 这里原先是自己写的一份 `ui-monospace, monospace`，**没有**引用 `--font-mono` ——
+     2026-10-01 真机实测：`ui-monospace` 在这台 Windows 上根本没解析，整行连**拉丁**都掉进
+     `NSimSun`（唯一命中的字体就是它）。改成应用自己的等宽栈：拉丁有打包的 JetBrains Mono
+     兜着，中文落到 `var(--font-cjk)`。顺带消掉「同仓两份等宽栈」这个漂移点。 */
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--nexus-text-muted);
 }
@@ -1201,7 +1214,11 @@ body.nexus-resizing {
   padding: 4px 0;
   overflow: auto;
   list-style: none;
-  font-family: ui-monospace, monospace;
+  /* 差异行会显示**文档内容**，中文是常态。原先自己写 `ui-monospace, monospace`，
+     中文（连拉丁）落到 `NSimSun`；补 `var(--font-cjk)` 也不行 —— `ui-monospace` 在本机不解析，
+     拉丁会先被雅黑接走（雅黑有拉丁字形），差异行就变成比例字体了。引用 `--font-mono` 才对：
+     拉丁是打包的 JetBrains Mono，中文是 `var(--font-cjk)`。 */
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
 }

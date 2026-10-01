@@ -89,3 +89,65 @@ describe('打包字体', () => {
     expect(theme, '编辑器包里又出现了一份硬编码的等宽栈').not.toContain("'JetBrains Mono'");
   });
 });
+
+/**
+ * 界面中文的唯一定义处。两条栈（`--font-family` / `--font-mono`）里的拉丁字体都只有拉丁字形，
+ * 中文全靠 `--font-cjk` 兜底 —— 谁少引一次，那一处的中文就掉回浏览器的平台兜底。
+ *
+ * 这个失效**不报错、不破版**：2026-10-01 真机实测（`CSS.getPlatformFontsForNode`），
+ * 当时 `--font-mono` 只列了 `"Sarasa Mono SC"`，没装 Sarasa 的机器上中文命中 **NSimSun（新宋体）**，
+ * 而界面栈命中 `Microsoft YaHei` —— 同一个界面上侧栏是雅黑、状态栏计数是新宋体。
+ * 截图看不出来（两种黑体字差别很小），只能靠这条用例拦。
+ */
+describe('界面中文的唯一定义处', () => {
+  // **必须先剥注释再扫。** App.css 的注释里成篇讨论字体栈（含 `font-family: inherit` 这样的
+  // 示例、以及 `--font-family` 这种变量名），不剥的话正则会把注释当声明扫进来，
+  // 而且 `[^;]+` 能跨行，一条注释会吞掉后面几十行的真声明 —— 报出来的「违规栈」是散文。
+  const css = fs.readFileSync(APP_CSS, 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  /** 取某个自定义属性的整条值 —— 与 `firstCandidate` 同一个正则，只取全串。 */
+  function stackOf(prop: string): string {
+    const found = new RegExp(`${prop}\\s*:\\s*([^;]+);`).exec(css);
+    if (!found) throw new Error(`App.css 里找不到 ${prop}`);
+    return found[1]!;
+  }
+
+  const CJK_NAMES = /YaHei|PingFang|Noto Sans CJK|Sarasa|SimSun|SimHei|KaiTi|宋体|黑体|楷体/;
+
+  it('--font-cjk 有定义', () => {
+    expect(css, '--font-cjk 没有定义，两条栈的 var() 会整条失效').toMatch(/--font-cjk\s*:\s*[^;]+;/);
+  });
+
+  it('界面栈与等宽栈都引用 --font-cjk，不各抄一份', () => {
+    for (const prop of ['--font-family', '--font-mono']) {
+      expect(stackOf(prop), `${prop} 没有引用 --font-cjk`).toContain('var(--font-cjk)');
+    }
+  });
+
+  it('两条栈自己都不列中文字体名（那是 --font-cjk 的事）', () => {
+    for (const prop of ['--font-family', '--font-mono']) {
+      expect(stackOf(prop), `${prop} 里又抄了一份中文候选`).not.toMatch(CJK_NAMES);
+    }
+  });
+
+  it('App.css 里没有第三条自己写的字体栈', () => {
+    // 一条字面量栈不引 `var(--font-cjk)` 只有两种下场：末尾是个 generic（`monospace` /
+    // `sans-serif` / `serif`）时中文归平台的 CJK 兜底 —— Windows 上是 NSimSun，与界面中文
+    // （雅黑）同屏并存且不报错；要么就是自己又抄了一份中文候选，两份迟早漂移。
+    // 历史面板的 `.nexus-history-hash` / `.nexus-history-diff-lines` 是前一种（已改成引用）。
+    // 只认「字面量栈」：`inherit` 是继承，`var(--x)` 是引用别处那条已经合规的栈，两者都跳过。
+    const offenders = [...css.matchAll(/font-family\s*:\s*([^;]+);/g)]
+      .map((m) => m[1]!.trim())
+      .filter(
+        (value) =>
+          value !== 'inherit' &&
+          !/^var\(--[\w-]+\)$/.test(value) &&
+          !value.includes('var(--font-cjk)')
+      );
+
+    expect(
+      offenders,
+      `这些 font-family 没引用 var(--font-cjk)：${offenders.join(' | ')}`
+    ).toEqual([]);
+  });
+});
