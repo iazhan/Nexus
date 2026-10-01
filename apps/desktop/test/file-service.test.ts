@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { FileServiceError, type FileWatchEvent } from '@nexus/core';
+import { FileServiceError, type FileWatchEvent, type WorkspaceDirectoryEntry } from '@nexus/core';
 import {
   FileService,
   atomicWriteFile,
@@ -85,6 +85,14 @@ function createMockFsAdapter(
     rename: (oldPath, newPath) =>
       overrides.rename ? overrides.rename(oldPath, newPath) : baseFs.rename(oldPath, newPath),
     unlink: (p) => (overrides.unlink ? overrides.unlink(p) : baseFs.unlink(p)),
+    mkdir: (p, opts) => (overrides.mkdir ? overrides.mkdir(p, opts) : baseFs.mkdir(p, opts)),
+    readdir: (p) => {
+      // `readdir` 是可选成员：默认实现有它，而 mock 出来的适配层没有它的话，
+      // `walkWorkspace` 会直接抛「未实现 readdir」—— 那看起来像被测代码坏了。
+      if (overrides.readdir) return overrides.readdir(p);
+      if (baseFs.readdir) return baseFs.readdir(p);
+      throw new Error('测试适配层未实现 readdir');
+    },
     stat: (p) => (overrides.stat ? overrides.stat(p) : baseFs.stat(p)),
     exists: (p) => {
       if (overrides.exists) return overrides.exists(p);
@@ -1056,6 +1064,224 @@ describe('FileService & atomicWriteFile', () => {
       expect(planned).toBe(path.resolve(path.join(tempDir, 'preview2.md')));
       expect(rename).not.toHaveBeenCalled();
       await expect(fsPromises.readFile(target, 'utf-8')).resolves.toBe('# Preview');
+    });
+  });
+
+  describe('新建文件：排他创建、名字归一化、边界', () => {
+    it('撞上已存在的文件必须报错，且**原文件一个字节都不变**', async () => {
+      const existing = path.join(tempDir, 'note.md');
+      const original = '# 原有内容，不能被覆盖\n';
+      await fsPromises.writeFile(existing, original, 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      const error = await expectFileServiceError(service.createFile(tempDir, 'note.md'), 'IO_ERROR');
+      expect(error.message).toContain('已存在');
+
+      // 这条断言才是重点。走 `atomicWriteFile` 的实现会先把目标挪走再写，
+      // 失败时也可能在磁盘上留下一个**空文件** —— 只断言「抛错了」对它同样成立，
+      // 而那正是这条通道唯一不可逆的失败方式。
+      await expect(fsPromises.readFile(existing, 'utf-8')).resolves.toBe(original);
+    });
+
+    it('新建成功时落盘一个空文件，返回规范化后的绝对路径', async () => {
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      const created = await service.createFile(tempDir, '周报.md');
+
+      expect(created).toBe(path.resolve(path.join(tempDir, '周报.md')));
+      await expect(fsPromises.readFile(created, 'utf-8')).resolves.toBe('');
+    });
+
+    it('没写扩展名时补 .md（归一化只在主进程做一份）', async () => {
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expect(service.createFile(tempDir, '周报')).resolves.toBe(
+        path.resolve(path.join(tempDir, '周报.md'))
+      );
+    });
+
+    it('带非 Markdown 扩展名直接拒绝 —— 这条通道只能造空文本文件', async () => {
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expectFileServiceError(service.createFile(tempDir, '示意图.png'), 'UNSUPPORTED_TYPE');
+    });
+
+    it.each([
+      '',
+      '   ',
+      '.',
+      '..',
+      'a/b.md',
+      'a\\b.md',
+      'x<y.md',
+      'x|y.md',
+      'x?y.md',
+      'bad\u0001.md',
+      '结尾是点.md.'
+    ])('拒绝非法名字：%j', async (name) => {
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expectFileServiceError(service.createFile(tempDir, name), 'IO_ERROR');
+      // 名字被拒时目录里不该多出任何东西（`a/b.md` 那种最容易漏）
+      await expect(fsPromises.readdir(tempDir)).resolves.toEqual([]);
+    });
+
+    it('两端的空格被裁掉，而不是当成非法字符拒掉', async () => {
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      // 先 trim 再校验，所以「结尾是空格」这条永远走不到校验里 —— 那不是漏洞，
+      // 是刻意的：用户从别处粘一个名字过来，尾随空格几乎必然有。
+      await expect(service.createFile(tempDir, '  周报.md  ')).resolves.toBe(
+        path.resolve(path.join(tempDir, '周报.md'))
+      );
+    });
+
+    it('落点在工作区之外时拒绝 —— 新建不能成为越界写入的口子', async () => {
+      const outside = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'nexus-outside-'));
+      try {
+        const service = new FileService();
+        await service.authorizeWorkspace(tempDir);
+
+        await expectFileServiceError(service.createFile(outside, 'evil.md'), 'OUT_OF_BOUNDS');
+        await expect(fsPromises.readdir(outside)).resolves.toEqual([]);
+      } finally {
+        await fsPromises.rm(outside, { recursive: true, force: true });
+      }
+    });
+
+    it('落点不是目录时拒绝（拿一个文件当目录）', async () => {
+      const file = path.join(tempDir, 'a.md');
+      await fsPromises.writeFile(file, '# A', 'utf-8');
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expectFileServiceError(service.createFile(file, 'b.md'), 'IO_ERROR');
+    });
+
+    it('落点经符号链接指向工作区外时拒绝', async () => {
+      const escapeTarget = path.resolve(path.join(os.tmpdir(), 'nexus-escape-target'));
+      const linkDir = path.join(tempDir, 'link');
+      await fsPromises.mkdir(linkDir, { recursive: true });
+
+      // 不造真 symlink（Windows 上要提权），改从适配层的 `realpath` 上模拟 ——
+      // `assertNoSymlinkEscape` 认的就是它。
+      const service = new FileService({
+        fsAdapter: createMockFsAdapter({
+          realpath: async (p) => (path.resolve(p) === path.resolve(linkDir) ? escapeTarget : p)
+        })
+      });
+      await service.authorizeWorkspace(tempDir);
+
+      await expectFileServiceError(service.createFile(linkDir, 'evil.md'), 'OUT_OF_BOUNDS');
+    });
+  });
+
+  describe('新建目录', () => {
+    it('新建成功；撞上同名目录时报错（`recursive` 会把「已存在」当成功，所以不能开）', async () => {
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      const created = await service.createDirectory(tempDir, '素材');
+      expect(created).toBe(path.resolve(path.join(tempDir, '素材')));
+      await expect(fsPromises.stat(created)).resolves.toBeTruthy();
+
+      await expectFileServiceError(service.createDirectory(tempDir, '素材'), 'IO_ERROR');
+    });
+
+    it('名字里带路径分隔符时拒绝 —— 目录树不能靠一个名字凭空长出来', async () => {
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expectFileServiceError(service.createDirectory(tempDir, 'a/b'), 'IO_ERROR');
+      await expect(fsPromises.readdir(tempDir)).resolves.toEqual([]);
+    });
+  });
+
+  describe('列出工作区目录：空目录要看得见，忽略规则与索引同源', () => {
+    /** 只关心「有哪些目录」的用例看相对路径就够了。 */
+    const relativePaths = (entries: readonly WorkspaceDirectoryEntry[]) =>
+      entries.map((entry) => entry.relativePath);
+
+    it('空目录也在结果里 —— 这正是这条通道存在的理由', async () => {
+      await fsPromises.mkdir(path.join(tempDir, 'notes'));
+      await fsPromises.mkdir(path.join(tempDir, 'assets'));
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expect(service.listWorkspaceDirectories(tempDir)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ relativePath: 'assets', name: 'assets' }),
+          expect.objectContaining({ relativePath: 'notes', name: 'notes' })
+        ])
+      );
+    });
+
+    it('返回的绝对路径指向**真实存在**的目录（相对路径拼根自证不了这件事）', async () => {
+      await fsPromises.mkdir(path.join(tempDir, 'a', 'b'), { recursive: true });
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      const entries = await service.listWorkspaceDirectories(tempDir);
+      expect(relativePaths(entries)).toEqual(['a', 'a/b']);
+
+      for (const entry of entries) {
+        expect(path.isAbsolute(entry.path)).toBe(true);
+        await expect(fsPromises.stat(entry.path)).resolves.toMatchObject({});
+      }
+    });
+
+    it('点开头目录与 node_modules 不进结果（与索引同一份跳过规则）', async () => {
+      await fsPromises.mkdir(path.join(tempDir, '.git'));
+      await fsPromises.mkdir(path.join(tempDir, 'node_modules'));
+      await fsPromises.mkdir(path.join(tempDir, 'notes'));
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      await expect(service.listWorkspaceDirectories(tempDir)).resolves.toEqual([
+        expect.objectContaining({ relativePath: 'notes' })
+      ]);
+    });
+
+    it('用户的忽略规则生效，且带 `/` 的规则按相对路径比', async () => {
+      await fsPromises.mkdir(path.join(tempDir, 'notes', 'private'), { recursive: true });
+      await fsPromises.mkdir(path.join(tempDir, 'drafts'));
+
+      const service = new FileService();
+      await service.authorizeWorkspace(tempDir);
+
+      const entries = await service.listWorkspaceDirectories(tempDir, {
+        ignoreRules: ['drafts', 'notes/private']
+      });
+      expect(relativePaths(entries)).toEqual(['notes']);
+    });
+
+    it('不 stat 任何文件 —— 列目录不该为「文件有多大」付代价', async () => {
+      const baseFs = new DefaultFileSystemAdapter();
+      const statSpy = vi.fn((p: string) => baseFs.stat(p));
+
+      const service = new FileService({ fsAdapter: createMockFsAdapter({ stat: statSpy }) });
+      await service.authorizeWorkspace(tempDir);
+
+      await fsPromises.mkdir(path.join(tempDir, 'empty'));
+      await fsPromises.writeFile(path.join(tempDir, 'note.md'), '# N', 'utf-8');
+      // 清在授权之后：授权那一步本身要 stat 根目录，那是另一件事。
+      statSpy.mockClear();
+
+      await expect(service.listWorkspaceDirectories(tempDir)).resolves.toEqual([
+        expect.objectContaining({ relativePath: 'empty' })
+      ]);
+      expect(statSpy).not.toHaveBeenCalled();
     });
   });
 });

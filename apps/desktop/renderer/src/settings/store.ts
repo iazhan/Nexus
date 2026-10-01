@@ -74,6 +74,7 @@ import {
   NEW_DOCUMENT_LOCATION_OPTIONS,
   NEW_DOCUMENT_LOCATION_STORAGE_KEY,
   RESTORE_LAST_WORKSPACE_STORAGE_KEY,
+  WORKSPACE_SHOW_IMAGES_STORAGE_KEY,
   parseEditorFontFamily,
   parseGroupSetting,
   parseNumberSetting,
@@ -153,6 +154,26 @@ function toggleSettingOff(storageKey: string) {
     storageKey,
     fallback: false,
     parse: (raw) => raw === 'true',
+    serialize: (value) => String(value)
+  });
+}
+
+/**
+ * 默认**开**的开关。
+ *
+ * 与 `toggleSettingOff` 的差别不只在 `fallback`，**解析方向也必须一起反过来**：
+ * 那一档读的是「只有显式写了 `true` 才算开」，所以坏值落到关；这一档要的是
+ * 「只有显式写了 `false` 才算关」，坏值落到开。
+ *
+ * 为什么不能只把 `fallback` 改成 `true` 就完事：`parse` 仍是 `raw === 'true'` 的话，
+ * 存档里一个坏值（比如手改出来的 `'yes'`）会让这一项**静默变成关**，
+ * 而用户看到的是一棵少了附件的树 —— 那不是「回落到默认」，是回落到另一个值。
+ */
+function toggleSettingOn(storageKey: string) {
+  return defineSetting<boolean>({
+    storageKey,
+    fallback: true,
+    parse: (raw) => raw !== 'false',
     serialize: (value) => String(value)
   });
 }
@@ -248,6 +269,15 @@ export const SETTING_DEFS = {
     },
     serialize: (value) => String(clampPanelWidth(value))
   }),
+
+  /**
+   * 工作区树里是否显示**图片**。
+   *
+   * **它不是设置项，是视图状态** —— 所以不在 `FIELDS` 里，设置页与菜单都看不到它，
+   * 入口只有工作区工具栏上那一枚开关。理由与值域见
+   * `preference-specs.ts` 的 `WORKSPACE_SHOW_IMAGES_STORAGE_KEY`。
+   */
+  'workspace.showImages': toggleSettingOn(WORKSPACE_SHOW_IMAGES_STORAGE_KEY),
 
   /**
    * 自动保存。关掉之后**只有显式保存才落盘**，编辑器仍会把状态标成未保存。

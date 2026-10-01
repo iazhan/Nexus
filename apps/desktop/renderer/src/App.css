@@ -1656,73 +1656,133 @@ body.nexus-resizing {
   transform: rotate(90deg);
 }
 
-/* 侧栏两段（P3-09）：笔记树 / 附件区。段标题比条目更弱，段间用一条细线分开 ——
-   两段都是「同一种东西的列表」，靠标题区分比靠背景色块更省视觉预算。 */
-.nexus-sidebar-section + .nexus-sidebar-section {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--nexus-border-subtle);
-}
-
-.nexus-sidebar-section-title {
+/* 工作区工具栏（2026-10-01）。五个动作平铺，不做下拉 —— 这一栏只有五项，
+   把最常用的两个藏进菜单只会多一次点击（参考实现那一栏有七八项，才需要收）。 */
+.nexus-workspace-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  /* 左内边距与 .nexus-sidebar-header 对齐，让段标题和根目录名在同一条竖线上 */
-  padding: 2px 12px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  cursor: pointer;
+}
+
+.nexus-toolbar-button:hover:not(:disabled) {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+/* 开关类按钮的「已开启」态。底色表达「现在是什么」，图标表达「点它会变成什么」——
+   两者都要有：只换图标的话，扫一眼分不清当前是开还是关。 */
+.nexus-toolbar-button-on {
+  color: var(--nexus-accent-indicator);
+}
+
+.nexus-toolbar-button:disabled {
+  color: var(--nexus-text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 树行的图标位。固定宽度让同一层的名字对齐 —— 目录行有折叠箭头、文件行没有，
+   宽度不固定的话两者会错开十几像素。 */
+.nexus-tree-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
   color: var(--nexus-text-muted);
 }
 
-.nexus-sidebar-section-count {
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
+/* 选中行。与 `.nexus-tree-item-active`（当前打开的文档）是两件事：那个是
+   「编辑器里开着它」，这个是「工具栏的动作会作用在它身上」。两者可以同时成立，
+   所以这一条只补背景，不覆盖颜色 —— 覆盖了就看不出哪个是当前文档。 */
+.nexus-tree-item-selected {
+  background-color: var(--nexus-bg-surface-active);
 }
 
-/* 附件分组标题。它复用 .nexus-tree-dir（同一种「可折叠的一层」），
-   但计数要顶到右边，所以让名字吃掉剩余宽度。 */
-.nexus-attachment-group .nexus-tree-name {
+/* 文件行：名称吃掉剩余宽度，大小与提取提示顶到右边。名称必须 `min-width: 0`
+   才能真的省略 —— flex 项的自动最小尺寸默认是内容宽度，不归零就只会把整行撑破。 */
+.nexus-tree-file .nexus-tree-name {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.nexus-attachment-count {
-  flex: 0 0 auto;
+/* 新建那一行。内边距与 `.nexus-tree-rename` 同一档，免得开输入框时整棵树跳一下。 */
+.nexus-tree-new-row {
+  padding: 4px 8px;
+}
+
+.nexus-tree-new-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--nexus-accent-indicator);
+  background: transparent;
+  color: var(--nexus-text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+/* 重名。只换下划线的颜色 —— 输入框本身没有框，凭空加一个会与上面那行不一样。 */
+.nexus-tree-new-input-conflict {
+  border-bottom-color: var(--nexus-status-error-text);
+}
+
+.nexus-tree-new-error {
+  margin: 2px 0 0;
   font-size: 11px;
-  color: var(--nexus-text-muted);
-  font-variant-numeric: tabular-nums;
+  color: var(--nexus-status-error-text);
 }
 
-/* 附件行：名称（可省略）+ 同名目录提示 + 大小。
-   三者都是 flex 子项，名称必须 min-width: 0 才能真的省略 ——
-   flex 项的自动最小尺寸默认是内容宽度，不归零就只会把整行撑破。
-   名称沿用 `.nexus-tree-name`（附件行和笔记行一样都是「树里的一行」），
-   这里只补它在本行需要的伸缩行为。 */
-.nexus-attachment-item {
-  gap: 6px;
+/* 空态与错误态里的动作按钮（「新建第一个文件」「重试」「显示全部」）。
+   这三处都是「没有别的东西可点」的地方，所以它们要看起来像按钮，
+   而不是像树里的一行。 */
+.nexus-sidebar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 4px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-.nexus-attachment-item .nexus-tree-name {
-  flex: 1 1 auto;
-  min-width: 0;
+.nexus-sidebar-action:hover {
+  background-color: var(--nexus-bg-surface-hover);
 }
 
-/* 只在同名时才出现的目录提示，比名称更弱；上限 40% 是为了不让它挤掉名称 */
-.nexus-attachment-hint {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--nexus-text-muted);
+/* 空态竖排：一句话 + 一个按钮。横排会让按钮跑到文字的右边，读起来像两个东西。 */
+.nexus-sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* 空态/错误态内部那一段说明文字 */
+.nexus-sidebar-note p {
+  margin: 0;
 }
 
 /* 大小右对齐：等宽数字让一列文件的大小能竖着对齐 */

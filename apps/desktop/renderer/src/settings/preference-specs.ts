@@ -122,6 +122,26 @@ export const EXTERNAL_CHANGE_STORAGE_KEY = 'nexus-external-change';
  */
 export const RESTORE_LAST_WORKSPACE_STORAGE_KEY = 'nexus-restore-last-workspace';
 
+/**
+ * 工作区树里是否显示**图片**。
+ *
+ * **这一项不是设置项，是视图状态。** `files.*` 那一组的共同点是「影响磁盘行为」
+ * （附件放哪、删怎么删、链接怎么写），而这一项一个字节都不落盘 —— 它与侧栏宽度、
+ * 展开的目录是同一类东西。放进设置页会让「设置项 ＝ 影响行为」这条判据模糊掉，
+ * 所以它**不进 `FIELDS`**：设置页与菜单里都看不到它。
+ *
+ * 之所以仍然走 `SettingsStore`：那已经是「本机偏好」的统一入口（读写 + 订阅 +
+ * 跨窗口同步 + 值域解析），为一项视图状态另造一套存储没有收益。
+ *
+ * **管的是图片，不是全部附件**（PDF / DOCX 照常显示）—— 意图是「树被图淹了」，
+ * 而那两种通常是找的目标。判据在 `workspace/tree-filter.ts`。
+ *
+ * 默认值的方向也要一起定：**默认显示**（＝与加这个开关之前的观感一致），
+ * 且**只有显式写了 `false` 才算关**。坏值回落到「显示」而不是「隐藏」——
+ * 隐藏会让图片从树上消失，而用户看到一棵少了东西的树却不知道少了什么。
+ */
+export const WORKSPACE_SHOW_IMAGES_STORAGE_KEY = 'nexus-workspace-show-images';
+
 /** 磁盘字符串 → 数值。空串与非数字**回落到默认值**，不是夹到最小值（`Number('')` 是 0）。 */
 export function parseNumberSetting(spec: NumberSettingSpec, raw: string | null): number {
   if (raw === null || raw.trim() === '') return spec.fallback;

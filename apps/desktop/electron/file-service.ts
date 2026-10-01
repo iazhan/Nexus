@@ -13,6 +13,7 @@ import {
   type FileWatchListener,
   type Unsubscribe,
   type WorkspaceDocumentFile,
+  type WorkspaceDirectoryEntry,
   type WorkspaceMarkdownFile,
   type WorkspaceScanResult
 } from '@nexus/core';
@@ -376,6 +377,27 @@ function assertRenameableName(name: string, filePath: string): void {
   if (name.endsWith('.') || name.endsWith(' ')) {
     throw new FileServiceError('IO_ERROR', '文件名不能以点或空格结尾', filePath);
   }
+}
+
+/**
+ * 新建文件时的扩展名归一化。
+ *
+ * 没写扩展名就补 `.md`（敲「周报」的意图显然是「周报.md」）；写了但不是 Markdown
+ * 就直接拒绝 —— 这条通道只能造**空文本**文件，造一个空 `.png` 只会让图片查看器
+ * 打开一片空白，而用户还以为自己新建了一张图。
+ *
+ * 归一化放在主进程而不是渲染进程：这条规则只该有一份，否则「界面上显示的名字」
+ * 与「磁盘上的名字」会分家。
+ */
+function normalizeNewFileName(name: string, directoryPath: string): string {
+  if (path.extname(name) === '') return `${name}.md`;
+  if (isMarkdownPath(name)) return name;
+
+  throw new FileServiceError(
+    'UNSUPPORTED_TYPE',
+    `只能新建 Markdown 文件（.md / .markdown），收到 "${path.extname(name)}"`,
+    path.join(directoryPath, name)
+  );
 }
 
 function wrapIoError(action: string, filePath: string, err: unknown): FileServiceError {
@@ -1128,16 +1150,21 @@ export class FileService {
   }
 
   /**
-   * **可读文档**判据 = 白名单全体（Markdown / PDF / DOCX / 图片）。
+   * **可读文档**判据 = 白名单全体（Markdown / PDF / DOCX / 图片）。**返回判出来的类型。**
    *
-   * 只有 `readDocumentBytes` 走这条。它比 `assertTextDocument` 宽，是因为
-   * 它不做解码；宽出来的部分**不代表可以写**。
+   * `readDocumentBytes` 与 `describeWorkspaceFile` 走这条。它比 `assertTextDocument` 宽，
+   * 是因为它不做解码；宽出来的部分**不代表可以写**。
+   *
+   * 返回类型而不是 `void`：两处调用点都要那个类型，各自再 `documentTypeForPath` 一次
+   * 等于同一个判断跑两遍 —— 而两遍之间是可以漂的（第一遍白名单里加了一种、第二遍忘了）。
    *
    * 注意这条**不替代**边界校验：调用方仍须先过 `checkBoundary` 与
    * `assertNoSymlinkEscape`。「只是读一张图片」不是绕过边界的理由。
    */
-  private assertReadableDocument(filePath: string): void {
-    if (documentTypeForPath(filePath) !== null) return;
+  private assertReadableDocument(filePath: string): DocumentType {
+    const type = documentTypeForPath(filePath);
+    if (type !== null) return type;
+
     const ext = getPathExtension(filePath);
     throw new FileServiceError(
       'UNSUPPORTED_TYPE',
@@ -1340,13 +1367,201 @@ export class FileService {
   }
 
   /**
+   * 列出工作区里所有目录（绝对路径 + 相对路径 + 名字，**不含根自身**）。
+   *
+   * ## 为什么文件树需要一条单独的通道
+   *
+   * 索引里只有文件，目录是从 `relativePath` 反推的 —— 一个还没放东西的 `assets/`
+   * 在索引里根本不存在。于是「新建文件夹」点了界面上什么都不会发生，用户以为没成功。
+   *
+   * ## 跳过规则必须与索引同源
+   *
+   * 同一个 `shouldIgnoreDirectory` + 同一份 `ignoreRules`。各写一份的话，
+   * 症状是「索引跳过了 `.git`、树里却看得见」，而两边谁对说不清。
+   *
+   * 只收目录：`resolveType` 恒返回 `null`，所以**一个文件都不会被 stat** ——
+   * 这是一次纯目录遍历，比 `scanWorkspaceFiles` 便宜。
+   *
+   * 父目录一定排在子目录之前（先 push 再递归），但**同级之间的顺序不保证** ——
+   * `readdir` 给什么顺序就是什么顺序，要稳定就自己排。
+   */
+  async listWorkspaceDirectories(
+    rootPath: string,
+    options: ScanWorkspaceOptions = {}
+  ): Promise<WorkspaceDirectoryEntry[]> {
+    const directories: WorkspaceDirectoryEntry[] = [];
+    await this.walkWorkspace(rootPath, options, () => null, directories);
+    return directories;
+  }
+
+  /**
+   * 在工作区里**排他**新建一个空的 Markdown 文件，返回它的绝对路径。
+   *
+   * ## 排他（`wx`）是这条通道的全部要点
+   *
+   * 不能复用 `writeFile`：那条走 `atomicWriteFile`，语义是「写到这个路径」——
+   * 目标已存在时它会**覆盖**。而调用方（树上那行内联输入框）拿到的名字是用户随手
+   * 敲的，撞上已有文件是常态。覆盖掉别人一个月的笔记，是这条通道唯一不可逆的失败
+   * 方式，所以宁可让 `open(..., 'wx')` 抛 `EEXIST`。
+   *
+   * 注意这里**不用** `atomicWriteFile`：它的实现是「目标 → 备份 → 临时 → 目标」，
+   * 那是为「替换已有内容」设计的，用在新建上正好把要防的事做了。
+   *
+   * ## 名字归一化放在这里，不放在渲染进程
+   *
+   * 「没写扩展名就补 `.md`」这条规则只该有一份。渲染进程把用户敲的字符串原样送过来，
+   * 最终叫什么由这里定 —— 否则「界面上显示的名字」与「磁盘上的名字」会成为两处判断。
+   *
+   * ## 为什么没有专门的错误码
+   *
+   * 「已存在」与别的 IO 失败只靠 message 区分。跨 IPC 之后 `FileServiceError.code`
+   * 根本传不过去（Electron 只序列化 message），加一个枚举值不会让渲染进程多知道
+   * 任何东西。渲染进程那条路是**本地预检**（拿树里的列表比名字），这里只是兜底。
+   */
+  async createFile(directoryPath: string, fileName: string): Promise<string> {
+    const target = await this.resolveNewEntryPath(directoryPath, fileName, 'file');
+
+    try {
+      const handle = await this.fsAdapter.open(target, 'wx', 0o600);
+      await handle.close();
+    } catch (err) {
+      throw this.describeCreateFailure(err, target, fileName);
+    }
+
+    return target;
+  }
+
+  /**
+   * 在工作区里新建一个目录（**非递归**），返回它的绝对路径。
+   *
+   * 不开 `recursive` 是刻意的，理由不是「省一次 mkdir」：`recursive: true` 会把
+   * **已存在的目录当成成功**（不报错），于是「新建文件夹」撞名时会静默成功 ——
+   * 界面上看不出任何区别，用户只会以为自己点漏了。非递归那一档才会抛 `EEXIST`，
+   * 与 `createFile` 同形。
+   *
+   * 顺带：名字里不能有路径分隔符（`assertRenameableName` 拦），所以「父目录不存在」
+   * 这条分支走不到 —— 落点目录本身已经 `stat` 过了。
+   */
+  async createDirectory(directoryPath: string, name: string): Promise<string> {
+    const target = await this.resolveNewEntryPath(directoryPath, name, 'directory');
+
+    try {
+      await this.fsAdapter.mkdir(target);
+    } catch (err) {
+      throw this.describeCreateFailure(err, target, name);
+    }
+
+    return target;
+  }
+
+  /**
+   * 算出「在这个目录下新建一个叫这个名字的东西」的绝对路径，并做完所有校验。
+   *
+   * 与 `resolveRenameTarget` 是同一条判据的镜像：**路径怎么拼、哪些名字不能要，
+   * 只有这一份**。区别在 `resolveRenameTarget` 要跟旧名字比扩展名，这里要归一化
+   * 扩展名 —— 因为新建时没有「旧名字」可比。
+   */
+  private async resolveNewEntryPath(
+    directoryPath: string,
+    rawName: string,
+    kind: 'file' | 'directory'
+  ): Promise<string> {
+    const normalizedDir = this.normalizePath(directoryPath);
+    this.checkBoundary(normalizedDir);
+    await this.assertNoSymlinkEscape(normalizedDir);
+
+    const info = await this.fsAdapter.stat(normalizedDir);
+    if (!info.isDirectory()) {
+      throw new FileServiceError('IO_ERROR', '落点不是一个目录', normalizedDir);
+    }
+
+    const name = rawName.trim();
+    assertRenameableName(name, normalizedDir);
+
+    const finalName = kind === 'file' ? normalizeNewFileName(name, normalizedDir) : name;
+    const target = path.join(normalizedDir, finalName);
+
+    // 名字里不能有分隔符（`assertRenameableName` 已经拦了），所以 join 之后必定
+    // 还在同一个目录里 —— 但 `path.join` 对奇怪输入的处理不值得信任，判据自己再走一遍。
+    this.checkBoundary(target);
+
+    return target;
+  }
+
+  /** 把 `open('wx')` / `mkdir` 的失败翻成人能读的错。 */
+  private describeCreateFailure(err: unknown, target: string, name: string): FileServiceError {
+    if (err instanceof FileServiceError) return err;
+    if (getErrorCode(err) === 'EEXIST') {
+      return new FileServiceError('IO_ERROR', `已存在同名项：${name}`, target);
+    }
+    if (isNotFoundError(err)) {
+      return new FileServiceError('IO_ERROR', '落点目录不存在', target);
+    }
+    return wrapIoError('新建失败', target, err);
+  }
+
+  /**
+   * 读一个工作区文件的「文件系统事实」—— 与 `walkWorkspace` 收进 `files` 的那几个字段同形。
+   *
+   * 给「单个文件进索引」用：那条路没有扫描结果可以依附，而索引要的字段（类型、大小、
+   * 修改时间）只能从盘上现读。类型判据走与扫描**同一张白名单**（`assertReadableDocument`），
+   * 各写一份的话会出现「扫描收进来了、单文件路拒掉」这种两边对不上的状态。
+   *
+   * `relativePath` 按 `/` 分隔：它与索引里存的那个字符串是同一个口径，不能各写一遍。
+   */
+  async describeWorkspaceFile(
+    rootPath: string,
+    filePath: string
+  ): Promise<WorkspaceDocumentFile> {
+    const normalizedRoot = this.normalizePath(rootPath);
+    const normalizedPath = this.normalizePath(filePath);
+    this.checkBoundary(normalizedRoot);
+    this.checkBoundary(normalizedPath);
+    await this.assertNoSymlinkEscape(normalizedPath);
+
+    // 两个都过了边界不等于「它在这一个根之下」：一个会话可以授权多个工作区根，
+    // 拿 B 根去描述 A 根里的文件，`path.relative` 会算出一串 `../..`，
+    // 而那串东西会被原样写进索引的 `relativePath` —— 一个指向不存在的路径。
+    if (!isPathInside(normalizedRoot, normalizedPath)) {
+      throw new FileServiceError('OUT_OF_BOUNDS', '文件不在给定的工作区根之下', normalizedPath);
+    }
+
+    const type = this.assertReadableDocument(normalizedPath);
+
+    let sizeBytes = 0;
+    let modifiedAtMs = 0;
+    try {
+      const stats = await this.fsAdapter.stat(normalizedPath);
+      sizeBytes = stats.size ?? 0;
+      modifiedAtMs = stats.mtimeMs ?? 0;
+    } catch (err) {
+      throw wrapIoError('读取文件信息失败', normalizedPath, err);
+    }
+
+    return {
+      path: normalizedPath,
+      relativePath: path.relative(normalizedRoot, normalizedPath).split(path.sep).join('/'),
+      name: path.basename(normalizedPath),
+      type,
+      sizeBytes,
+      modifiedAtMs
+    };
+  }
+
+  /**
    * 遍历实现。`resolveType` 返回 `null` 表示「不收这个文件」——
-   * 两个公开扫描方法只是它的两种收法。
+   * 三个公开扫描方法只是它的三种收法。
+   *
+   * `directories` 传进来就**顺带**收集目录（绝对路径 + 相对路径 + 名字）。做成可选的
+   * 出参而不是返回值上的一个字段：`WorkspaceScanResult` 是 P2 就冻结的跨进程契约，
+   * 加字段会让「整个对象比较」那类既有断言因为多出一个键而失败，而失败信息看起来
+   * 像「实现多返回了东西」。
    */
   private async walkWorkspace(
     rootPath: string,
     options: ScanWorkspaceOptions,
-    resolveType: (fileName: string) => DocumentType | null
+    resolveType: (fileName: string) => DocumentType | null,
+    directories?: WorkspaceDirectoryEntry[]
   ): Promise<WorkspaceScanResult<WorkspaceDocumentFile>> {
     const normalizedRoot = this.normalizePath(rootPath);
     this.checkBoundary(normalizedRoot);
@@ -1391,6 +1606,9 @@ export class FileService {
             skippedDirectories += 1;
             continue;
           }
+          // 收集点在**跳过判据之后**：被忽略的目录既不该进索引，也不该出现在文件树上，
+          // 否则会出现「索引跳过了 .git、树里却看得见」这种两边对不上的状态。
+          directories?.push({ path: childPath, relativePath: relativeDir, name: entry.name });
           await walk(childPath, depth + 1);
           continue;
         }

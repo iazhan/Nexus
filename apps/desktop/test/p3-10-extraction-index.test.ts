@@ -133,10 +133,10 @@ describe('P3-10 附件文本提取：被引用的附件进全文索引', () => {
     expect(await search('孤本')).toEqual([]);
 
     // ── 3. 侧栏：只有「本该有文本却没提到」的附件给提示 ─────────────────────
-    await app.waitForSelector('.nexus-attachment-item', 15000);
+    await app.waitForSelector('.nexus-tree-file[data-attachment="true"]', 15000);
 
     const sidebarRows = await app.evaluate<Array<[string, string | null, string]>>(`(() => {
-      return Array.from(document.querySelectorAll('.nexus-attachment-item')).map((item) => [
+      return Array.from(document.querySelectorAll('.nexus-tree-file[data-attachment="true"]')).map((item) => [
         item.querySelector('.nexus-tree-name')?.textContent ?? '',
         item.querySelector('.nexus-attachment-note')?.textContent ?? null,
         item.getAttribute('title') ?? ''

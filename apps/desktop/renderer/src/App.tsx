@@ -49,6 +49,7 @@ import { commandRegistry, mermaidPreviewPreference, settings } from './platform.
 import { useTheme, useLocale, useSettingValue, useKeybindingTable } from './hooks.js';
 import { CommandPalette } from './CommandPalette.js';
 import { ContextMenu, type ContextMenuItem } from './components/ContextMenu.js';
+import type { FileTreeNode } from './workspace/tree.js';
 import { parseDeleteMode } from './settings/preference-specs.js';
 import type { RenameFileResult } from '../../ipc/channels.js';
 import { WorkspaceStore, hasUnsavedChanges } from './workspace/store.js';
@@ -209,9 +210,32 @@ export const App: React.FC = () => {
    * 坐标存的是 `clientX/clientY`（视口坐标），因为菜单是 `position: fixed` 的：
    * 树容器是 `overflow-y: auto`，绝对定位的菜单会被裁掉。
    */
-  const [fileMenu, setFileMenu] = useState<{ filePath: string; x: number; y: number } | null>(
-    null
-  );
+  /**
+   * 存的是**树上被右键的那个节点**，不只是路径 —— 菜单项要按它是目录还是文件分叉：
+   * 目录上给「在此新建文件 / 新建文件夹」，文件上给「重命名 / 复制链接 / 删除」。
+   *
+   * 坐标存的是 `clientX/clientY`（视口坐标），因为菜单是 `position: fixed` 的：
+   * 树容器是 `overflow-y: auto`，绝对定位的菜单会被裁掉。
+   */
+  const [fileMenu, setFileMenu] = useState<{
+    node: FileTreeNode;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  /**
+   * 目录行右键菜单里的「在此新建」—— 交给侧栏去开那行输入框。
+   *
+   * 落点必须精确到**被右键的那个目录**，所以不能让它去读侧栏的选中状态：
+   * 那个状态在侧栏里，而 `App` 看不见；靠「右键顺带设了选中」来间接传递，
+   * 等于让菜单项依赖一个它无法验证的副作用。
+   */
+  const [pendingCreate, setPendingCreate] = useState<{
+    kind: 'file' | 'folder';
+    parentRelativePath: string;
+  } | null>(null);
+
+  const clearPendingCreate = useCallback(() => setPendingCreate(null), []);
 
   /**
    * 正在内联改名的文件（绝对路径）。`null` ＝ 没在改名。
@@ -279,9 +303,9 @@ export const App: React.FC = () => {
     setActivity((previous) => toggleActivity(previous, id));
   }, []);
 
-  /** 树上的右键：只记「哪个文件 + 鼠标在哪」，菜单项在渲染时现算。 */
-  const handleFileContextMenu = useCallback((filePath: string, x: number, y: number) => {
-    setFileMenu({ filePath, x, y });
+  /** 树上的右键：只记「哪个节点 + 鼠标在哪」，菜单项在渲染时现算。 */
+  const handleNodeContextMenu = useCallback((node: FileTreeNode, x: number, y: number) => {
+    setFileMenu({ node, x, y });
   }, []);
 
   /**
@@ -348,6 +372,25 @@ export const App: React.FC = () => {
       }),
     []
   );
+
+  /**
+   * 工作区树里是否显示**图片**。
+   *
+   * **它不是设置项，是视图状态** —— 一个字节都不落盘到工作区里，入口只有工具栏上那
+   * 一枚开关（`FIELDS` 里没有它，所以设置页与菜单都看不到）。走 `SettingsStore` 只是
+   * 因为它已经是「本机偏好」的统一入口（读写 + 订阅 + 跨窗口同步）。
+   */
+  const [showImages, setShowImages] = useState(() => settings.get('workspace.showImages'));
+  useEffect(
+    () =>
+      settings.subscribe('workspace.showImages', () => {
+        setShowImages(settings.get('workspace.showImages'));
+      }),
+    []
+  );
+  const handleShowImagesChange = useCallback((next: boolean) => {
+    settings.set('workspace.showImages', next);
+  }, []);
   /**
    * Ctrl+左键跳转失败的可见反馈。
    *
@@ -1220,6 +1263,71 @@ export const App: React.FC = () => {
   );
 
   /**
+   * 新建文件 / 新建文件夹（工作区工具栏与树上右键菜单共用）。
+   *
+   * 成功时返回**新东西的绝对路径**，失败返回 `null`。侧栏据此决定要不要收起那行输入框，
+   * 以及把选中项挪到哪 —— 不挪的话「删除」会继续打在上一个选中的文件上。
+   *
+   * 主进程在文件落盘后会**当场**把它写进索引（`createFile` 那条通道里做的），
+   * 所以这里只需要 bump 版本号让界面重读一次，不必自己重建索引。
+   *
+   * 新建的文件夹不需要索引 —— 索引里只有文件，它靠 `listWorkspaceDirectories`
+   * 从磁盘上直接看见。
+   */
+  const createEntry = useCallback(
+    async (
+      kind: 'file' | 'folder',
+      directoryPath: string,
+      name: string
+    ): Promise<string | null> => {
+      const bridge = window.nexus;
+      if (!workspaceRoot || !bridge) return null;
+
+      try {
+        if (kind === 'file') {
+          if (!bridge.createFile) return null;
+          const created = await bridge.createFile({
+            rootPath: workspaceRoot,
+            directoryPath,
+            fileName: name
+          });
+          setDocumentRevision((previous) => previous + 1);
+          // 建完就打开：用户新建文件的目的就是写它，多一次点击没有信息量。
+          await handleOpenWorkspaceFile(created);
+          return created;
+        }
+
+        if (!bridge.createDirectory) return null;
+        const created = await bridge.createDirectory({ rootPath: workspaceRoot, directoryPath, name });
+        setDocumentRevision((previous) => previous + 1);
+        return created;
+      } catch (err) {
+        // 失败要说出来。静默的话用户只会再点一次，而第二次会撞同一个错。
+        window.alert(
+          t('workspace.createFailed', {
+            name,
+            detail: err instanceof Error ? err.message : String(err)
+          })
+        );
+        return null;
+      }
+    },
+    [workspaceRoot, handleOpenWorkspaceFile, t]
+  );
+
+  /**
+   * 重新扫描工作区：重扫目录 + 重建索引。
+   *
+   * 两个参考实现都没有这个动作（Markra 靠 file watcher 整树 refresh、OpenKnowledge
+   * 靠窗口 focus 自动刷新），Nexus 需要它是因为树来自**索引** —— watcher 报的变更
+   * 不会自动进索引。列表由侧栏在它 resolve 之后自己重读。
+   */
+  const handleRefreshWorkspace = useCallback(async () => {
+    if (!workspaceRoot) return;
+    await window.nexus?.rebuildIndex?.(workspaceRoot);
+  }, [workspaceRoot]);
+
+  /**
    * 重命名的**执行**（`dryRun: false`）。三处收尾都在这里。
    *
    * 试算与执行分成两步是有原因的：主进程在真正写盘之前会**重新读一遍**每篇文档、
@@ -1457,28 +1565,58 @@ export const App: React.FC = () => {
    * 右键菜单的菜单项。**每次打开时现算**而不是缓存：文案要跟着语言变，
    * 而语言是可以在窗口开着的时候切走的。
    *
-   * `copy-link` 排在 `rename` 与 `delete` **之间**：`delete` 是唯一不可逆的一项，
-   * 留在最后是这类菜单的通例；`copy-link` 与 `rename` 都不改别人的东西，放一组。
+   * 两类节点给两套菜单：
+   *
+   * - **目录** —— 只有「在此新建文件 / 新建文件夹」。落点必须是**右键的那个目录**，
+   *   不能沿用工具栏那套「按选中项推」的规则：右键一个收着的目录时选中项可能还是别的
+   *   地方，而用户的手指刚刚点在这一个上。
+   * - **文件** —— `copy-link` 排在 `rename` 与 `delete` **之间**：`delete` 是唯一
+   *   不可逆的一项，留在最后是这类菜单的通例；`copy-link` 与 `rename` 都不改别人的
+   *   东西，放一组。
+   *
+   * 目录的 `path` 可能是 `null`（补出来的节点）—— 那时一个新建项都不给：
+   * 拿一个不存在的目录去建，只会在根上冒出一个用户没要的文件。
    */
   const fileMenuItems = useCallback(
-    (filePath: string): ContextMenuItem[] => [
-      {
-        id: 'rename',
-        label: t('workspace.renameFile'),
-        onSelect: () => setRenamingPath(filePath)
-      },
-      {
-        id: 'copy-link',
-        label: t('workspace.copyLink'),
-        onSelect: () => void handleCopyLink(filePath)
-      },
-      {
-        id: 'delete',
-        label: t('workspace.deleteFile'),
-        danger: true,
-        onSelect: () => void handleDeleteFile(filePath)
+    (node: FileTreeNode): ContextMenuItem[] => {
+      if (node.type === 'directory') {
+        if (node.path === null) return [];
+        const parentRelativePath = node.relativePath;
+        return [
+          {
+            id: 'new-file',
+            label: t('workspace.toolbar.newFile'),
+            onSelect: () => setPendingCreate({ kind: 'file', parentRelativePath })
+          },
+          {
+            id: 'new-folder',
+            label: t('workspace.toolbar.newFolder'),
+            onSelect: () => setPendingCreate({ kind: 'folder', parentRelativePath })
+          }
+        ];
       }
-    ],
+
+      const filePath = node.path;
+      if (filePath === null) return [];
+      return [
+        {
+          id: 'rename',
+          label: t('workspace.renameFile'),
+          onSelect: () => setRenamingPath(filePath)
+        },
+        {
+          id: 'copy-link',
+          label: t('workspace.copyLink'),
+          onSelect: () => void handleCopyLink(filePath)
+        },
+        {
+          id: 'delete',
+          label: t('workspace.deleteFile'),
+          danger: true,
+          onSelect: () => void handleDeleteFile(filePath)
+        }
+      ];
+    },
     [handleDeleteFile, handleCopyLink, t]
   );
 
@@ -2321,10 +2459,18 @@ export const App: React.FC = () => {
               onOpenFile={handleOpenWorkspaceFile}
               onIndexed={handleIndexed}
               revision={documentRevision}
-              onFileContextMenu={handleFileContextMenu}
+              onNodeContextMenu={handleNodeContextMenu}
               renamingPath={renamingPath}
               onRenameCommit={handleRenameCommit}
               onRenameCancel={handleRenameCancel}
+              showImages={showImages}
+              onShowImagesChange={handleShowImagesChange}
+              onCreateFile={(directoryPath, name) => createEntry('file', directoryPath, name)}
+              onCreateFolder={(directoryPath, name) => createEntry('folder', directoryPath, name)}
+              onDeleteFile={(target) => void handleDeleteFile(target)}
+              onRefresh={handleRefreshWorkspace}
+              createRequest={pendingCreate}
+              onCreateRequestHandled={clearPendingCreate}
             />
           </div>
           <div
@@ -2567,7 +2713,7 @@ export const App: React.FC = () => {
         <ContextMenu
           x={fileMenu.x}
           y={fileMenu.y}
-          items={fileMenuItems(fileMenu.filePath)}
+          items={fileMenuItems(fileMenu.node)}
           onClose={() => setFileMenu(null)}
           label={t('workspace.fileMenu')}
         />

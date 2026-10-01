@@ -41,6 +41,25 @@ export interface WorkspaceDocumentFile extends WorkspaceMarkdownFile {
 }
 
 /**
+ * 工作区里的一个**目录**。
+ *
+ * 与 `WorkspaceDocumentFile` 平级而不是它的子类：目录没有大小、修改时间、内容哈希，
+ * 强行共用会把三个「对文件才有意义」的字段变成「目录上恒为 0」—— 而 0 与「不知道」
+ * 在类型上分不开，下游迟早拿它当真的用。
+ *
+ * `path` 与 `relativePath` 都给：主进程两样都知道，而让渲染进程拿 `relativePath`
+ * 去拼绝对路径等于把「工作区根是哪一层、分隔符是什么」复制一份过去。
+ */
+export interface WorkspaceDirectoryEntry {
+  /** 绝对路径 */
+  path: string;
+  /** 相对工作区根，始终用正斜杠 */
+  relativePath: string;
+  /** 目录名（不含路径） */
+  name: string;
+}
+
+/**
  * 工作区扫描结果。
  *
  * 泛型参数是 Phase 3 / P3-04 加的：同一个扫描器既要服务「只收 Markdown」的索引器

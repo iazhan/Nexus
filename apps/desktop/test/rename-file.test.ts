@@ -89,7 +89,7 @@ describe('重命名文件与引用回写', () => {
   ): Promise<void> {
     await app.evaluate(`(() => {
       const rows = Array.from(
-        document.querySelectorAll('.nexus-tree-file, .nexus-attachment-item')
+        document.querySelectorAll('.nexus-tree-file')
       );
       const row = rows.find((el) => el.querySelector('.nexus-tree-name')?.textContent === ${JSON.stringify(name)});
       if (!row) throw new Error('树上找不到 ' + ${JSON.stringify(name)});

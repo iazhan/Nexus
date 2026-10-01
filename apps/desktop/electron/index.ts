@@ -26,12 +26,14 @@ import {
   writeRecentWorkspace
 } from './recent-workspace.js';
 import { IndexStore } from './index-store.js';
-import { deriveTitle, indexWorkspace } from './indexer.js';
+import { deriveTitle, indexSingleFile, indexWorkspace } from './indexer.js';
 import { rewriteReferencesInSource } from './link-rewrite.js';
 import { createProcessorRegistry } from './processor/index.js';
 import {
   DELETE_MODES,
   IPC_CHANNELS,
+  type CreateDirectoryRequest,
+  type CreateFileRequest,
   type DeleteMode,
   type FileWatchIpcPayload,
   type RenameFileChange,
@@ -712,6 +714,89 @@ ipcMain.handle(IPC_CHANNELS.deleteFile, async (event, filePath: unknown, mode: u
   if (resolved === 'permanent') {
     forgetHistory(event, filePath);
   }
+});
+
+/**
+ * 校验「新建」类请求。**认不出的字段一律抛错，不猜。**
+ *
+ * 与 `requireRenameRequest` 同一形状：跨进程传来的都是 `unknown`，先收窄再使用。
+ * 这里不做文件名合法性校验 —— 那件事的判据在 `FileService`（`assertRenameableName`
+ * 与 `normalizeNewFileName`），在门口再写一份只会多一处会漂的规则。
+ */
+function requireCreateRequest<T extends { rootPath: string; directoryPath: string }>(
+  value: unknown,
+  label: string
+): T {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`${label}: 请求格式不正确`);
+  }
+
+  const request = value as Partial<T>;
+  if (typeof request.rootPath !== 'string' || request.rootPath.length === 0) {
+    throw new Error(`${label}: rootPath 必须是非空字符串`);
+  }
+  if (typeof request.directoryPath !== 'string' || request.directoryPath.length === 0) {
+    throw new Error(`${label}: directoryPath 必须是非空字符串`);
+  }
+
+  return request as T;
+}
+
+/**
+ * 列出工作区里所有目录。**跳过规则与索引取同一份宿主设置** ——
+ * 两处不一致的症状是「索引跳过了 `.git`、树里却看得见」，而谁对说不清。
+ */
+ipcMain.handle(IPC_CHANNELS.listWorkspaceDirectories, async (event, rootPath: unknown) => {
+  if (typeof rootPath !== 'string' || rootPath.length === 0) {
+    throw new Error('listWorkspaceDirectories: 需要非空的工作区路径');
+  }
+
+  const service = getOrCreateSession(event.sender).service;
+  return service.listWorkspaceDirectories(rootPath, {
+    ignoreRules: hostSettings().ignoreRules
+  });
+});
+
+/**
+ * 新建一个空的 Markdown 文件，并**当场**把它写进索引。
+ *
+ * 为什么必须当场写索引：树、搜索、标签、图谱都从索引读，而索引只在「重建」时更新。
+ * 不补这一下的话，新建的文件在下次重建之前搜不到、不进图谱 —— 而重建可能要等到
+ * 用户重开工作区。删除那条路早就这么做了（`removeDocuments` 就地清一条），
+ * **新建是它的镜像**。
+ *
+ * 索引写失败**不让整个新建失败**：文件已经在磁盘上了，报错会让用户以为没建成，
+ * 然后再建一次 —— 而第二次会撞 `EEXIST`。索引是派生数据，下次重建会自己追上。
+ */
+ipcMain.handle(IPC_CHANNELS.createFile, async (event, value: unknown) => {
+  const request = requireCreateRequest<CreateFileRequest>(value, 'createFile');
+  const session = getOrCreateSession(event.sender);
+
+  const created = await session.service.createFile(request.directoryPath, request.fileName);
+
+  const store = getIndexStore(event.sender.id);
+  if (store) {
+    try {
+      await indexSingleFile({
+        service: session.service,
+        store,
+        rootPath: request.rootPath,
+        filePath: created
+      });
+    } catch (err) {
+      console.error('[Nexus] 新建文件已落盘，但写入索引失败:', created, err);
+    }
+  }
+
+  return created;
+});
+
+/** 新建一个子目录。索引不用动 —— 索引里只有文件。 */
+ipcMain.handle(IPC_CHANNELS.createDirectory, async (event, value: unknown) => {
+  const request = requireCreateRequest<CreateDirectoryRequest>(value, 'createDirectory');
+  const session = getOrCreateSession(event.sender);
+
+  return session.service.createDirectory(request.directoryPath, request.name);
 });
 
 /**

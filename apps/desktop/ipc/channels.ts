@@ -34,6 +34,30 @@ export const IPC_CHANNELS = {
    * 会让「预览用的计划」与「执行时重算的计划」成为两份可能漂的代码。
    */
   renameFile: 'nexus:rename-file',
+  /**
+   * 列出工作区里所有目录的相对路径。
+   *
+   * 单独一条而不是复用 `scanWorkspace`：那个收的是**文件**，目录是从 `relativePath`
+   * 反推的 —— 一个还没放东西的 `assets/` 在它眼里不存在，于是「新建文件夹」点了界面上
+   * 什么都不会发生。跳过规则与索引同源，两边的「哪些目录不算」必须一致。
+   */
+  listWorkspaceDirectories: 'nexus:list-workspace-directories',
+  /**
+   * 在指定目录下**排他**新建一个空 Markdown 文件。
+   *
+   * 排他（`open(..., 'wx')`）是这条通道的全部要点：复用 `writeFile` 的话，撞上已存在
+   * 的文件会**覆盖**它 —— 而名字是用户随手敲的，撞车是常态，覆盖掉一篇笔记是这条通道
+   * 唯一不可逆的失败方式。
+   */
+  createFile: 'nexus:create-file',
+  /**
+   * 在指定目录下新建一个子目录（**非递归**）。
+   *
+   * 非递归是刻意的：`mkdir(recursive: true)` 把「已存在」当成功、不报错，于是撞名时
+   * 界面看不出任何区别，用户只会以为自己点漏了。非递归那一档才会抛 `EEXIST`，
+   * 与 `createFile` 同形。
+   */
+  createDirectory: 'nexus:create-directory',
   watchFile: 'nexus:watch-file',
   unwatchFile: 'nexus:unwatch-file',
   fileWatchEvent: 'nexus:file-watch-event',
@@ -245,6 +269,44 @@ export interface RenameFileResult {
   renamed: { from: string; to: string; relativePath: string } | null;
   changes: RenameFileChange[];
   skipped: RenameFileSkip[];
+}
+
+/**
+ * 新建文件 / 新建目录的落点。
+ *
+ * ## 为什么既要有 `rootPath` 又要有 `directoryPath`
+ *
+ * 两者答的是不同的问题：`directoryPath` 是**东西放哪**（可以是工作区里的任意子目录），
+ * `rootPath` 是**算索引相对路径的基准**（索引里存的是相对工作区根的路径）。
+ *
+ * `rootPath` 不能由主进程从 `getWorkspaceRoots()` 反推 —— 那个方法返回的是
+ * `toPathKey()` 的产物（`path.resolve` + Windows 折叠大小写），是**比较键不是规范路径**。
+ * 拿它去 `path.relative` 会得到一个全小写的相对路径，而「显示出来的那条路径指向的文件
+ * 必须真的存在」正是这条路径最要紧的性质。
+ *
+ * 两条通道共用这个形状（名字那一个字段的语义不同，见各自的类型），是因为「落点怎么描述」
+ * 只该有一份；分成两个几乎一样的接口只会让将来改一处时漏掉另一处。
+ */
+interface CreateEntryLocation {
+  /** 工作区根。必须是已授权的那个 —— 主进程会拿它校验并算相对路径。 */
+  rootPath: string;
+  /** 落点目录的**绝对路径**。必须存在、必须是目录、必须在 `rootPath` 之内。 */
+  directoryPath: string;
+}
+
+/**
+ * 新建一个空 Markdown 文件。
+ *
+ * `fileName` 允许不带扩展名 —— 补 `.md` 的规则在**主进程**（只此一份）。
+ * 带了非 Markdown 的扩展名会被拒：这条通道只能造空文本文件。
+ */
+export interface CreateFileRequest extends CreateEntryLocation {
+  fileName: string;
+}
+
+/** 新建一个子目录。名字里不能有路径分隔符。 */
+export interface CreateDirectoryRequest extends CreateEntryLocation {
+  name: string;
 }
 
 /**

@@ -1,0 +1,640 @@
+// @vitest-environment happy-dom
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  documentTypeForPath,
+  type IndexedDocument,
+  type WorkspaceDirectoryEntry
+} from '@nexus/core';
+import { WorkspaceSidebar } from '../src/workspace/WorkspaceSidebar.js';
+import { localeManager } from '../src/platform.js';
+
+/**
+ * 工作区侧栏的**单树 + 工具栏**渲染（2026-10-01）。
+ *
+ * 为什么这一层要有用例：树的结构、空态的三种分支、工具栏按钮的可用矩阵都是
+ * **组件里的分支**，纯函数（`tree.test.ts` / `tree-filter.test.ts`）测不到；
+ * 而真机用例一个文件只能启动一次 Electron、只跑一种工作区形状，覆盖不到这些分支。
+ *
+ * 所以这里用**打桩的 `window.nexus`** 把 IPC 换掉，只验渲染：快、能造任意输入形状。
+ * 真机那一层负责证明「真实索引与真实目录列举喂进来也是这个结果」。
+ *
+ * `apps/desktop/test/**` 与 `renderer/test/**` 都不进 typecheck，所以这里的类型只靠
+ * esbuild 转译 —— 写错了不会有人告诉你，注意别依赖编译器。
+ */
+
+// React 18+ 要求显式声明当前处于 act 环境，否则会刷警告。
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/** 只关心路径与类型，其余给固定值。 */
+function doc(relativePath: string, overrides: Partial<IndexedDocument> = {}): IndexedDocument {
+  const name = relativePath.split('/').pop() ?? relativePath;
+  return {
+    id: 0,
+    path: `/vault/${relativePath}`,
+    relativePath,
+    name,
+    title: name.replace(/\.[^.]+$/, ''),
+    type: documentTypeForPath(relativePath) ?? 'markdown',
+    sizeBytes: 1,
+    modifiedAtMs: 1,
+    contentHash: 'x',
+    extractionStatus: 'none',
+    ...overrides
+  };
+}
+
+function dir(relativePath: string): WorkspaceDirectoryEntry {
+  const name = relativePath.split('/').pop() ?? relativePath;
+  return { path: `/vault/${relativePath}`, relativePath, name };
+}
+
+const OK_RESULT = {
+  scanned: 0,
+  indexed: 0,
+  skipped: 0,
+  removed: 0,
+  extracted: 0,
+  truncated: false,
+  errors: [] as string[]
+};
+
+interface RenderOptions {
+  documents?: IndexedDocument[];
+  directories?: WorkspaceDirectoryEntry[];
+  showImages?: boolean;
+  rebuildFails?: boolean;
+}
+
+describe('工作区侧栏：单树 + 工具栏', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let props: {
+    onOpenFile: ReturnType<typeof vi.fn>;
+    onNodeContextMenu: ReturnType<typeof vi.fn>;
+    onShowImagesChange: ReturnType<typeof vi.fn>;
+    onCreateFile: ReturnType<typeof vi.fn>;
+    onCreateFolder: ReturnType<typeof vi.fn>;
+    onDeleteFile: ReturnType<typeof vi.fn>;
+    onRefresh: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    props = {
+      onOpenFile: vi.fn(),
+      onNodeContextMenu: vi.fn(),
+      onShowImagesChange: vi.fn(),
+      onCreateFile: vi.fn(async () => '/vault/b.md'),
+      onCreateFolder: vi.fn(async () => '/vault/素材'),
+      onDeleteFile: vi.fn(),
+      onRefresh: vi.fn(async () => undefined)
+    };
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    delete (window as unknown as { nexus?: unknown }).nexus;
+    // 单例：本文件里改过 locale 的用例必须还原，否则同进程里后面的用例会跟着变
+    act(() => {
+      localeManager.setLocale('en-US');
+    });
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * 渲染并等 effect 里的索引链跑完。
+   *
+   * 组件里的 effect 是 `void (async () => { await rebuildIndex(); await list() })()` ——
+   * React 不会等它，所以 `await act(...)` 之后还要把微任务队列放干。
+   *
+   * 判据用 `data-phase="ready"` 而不是「有没有 `.nexus-sidebar-note`」：
+   * **加载态也是 `.nexus-sidebar-note`**，按它等会在 `indexing` 就提前返回，
+   * 断言随后失败、看起来却像「渲染错了」。
+   */
+  let currentOptions: RenderOptions = {};
+  let currentRevision = 0;
+
+  const renderElement = () => (
+    <WorkspaceSidebar
+      rootPath="/vault"
+      activeFilePath={null}
+      showImages={currentOptions.showImages ?? true}
+      revision={currentRevision}
+      {...props}
+    />
+  );
+
+  async function renderSidebar(options: RenderOptions = {}): Promise<void> {
+    currentOptions = options;
+    const documents = options.documents ?? [];
+    const directories = options.directories ?? [];
+
+    (window as unknown as { nexus: unknown }).nexus = {
+      rebuildIndex: vi.fn(async () => {
+        if (options.rebuildFails) throw new Error('索引库被占用');
+        return { ...OK_RESULT, scanned: documents.length };
+      }),
+      // **每次返回一份新数组**，不是同一个引用 —— 跨 IPC 过来的本来就是新对象。
+      // 返回同一引用的话 `setDocuments(同一个数组)` 会被 React 的 `Object.is`
+      // 判定成「没变」而不重渲染，用例里「建完再重读」那一步就静默失效了。
+      // 用例往自己的数组里 push 一条再 bump 版本号，等价于真实链路里
+      // 「App 建完文件 → 主进程写索引 → bump revision」。
+      listIndexedDocuments: vi.fn(async () => [...documents]),
+      listWorkspaceDirectories: vi.fn(async () => [...directories])
+    };
+
+    await act(async () => {
+      root.render(renderElement());
+    });
+
+    const settled = () => {
+      const phase = container
+        .querySelector('.nexus-workspace-sidebar')
+        ?.getAttribute('data-phase');
+      return phase === 'ready' || phase === 'error';
+    };
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (settled()) return;
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+    throw new Error(`侧栏没有进入 ready/error：${container.innerHTML}`);
+  }
+
+  /**
+   * 模拟 `App` bump `documentRevision` 之后的那次重渲染。
+   *
+   * 侧栏只在 `revision` **变化**时重读列表（挂载那一次已经读过，跳过首跑避免竞态），
+   * 所以这里必须真的换一个值、真的重渲染 —— 直接调 `renderSidebar` 是重新挂载，
+   * 走的不是同一条路。
+   */
+  async function bumpRevision(): Promise<void> {
+    currentRevision += 1;
+    await act(async () => {
+      root.render(renderElement());
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  /**
+   * 往受控输入框里打字。
+   *
+   * **必须走原生 setter**：React 18 在 input 元素上挂了一个 value 跟踪器，
+   * 直接 `input.value = x` 会让 React 认为「值没变」而丢掉这次 change 事件 ——
+   * 症状是 `onChange` 不触发、`draft` 一直是初值，看起来却像「校验没生效」。
+   * 这是 happy-dom + 受控组件的老坑，与 `InlineRename` 的既有用例同源。
+   */
+  const typeInto = async (input: HTMLInputElement, value: string) => {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+
+  const pressEnter = async (input: HTMLInputElement) => {
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
+  const rows = () =>
+    Array.from(container.querySelectorAll<HTMLElement>('[data-relative-path]')).map((row) => ({
+      kind: row.getAttribute('data-tree-kind'),
+      relativePath: row.getAttribute('data-relative-path'),
+      path: row.getAttribute('data-path'),
+      attachment: row.getAttribute('data-attachment'),
+      selected: row.getAttribute('data-selected') === 'true'
+    }));
+
+  const toolbarButton = (action: string) =>
+    container.querySelector<HTMLButtonElement>(`.nexus-toolbar-button[data-action="${action}"]`);
+
+  const click = async (selector: string) => {
+    await act(async () => {
+      container
+        .querySelector<HTMLElement>(selector)
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+  };
+
+  const rightClick = async (selector: string) => {
+    await act(async () => {
+      container
+        .querySelector<HTMLElement>(selector)
+        ?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 20 }));
+    });
+  };
+
+  describe('单树', () => {
+    it('笔记与附件在**同一棵树**里，按目录结构混排', async () => {
+      await renderSidebar({
+        documents: [doc('root.md'), doc('notes/dma.md'), doc('assets/logo.png')],
+        directories: [dir('notes'), dir('assets')]
+      });
+
+      expect(rows().map((row) => row.relativePath)).toEqual([
+        'assets',
+        'assets/logo.png',
+        'notes',
+        'notes/dma.md',
+        'root.md'
+      ]);
+      // 附件仍然被标出来 —— 图标与「显示附件」开关都靠这个属性
+      expect(rows().find((row) => row.relativePath === 'assets/logo.png')?.attachment).toBe('true');
+      expect(rows().find((row) => row.relativePath === 'notes/dma.md')?.attachment).toBe('false');
+    });
+
+    it('空目录也渲染 —— 索引里没有它，它来自磁盘列举', async () => {
+      await renderSidebar({ documents: [], directories: [dir('素材')] });
+
+      expect(rows().map((row) => row.relativePath)).toEqual(['素材']);
+      expect(rows()[0]!.kind).toBe('directory');
+      expect(rows()[0]!.path).toBe('/vault/素材');
+    });
+
+    it('点目录只展开/折叠，不开文件', async () => {
+      await renderSidebar({
+        documents: [doc('notes/deep/a.md')],
+        directories: [dir('notes'), dir('notes/deep')]
+      });
+
+      // 默认只展开顶层：`notes` 开着、`notes/deep` 收着
+      expect(rows().map((row) => row.relativePath)).not.toContain('notes/deep/a.md');
+
+      await click('[data-relative-path="notes/deep"]');
+
+      expect(rows().map((row) => row.relativePath)).toContain('notes/deep/a.md');
+      expect(props.onOpenFile).not.toHaveBeenCalled();
+    });
+
+    it('点文件开它', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await click('[data-relative-path="a.md"]');
+
+      expect(props.onOpenFile).toHaveBeenCalledWith('/vault/a.md');
+    });
+  });
+
+  describe('显示图片开关', () => {
+    it('树里没有图片时**不渲染**开关 —— 恒亮但没作用的按钮会让人怀疑它坏了', async () => {
+      await renderSidebar({ documents: [doc('a.md'), doc('手册.pdf')], directories: [] });
+
+      expect(toolbarButton('toggle-images')).toBeNull();
+    });
+
+    it('有图片时渲染，且报告当前是开还是关', async () => {
+      await renderSidebar({
+        documents: [doc('a.md'), doc('logo.png')],
+        directories: [],
+        showImages: true
+      });
+
+      const toggle = toolbarButton('toggle-images');
+      expect(toggle?.getAttribute('data-shown')).toBe('true');
+    });
+
+    it('点它上报**取反**后的值（组件不自己改状态，那是 App 的事）', async () => {
+      await renderSidebar({ documents: [doc('a.md'), doc('logo.png')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="toggle-images"]');
+
+      expect(props.onShowImagesChange).toHaveBeenCalledWith(false);
+    });
+
+    it('关掉之后图片从树里消失，**PDF / DOCX 留着**，只含图片的目录一起消失', async () => {
+      await renderSidebar({
+        documents: [doc('a.md'), doc('assets/logo.png'), doc('手册.pdf')],
+        directories: [dir('assets')],
+        showImages: false
+      });
+
+      // 这条是这一栏最要紧的判据：藏的是图片，不是全部附件。
+      // 用 `arrayContaining` 而不是逐位比 —— 中英混排的先后跟着运行时 locale 走
+      // （本机 zh-CN 下汉字排在拉丁字母前），断言顺序等于断言这台机器的 ICU。
+      expect(rows().map((row) => row.relativePath)).toEqual(
+        expect.arrayContaining(['a.md', '手册.pdf'])
+      );
+      expect(rows()).toHaveLength(2);
+    });
+
+    it('**被过滤空**时给一条出路，而不是让用户面对一棵空树', async () => {
+      await renderSidebar({
+        documents: [doc('logo.png')],
+        directories: [],
+        showImages: false
+      });
+
+      expect(rows()).toEqual([]);
+      const action = container.querySelector('[data-action="show-all"]');
+      expect(action).not.toBeNull();
+
+      await click('[data-action="show-all"]');
+      expect(props.onShowImagesChange).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('工具栏的可用性', () => {
+    it('没选中任何行时删除是禁用的，且 title 说明原因', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      const button = toolbarButton('delete');
+      expect(button?.disabled).toBe(true);
+      expect(button?.getAttribute('title')).toContain('Select a file');
+    });
+
+    it('选中文件后删除可用', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await click('[data-relative-path="a.md"]');
+
+      expect(toolbarButton('delete')?.disabled).toBe(false);
+      expect(rows().find((row) => row.relativePath === 'a.md')?.selected).toBe(true);
+    });
+
+    it('选中**目录**时删除仍然禁用，title 换成「暂不支持删除文件夹」', async () => {
+      await renderSidebar({ documents: [], directories: [dir('notes')] });
+
+      await click('[data-relative-path="notes"]');
+
+      const button = toolbarButton('delete');
+      expect(button?.disabled).toBe(true);
+      expect(button?.getAttribute('title')).toContain('Folders cannot be deleted');
+    });
+
+    it('删除作用在**选中项**上，不是当前打开的文档', async () => {
+      await renderSidebar({ documents: [doc('a.md'), doc('b.md')], directories: [] });
+
+      await click('[data-relative-path="b.md"]');
+      await click('.nexus-toolbar-button[data-action="delete"]');
+
+      expect(props.onDeleteFile).toHaveBeenCalledWith('/vault/b.md');
+    });
+
+    it('点刷新上报，且刷新期间按钮禁用（防连点触发两次索引）', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="refresh"]');
+
+      expect(props.onRefresh).toHaveBeenCalled();
+    });
+  });
+
+  describe('一键展开 / 收起', () => {
+    it('树里没有目录时不渲染那枚按钮 —— 按下去也没有东西可展开', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      expect(toolbarButton('toggle-expand')).toBeNull();
+    });
+
+    it('默认只有顶层展开，所以按钮显示「全部展开」', async () => {
+      await renderSidebar({
+        documents: [doc('a/b/c.md'), doc('top.md')],
+        directories: [dir('a'), dir('a/b')]
+      });
+
+      // 顶层 `a` 开着（所以 `a/b` 这一行看得见），但 `a/b` 自己是收着的 ——
+      // 它下面的 `a/b/c.md` 不在树里。
+      expect(rows().map((row) => row.relativePath)).toEqual(['a', 'a/b', 'top.md']);
+      expect(toolbarButton('toggle-expand')?.getAttribute('data-expanded')).toBe('false');
+    });
+
+    it('点一下全部展开，再点一下全部收起', async () => {
+      await renderSidebar({
+        documents: [doc('a/b/c.md'), doc('top.md')],
+        directories: [dir('a'), dir('a/b')]
+      });
+
+      await click('.nexus-toolbar-button[data-action="toggle-expand"]');
+
+      expect(rows().map((row) => row.relativePath)).toEqual([
+        'a',
+        'a/b',
+        'a/b/c.md',
+        'top.md'
+      ]);
+      // 全展开了 → 按钮换成「全部收起」
+      expect(toolbarButton('toggle-expand')?.getAttribute('data-expanded')).toBe('true');
+
+      await click('.nexus-toolbar-button[data-action="toggle-expand"]');
+
+      // 收起之后只剩顶层那一层
+      expect(rows().map((row) => row.relativePath)).toEqual(['a', 'top.md']);
+      expect(toolbarButton('toggle-expand')?.getAttribute('data-expanded')).toBe('false');
+    });
+
+    it('「全部收起」管的是**整棵树**，被图片开关藏起来的目录也一起收', async () => {
+      await renderSidebar({
+        documents: [doc('a.md'), doc('assets/logo.png')],
+        directories: [dir('assets')],
+        showImages: false
+      });
+
+      // 此刻 `assets/` 不在可见树里，但它仍然是树里的一层
+      expect(rows().map((row) => row.relativePath)).toEqual(['a.md']);
+      await click('.nexus-toolbar-button[data-action="toggle-expand"]');
+
+      // 把图片放出来：`assets/` 回来了，而且**是收着的**
+      // —— 按可见树算的话它会是展开的，而用户刚才明明按了「全部收起」。
+      currentOptions = { ...currentOptions, showImages: true };
+      await bumpRevision();
+
+      const assets = container.querySelector<HTMLElement>('[data-relative-path="assets"]');
+      expect(assets).not.toBeNull();
+      expect(assets?.getAttribute('aria-expanded')).toBe('false');
+    });
+  });
+
+  describe('新建', () => {
+    it('点「新建文件」在**工作区根**开一行输入框，初值是 `未命名.md`', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+
+      const input = container.querySelector<HTMLInputElement>('.nexus-tree-new-input');
+      expect(input?.value).toBe('Untitled.md');
+    });
+
+    it('选中目录后新建落在**那个目录**里', async () => {
+      await renderSidebar({ documents: [], directories: [dir('notes')] });
+
+      await click('[data-relative-path="notes"]');
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+
+      await typeInto(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!, '周报.md');
+      await pressEnter(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!);
+
+      expect(props.onCreateFile).toHaveBeenCalledWith('/vault/notes', '周报.md');
+    });
+
+    it('选中**文件**后新建落在它所在的目录里', async () => {
+      await renderSidebar({
+        documents: [doc('notes/a.md')],
+        directories: [dir('notes')]
+      });
+
+      await click('[data-relative-path="notes/a.md"]');
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+
+      await typeInto(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!, 'b.md');
+      await pressEnter(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!);
+
+      expect(props.onCreateFile).toHaveBeenCalledWith('/vault/notes', 'b.md');
+    });
+
+    it('同级重名时标红、且 Enter **不提交**', async () => {
+      await renderSidebar({ documents: [doc('周报.md')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+
+      await typeInto(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!, '周报.md');
+
+      const input = container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!;
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(container.querySelector('.nexus-tree-new-error')?.textContent).toContain('周报.md');
+
+      await pressEnter(input);
+      expect(props.onCreateFile).not.toHaveBeenCalled();
+    });
+
+    it('没写扩展名时按 `.md` 算重名 —— 主进程会补扩展名，不补就漏报', async () => {
+      await renderSidebar({ documents: [doc('周报.md')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+
+      await typeInto(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!, '周报');
+
+      expect(
+        container.querySelector<HTMLInputElement>('.nexus-tree-new-input')?.getAttribute(
+          'aria-invalid'
+        )
+      ).toBe('true');
+    });
+
+    it('新建失败时输入行**留着** —— 用户刚敲的名字还在，改一下就能重试', async () => {
+      props.onCreateFile = vi.fn(async () => null);
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+
+      await typeInto(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!, 'b.md');
+      await pressEnter(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!);
+
+      expect(container.querySelector('.nexus-tree-new-input')).not.toBeNull();
+    });
+
+    it('新建成功后输入行收起', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+
+      await typeInto(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!, 'b.md');
+      await pressEnter(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!);
+
+      expect(container.querySelector('.nexus-tree-new-input')).toBeNull();
+    });
+
+    it('新建成功后**选中项挪到新节点**上 —— 否则「删除」会打在上一个选中的文件上', async () => {
+      // 新建前先选中另一个文件，模拟「用户先点了 a.md，再建 b.md」
+      const documents = [doc('a.md')];
+      props.onCreateFile = vi.fn(async () => '/vault/b.md');
+      await renderSidebar({ documents, directories: [] });
+
+      await click('[data-relative-path="a.md"]');
+      expect(rows().find((row) => row.relativePath === 'a.md')?.selected).toBe(true);
+
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+      await typeInto(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!, 'b.md');
+      await pressEnter(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!);
+
+      // 真实链路里新文件是主进程写的索引，侧栏靠 revision 重读才看见它
+      documents.push(doc('b.md'));
+      await bumpRevision();
+
+      // 选中项跟着挪走了，而不是留在 a.md 上
+      expect(rows().find((row) => row.relativePath === 'b.md')?.selected).toBe(true);
+      expect(rows().find((row) => row.relativePath === 'a.md')?.selected).toBe(false);
+
+      // 这条才是它防的事：此时点删除，删的必须是 b.md
+      await click('.nexus-toolbar-button[data-action="delete"]');
+      expect(props.onDeleteFile).toHaveBeenCalledWith('/vault/b.md');
+    });
+
+    it('Escape 取消，什么都不提交', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+      await act(async () => {
+        container
+          .querySelector('.nexus-tree-new-input')
+          ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+
+      expect(container.querySelector('.nexus-tree-new-input')).toBeNull();
+      expect(props.onCreateFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('空态与错误态', () => {
+    it('工作区什么都没有时给「新建第一个文件」，不是一句死文案', async () => {
+      await renderSidebar({ documents: [], directories: [] });
+
+      expect(container.querySelector('[data-action="empty-create"]')).not.toBeNull();
+      // 工具栏仍然在 —— 否则用户没有任何入口
+      expect(toolbarButton('new-file')).not.toBeNull();
+    });
+
+    it('索引失败时给「重试」，且工具栏仍然可用', async () => {
+      await renderSidebar({ rebuildFails: true });
+
+      expect(container.querySelector('.nexus-workspace-sidebar')?.getAttribute('data-phase')).toBe(
+        'error'
+      );
+      expect(container.querySelector('[data-action="retry"]')).not.toBeNull();
+      expect(toolbarButton('new-file')).not.toBeNull();
+    });
+  });
+
+  describe('右键与选中', () => {
+    it('右键文件上报节点与坐标', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await rightClick('[data-relative-path="a.md"]');
+
+      expect(props.onNodeContextMenu).toHaveBeenCalledTimes(1);
+      const [node, x, y] = props.onNodeContextMenu.mock.calls[0]!;
+      expect(node.relativePath).toBe('a.md');
+      expect([x, y]).toEqual([10, 20]);
+    });
+
+    it('右键也会把它设成选中 —— 否则菜单里的动作与高亮会对不上', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await rightClick('[data-relative-path="a.md"]');
+
+      expect(rows().find((row) => row.relativePath === 'a.md')?.selected).toBe(true);
+    });
+
+    it('右键目录上报的是目录节点（菜单要按它分叉）', async () => {
+      await renderSidebar({ documents: [], directories: [dir('notes')] });
+
+      await rightClick('[data-relative-path="notes"]');
+
+      expect(props.onNodeContextMenu.mock.calls[0]![0].type).toBe('directory');
+    });
+  });
+});

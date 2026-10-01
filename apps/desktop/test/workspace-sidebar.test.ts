@@ -86,5 +86,73 @@ describe('工作区侧栏', () => {
     expect(
       await app.evaluate<number>(`document.querySelectorAll('.nexus-tree-item-active').length`)
     ).toBe(1);
+
+    // ---- 工具栏：新建 → 出现在树里 → 开成标签页 → 选中 → 删除 → 消失 ----
+    //
+    // 这一段是**整条链路的端到端证明**：树的两路数据源（索引 + 目录列举）、
+    // 主进程的排他创建与单文件索引、以及「建完把选中项挪过去」全在里面。
+    // 上面刚点过 `notes/dma.md`，所以选中项是它 —— 新文件应当落在 `notes/` 旁边。
+    const clickToolbar = (action: string) =>
+      app.evaluate<boolean>(`(() => {
+        const button = document.querySelector('.nexus-toolbar-button[data-action="${action}"]');
+        if (!button) return false;
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        return true;
+      })()`);
+
+    expect(await clickToolbar('new-file')).toBe(true);
+    await app.waitForSelector('.nexus-tree-new-input', 15000);
+
+    // 受控输入框要走原生 setter，直接改 `value` 会被 React 的 value 跟踪器吞掉
+    await app.evaluate(`(() => {
+      const input = document.querySelector('.nexus-tree-new-input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, '周报');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      return true;
+    })()`);
+
+    const createdPath = path.join(workspace, 'notes', '周报.md');
+    await app.waitForFunction(
+      `Array.from(document.querySelectorAll('.nexus-tree-name')).some((el) => el.textContent === '周报.md')`,
+      20000
+    );
+    // 主进程补的扩展名、落点、磁盘上的字节，三样都要对
+    expect(fs.readFileSync(createdPath, 'utf-8')).toBe('');
+    // 建完就打开
+    expect(
+      await app.evaluate<string>(`document.querySelector('.nexus-filename')?.textContent ?? ''`)
+    ).toBe('周报.md');
+    // **选中项跟着挪到新文件上** —— 否则下一步的删除会删掉 dma.md。
+    //
+    // 用 `waitForFunction` 而不是直接断言：那一行出现在树里（列表重读完）与它被选中
+    // 之间隔着一个 effect —— 「建完把选中挪过去」是在**下一次**提交里发生的。
+    // 直接断言会变成一条看运气的用例（实测同一份代码一次过、一次不过）。
+    await app.waitForFunction(
+      `document.querySelectorAll('[data-relative-path="notes/周报.md"][data-selected="true"]').length === 1`,
+      15000
+    );
+
+    // 删除（默认档是回收站，不弹确认框）
+    expect(await clickToolbar('delete')).toBe(true);
+    await app.waitForFunction(
+      `!Array.from(document.querySelectorAll('.nexus-tree-name')).some((el) => el.textContent === '周报.md')`,
+      20000
+    );
+    expect(fs.existsSync(createdPath)).toBe(false);
+
+    // ---- 刷新：在盘上直接放一个文件，点刷新之后它出现 ----
+    //
+    // 这一条是「刷新」这个动作存在的全部理由：树来自**索引**，而索引只在「重建」时
+    // 更新 —— 在资源管理器里加的文件不会自己进树。
+    const externalPath = path.join(workspace, '外部新增.md');
+    fs.writeFileSync(externalPath, '# 外部新增\n', 'utf-8');
+
+    expect(await clickToolbar('refresh')).toBe(true);
+    await app.waitForFunction(
+      `Array.from(document.querySelectorAll('.nexus-tree-name')).some((el) => el.textContent === '外部新增.md')`,
+      25000
+    );
   }, INDEXED_TEST_TIMEOUT_MS);
 });

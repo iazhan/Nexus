@@ -83,6 +83,7 @@ export {
   type FileDocument,
   type WorkspaceMarkdownFile,
   type WorkspaceDocumentFile,
+  type WorkspaceDirectoryEntry,
   type WorkspaceScanResult,
   type IndexedDocument,
   type SearchHit,

@@ -48,6 +48,32 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     // 只有整个工作区**一个文档都没有**才走这句，所以文案跟着判据改。
     'workspace.noFiles': 'No documents in this workspace.',
     'workspace.fileCount': '{count} files',
+    // 工作区工具栏（2026-10-01：单树 + 工具栏）。
+    'workspace.toolbar.newFile': 'New file',
+    'workspace.toolbar.newFolder': 'New folder',
+    'workspace.toolbar.delete': 'Delete',
+    'workspace.toolbar.showImages': 'Show images',
+    'workspace.toolbar.hideImages': 'Hide images',
+    'workspace.toolbar.expandAll': 'Expand all folders',
+    'workspace.toolbar.collapseAll': 'Collapse all folders',
+    'workspace.toolbar.refresh': 'Rescan workspace',
+    'workspace.toolbar.refreshing': 'Rescanning…',
+    // 禁用原因。灰按钮不带解释时用户只会反复点它 —— 这一行比按钮本身有用。
+    'workspace.toolbar.deleteNeedsSelection': 'Select a file first',
+    'workspace.toolbar.deleteDirectoryHint': 'Folders cannot be deleted yet',
+    // 新建时的那行输入。`hint` 是 Enter / Esc 的说明。
+    'workspace.untitledName': 'Untitled',
+    'workspace.newFolderName': 'New folder',
+    'workspace.createHint': 'Enter to confirm, Esc to cancel',
+    'workspace.nameExists': '"{name}" already exists here',
+    'workspace.createFailed': 'Could not create "{name}": {detail}',
+    'workspace.refreshFailed': 'Could not rescan the workspace: {detail}',
+    // 空态。`emptyCreate` 是「一个文档都没有」时的出路 —— 在此之前侧栏是一句死文案，
+    // 用户没有任何可点的东西，也就建不出第一篇笔记。
+    'workspace.emptyCreate': 'This workspace is empty. Create a file to start.',
+    'workspace.filteredToZero': 'Everything here is hidden by the current view.',
+    'workspace.showAll': 'Show all',
+    'workspace.retry': 'Retry',
     // 侧栏两段（UI 蓝图 §8.1：Attachments 与 Notes 并列）。
     // 组标题复用 `document.type.*`，所以这里只缺区标题与两段各自的空态。
     'workspace.sectionNotes': 'Notes',
@@ -618,6 +644,32 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     // 只有整个工作区**一个文档都没有**才走这句，所以文案跟着判据改。
     'workspace.noFiles': '这个工作区里没有文档。',
     'workspace.fileCount': '{count} 个文件',
+    // 工作区工具栏（2026-10-01：单树 + 工具栏）。
+    'workspace.toolbar.newFile': '新建文件',
+    'workspace.toolbar.newFolder': '新建文件夹',
+    'workspace.toolbar.delete': '删除',
+    'workspace.toolbar.showImages': '显示图片',
+    'workspace.toolbar.hideImages': '隐藏图片',
+    'workspace.toolbar.expandAll': '全部展开',
+    'workspace.toolbar.collapseAll': '全部收起',
+    'workspace.toolbar.refresh': '重新扫描工作区',
+    'workspace.toolbar.refreshing': '正在重新扫描…',
+    // 禁用原因。灰按钮不带解释时用户只会反复点它 —— 这一行比按钮本身有用。
+    'workspace.toolbar.deleteNeedsSelection': '先选中一个文件',
+    'workspace.toolbar.deleteDirectoryHint': '暂不支持删除文件夹',
+    // 新建时的那行输入。`hint` 是 Enter / Esc 的说明。
+    'workspace.untitledName': '未命名',
+    'workspace.newFolderName': '新建文件夹',
+    'workspace.createHint': '回车确认，Esc 取消',
+    'workspace.nameExists': '「{name}」已经存在',
+    'workspace.createFailed': '新建「{name}」失败：{detail}',
+    'workspace.refreshFailed': '重新扫描工作区失败：{detail}',
+    // 空态。`emptyCreate` 是「一个文档都没有」时的出路 —— 在此之前侧栏是一句死文案，
+    // 用户没有任何可点的东西，也就建不出第一篇笔记。
+    'workspace.emptyCreate': '这个工作区还是空的，新建一个文件开始。',
+    'workspace.filteredToZero': '这里的内容都被当前的显示设置藏起来了。',
+    'workspace.showAll': '显示全部',
+    'workspace.retry': '重试',
     // 侧栏两段（UI 蓝图 §8.1：Attachments 与 Notes 并列）。
     // 组标题复用 `document.type.*`，所以这里只缺区标题与两段各自的空态。
     'workspace.sectionNotes': '笔记',

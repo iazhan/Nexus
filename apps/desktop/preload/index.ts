@@ -6,6 +6,7 @@ import type {
   FileWatchEvent,
   Unsubscribe,
   WorkspaceScanResult,
+  WorkspaceDirectoryEntry,
   IndexedDocument,
   SearchHit,
   IndexWorkspaceResult,
@@ -14,6 +15,8 @@ import type {
 } from '@nexus/core';
 import {
   IPC_CHANNELS,
+  type CreateDirectoryRequest,
+  type CreateFileRequest,
   type DeleteMode,
   type DiagnosticsReport,
   type FileWatchIpcPayload,
@@ -106,6 +109,18 @@ const bridge: NexusBridge = {
 
   renameFile: (request: RenameFileRequest): Promise<RenameFileResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.renameFile, request);
+  },
+
+  listWorkspaceDirectories: (rootPath: string): Promise<WorkspaceDirectoryEntry[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.listWorkspaceDirectories, rootPath);
+  },
+
+  createFile: (request: CreateFileRequest): Promise<string> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.createFile, request);
+  },
+
+  createDirectory: (request: CreateDirectoryRequest): Promise<string> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.createDirectory, request);
   },
 
   authorizeWorkspace: (rootPath: string): Promise<string> => {

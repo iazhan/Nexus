@@ -4,11 +4,12 @@ import {
   attachmentContentFingerprint,
   attachmentReferences,
   normalizeWikilinkTarget,
+  type DocumentType,
   type IndexWorkspaceResult,
   type ProcessorRegistry
 } from '@nexus/core';
 import type { FileService, ScanWorkspaceOptions } from './file-service.js';
-import type { IndexStore } from './index-store.js';
+import type { IndexStore, UpsertDocumentInput } from './index-store.js';
 
 /**
  * 工作区索引器：扫盘 → （Markdown 读内容）→ 写进索引库。
@@ -89,45 +90,23 @@ export async function indexWorkspace(
     seenPaths.add(file.path);
 
     try {
-      // 附件**不读内容**：它不进全文检索，正文从不参与查询，而给一个 200MB 的 PDF
-      // 每次全量索引都读一遍算哈希是纯粹白付的 IO。指纹改用 stat，代价与理由见
-      // `attachmentContentFingerprint()`。
-      const content = file.type === 'markdown' ? await service.readFile(file.path) : null;
-      const contentHash =
-        content !== null
-          ? createHash('sha256').update(content, 'utf8').digest('hex')
-          : attachmentContentFingerprint(file.sizeBytes, file.modifiedAtMs);
-
-      if (content !== null) {
-        const references = attachmentReferences(content, file.relativePath);
-        for (const reference of references.paths) {
-          referencedPaths.add(reference.toLowerCase());
-        }
-        for (const target of references.wikilinkTargets) {
-          referencedWikilinkTargets.add(target);
-        }
-      }
-
       // 跳过判据对两类文档是同一条：指纹没变就不重写。附件的指纹是 stat 指纹，
       // 所以「改了内容但 size 与 mtime 都没变」不会触发重索引 —— 那需要人为构造，
       // 且附件本来就是只读展示，见 `attachmentContentFingerprint()` 的说明。
-      const existing = existingByPath.get(file.path);
-      if (existing && existing.contentHash === contentHash) {
+      const prepared = await prepareIndexEntry(
+        service,
+        file,
+        existingByPath.get(file.path)?.contentHash
+      );
+
+      if (prepared === null) {
         skipped += 1;
       } else {
-        pendingUpserts.push({
-            path: file.path,
-            relativePath: file.relativePath,
-            name: file.name,
-            type: file.type,
-            title: deriveTitle(file.name),
-            sizeBytes: file.sizeBytes,
-            modifiedAtMs: file.modifiedAtMs,
-            contentHash,
-            body: content ?? '',
-            links: content !== null ? extractWikiLinkTargets(content) : [],
-            tags: content !== null ? extractTags(content) : []
-        });
+        for (const reference of prepared.referencedPaths) referencedPaths.add(reference);
+        for (const target of prepared.referencedWikilinkTargets) {
+          referencedWikilinkTargets.add(target);
+        }
+        pendingUpserts.push(prepared.input);
       }
     } catch (err) {
       // 单个文件读不动（权限、扫描途中被删）不该让整次索引失败
@@ -176,6 +155,119 @@ export async function indexWorkspace(
     truncated: scan.truncated,
     errors: [...errors, ...extraction.errors]
   };
+}
+
+/** 一篇待索引文档的**文件系统事实** —— 与 `walkWorkspace` 收进 `files` 的那几个字段同形。 */
+export interface IndexableFileFacts {
+  path: string;
+  relativePath: string;
+  name: string;
+  type: DocumentType;
+  sizeBytes: number;
+  modifiedAtMs: number;
+}
+
+interface PreparedIndexEntry {
+  input: UpsertDocumentInput;
+  /** 正文里出现的附件相对路径（**已转小写**），供「被引用附件的文本提取」那一遍用。 */
+  referencedPaths: string[];
+  referencedWikilinkTargets: string[];
+}
+
+/**
+ * 读一个文件、算出它该写进索引的那一行。**不落库、不判断该不该跳过**（返回值就是那个判断）。
+ *
+ * 抽出来的唯一理由是**全量与单文件两条路必须共用同一段判据**。各写一遍的话，
+ * 漂移的症状不是报错，而是「索引里少了一样东西」—— 搜不到、图谱少节点、标签对不上，
+ * 而那要等到有人搜不到东西才会被发现。所以「读内容 → 算指纹 → 抽 links/tags → 拼入参」
+ * 这一段只有这一份实现，两条路都从这里走。
+ *
+ * 返回 `null` 表示内容指纹与 `existingHash` 相同 —— 调用方应当跳过它。
+ *
+ * 附件**不读内容**：它不进全文检索，正文从不参与查询，而给一个 200MB 的 PDF 每次
+ * 全量索引都读一遍算哈希是纯粹白付的 IO。指纹改用 stat，代价与理由见
+ * `attachmentContentFingerprint()`。
+ */
+export async function prepareIndexEntry(
+  service: FileService,
+  file: IndexableFileFacts,
+  existingHash: string | undefined
+): Promise<PreparedIndexEntry | null> {
+  const content = file.type === 'markdown' ? await service.readFile(file.path) : null;
+  const contentHash =
+    content !== null
+      ? createHash('sha256').update(content, 'utf8').digest('hex')
+      : attachmentContentFingerprint(file.sizeBytes, file.modifiedAtMs);
+
+  if (existingHash !== undefined && existingHash === contentHash) return null;
+
+  const referencedPaths: string[] = [];
+  const referencedWikilinkTargets: string[] = [];
+  if (content !== null) {
+    const references = attachmentReferences(content, file.relativePath);
+    for (const reference of references.paths) referencedPaths.push(reference.toLowerCase());
+    for (const target of references.wikilinkTargets) referencedWikilinkTargets.push(target);
+  }
+
+  return {
+    input: {
+      path: file.path,
+      relativePath: file.relativePath,
+      name: file.name,
+      type: file.type,
+      title: deriveTitle(file.name),
+      sizeBytes: file.sizeBytes,
+      modifiedAtMs: file.modifiedAtMs,
+      contentHash,
+      body: content ?? '',
+      links: content !== null ? extractWikiLinkTargets(content) : [],
+      tags: content !== null ? extractTags(content) : []
+    },
+    referencedPaths,
+    referencedWikilinkTargets
+  };
+}
+
+export interface IndexSingleFileOptions {
+  service: FileService;
+  store: IndexStore;
+  rootPath: string;
+  filePath: string;
+  /** 注入时间便于测试断言，默认 `Date.now()` */
+  nowMs?: number;
+}
+
+/**
+ * 把一个文件单独写进索引（新建文件之后用）。
+ *
+ * ## 为什么不是「顺手调一次 `rebuildIndex`」
+ *
+ * 索引是全量扫盘的产物，而新建是**高频动作** —— 每建一个文件就重扫一遍工作区，
+ * 大库上要几百毫秒，而这次扫描要证明的事情只是「多了一个空文件」。
+ * 删除那条路早就做过同样的取舍（`nexus:delete-file` 就地 `removeDocuments` 一条），
+ * **新建是它的镜像**。
+ *
+ * ## 明确不做的一半
+ *
+ * **不做被引用附件的文本提取。** 那一遍需要「全量 Markdown 的引用集合」，单文件
+ * 上下文里拿不到（见 `extractReferencedAttachments` 的头注释）。这条通道只用来新建
+ * **空的 Markdown 文件**，所以边界是够的 —— 但它是边界，不是遗漏。
+ */
+export async function indexSingleFile(options: IndexSingleFileOptions): Promise<void> {
+  const { service, store, rootPath, filePath } = options;
+  const nowMs = options.nowMs ?? Date.now();
+
+  const file = await service.describeWorkspaceFile(rootPath, filePath);
+  const prepared = await prepareIndexEntry(
+    service,
+    file,
+    store.getDocumentByPath(file.path)?.contentHash
+  );
+
+  // 内容没变就什么都不做 —— 与全量那条的跳过判据是同一条。
+  if (prepared === null) return;
+
+  store.upsertDocument(prepared.input, nowMs);
 }
 
 /**

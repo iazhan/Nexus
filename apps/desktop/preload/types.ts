@@ -4,6 +4,7 @@ import type {
   FileWatchListener,
   Unsubscribe,
   WorkspaceScanResult,
+  WorkspaceDirectoryEntry,
   IndexedDocument,
   SearchHit,
   IndexWorkspaceResult,
@@ -11,6 +12,8 @@ import type {
   HistoryEntry
 } from '@nexus/core';
 import type {
+  CreateDirectoryRequest,
+  CreateFileRequest,
   DeleteMode,
   DiagnosticsReport,
   HostSettings,
@@ -73,6 +76,28 @@ export interface NexusBridge {
    * 「主进程主动发起的行为」，而重命名是渲染进程请求的。
    */
   renameFile: (request: RenameFileRequest) => Promise<RenameFileResult>;
+  /**
+   * 列出工作区里所有目录（绝对路径 + 相对路径 + 名字，不含根自身）。
+   *
+   * 文件树要显示**空目录**，而索引里只有文件 —— 目录是从 `relativePath` 反推的，
+   * 一个还没放东西的 `assets/` 在索引里根本不存在。跳过规则与索引同源。
+   *
+   * 返回绝对路径而不是只给相对路径：让渲染进程拿相对路径去拼绝对路径，等于把
+   * 「工作区根是哪一层、分隔符是什么」复制一份过去。
+   */
+  listWorkspaceDirectories: (rootPath: string) => Promise<WorkspaceDirectoryEntry[]>;
+  /**
+   * 在指定目录下**排他**新建一个空 Markdown 文件，返回它的绝对路径。
+   *
+   * 已存在同名文件时**抛错，不覆盖** —— 这是这条通道存在的全部理由（`writeFile`
+   * 的语义是「写到这个路径」，撞上已存在的会覆盖）。名字没带扩展名时由主进程补 `.md`。
+   *
+   * 主进程会在文件落盘后**当场**把它写进索引：树、搜索、标签、图谱都从索引读，
+   * 而索引只在「重建」时更新 —— 不补这一下的话，新建的文件在下次重建之前搜不到。
+   */
+  createFile: (request: CreateFileRequest) => Promise<string>;
+  /** 在指定目录下新建一个子目录（非递归），返回它的绝对路径。已存在则抛错。 */
+  createDirectory: (request: CreateDirectoryRequest) => Promise<string>;
   watchFile: (filePath: string, listener: FileWatchListener) => Unsubscribe;
   /**
    * 授权一个工作区根目录，该目录下的文件随即可读写。返回规范化后的绝对路径。
