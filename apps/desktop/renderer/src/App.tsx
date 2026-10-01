@@ -34,7 +34,9 @@ import {
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo,
-  type LinkNavigator
+  type LinkNavigator,
+  type WorkspaceImageProvider,
+  type WorkspaceAssetEntry
 } from '@nexus/editor';
 import { EditorSurface } from './editor/SourceEditor.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
@@ -55,6 +57,8 @@ import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
 import { RenamePreview } from './workspace/RenamePreview.js';
 import { describeSkips, unsavedPaths } from './workspace/rename.js';
 import { copyLinkFailureKey } from './workspace/copy-link.js';
+import { buildWorkspaceImageOptions } from './workspace/image-picker.js';
+import { buildWorkspaceAssetEntries } from './workspace/workspace-assets.js';
 import { OutlinePanel } from './workspace/OutlinePanel.js';
 import { SearchPanel } from './workspace/SearchPanel.js';
 import { PluginsPanel } from './workspace/PluginsPanel.js';
@@ -1872,6 +1876,67 @@ export const App: React.FC = () => {
     [filePath]
   );
 
+  /**
+   * 图片选择器的数据源。
+   *
+   * **有工作区才给这个钩子**：轻量模式下没有工作区可列，编辑器据此不浮面板
+   * （见 `SourceEditor` 里那条说明）。列表内容全在渲染进程算完 —— 两份写回地址
+   * （`![](…)` 的文档目录相对、`![[…]]` 的最短唯一路径）与 `nexus-asset://` 缩略图
+   * 都是宿主才知道的事实，编辑器不认识。
+   *
+   * 每次打开选择器现拉一次索引，不订阅：列表要的是**这一刻**工作区里有什么图，
+   * 缓存一份只会让刚拖进来的图片不出现。
+   */
+  const workspaceImages = useMemo<WorkspaceImageProvider | undefined>(
+    () =>
+      workspaceRoot
+        ? async () =>
+            buildWorkspaceImageOptions(
+              (await window.nexus?.listIndexedDocuments?.()) ?? [],
+              getDocumentDirectory(filePath),
+              workspaceRoot
+            )
+        : undefined,
+    [workspaceRoot, filePath]
+  );
+
+  /**
+   * `![[…]]` 回退解析用的工作区资源清单。
+   *
+   * 与 `workspaceImages`（每次打开选择器现拉）不同，这份清单要**长期有效**：投影每次重算
+   * 都要拿它判断「候选路径存在吗」，不可能每帧跑一趟 IPC。所以跟着索引走 —— 进工作区
+   * 拉一次，`documentRevision` 变化（侧栏索引跑完、恢复历史）再拉一次。
+   *
+   * 没有工作区时是 `undefined`：编辑器据此退化成「只有文档目录」的单档解析，与这个能力
+   * 不存在时完全一致，不会更差。
+   */
+  const [workspaceAssets, setWorkspaceAssets] = useState<
+    readonly WorkspaceAssetEntry[] | undefined
+  >(undefined);
+
+  useEffect(() => {
+    const listIndexedDocuments = window.nexus?.listIndexedDocuments;
+    if (!workspaceRoot || !listIndexedDocuments) {
+      setWorkspaceAssets(undefined);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const documents = await listIndexedDocuments();
+        if (!cancelled) {
+          setWorkspaceAssets(buildWorkspaceAssetEntries(documents, workspaceRoot));
+        }
+      } catch {
+        // 索引拉不动不该让所有嵌入一起变占位符：退回单档解析，同目录的图照样能显示。
+        if (!cancelled) setWorkspaceAssets(undefined);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceRoot, documentRevision]);
+
   const menus = useMemo<MenuBarMenu[]>(
     () => [
       {
@@ -2420,6 +2485,8 @@ export const App: React.FC = () => {
             documentDirectory={getDocumentDirectory(filePath)}
             linkNavigator={handleLinkNavigation}
             onPasteFiles={handlePasteFiles}
+            workspaceImages={workspaceImages}
+            workspaceAssets={workspaceAssets}
             extensionHost={extensionHostRef.current ?? undefined}
             theme={resolvedTheme.type}
             locale={locale}

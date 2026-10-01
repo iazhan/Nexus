@@ -176,6 +176,154 @@ export const nexusBaseTheme = EditorView.theme({
     color: "var(--nexus-text-muted)",
     textDecoration: "underline dashed"
   },
+  // 内嵌图片。**`max-width` 是这条链上唯一能兜住图片尺寸的地方** —— 尺寸来自文件本身，
+  // 投影层拿不到；缺了它图片按原始像素撑开行宽（实测一张 2001px 的图把行宽推到 2009px，
+  // 而编辑区只有 655px），横向滚动条随之出现。
+  //
+  // `vertical-align: bottom` 去掉行内基线留下的下沉空隙：否则单独成行的图片会比图片本身
+  // 高出一个行距，行高与下方内容的点击命中区一起偏移。
+  ".cm-visual-image img": {
+    maxWidth: "100%",
+    height: "auto",
+    verticalAlign: "bottom"
+  },
+  ".cm-visual-image-placeholder": {
+    color: "var(--nexus-text-muted)",
+    fontStyle: "italic"
+  },
+  // 图片引用被就地揭示时的底纹（光标落进 `![](…)` / `![[…]]` 内部）。
+  // 与 `.cm-marker-wikilink` 那层区分：那层是 Source 模式自带的标记底色，
+  // 这层说的是「这一段现在是一张正在编辑的图片引用」。
+  ".cm-visual-image-source": {
+    backgroundColor: "var(--nexus-bg-surface-active)",
+    borderRadius: "3px"
+  },
+  // 揭示态下与源码并存的图片。这里**必须**是块级：图片是行内 widget（图片节点常在
+  // 行中间，块级 widget 要求落在行边界，插不进去），靠 `display: block` 让它独占
+  // 一行宽度，把后面的源码挤到下一行 —— 于是「图在上、源码在下」同时在场。
+  ".cm-visual-image-alongside": {
+    display: "block",
+    marginBottom: "6px"
+  },
+  ".cm-visual-image-alongside img": {
+    display: "block"
+  },
+  // 地址解析不出来时占位符下面那行原因。占位符本身是斜体，这句要是正体，
+  // 否则读起来像占位符文本的一部分。
+  ".cm-visual-image-hint": {
+    display: "block",
+    color: "var(--nexus-text-muted)",
+    fontStyle: "normal",
+    fontSize: "0.85em"
+  },
+  // 行内编辑浮层：链接 / WikiLink / 行内代码的改写面板，以及图片选择器。
+  //
+  // 这一族此前**一条样式都没有**，而 `openPopover` 只写 `style.left/top` —— 没有
+  // `position: absolute` 时那两个偏移毫无作用，元素以静态块落在编辑区末尾、与正文完全脱节。
+  // 补上定位之后，四类浮层才真的"浮"在被编辑节点下方。
+  //
+  // `z-index` 取 200：CodeMirror 自己的 `.cm-tooltip` 是 100，压不过它就会在
+  // 自动补全弹出时被盖住。
+  ".cm-inline-edit-popover": {
+    position: "absolute",
+    zIndex: "200",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    minWidth: "220px",
+    maxWidth: "420px",
+    padding: "10px",
+    borderRadius: "6px",
+    backgroundColor: "var(--nexus-bg-surface)",
+    border: "1px solid var(--nexus-border-strong)",
+    boxShadow: "0 8px 24px color-mix(in oklab, var(--nexus-text-primary) 18%, transparent)"
+  },
+  ".cm-inline-edit-field": {
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px"
+  },
+  ".cm-inline-edit-label": {
+    color: "var(--nexus-text-secondary)",
+    fontSize: "0.85em"
+  },
+  ".cm-inline-edit-popover input": {
+    padding: "4px 6px",
+    color: "var(--nexus-text-primary)",
+    backgroundColor: "var(--nexus-bg-canvas)",
+    border: "1px solid var(--nexus-border-subtle)",
+    borderRadius: "4px",
+    fontFamily: "inherit",
+    fontSize: "inherit"
+  },
+  ".cm-inline-edit-error": {
+    color: "var(--nexus-status-error-text)",
+    fontSize: "0.85em"
+  },
+  ".cm-inline-edit-actions": {
+    display: "flex",
+    gap: "6px",
+    justifyContent: "flex-end"
+  },
+  ".cm-inline-edit-actions button, .cm-image-upload-btn": {
+    padding: "4px 10px",
+    cursor: "pointer",
+    color: "var(--nexus-text-primary)",
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    border: "1px solid var(--nexus-border-subtle)",
+    borderRadius: "4px",
+    fontFamily: "inherit",
+    fontSize: "0.9em"
+  },
+  // 图片选择器：缩略图网格。列宽用 `auto-fill` 而不是固定列数 —— 面板宽度由
+  // `max-width` 夹住，固定列数在窄面板里会把缩略图压成一条。
+  ".cm-image-picker-list": {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
+    gap: "6px",
+    maxHeight: "220px",
+    overflowY: "auto"
+  },
+  ".cm-image-picker-item": {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "4px",
+    padding: "4px",
+    cursor: "pointer",
+    color: "var(--nexus-text-secondary)",
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    border: "1px solid transparent",
+    borderRadius: "4px",
+    fontFamily: "inherit",
+    fontSize: "0.8em"
+  },
+  ".cm-image-picker-item:hover": {
+    borderColor: "var(--nexus-accent-indicator)"
+  },
+  // 当前引用写着的那张 —— 面板的「预选」。常态就带强调边框，不是只在 hover 时才亮。
+  ".cm-image-picker-item[data-current='true']": {
+    borderColor: "var(--nexus-accent-indicator)",
+    backgroundColor: "var(--nexus-bg-surface-active)"
+  },
+  ".cm-image-picker-item img": {
+    width: "100%",
+    height: "48px",
+    objectFit: "cover",
+    borderRadius: "3px",
+    backgroundColor: "var(--nexus-bg-canvas)"
+  },
+  ".cm-image-picker-name": {
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  ".cm-image-picker-empty": {
+    color: "var(--nexus-text-muted)",
+    fontStyle: "italic",
+    fontSize: "0.85em"
+  },
   // 块级公式：KaTeX 的 display 模式会给 `.katex-display` 加上 `margin: 1em 0`。
   //
   // **块级 widget 的高度测量只算 `offsetHeight`，不含 margin**，而子元素的外边距会

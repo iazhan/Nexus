@@ -101,4 +101,23 @@ describe('Editor Syntax Highlighting Theme', () => {
     view.destroy();
     parent.remove();
   });
+
+  /**
+   * 内嵌图片必须被夹在内容宽度内。
+   *
+   * 图片尺寸来自文件本身，投影层拿不到，`max-width` 是唯一能兜住它的地方。缺了这条，
+   * 一张 2001px 的图会把行宽推到 2009px（编辑区只有 655px），横向滚动条出现，
+   * 而且 `.cm-scroller` 的居中会把行推到负坐标 —— 整篇内容看不见。
+   */
+  it('内嵌图片被夹在内容宽度内，不按原始像素撑开行宽', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({ parent, extensions: [nexusBaseTheme] });
+    const styles = Array.from(document.querySelectorAll('style')).map(s => s.textContent).join('\n');
+
+    expect(styles).toContain('.cm-visual-image img');
+    expect(styles).toMatch(/\.cm-visual-image img\s*\{[^}]*max-width:\s*100%/);
+    view.destroy();
+    parent.remove();
+  });
 });

@@ -95,6 +95,55 @@ export function setDocumentDirectory(view: EditorView, directory: string | null)
   view.dispatch({ effects: setDocumentDirectoryEffect.of(directory) });
 }
 
+/**
+ * 工作区里一个可能被 `![[…]]` 命中的资源。
+ *
+ * 三份都是宿主算好的成品 —— 编辑器不知道工作区根在哪、也不该知道，与
+ * `documentDirectoryField` 同一条分层纪律。`relative` 是**工作区根相对**且已转正斜杠：
+ * Obsidian 的嵌入地址就写这个形状，直接拿它当键。
+ */
+export interface WorkspaceAssetEntry {
+  /** 绝对路径，拼 `nexus-asset://` 用。 */
+  readonly path: string;
+  /** 工作区根相对路径，正斜杠。 */
+  readonly relative: string;
+  /** 文件名。按名兜底时匹配它。 */
+  readonly name: string;
+}
+
+/** 空清单：`create()` 与默认参数共用一个，不每次 new。 */
+export const EMPTY_WORKSPACE_ASSETS: readonly WorkspaceAssetEntry[] = Object.freeze([]);
+
+export const setWorkspaceAssetsEffect = StateEffect.define<readonly WorkspaceAssetEntry[]>();
+
+/**
+ * 工作区资源清单。
+ *
+ * 存在的理由只有一个：**嵌入的回退链要问「这个候选路径存在吗」**，而投影是同步的、
+ * 不能回头去问宿主。宿主把索引转成清单递进来，解析就退化成纯字符串比较。
+ * 索引刷新后由 `setWorkspaceAssets` 重新注入；数组身份不变时投影不重算。
+ */
+export const workspaceAssetsField = StateField.define<readonly WorkspaceAssetEntry[]>({
+  create() {
+    return EMPTY_WORKSPACE_ASSETS;
+  },
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setWorkspaceAssetsEffect)) {
+        return effect.value;
+      }
+    }
+    return value;
+  }
+});
+
+export function setWorkspaceAssets(
+  view: EditorView,
+  assets: readonly WorkspaceAssetEntry[]
+): void {
+  view.dispatch({ effects: setWorkspaceAssetsEffect.of(assets) });
+}
+
 export interface TableTarget {
   tableFrom: number;
   activeRow: number | null; // null: unselected; -1: header; 0..n: data row

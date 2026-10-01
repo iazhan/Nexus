@@ -66,25 +66,101 @@ export class LinkWidget extends WidgetType {
   }
 }
 
+/**
+ * 图片 widget 的入参。
+ *
+ * 用对象而不是位置参数：字段已经到十个，其中两个是布尔、两个是可空字符串，
+ * 位置一旦排错（`isBlocked` 与 `isEmbed` 互换）不会有任何报错，只会静默渲染错。
+ */
+export interface ImageWidgetOptions {
+  /** 用来定位源文本的区间。**嵌入时是 `[[` 的下标**，不含 `!` —— 见 `isEmbed`。 */
+  readonly from: number;
+  readonly to: number;
+  readonly raw: string;
+  readonly alt: string;
+  /** 经协议白名单净化的 `src`；被拦截时为 `null`。 */
+  readonly safeSrc: string | null;
+  readonly isBlocked?: boolean;
+  readonly title?: string;
+  /**
+   * 实际写进 `<img src>` 的值。
+   *
+   * `undefined`（不传）与 `null` 都会走占位符，差别只在调用方语义：
+   * `undefined` = 「没有可显示的地址」，`null` = 「解析过了，没解析出来」。
+   */
+  readonly displaySrc?: string | null;
+  /** Obsidian 嵌入 `![[…|200]]` 的像素宽；`null` 表示不限宽，交给 CSS 夹。 */
+  readonly width?: number | null;
+  /** 来自 `![[…]]` 而非 `![](…)`：点击要开 wikilink 浮层，不是 image 浮层。 */
+  readonly isEmbed?: boolean;
+  /**
+   * 嵌入的目标名，落到 `data-wikilink-target` 上供 Ctrl+点击导航。
+   *
+   * 嵌入曾经就是一个 `.cm-visual-wikilink`，导航靠它工作；改成图片之后如果不补回这个
+   * 属性，Ctrl+点击会静默失效 —— 导航只认选择器命中的元素，命不中就什么都不发生。
+   */
+  readonly wikilinkTarget?: string;
+  /**
+   * 与源码并存的形态：光标落进引用范围内部时，图片**不消失**，而是插在源码之前
+   * 占一行，源码留在下面就地可改。
+   *
+   * 这一态不承载点击：它只是源码旁边的一块预览，点它会再触发一次激活手势
+   * （重开面板、丢掉正在输入的过滤词），所以 `toDOM` 不给它 `data-from/to`，
+   * 点击处理里 `Number(undefined)` 是 `NaN`，直接放行。
+   */
+  readonly alongsideSource?: boolean;
+}
+
 export class ImageWidget extends WidgetType {
-  public constructor(
-    public readonly from: number,
-    public readonly to: number,
-    public readonly raw: string,
-    public readonly alt: string,
-    public readonly safeSrc: string | null,
-    public readonly isBlocked: boolean = false,
-    public readonly title?: string,
-    public readonly displaySrc?: string | null
-  ) {
+  public readonly from: number;
+  public readonly to: number;
+  public readonly raw: string;
+  public readonly alt: string;
+  public readonly safeSrc: string | null;
+  public readonly isBlocked: boolean;
+  public readonly title?: string;
+  public readonly displaySrc?: string | null;
+  public readonly width: number | null;
+  public readonly isEmbed: boolean;
+  public readonly wikilinkTarget?: string;
+  public readonly alongsideSource: boolean;
+
+  public constructor(options: ImageWidgetOptions) {
     super();
+    this.from = options.from;
+    this.to = options.to;
+    this.raw = options.raw;
+    this.alt = options.alt;
+    this.safeSrc = options.safeSrc;
+    this.isBlocked = options.isBlocked ?? false;
+    this.title = options.title;
+    this.displaySrc = options.displaySrc;
+    this.width = options.width ?? null;
+    this.isEmbed = options.isEmbed ?? false;
+    this.wikilinkTarget = options.wikilinkTarget;
+    this.alongsideSource = options.alongsideSource ?? false;
   }
 
-  public toDOM(): HTMLElement {
+  public toDOM(view: EditorView): HTMLElement {
     const span = document.createElement('span');
     span.className = 'cm-visual-image cm-visual-image-widget';
-    span.dataset.from = String(this.from);
-    span.dataset.to = String(this.to);
+    if (this.isEmbed) {
+      span.classList.add('cm-visual-image-embed');
+    }
+    if (this.alongsideSource) {
+      span.classList.add('cm-visual-image-alongside');
+    }
+    if (this.wikilinkTarget !== undefined) {
+      span.dataset.wikilinkTarget = this.wikilinkTarget;
+    }
+    // 嵌入的装饰区间从 `!` 开始，但这里给的是 wikilink 节点自身的区间 ——
+    // 点击浮层按**节点**区间精确匹配（`findInlineNodeAtRange`），
+    // 多一个 `!` 就查不到节点，浮层静默不开。
+    // 并存态不给区间：它不接点击（理由见 `alongsideSource`）。
+    if (!this.alongsideSource) {
+      span.dataset.from = String(this.from);
+      span.dataset.to = String(this.to);
+    }
     span.setAttribute('role', 'img');
     span.setAttribute('tabindex', '-1');
 
@@ -99,10 +175,22 @@ export class ImageWidget extends WidgetType {
         ? `[Blocked Image: ${this.alt || 'unsafe'}]`
         : `[Image: ${this.alt || 'unresolved'}]`;
       span.appendChild(placeholder);
+      // 地址写错 / 图不在时补一句原因，否则占位符看着像渲染坏了。
+      // 被协议拦下的不补：那是安全策略，`[Blocked …]` 已经说清楚了。
+      if (!this.isBlocked) {
+        const hint = document.createElement('span');
+        hint.className = 'cm-visual-image-hint';
+        hint.textContent = translate(view.state.facet(editorLocaleFacet), 'editor.imageUnresolved');
+        span.appendChild(hint);
+      }
     } else {
       const img = document.createElement('img');
       img.src = effectiveSrc;
       img.alt = this.alt;
+      if (this.width !== null && this.width > 0) {
+        // 只设宽、不设高：让高度按原始比例走。`max-width: 100%` 仍会兜住超宽。
+        img.style.width = `${this.width}px`;
+      }
       if (this.title) {
         img.title = this.title;
       }
@@ -126,7 +214,11 @@ export class ImageWidget extends WidgetType {
       other.safeSrc === this.safeSrc &&
       other.isBlocked === this.isBlocked &&
       other.title === this.title &&
-      other.displaySrc === this.displaySrc
+      other.displaySrc === this.displaySrc &&
+      other.width === this.width &&
+      other.isEmbed === this.isEmbed &&
+      other.wikilinkTarget === this.wikilinkTarget &&
+      other.alongsideSource === this.alongsideSource
     );
   }
 

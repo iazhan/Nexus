@@ -8,9 +8,10 @@ import {
   type ElectronAppInstance
 } from './smoke-harness.js';
 
-// 1x1 transparent PNG binary
-const ONE_PIXEL_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+// 32x32 实心 PNG。**不要换成 1x1**：点图那一步走 CDP 真实鼠标事件，坐标取元素中心后
+// 按整数派发，而 1x1 的图渲染出来只有 1px 宽 —— 中心落到下一个像素就出界，点中的是行本身。
+const SAMPLE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAANElEQVR4nO3OIQEAMAgAMDrRibRUIMsfAoGZmF9k9duYypUQEBAQEBAQEBAQEBAQEBC4DnyHeLKIDGjSfgAAAABJRU5ErkJggg==',
   'base64'
 );
 
@@ -37,7 +38,7 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
 
     // Write real 1x1 PNG image
     const imagePath = path.join(assetsDir, 'sample image.png');
-    fs.writeFileSync(imagePath, ONE_PIXEL_PNG);
+    fs.writeFileSync(imagePath, SAMPLE_PNG);
 
     // Write markdown document with relative image, bold, strikethrough, hr, and table
     const docPath = path.join(docDir, '测试文档.md');
@@ -45,6 +46,8 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
       '# 视觉模式语义收尾测试',
       '',
       '![测试图片](<./assets 资源/sample image.png>)',
+      '',
+      '![[assets 资源/sample image.png]]',
       '',
       '段落文本 **粗体文字** 和 ~~删除线文字~~ 以及 普通文字。',
       '',
@@ -106,6 +109,30 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
     // P3-07 起内嵌图片走 nexus-asset://（不再是 file://）—— http 页面（dev）加载不了
     // file:// 子资源，那会让 dev 下所有内嵌图片变空白。详见 @nexus/core 的 asset/url.ts
     expect(imageProps.src).toContain('nexus-asset://');
+
+    // 4b. Obsidian 嵌入 `![[…]]` 走同一条资源通道。
+    //     解析层把它拆成「`!` + wikilink」，识别发生在投影层 —— 这里守的是「真机上确实
+    //     渲染成图片并真的加载出来了」，而不是只有投影层单测绿。
+    await activeApp.waitForFunction(
+      `() => {
+        const img = document.querySelector('.cm-visual-image-embed img');
+        return Boolean(img && img.complete && img.naturalWidth > 0);
+      }`,
+      15000
+    );
+
+    const embedProps = await activeApp.evaluate(`(() => {
+      const img = document.querySelector('.cm-visual-image-embed img');
+      if (!img) return null;
+      return { src: img.src, complete: img.complete, naturalWidth: img.naturalWidth };
+    })()`);
+
+    expect(embedProps).not.toBeNull();
+    expect(embedProps.complete).toBe(true);
+    expect(embedProps.naturalWidth).toBeGreaterThan(0);
+    expect(embedProps.src).toContain('nexus-asset://');
+    // 嵌入不能退化成文字链接 —— 那正是「编辑时看不到图片」的症状。
+    expect(await activeApp.evaluate(`document.querySelectorAll('.cm-visual-wikilink').length`)).toBe(0);
 
     // 5. Verify delimiter reveal on caret entry/exit and real blur/focus
     // 5a. Initial: caret at 0, no revealed delimiters
@@ -306,5 +333,53 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
 
     expect(sourceViewText).toBe(initialContent);
     expect(sessionText).toBe(initialContent);
-  }, 45000);
+
+    // 10. Source 面同样渲染图片，且**只**渲染图片。
+    //     上面 4 / 4b 守的是 Visual 面的加载，这里守的是 Source 面确实装了图片投影、
+    //     并且宿主把文档目录喂了进去 —— 投影层单测绿不代表这条链路接上了。
+    await activeApp.waitForFunction(
+      `() => {
+        const img = document.querySelector('.cm-visual-image img');
+        const embed = document.querySelector('.cm-visual-image-embed img');
+        return Boolean(
+          img && img.complete && img.naturalWidth > 0 &&
+          embed && embed.complete && embed.naturalWidth > 0
+        );
+      }`,
+      15000
+    );
+
+    const sourceImageProps = await activeApp.evaluate(`(() => {
+      const img = document.querySelector('.cm-visual-image img');
+      const embed = document.querySelector('.cm-visual-image-embed img');
+      return { src: img.src, embedSrc: embed.src };
+    })()`);
+
+    expect(sourceImageProps.src).toContain('nexus-asset://');
+    expect(sourceImageProps.embedSrc).toContain('nexus-asset://');
+
+    // 其余语法在 Source 面一律保持源码原文。冒出一块表格控件 / 折叠的粗体标记，
+    // 就等于在源码模式里偷偷开了一个半成品 Visual 模式。
+    const sourceSurfaceText = await activeApp.evaluate(`document.querySelector('.cm-content').textContent`);
+    expect(sourceSurfaceText).toContain('# 视觉模式语义收尾测试');
+    expect(sourceSurfaceText).toContain('**粗体文字**');
+    expect(sourceSurfaceText).toContain('| :--- | --- |');
+    expect(await activeApp.evaluate(`document.querySelectorAll('.cm-visual-table').length`)).toBe(0);
+    expect(await activeApp.evaluate(`document.querySelectorAll('.cm-visual-delimiter-revealed').length`)).toBe(0);
+
+    // 10b. 点图 → 就地揭示为真实源文本（与行内公式同一套交互，不是弹浮层）。
+    //      `workspaceRoot` 为 null 时没有图片列表，但揭示本身与宿主无关，照样成立。
+    await activeApp.mouseClick('.cm-visual-image');
+    await activeApp.waitForFunction(
+      `() => Array.from(document.querySelectorAll('.cm-line'), (el) => el.textContent)
+        .join('\\n')
+        .includes('![测试图片](<./assets 资源/sample image.png>)')`,
+      5000
+    );
+    // 揭示**不是**让图片消失：它另插一份留在原位，与源码同时在场。
+    await activeApp.waitForFunction(
+      `() => Boolean(document.querySelector('.cm-visual-image-alongside img'))`,
+      5000
+    );
+  }, 60000);
 });

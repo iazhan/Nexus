@@ -527,8 +527,12 @@ body {
   height: 100%;
   font-family: var(--nx-editor-font-family);
   /* 限宽时把「行号槽 + 正文」当一组居中。宽度不限时 `.cm-content` 会撑满，
-     没有剩余空间，这一条不起作用 —— 也就是改版前的布局。 */
-  justify-content: center;
+     没有剩余空间，这一条不起作用 —— 也就是改版前的布局。
+
+     **必须是 `safe center`。** 普通 `center` 在子项比容器宽时会把溢出量平均分到两侧，
+     而 LTR 下起始侧那一半**滚不回来** —— 症状是整篇内容左移出屏（实测行 x = -358），
+     只剩行号槽可见。`safe` 让超宽时退化成 `flex-start`，与 `overflow: auto` 配合才滚得到左边。 */
+  justify-content: safe center;
 }
 
 /* 可读行宽。`none` 是默认，等价于改版前的铺满；给档位值时正文收窄并居中。

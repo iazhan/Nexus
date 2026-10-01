@@ -8,20 +8,26 @@ import type { MarkdownEditTransaction } from '../types.js';
 import {
   inlineEditOptionsFacet,
   type ActivePopoverState,
-  type ImageEditValue,
   type InlineCodeEditValue,
   type InlineEditContext,
   type InlineEditExtensionOptions,
   type InlineEditNodeType,
   type LinkEditValue,
-  type WikiLinkEditValue
+  type WikiLinkEditValue,
+  type WorkspaceImageOption
 } from './types.js';
 import { getInlineNodePlainText } from './text-utils.js';
 import { findInlineNodeAtRange } from './node-lookup.js';
 import { getReferenceKind } from './link-syntax.js';
+import { activateImageSource } from './image-activation.js';
 import {
-  createImageEditTransaction,
+  filterImageOptions,
+  isCurrentImageOption,
+  type ImageAddressStyle
+} from './image-filter.js';
+import {
   createInlineCodeEditTransaction,
+  createImageEditTransaction,
   createLinkEditTransaction,
   createWikiLinkEditTransaction
 } from './transactions.js';
@@ -31,7 +37,6 @@ export function createInlineEditExtension(
   options: InlineEditExtensionOptions = {}
 ): Extension {
   let activePopover: ActivePopoverState | null = null;
-  let globalResolverToken = 0;
 
   function closeActivePopover(): void {
     if (!activePopover) return;
@@ -88,9 +93,25 @@ export function createInlineEditExtension(
         const raw = currentSource.slice(from, to);
         const { root } = parseMarkdown(currentSource);
 
+        // 图片走**就地揭示**，不是浮层：把光标送进范围内部，下一次投影重建时
+        // `![](…)` / `![[…]]` 变回真实文本，地址就地可改 —— 与行内公式同一套交互。
+        // 顺带浮出工作区图片列表，那是「选一张」的入口；地址仍可直接手打。
+        if (widgetEl.classList.contains('cm-visual-image')) {
+          // `![[x.png]]` 的 AST 节点是 wikilink，只是被投影渲染成了图片；
+          // 拾取时要按 wikilink 回写，否则会把 `![[…]]` 改写成 `![](…)`。
+          const isEmbed = widgetEl.classList.contains('cm-visual-image-embed');
+          activateImageSource(this.view, from, to, raw);
+          this.openImagePicker(widgetEl, {
+            nodeType: isEmbed ? 'wikilink' : 'image',
+            range: { from, to },
+            raw,
+            source: currentSource
+          });
+          return;
+        }
+
         let nodeType: InlineEditNodeType | null = null;
         if (widgetEl.classList.contains('cm-visual-link')) nodeType = 'link';
-        else if (widgetEl.classList.contains('cm-visual-image')) nodeType = 'image';
         else if (widgetEl.classList.contains('cm-visual-inline-code')) nodeType = 'inline-code';
         else if (widgetEl.classList.contains('cm-visual-wikilink')) nodeType = 'wikilink';
 
@@ -240,147 +261,6 @@ export function createInlineEditExtension(
               (vals.title || '') === initialVals.title
             );
           };
-        } else if (context.nodeType === 'image' && node.type === 'image') {
-          const altField = document.createElement('label');
-          altField.className = 'cm-inline-edit-field';
-          const altTitle = document.createElement('span');
-          altTitle.className = 'cm-inline-edit-label';
-          altTitle.textContent = t('popover.imageAlt');
-          const altInput = document.createElement('input');
-          altInput.type = 'text';
-          altInput.className = 'cm-image-alt-input';
-          altInput.setAttribute('aria-label', t('popover.imageAltAria'));
-          altInput.value = node.alt;
-          altField.appendChild(altTitle);
-          altField.appendChild(altInput);
-
-          const srcField = document.createElement('label');
-          srcField.className = 'cm-inline-edit-field';
-          const srcTitle = document.createElement('span');
-          srcTitle.className = 'cm-inline-edit-label';
-          srcTitle.textContent = t('popover.imageSource');
-          const srcInput = document.createElement('input');
-          srcInput.type = 'text';
-          srcInput.className = 'cm-image-src-input';
-          srcInput.setAttribute('aria-label', t('popover.imageSourceAria'));
-          srcInput.value = node.src;
-          if (isReference) {
-            srcInput.disabled = true;
-            srcInput.readOnly = true;
-            srcInput.title = t('popover.imageRefSourceHint');
-            srcInput.setAttribute('aria-label', t('popover.imageRefSourceAria'));
-          }
-          srcField.appendChild(srcTitle);
-          srcField.appendChild(srcInput);
-
-          let srcInputVersion = 0;
-          srcInput.addEventListener('input', () => {
-            srcInputVersion++;
-          });
-
-          const titleField = document.createElement('label');
-          titleField.className = 'cm-inline-edit-field';
-          const titleLabel = document.createElement('span');
-          titleLabel.className = 'cm-inline-edit-label';
-          titleLabel.textContent = t('popover.titleOptional');
-          const titleInput = document.createElement('input');
-          titleInput.type = 'text';
-          titleInput.className = 'cm-image-title-input';
-          titleInput.setAttribute('aria-label', t('popover.imageTitleAria'));
-          titleInput.value = node.title || '';
-          if (isReference) {
-            titleInput.disabled = true;
-            titleInput.readOnly = true;
-            titleInput.title = t('popover.imageRefTitleHint');
-            titleInput.setAttribute('aria-label', t('popover.imageRefTitleAria'));
-          }
-          if (isIdentifierBound) {
-            altInput.disabled = true;
-            altInput.readOnly = true;
-            altInput.title = t('popover.imageRefAltHint');
-            altInput.setAttribute('aria-label', t('popover.imageRefAltAria'));
-            saveBtn.disabled = true;
-          }
-          titleField.appendChild(titleLabel);
-          titleField.appendChild(titleInput);
-
-          popover.appendChild(altField);
-          popover.appendChild(srcField);
-          popover.appendChild(titleField);
-
-          const facetOptions = this.view.state.facet(inlineEditOptionsFacet) as InlineEditExtensionOptions | undefined;
-          const resolver = !isReference ? (options.imageSourceResolver ?? facetOptions?.imageSourceResolver) : undefined;
-          if (resolver) {
-            const uploadBtn = document.createElement('button');
-            uploadBtn.type = 'button';
-            uploadBtn.className = 'cm-image-upload-btn';
-            uploadBtn.textContent = t('popover.imageUpload');
-            uploadBtn.addEventListener('click', async (e) => {
-              e.preventDefault();
-              const requestToken = ++globalResolverToken;
-              const capturedRevision = initialRevision;
-              const capturedInputVersion = srcInputVersion;
-              try {
-                const resolved = await resolver(srcInput.value, {
-                  range: context.range,
-                  raw: context.raw,
-                  alt: altInput.value,
-                  destination: srcInput.value,
-                  title: titleInput.value || undefined
-                });
-                if (
-                  !activePopover ||
-                  activePopover.popoverEl !== popover ||
-                  requestToken !== globalResolverToken ||
-                  session.getSnapshot().revision !== capturedRevision ||
-                  this.view.state.readOnly ||
-                  srcInputVersion !== capturedInputVersion
-                ) {
-                  return;
-                }
-                if (typeof resolved === 'string' && resolved) {
-                  srcInput.value = resolved;
-                  srcInputVersion++;
-                }
-              } catch (err) {
-                if (
-                  !activePopover ||
-                  activePopover.popoverEl !== popover ||
-                  requestToken !== globalResolverToken ||
-                  session.getSnapshot().revision !== capturedRevision ||
-                  this.view.state.readOnly ||
-                  srcInputVersion !== capturedInputVersion
-                ) {
-                  return;
-                }
-                errorEl.textContent = (err as Error).message || 'Resolver failed';
-              }
-            });
-            popover.appendChild(uploadBtn);
-          }
-
-          firstInput = isReference ? altInput : srcInput;
-
-          const initialVals = {
-            alt: altInput.value,
-            destination: srcInput.value,
-            title: titleInput.value
-          };
-
-          getValues = (): ImageEditValue => ({
-            alt: altInput.value,
-            destination: srcInput.value,
-            title: titleInput.value.trim() ? titleInput.value : undefined
-          });
-
-          isUnchanged = () => {
-            const vals = getValues() as ImageEditValue;
-            return (
-              vals.alt === initialVals.alt &&
-              vals.destination === initialVals.destination &&
-              (vals.title || '') === initialVals.title
-            );
-          };
         } else if (context.nodeType === 'inline-code' && node.type === 'inline-code') {
           const codeField = document.createElement('label');
           codeField.className = 'cm-inline-edit-field';
@@ -468,15 +348,6 @@ export function createInlineEditExtension(
             if (sRes.isBlocked) {
               return { isValid: false, error: sRes.reason ?? 'Blocked potentially unsafe link protocol', isUnchanged: false };
             }
-          } else if (context.nodeType === 'image') {
-            const img = vals as ImageEditValue;
-            if (/[\r\n]/.test(img.alt) || /[\r\n]/.test(img.destination) || (img.title && /[\r\n]/.test(img.title))) {
-              return { isValid: false, error: 'Newlines (CR/LF) are not permitted in images.', isUnchanged: false };
-            }
-            const sRes = sanitizeUrl(img.destination);
-            if (sRes.isBlocked) {
-              return { isValid: false, error: sRes.reason ?? 'Blocked potentially unsafe image protocol', isUnchanged: false };
-            }
           } else if (context.nodeType === 'inline-code') {
             const c = vals as InlineCodeEditValue;
             if (/[\r\n]/.test(c.value)) {
@@ -525,8 +396,6 @@ export function createInlineEditExtension(
           let tx: MarkdownEditTransaction | null = null;
           if (context.nodeType === 'link') {
             tx = createLinkEditTransaction(currentSource, context, vals as LinkEditValue);
-          } else if (context.nodeType === 'image') {
-            tx = createImageEditTransaction(currentSource, context, vals as ImageEditValue);
           } else if (context.nodeType === 'inline-code') {
             tx = createInlineCodeEditTransaction(currentSource, context, vals as InlineCodeEditValue);
           } else if (context.nodeType === 'wikilink') {
@@ -611,12 +480,361 @@ export function createInlineEditExtension(
         firstInput?.focus();
       }
 
-      public update(update: ViewUpdate): void {
-        if (activePopover) {
-          if (update.state.readOnly || update.docChanged) {
-            closeActivePopover();
-          }
+      /**
+       * 浮出工作区图片列表 —— 「选一张」的入口。
+       *
+       * 与表单浮层（`openPopover`）共用同一套生命周期（定位、外部点击关闭、视图销毁），
+       * 但**不在文档变化时关闭**：用户可能正在就地改地址，改完还要从列表里挑一张。
+       * 指向的区间靠 `update()` 里的 `mapPos` 跟着事务走，所以输入之后坐标仍然是对的。
+       *
+       * 宿主没提供 `workspaceImages` 时**不浮列表** —— 一个空列表比没有更让人困惑。
+       * 那种情况下图片照样就地揭示，地址直接手打；只有上传钩子时面板里只剩那一个按钮。
+       */
+      private openImagePicker(widgetEl: HTMLElement, context: InlineEditContext): void {
+        const facetOptions = this.view.state.facet(inlineEditOptionsFacet) as
+          | InlineEditExtensionOptions
+          | undefined;
+        const provider = options.workspaceImages ?? facetOptions?.workspaceImages;
+        const resolver = options.imageSourceResolver ?? facetOptions?.imageSourceResolver;
+        // 两个入口都没有就整个不浮：列不出图、也传不了图，面板里只剩一个标题。
+        if (!provider && !resolver) return;
+
+        closeActivePopover();
+
+        const t = (key: string) => translate(this.view.state.facet(editorLocaleFacet), key);
+        const initialRevision = session.getSnapshot().revision;
+
+        const popover = document.createElement('div');
+        popover.className = 'cm-inline-edit-popover cm-image-picker';
+        popover.setAttribute('role', 'dialog');
+        popover.setAttribute('aria-modal', 'false');
+
+        const titleEl = document.createElement('span');
+        titleEl.className = 'cm-inline-edit-label';
+        titleEl.textContent = t('popover.imagePickTitle');
+
+        const listEl = document.createElement('div');
+        listEl.className = 'cm-image-picker-list';
+
+        const errorEl = document.createElement('span');
+        errorEl.className = 'cm-inline-edit-error';
+        errorEl.setAttribute('role', 'alert');
+
+        if (provider) popover.appendChild(titleEl);
+        popover.appendChild(listEl);
+
+        if (resolver) {
+          const uploadBtn = document.createElement('button');
+          uploadBtn.type = 'button';
+          uploadBtn.className = 'cm-image-upload-btn';
+          uploadBtn.textContent = t('popover.imageUpload');
+          uploadBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const target = this.currentPickerTarget();
+            if (!target) {
+              errorEl.textContent = t('popover.imagePickGone');
+              return;
+            }
+            const capturedRevision = session.getSnapshot().revision;
+            // 同步调用、显式接住同步抛：钩子是宿主代码，抛出来不该从点击处理器里
+            // 冒到顶层（那样面板上什么都不显示，用户只看到"点了没反应"）。
+            let pending: Promise<string | null> | string | null;
+            try {
+              pending = resolver(target.destination, {
+                range: target.range,
+                raw: target.raw,
+                alt: target.alt,
+                destination: target.destination,
+                title: target.title
+              });
+            } catch (err) {
+              errorEl.textContent = (err as Error).message || 'Resolver failed';
+              return;
+            }
+
+            void Promise.resolve(pending)
+              .then((resolved) => {
+                if (!activePopover || activePopover.popoverEl !== popover) return;
+                if (this.view.state.readOnly) return;
+                if (session.getSnapshot().revision !== capturedRevision) return;
+                if (typeof resolved === 'string' && resolved) {
+                  // 上传只解析出一个地址，两种写法共用它。
+                  this.applyPickedImage({ path: resolved, wikiPath: resolved }, errorEl);
+                }
+              })
+              .catch((err: unknown) => {
+                if (!activePopover || activePopover.popoverEl !== popover) return;
+                errorEl.textContent = (err as Error).message || 'Resolver failed';
+              });
+          });
+          popover.appendChild(uploadBtn);
         }
+
+        popover.appendChild(errorEl);
+
+        // 候选列表的内容跟着「当前输入的地址」走，不是「工作区里有什么」—— 用户改地址时
+        // 列表收敛到匹配的图，所以它是自动补全而不是相册。全量只取一次：工作区没变，
+        // 重取只会让异步回来时覆盖掉用户已经输入的内容。
+        let allItems: readonly WorkspaceImageOption[] | null = null;
+
+        /** 当前这条引用写着的地址，每次都从最新文档重算（见 `currentPickerTarget`）。 */
+        const currentQuery = (): string => this.currentPickerTarget()?.destination ?? '';
+
+        /**
+         * 这次编辑写的是哪种地址。嵌入档的地址是 Obsidian 的最短唯一路径，与 `![](…)`
+         * 的文档目录相对不同 —— 过滤与预选都得按同一种比，否则一条都命不中。
+         */
+        const currentStyle = (): ImageAddressStyle =>
+          this.currentPickerTarget()?.isEmbed ? 'wiki' : 'document';
+
+        const renderList = (query: string): void => {
+          listEl.textContent = '';
+          if (!allItems) return;
+          const style = currentStyle();
+          const matched = filterImageOptions(allItems, query, style);
+          if (matched.length === 0) {
+            const empty = document.createElement('span');
+            empty.className = 'cm-image-picker-empty';
+            // 「工作区里本来就没有图」与「有图但都不匹配当前输入」是两件事，文案不同。
+            empty.textContent =
+              allItems.length === 0 ? t('popover.imagePickEmpty') : t('popover.imagePickNoMatch');
+            listEl.appendChild(empty);
+            return;
+          }
+          for (const item of matched) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'cm-image-picker-item';
+            button.dataset.path = item.path;
+            button.dataset.wikiPath = item.wikiPath;
+            // 当前引用写着的那张标出来 —— 它就是这次编辑的「预选」。
+            if (isCurrentImageOption(item, query, style)) {
+              button.dataset.current = 'true';
+            }
+            button.setAttribute('aria-label', item.name);
+            const thumb = document.createElement('img');
+            thumb.src = item.url;
+            thumb.alt = '';
+            thumb.loading = 'lazy';
+            const label = document.createElement('span');
+            label.className = 'cm-image-picker-name';
+            label.textContent = item.name;
+            button.appendChild(thumb);
+            button.appendChild(label);
+            button.addEventListener('click', (e) => {
+              e.preventDefault();
+              // 两份地址都递给写回，由它按被编辑的节点类型挑一份：`![](…)` 用文档目录
+              // 相对，`![[…]]` 用 Obsidian 的最短唯一路径。回写走对应的事务，
+              // `![[…]]` 的写法不会被改写成 `![](…)`。
+              this.applyPickedImage(item, errorEl);
+            });
+            listEl.appendChild(button);
+          }
+        };
+
+        popover.addEventListener('pointerdown', (e) => e.stopPropagation());
+        popover.addEventListener('click', (e) => e.stopPropagation());
+        popover.addEventListener('keydown', (e) => {
+          if (e.key !== 'Escape') return;
+          e.preventDefault();
+          e.stopPropagation();
+          closeActivePopover();
+        });
+
+        const doc = this.view.dom.ownerDocument ?? document;
+        const handleOutsidePointer = (e: MouseEvent | TouchEvent) => {
+          const target = e.target as HTMLElement | null;
+          if (!target) return;
+          if (popover.contains(target) || target.closest('.cm-inline-edit-popover')) return;
+          closeActivePopover();
+        };
+        doc.addEventListener('pointerdown', handleOutsidePointer, true);
+
+        activePopover = {
+          view: this.view,
+          session,
+          context,
+          initialRevision,
+          popoverEl: popover,
+          targetEl: widgetEl,
+          cleanupListeners: () => doc.removeEventListener('pointerdown', handleOutsidePointer, true),
+          committed: false,
+          pickerRange: { ...context.range },
+          refreshList: () => renderList(currentQuery())
+        };
+
+        // 定位用**揭示之后**的文本坐标：widget 在 `activateImageSource` 那一步已经从 DOM
+        // 里消失了，拿它自己的 rect 会得到 `0,0`。
+        const viewRect = this.view.dom.getBoundingClientRect();
+        const anchor = this.anchorRectAt(context.range.from, widgetEl);
+        popover.style.left = `${Math.max(0, anchor.left - viewRect.left)}px`;
+        popover.style.top = `${Math.max(0, anchor.bottom - viewRect.top + 4)}px`;
+        this.view.dom.appendChild(popover);
+
+        if (!provider) return;
+
+        void Promise.resolve(provider())
+          .then((items) => {
+            if (!activePopover || activePopover.popoverEl !== popover) return;
+            allItems = items;
+            // 打开时按当前地址过滤：列表一上来就停在「这条引用现在指的是哪张」。
+            renderList(currentQuery());
+          })
+          .catch(() => {
+            if (!activePopover || activePopover.popoverEl !== popover) return;
+            errorEl.textContent = t('popover.imagePickLoadFailed');
+          });
+      }
+
+      /**
+       * 浮层要挂在哪一行的下沿。
+       *
+       * 首选 `coordsAtPos`（揭示之后源文本的真实位置），量不到就退回元素自身的矩形 ——
+       * 无头环境（happy-dom）里量文本坐标会失败，而**定位失败不该让一次点击抛异常**：
+       * 面板照常打开，只是位置退回元素处。
+       */
+      private anchorRectAt(
+        pos: number,
+        fallback: HTMLElement
+      ): { left: number; bottom: number } {
+        try {
+          const coords = this.view.coordsAtPos(pos);
+          if (coords && Number.isFinite(coords.left) && Number.isFinite(coords.bottom)) {
+            return coords;
+          }
+        } catch {
+          // 交给下面的兜底
+        }
+        const rect = fallback.getBoundingClientRect();
+        return { left: rect.left, bottom: rect.bottom };
+      }
+
+      /**
+       * 面板当前指向的那条引用，**每次都从最新文档重算**。
+       *
+       * 不能缓存打开时那份 `context`：面板刻意不在文档变化时关闭，用户一边就地改地址
+       * 一边挑图是正常操作，缓存的区间与 raw 一次输入之后就全错位了 ——
+       * `createImageEditTransaction` 的 `source.slice(from, to) !== raw` 守卫会静默
+       * 让每一次挑选都失败。
+       *
+       * 取的是 **view 的当前文档**而不是 session 快照：session 的同步监听排在
+       * `ViewPlugin.update` 之后，文档刚变的那一刻它还停在**上一个事务**上 ——
+       * 拿它配新算出的区间，节点必然查不到，列表会静默退回「列出全部」。
+       */
+      private currentPickerTarget(): {
+        source: string;
+        range: { from: number; to: number };
+        raw: string;
+        destination: string;
+        alt: string;
+        title?: string;
+        isEmbed: boolean;
+        alias?: string;
+      } | null {
+        const range = activePopover?.pickerRange;
+        if (!range) return null;
+        const source = this.view.state.doc.toString();
+        if (range.from < 0 || range.to > source.length || range.from >= range.to) return null;
+
+        const raw = source.slice(range.from, range.to);
+        const { root } = parseMarkdown(source);
+
+        const imageNode = findInlineNodeAtRange(root, 'image', range);
+        if (imageNode && imageNode.type === 'image') {
+          return {
+            source,
+            range,
+            raw,
+            destination: imageNode.src,
+            alt: imageNode.alt,
+            title: imageNode.title,
+            isEmbed: false
+          };
+        }
+
+        const wikiNode = findInlineNodeAtRange(root, 'wikilink', range);
+        if (wikiNode && wikiNode.type === 'wikilink') {
+          return {
+            source,
+            range,
+            raw,
+            destination: wikiNode.target,
+            alt: wikiNode.target,
+            isEmbed: true,
+            alias: wikiNode.alias
+          };
+        }
+
+        return null;
+      }
+
+      /**
+       * 把选中的图片写回文档。引用式图片（地址定义在别处）会失败并给出提示。
+       *
+       * 收**整条选项**而不是一个字符串：两种写法要写两份不同的地址（`![](…)` 相对文档
+       * 目录、`![[…]]` 是 Obsidian 的最短唯一路径），由被编辑的节点类型决定用哪份。
+       * 上传按钮只解析出一个地址，那时两份同值。
+       */
+      private applyPickedImage(
+        picked: { readonly path: string; readonly wikiPath: string },
+        errorEl: HTMLElement
+      ): void {
+        if (!activePopover) return;
+        const t = (key: string) => translate(this.view.state.facet(editorLocaleFacet), key);
+        const target = this.currentPickerTarget();
+        if (!target) {
+          errorEl.textContent = t('popover.imagePickGone');
+          return;
+        }
+
+        const context: InlineEditContext = {
+          nodeType: target.isEmbed ? 'wikilink' : 'image',
+          range: target.range,
+          raw: target.raw,
+          source: target.source
+        };
+        const address = target.isEmbed ? picked.wikiPath : picked.path;
+        const tx = target.isEmbed
+          ? createWikiLinkEditTransaction(target.source, context, {
+              target: address,
+              alias: target.alias
+            })
+          : createImageEditTransaction(target.source, context, {
+              alt: target.alt,
+              destination: address,
+              title: target.title
+            });
+
+        if (!tx) {
+          errorEl.textContent = t('popover.imagePickFailed');
+          return;
+        }
+
+        activePopover.committed = true;
+        session.dispatch(tx);
+        closeActivePopover();
+      }
+
+      public update(update: ViewUpdate): void {
+        if (!activePopover) return;
+        if (update.state.readOnly) {
+          closeActivePopover();
+          return;
+        }
+        if (!update.docChanged) return;
+
+        // 图片选择器面板留着（见 `openImagePicker`）：指向的区间跟着事务走，
+        // 列表按新地址重算 —— 用户改地址时两边一起动。
+        if (activePopover.pickerRange) {
+          activePopover.pickerRange = {
+            from: update.changes.mapPos(activePopover.pickerRange.from, 1),
+            to: update.changes.mapPos(activePopover.pickerRange.to, -1)
+          };
+          activePopover.refreshList?.();
+          return;
+        }
+
+        closeActivePopover();
       }
 
       public destroy(): void {

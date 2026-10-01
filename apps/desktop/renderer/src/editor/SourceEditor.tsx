@@ -4,6 +4,7 @@ import {
   getSelectionInfo,
   setEditorReadOnly,
   setDocumentDirectory,
+  setWorkspaceAssets,
   setEditorLineNumbers,
   setEditorSpellCheck,
   setEditorTypewriter,
@@ -18,7 +19,9 @@ import {
   type MarkdownDocumentSession,
   type SessionEditorViewHandle,
   type EditorScrollAnchor,
-  type LinkNavigator
+  type LinkNavigator,
+  type WorkspaceImageProvider,
+  type WorkspaceAssetEntry
 } from '@nexus/editor';
 import { mermaidPreviewPreference, settings } from '../platform';
 
@@ -41,6 +44,18 @@ export interface SourceEditorProps {
    * 以及引用写成什么形状。
    */
   onPasteFiles?: (files: readonly File[]) => Promise<string | null>;
+  /**
+   * 工作区图片列表，点图片就地编辑时浮出。缺省表示不提供「选一张」入口 ——
+   * 图片照样就地揭示，地址直接手打。
+   */
+  workspaceImages?: WorkspaceImageProvider;
+  /**
+   * 工作区资源清单，供 `![[…]]` 判断「候选路径存在吗」。
+   *
+   * 与 `documentDirectory` 一样**建视图时传一次、变化时再推**：清单跟着索引走，
+   * 而索引会在拖入文件、重命名之后刷新。
+   */
+  workspaceAssets?: readonly WorkspaceAssetEntry[];
   extensionHost?: import('@nexus/editor').ExtensionHost;
   theme?: 'light' | 'dark';
   locale?: string;
@@ -61,6 +76,8 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   documentDirectory,
   linkNavigator,
   onPasteFiles,
+  workspaceImages,
+  workspaceAssets,
   extensionHost,
   theme,
   locale,
@@ -102,6 +119,11 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   const onPasteFilesRef = useRef(onPasteFiles);
   onPasteFilesRef.current = onPasteFiles;
 
+  // 图片列表同理：它按当前文档目录算相对路径，而 EditorView 只在 session/surface
+  // 变化时重建。包一层 ref 转发，打开选择器时用的永远是最新那一个。
+  const workspaceImagesRef = useRef(workspaceImages);
+  workspaceImagesRef.current = workspaceImages;
+
   useEffect(() => {
     return session.subscribe((snapshot, transaction) => {
       if (transaction && transaction.changes.length > 0) {
@@ -127,8 +149,13 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       surfaceKind,
       readOnly,
       documentDirectory,
+      workspaceAssets,
       linkNavigator: (request) => linkNavigatorRef.current?.(request),
       onPasteFiles: (files) => onPasteFilesRef.current?.(files) ?? Promise.resolve(null),
+      // **有才传**：`undefined` 就是「这个宿主不提供选图入口」（轻量模式没有工作区），
+      // 编辑器据此不浮面板。传一个恒返回 `[]` 的提供者会让轻量模式弹出一句
+      // 「这个工作区里还没有图片」——那里根本没有工作区。
+      ...(workspaceImages ? { workspaceImages: () => workspaceImagesRef.current?.() ?? [] } : {}),
       extensionHost,
       theme,
       locale,
@@ -305,6 +332,18 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       }
     }
   }, [documentDirectory]);
+
+  // 资源清单同理：索引刷新后要重新推给视图，否则刚拖进来的图片会一直停在占位符上
+  // （清单是解析嵌入时的存在性依据，缺了它那一档就落回文档目录兜底）。
+  const prevAssetsRef = useRef(workspaceAssets);
+  useEffect(() => {
+    if (prevAssetsRef.current !== workspaceAssets) {
+      prevAssetsRef.current = workspaceAssets;
+      if (handleRef.current) {
+        setWorkspaceAssets(handleRef.current.view, workspaceAssets ?? []);
+      }
+    }
+  }, [workspaceAssets]);
 
   return (
     <div

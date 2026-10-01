@@ -18,7 +18,8 @@ import {
   setHoveredCodeBlockEffect,
   tableTargetField,
   visualFocusField,
-  visualFocusPlugin
+  visualFocusPlugin,
+  workspaceAssetsField
 } from './state.js';
 import { buildVisualProjection } from './projection.js';
 
@@ -34,13 +35,15 @@ export const visualProjectionField = StateField.define<DecorationSet>({
       isFocused,
       docDir,
       locale,
-      state.field(mermaidPreviewPinField, false)
+      state.field(mermaidPreviewPinField, false),
+      state.field(workspaceAssetsField, false)
     );
   },
   update(decorations, transaction) {
     const isFocused = transaction.state.field(visualFocusField, false);
     const docDir = transaction.state.field(documentDirectoryField, false);
     const locale = transaction.state.facet(editorLocaleFacet);
+    const assets = transaction.state.field(workspaceAssetsField, false);
 
     const prevFocused = transaction.startState.field(visualFocusField, false);
     const prevDocDir = transaction.startState.field(documentDirectoryField, false);
@@ -48,6 +51,8 @@ export const visualProjectionField = StateField.define<DecorationSet>({
     const focusChanged = isFocused !== prevFocused;
     const docDirChanged = docDir !== prevDocDir;
     const localeChanged = locale !== prevLocale;
+    // 清单没变时是同一个引用（只在注入时换值），身份比较就够。
+    const assetsChanged = assets !== transaction.startState.field(workspaceAssetsField, false);
     const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
     const selectionChanged = !transaction.startState.selection.eq(transaction.state.selection);
     // pin 表在没变时返回同一个引用，所以身份比较就够。
@@ -63,6 +68,7 @@ export const visualProjectionField = StateField.define<DecorationSet>({
       readOnlyChanged ||
       selectionChanged ||
       mermaidPinsChanged ||
+      assetsChanged ||
       transaction.effects.some((e) => e.is(setComposingEffect) && !e.value)
     ) {
       if (isEditorComposing(transaction.state)) {
@@ -74,7 +80,8 @@ export const visualProjectionField = StateField.define<DecorationSet>({
         isFocused,
         docDir,
         locale,
-        mermaidPins
+        mermaidPins,
+        assets
       );
     }
     return decorations;
@@ -135,6 +142,7 @@ export const visualProjectionExtensions: Extension[] = [
   visualFocusField,
   visualFocusPlugin,
   documentDirectoryField,
+  workspaceAssetsField,
   tableTargetField,
   tableWidgetSyncPlugin,
   visualProjectionField,

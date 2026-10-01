@@ -59,6 +59,9 @@ docs/
 # 仓库根的临时验证样本：手工拷出来的草稿，不进版本库
 code-blocks-showcase.md
 
+# 仓库根的临时验证产物：构建 / 测试日志与探针输出，不进版本库
+tmp/
+
 # Local agent instructions
 AGENTS.md
 

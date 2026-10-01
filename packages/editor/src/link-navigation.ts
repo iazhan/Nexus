@@ -42,8 +42,12 @@ export const linkNavigatorFacet = Facet.define<LinkNavigator, LinkNavigator | un
  * 同时覆盖 mark 装饰与 raw 结构畸形时降级出的 LinkWidget——两者都带 `cm-visual-link`。
  * wikilink 的 widget 也走同一条路径（它带 `cm-visual-wikilink`）：
  * 编辑器只负责把**目标名**递出去，解析成哪篇文档是宿主的策略。
+ *
+ * `cm-visual-image-embed`（`![[…]]` 渲染成的图片）同样按 wikilink 处理：它曾经就是一个
+ * `.cm-visual-wikilink`，改成图片后若漏了这一条，Ctrl+点击会**静默失效** —— 导航按选择器
+ * 命中元素，命不中就什么都不做，也不报错。
  */
-const LINK_SELECTOR = '.cm-visual-link, .cm-visual-wikilink';
+const LINK_SELECTOR = '.cm-visual-link, .cm-visual-wikilink, .cm-visual-image-embed';
 
 export function createLinkNavigationExtension(navigator: LinkNavigator): Extension {
   return ViewPlugin.fromClass(
@@ -70,7 +74,9 @@ export function createLinkNavigationExtension(navigator: LinkNavigator): Extensi
         // 既不做任何事，也不吞事件——保持"点击即落光标"的默认行为。
         if (linkEl.classList.contains('cm-visual-link-blocked')) return;
 
-        const isWikiLink = linkEl.classList.contains('cm-visual-wikilink');
+        const isWikiLink =
+          linkEl.classList.contains('cm-visual-wikilink') ||
+          linkEl.classList.contains('cm-visual-image-embed');
 
         // 普通链接：mark 装饰走 data-safe-href，降级的 LinkWidget 才有真正的 href 属性。
         // wikilink：widget 上没有 href，目标名在 data-wikilink-target 上。

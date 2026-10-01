@@ -21,10 +21,21 @@ import {
   editorLocaleCompartment,
   editorLocaleFacet
 } from './source-editor.js';
-import { visualProjectionExtensions, documentDirectoryField } from './visual-projection.js';
+import {
+  visualProjectionExtensions,
+  documentDirectoryField,
+  workspaceAssetsField,
+  EMPTY_WORKSPACE_ASSETS,
+  type WorkspaceAssetEntry
+} from './visual-projection.js';
+import { sourceImageProjectionExtensions } from './source-image-projection.js';
 import { visualCommandsExtension } from './visual-commands.js';
 import { createVisualDragExtension } from './drag-handle.js';
-import { createInlineEditExtension, type ImageSourceResolver } from './inline-edit.js';
+import {
+  createInlineEditExtension,
+  type ImageSourceResolver,
+  type WorkspaceImageProvider
+} from './inline-edit.js';
 import {
   createLinkNavigationExtension,
   type LinkNavigator
@@ -45,6 +56,15 @@ export interface CreateSessionEditorStateOptions {
   readOnly?: boolean;
   documentDirectory?: string | null;
   imageSourceResolver?: ImageSourceResolver;
+  /** 工作区图片列表。缺省表示宿主不提供选取入口，图片仍可就地改地址。 */
+  workspaceImages?: WorkspaceImageProvider;
+  /**
+   * 工作区资源清单，供 `![[…]]` 的回退解析判断「候选路径存在吗」。
+   *
+   * 缺省表示宿主没递 —— 嵌入解析退化成「相对当前文档目录」单档，与没有这个能力时一致，
+   * 不会更差。索引刷新后由 `setWorkspaceAssets` 重新注入。
+   */
+  workspaceAssets?: readonly WorkspaceAssetEntry[];
   /** Ctrl/Cmd+左键点击普通链接时的导航策略，由宿主提供；缺省表示不导航。 */
   linkNavigator?: LinkNavigator;
   /**
@@ -389,21 +409,40 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
     lineNumbers: options.lineNumbers,
     spellCheck: options.spellCheck
   });
-  const visualExtensions = options.surfaceKind === 'visual'
+  const inlineEditOptions = {
+    surfaceId: options.surfaceId,
+    imageSourceResolver: options.imageSourceResolver,
+    workspaceImages: options.workspaceImages
+  };
+
+  // Source 模式**也**渲染图片（只渲染图片），所以两个 surface 都要装行内编辑扩展：
+  // 点图 → 就地揭示源文本 → 从工作区列表选一张。缺了它，Source 模式里的图片
+  // 就只是一张点不动的图，地址没法改。
+  const surfaceKindExtensions = options.surfaceKind === 'visual'
     ? [
         Prec.high(visualCommandsExtension),
         createVisualDragExtension(options.session),
-        createInlineEditExtension(options.session, {
-          surfaceId: options.surfaceId,
-          imageSourceResolver: options.imageSourceResolver
-        }),
+        createInlineEditExtension(options.session, inlineEditOptions),
         ...(options.documentDirectory !== undefined
           ? [documentDirectoryField.init(() => options.documentDirectory ?? null)]
+          : []),
+        ...(options.workspaceAssets !== undefined
+          ? [workspaceAssetsField.init(() => options.workspaceAssets ?? EMPTY_WORKSPACE_ASSETS)]
           : []),
         ...(options.linkNavigator ? [createLinkNavigationExtension(options.linkNavigator)] : []),
         ...visualProjectionExtensions
       ]
-    : [];
+    : [
+        createInlineEditExtension(options.session, inlineEditOptions),
+        ...(options.documentDirectory !== undefined
+          ? [documentDirectoryField.init(() => options.documentDirectory ?? null)]
+          : []),
+        ...(options.workspaceAssets !== undefined
+          ? [workspaceAssetsField.init(() => options.workspaceAssets ?? EMPTY_WORKSPACE_ASSETS)]
+          : []),
+        ...(options.linkNavigator ? [createLinkNavigationExtension(options.linkNavigator)] : []),
+        ...sourceImageProjectionExtensions
+      ];
 
   return EditorState.create({
     doc,
@@ -418,7 +457,7 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
         onPasteFiles: options.onPasteFiles
       }),
       editorLocaleCompartment.of(editorLocaleFacet.of(options.locale ?? 'zh-CN')),
-      ...visualExtensions,
+      ...surfaceKindExtensions,
       ...sourceExtensions,
       ...createSessionSurfaceExtensions(options)
     ]

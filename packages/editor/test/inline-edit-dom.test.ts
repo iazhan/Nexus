@@ -4,6 +4,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import {
   MarkdownDocumentSession,
   createSessionEditorView,
+  type CreateSessionEditorViewOptions,
   type ImageSourceResolver
 } from '../src/index.js';
 
@@ -18,7 +19,7 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     };
   });
 
-  it('Visual Surface renders link, image, math, code, and wikilink widgets; Source Surface does not', () => {
+  it('Visual Surface renders link, image, math, code, and wikilink widgets; Source Surface only renders images', () => {
     const source = 'See [Nexus](https://nexus.dev), ![Logo](./logo.png), $E=mc^2$, `code`, and [[WikiPage]].';
     const session = new MarkdownDocumentSession(source);
 
@@ -50,8 +51,10 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'source'
     });
 
+    // Source 模式**只渲染图片**：它是唯一一个「源码写法看不出内容」的语法，
+    // 其余一律保持原文（那是 Source 模式与 Visual 模式的边界）。
+    expect(sourceHandle.view.dom.querySelectorAll('.cm-visual-image').length).toBe(1);
     expect(sourceHandle.view.dom.querySelectorAll('.cm-visual-link').length).toBe(0);
-    expect(sourceHandle.view.dom.querySelectorAll('.cm-visual-image').length).toBe(0);
     expect(sourceHandle.view.dom.querySelectorAll('.cm-visual-inline-math').length).toBe(0);
     expect(sourceHandle.view.dom.querySelectorAll('.cm-visual-inline-code').length).toBe(0);
     expect(sourceHandle.view.dom.querySelectorAll('.cm-visual-wikilink').length).toBe(0);
@@ -163,65 +166,6 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
     expect(session.getSnapshot().revision).toBe(0);
     expect(session.getSnapshot().source).toBe(source);
-
-    visualHandle.destroy();
-  });
-
-  it('handles async ImageSourceResolver safely against popover close and race conditions', async () => {
-    const source = '![Placeholder](./img.png)';
-    const session = new MarkdownDocumentSession(source);
-
-    let resolveFirst: (url: string) => void;
-    let resolveSecond: (url: string) => void;
-
-    const firstPromise = new Promise<string>((res) => {
-      resolveFirst = res;
-    });
-    const secondPromise = new Promise<string>((res) => {
-      resolveSecond = res;
-    });
-
-    let callCount = 0;
-    const mockResolver: ImageSourceResolver = () => {
-      callCount++;
-      if (callCount === 1) return firstPromise;
-      return secondPromise;
-    };
-
-    const visualHandle = createSessionEditorView({
-      parent,
-      session,
-      surfaceId: 'v-async-test',
-      surfaceKind: 'visual',
-      imageSourceResolver: mockResolver
-    });
-
-    const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const uploadBtn = popover.querySelector('.cm-image-upload-btn') as HTMLButtonElement;
-    const srcInput = popover.querySelector('.cm-image-src-input') as HTMLInputElement;
-
-    // First click: pending
-    uploadBtn.click();
-    // Second click: newer pending
-    uploadBtn.click();
-
-    // Resolve second request first (out of order)
-    resolveSecond!('./second.png');
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(srcInput.value).toBe('./second.png');
-
-    // Resolve first request later (outdated)
-    resolveFirst!('./first.png');
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Must NOT be overwritten by the stale first response!
-    expect(srcInput.value).toBe('./second.png');
 
     visualHandle.destroy();
   });
@@ -520,7 +464,7 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
   });
 
   it('two Visual Surfaces opening popovers do not clean up or pollute each other', () => {
-    const source = 'Visit [[Link]] and ![Img](./pic.png)';
+    const source = 'Visit [[Link]] and [[Other]].';
     const session = new MarkdownDocumentSession(source);
     const parent2 = document.createElement('div');
     document.body.appendChild(parent2);
@@ -538,11 +482,11 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
       surfaceKind: 'visual'
     });
 
-    const wikiWidget1 = visual1.view.dom.querySelector('.cm-visual-wikilink') as HTMLElement;
+    const wikiWidget1 = visual1.view.dom.querySelectorAll('.cm-visual-wikilink')[0] as HTMLElement;
     wikiWidget1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-    const imgWidget2 = visual2.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget2.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const wikiWidget2 = visual2.view.dom.querySelectorAll('.cm-visual-wikilink')[1] as HTMLElement;
+    wikiWidget2.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     // Both popovers must exist simultaneously
     const popover1 = visual1.view.dom.querySelector('.cm-inline-edit-popover');
@@ -551,9 +495,9 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     expect(popover2).not.toBeNull();
 
     // Typing in Popover 2 must not affect Popover 1
-    const altInput2 = popover2!.querySelector('.cm-image-alt-input') as HTMLInputElement;
-    altInput2.value = 'Different Alt';
-    altInput2.dispatchEvent(new Event('input', { bubbles: true }));
+    const aliasInput2 = popover2!.querySelector('.cm-wikilink-alias-input') as HTMLInputElement;
+    aliasInput2.value = 'Different Alias';
+    aliasInput2.dispatchEvent(new Event('input', { bubbles: true }));
 
     const targetInput1 = popover1!.querySelector('.cm-wikilink-target-input') as HTMLInputElement;
     expect(targetInput1.value).toBe('Link');
@@ -568,111 +512,6 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     visual1.destroy();
     visual2.destroy();
     document.body.removeChild(parent2);
-  });
-
-  it('ImageSourceResolver does not overwrite user manual edits during in-flight upload', async () => {
-    const source = 'Photo: ![Img](./img.png)';
-    const session = new MarkdownDocumentSession(source);
-
-    let resolveUpload: (url: string) => void;
-    const uploadPromise = new Promise<string>((res) => {
-      resolveUpload = res;
-    });
-
-    const mockResolver: ImageSourceResolver = () => uploadPromise;
-
-    const visualHandle = createSessionEditorView({
-      parent,
-      session,
-      surfaceId: 'v-manual-override',
-      surfaceKind: 'visual',
-      imageSourceResolver: mockResolver
-    });
-
-    const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const uploadBtn = popover.querySelector('.cm-image-upload-btn') as HTMLButtonElement;
-    const srcInput = popover.querySelector('.cm-image-src-input') as HTMLInputElement;
-
-    uploadBtn.click();
-
-    // User manually types while upload is pending
-    srcInput.value = './user-manual.png';
-    srcInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-    // Upload resolves later
-    resolveUpload!('./uploaded.png');
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Must NOT overwrite manual user input!
-    expect(srcInput.value).toBe('./user-manual.png');
-
-    visualHandle.destroy();
-  });
-
-  it('stale ImageSourceResolver rejection does not display error or overwrite successful UI', async () => {
-    const source = 'Photo: ![Img](./img.png)';
-    const session = new MarkdownDocumentSession(source);
-
-    let rejectFirst: (err: Error) => void;
-    let resolveSecond: (url: string) => void;
-
-    const firstPromise = new Promise<string>((_, rej) => {
-      rejectFirst = rej;
-    });
-    const secondPromise = new Promise<string>((res) => {
-      resolveSecond = res;
-    });
-
-    let callCount = 0;
-    const mockResolver: ImageSourceResolver = () => {
-      callCount++;
-      if (callCount === 1) return firstPromise;
-      return secondPromise;
-    };
-
-    const visualHandle = createSessionEditorView({
-      parent,
-      session,
-      surfaceId: 'v-stale-reject',
-      surfaceKind: 'visual',
-      imageSourceResolver: mockResolver
-    });
-
-    const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const uploadBtn = popover.querySelector('.cm-image-upload-btn') as HTMLButtonElement;
-    const srcInput = popover.querySelector('.cm-image-src-input') as HTMLInputElement;
-    const errorEl = popover.querySelector('.cm-inline-edit-error') as HTMLElement;
-
-    // First request
-    uploadBtn.click();
-    // Second request
-    uploadBtn.click();
-
-    // Second succeeds first
-    resolveSecond!('./second-ok.png');
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(srcInput.value).toBe('./second-ok.png');
-    expect(errorEl.textContent).toBe('');
-
-    // First fails later (stale)
-    rejectFirst!(new Error('First request timeout'));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Error must NOT be shown
-    expect(errorEl.textContent).toBe('');
-    expect(srcInput.value).toBe('./second-ok.png');
-
-    visualHandle.destroy();
   });
 
   it('keeps reference-style links editable in place without touching the definition line', () => {
@@ -842,187 +681,6 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     visualHandle.destroy();
   });
 
-  it('ImageSourceResolver with input versioning: user edits src manually, then clicks upload -> resolver result is accepted', async () => {
-    const source = 'Photo: ![Img](./img.png)';
-    const session = new MarkdownDocumentSession(source);
-
-    let resolveUpload: (url: string) => void;
-    const uploadPromise = new Promise<string>((res) => {
-      resolveUpload = res;
-    });
-
-    const mockResolver: ImageSourceResolver = () => uploadPromise;
-
-    const visualHandle = createSessionEditorView({
-      parent,
-      session,
-      surfaceId: 'v-manual-then-upload',
-      surfaceKind: 'visual',
-      imageSourceResolver: mockResolver
-    });
-
-    const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const uploadBtn = popover.querySelector('.cm-image-upload-btn') as HTMLButtonElement;
-    const srcInput = popover.querySelector('.cm-image-src-input') as HTMLInputElement;
-
-    // User first manually edits src
-    srcInput.value = './typed-first.png';
-    srcInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-    // THEN user clicks upload
-    uploadBtn.click();
-
-    // Upload resolves later
-    resolveUpload!('./uploaded-final.png');
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Under input-version mechanism, this active upload MUST succeed because it was initiated after the manual edit!
-    expect(srcInput.value).toBe('./uploaded-final.png');
-
-    visualHandle.destroy();
-  });
-
-  it('ImageSourceResolver: Popover closed before resolve/reject has no effect and does not throw', async () => {
-    const source = 'Photo: ![Img](./img.png)';
-    const session = new MarkdownDocumentSession(source);
-
-    let resolveUpload: (url: string) => void;
-    const uploadPromise = new Promise<string>((res) => {
-      resolveUpload = res;
-    });
-
-    const mockResolver: ImageSourceResolver = () => uploadPromise;
-
-    const visualHandle = createSessionEditorView({
-      parent,
-      session,
-      surfaceId: 'v-close-before-res',
-      surfaceKind: 'visual',
-      imageSourceResolver: mockResolver
-    });
-
-    const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const uploadBtn = popover.querySelector('.cm-image-upload-btn') as HTMLButtonElement;
-    uploadBtn.click();
-
-    // User hits Escape to close popover
-    popover.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-    expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
-
-    // Resolver resolves after closure
-    resolveUpload!('./late.png');
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(visualHandle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
-    visualHandle.destroy();
-  });
-
-  it('ImageSourceResolver: Surface destroyed before resolve/reject has no effect and does not throw', async () => {
-    const source = 'Photo: ![Img](./img.png)';
-    const session = new MarkdownDocumentSession(source);
-
-    let resolveUpload: (url: string) => void;
-    const uploadPromise = new Promise<string>((res) => {
-      resolveUpload = res;
-    });
-
-    const mockResolver: ImageSourceResolver = () => uploadPromise;
-
-    const visualHandle = createSessionEditorView({
-      parent,
-      session,
-      surfaceId: 'v-destroy-before-res',
-      surfaceKind: 'visual',
-      imageSourceResolver: mockResolver
-    });
-
-    const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const uploadBtn = popover.querySelector('.cm-image-upload-btn') as HTMLButtonElement;
-    uploadBtn.click();
-
-    visualHandle.destroy();
-
-    // Resolver resolves after destroy
-    resolveUpload!('./late.png');
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-
-  it('ImageSourceResolver: external document revision change drops resolver result', async () => {
-    const source = 'Photo: ![Img](./img.png)';
-    const session = new MarkdownDocumentSession(source);
-
-    let resolveUpload: (url: string) => void;
-    const uploadPromise = new Promise<string>((res) => {
-      resolveUpload = res;
-    });
-
-    const mockResolver: ImageSourceResolver = () => uploadPromise;
-
-    const visualHandle = createSessionEditorView({
-      parent,
-      session,
-      surfaceId: 'v-rev-change',
-      surfaceKind: 'visual',
-      imageSourceResolver: mockResolver
-    });
-
-    const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const popover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    const uploadBtn = popover.querySelector('.cm-image-upload-btn') as HTMLButtonElement;
-    const srcInput = popover.querySelector('.cm-image-src-input') as HTMLInputElement;
-    uploadBtn.click();
-
-    // External revision happens
-    session.dispatch({
-      changes: [{ from: 0, to: 0, insert: 'Prefix: ' }]
-    });
-
-    // Resolver finishes
-    resolveUpload!('./late.png');
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Stale result must not be written
-    expect(srcInput.value).toBe('./img.png');
-    visualHandle.destroy();
-  });
-
-  it('disables title input in Popover for reference-style image', () => {
-    const source = 'See ![My Img][img1].\n\n[img1]: /img.png "Img Title"';
-    const session = new MarkdownDocumentSession(source);
-
-    const visualHandle = createSessionEditorView({
-      parent,
-      session,
-      surfaceId: 'v-ref-title-disabled',
-      surfaceKind: 'visual'
-    });
-
-    const imgWidget = visualHandle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
-    imgWidget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    const imgPopover = visualHandle.view.dom.querySelector('.cm-inline-edit-popover') as HTMLElement;
-    expect(imgPopover).not.toBeNull();
-    const imgTitleInput = imgPopover.querySelector('.cm-image-title-input') as HTMLInputElement;
-    expect(imgTitleInput.disabled || imgTitleInput.readOnly).toBe(true);
-
-    visualHandle.destroy();
-  });
-
   it('keeps shortcut reference links editable in place', () => {
     const source = 'See [myref] shortcut.\n\n[myref]: https://nexus.dev';
     const session = new MarkdownDocumentSession(source);
@@ -1129,5 +787,406 @@ describe('P1-04D Real DOM Inline Edit & Popover Integration', () => {
     visual1.destroy();
     source2.destroy();
     document.body.removeChild(parent2);
+  });
+
+  /**
+   * 图片的就地编辑。
+   *
+   * 点图 → 光标送进范围内部 → 投影重建 → `![](…)` / `![[…]]` 变回真实文档文本。
+   * 与行内公式同一套交互（`activateImageSource` / `activateMathSource`），
+   * **不再有 alt/src/title 三输入框的表单浮层** —— 那套交互把「改一个路径」变成
+   * 「开对话框、改、保存」，而源码本来就在光标底下。
+   */
+  describe('图片就地编辑', () => {
+    type MountExtra = Omit<
+      CreateSessionEditorViewOptions,
+      'parent' | 'session' | 'surfaceId'
+    >;
+
+    function mountImage(source: string, surfaceId: string, extra: MountExtra = {}) {
+      const session = new MarkdownDocumentSession(source);
+      const handle = createSessionEditorView({
+        parent,
+        session,
+        surfaceId,
+        ...extra
+      });
+      return { session, handle };
+    }
+
+    function clickImage(handle: ReturnType<typeof createSessionEditorView>): void {
+      const widget = handle.view.dom.querySelector('.cm-visual-image') as HTMLElement;
+      expect(widget).not.toBeNull();
+      widget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+
+    it('点图后 `![](…)` 变回真实文本，图片与源码同时在场', () => {
+      const source = 'Photo: ![Img](./pic.png) end.';
+      const { session, handle } = mountImage(source, 'v-image-reveal', {
+        surfaceKind: 'visual'
+      });
+
+      // 未揭示：整节点替换成图片，源文本一个字都看不见
+      expect(handle.view.dom.querySelector('.cm-visual-image')).not.toBeNull();
+      expect(handle.view.dom.textContent).not.toContain('![Img](./pic.png)');
+
+      clickImage(handle);
+
+      // 揭示态**不是**「图片消失」：图片另插一份（`.cm-visual-image-alongside`）留在原位，
+      // 源码变回真实文本并与它并存 —— 一边看效果一边改地址。
+      expect(handle.view.dom.querySelector('.cm-visual-image-alongside')).not.toBeNull();
+      const revealed = handle.view.dom.querySelector('.cm-visual-image-source') as HTMLElement;
+      expect(revealed).not.toBeNull();
+      expect(revealed.textContent).toBe('![Img](./pic.png)');
+
+      // 锚点落进 `](…)` 的地址段 —— 直接就能重打路径，不用先按方向键挪光标
+      const anchor = handle.view.state.selection.main.anchor;
+      expect(source.slice(anchor - 1, anchor)).toBe('(');
+      // 投影只影响显示，源文本一个字节都没动
+      expect(session.getSnapshot().source).toBe(source);
+
+      handle.destroy();
+    });
+
+    it('光标离开后并存态收回，只剩图片', () => {
+      const source = 'Photo: ![Img](./pic.png) end.';
+      const { handle } = mountImage(source, 'v-image-reveal-again', { surfaceKind: 'visual' });
+
+      clickImage(handle);
+      expect(handle.view.dom.querySelector('.cm-visual-image-alongside')).not.toBeNull();
+
+      handle.view.dispatch({ selection: EditorSelection.single(source.length) });
+      expect(handle.view.dom.querySelector('.cm-visual-image-alongside')).toBeNull();
+      expect(handle.view.dom.querySelector('.cm-visual-image')).not.toBeNull();
+
+      handle.destroy();
+    });
+
+    it('`![[x.png]]` 嵌入同样就地揭示，且源文本保持 Obsidian 写法', () => {
+      const source = '前文 ![[assets/pic.png]] 后文';
+      const { session, handle } = mountImage(source, 'v-embed-reveal', {
+        surfaceKind: 'visual',
+        documentDirectory: 'D:/Note/Note'
+      });
+
+      expect(handle.view.dom.querySelector('.cm-visual-image-embed')).not.toBeNull();
+      clickImage(handle);
+
+      // 投影层识别，解析层不改写 —— 往返一次仍然是 `![[…]]` 而不是 `![](…)`。
+      // 断言取整行文本：标记装饰会按相邻 mark 的边界把 span 切开（`!` 一段、
+      // `[[…]]` 一段），只查第一个 span 会漏掉后半截。
+      expect(handle.view.dom.querySelector('.cm-visual-image-alongside')).not.toBeNull();
+      expect(handle.view.dom.querySelector('.cm-visual-image-source')).not.toBeNull();
+      expect(handle.view.dom.querySelector('.cm-line')?.textContent).toContain(
+        '![[assets/pic.png]]'
+      );
+      expect(session.getSnapshot().source).toBe(source);
+
+      handle.destroy();
+    });
+
+    it('宿主没提供工作区图片列表时不浮面板，但照样就地揭示', () => {
+      const { handle } = mountImage('Photo: ![Img](./pic.png) end.', 'v-image-no-picker', {
+        surfaceKind: 'visual'
+      });
+
+      clickImage(handle);
+
+      expect(handle.view.dom.querySelector('.cm-inline-edit-popover')).toBeNull();
+      expect(handle.view.dom.querySelector('.cm-visual-image-source')).not.toBeNull();
+
+      handle.destroy();
+    });
+
+    it('候选列表按当前地址过滤，点一项把地址写进文档', async () => {
+      const source = 'Photo: ![Img](pic) end.';
+      const { session, handle } = mountImage(source, 'v-image-picker', {
+        surfaceKind: 'visual',
+        workspaceImages: () => [
+          { path: 'pic.png', name: 'pic.png', url: 'nexus-asset://ws/?path=one' },
+          { path: 'pic2.png', name: 'pic2.png', url: 'nexus-asset://ws/?path=two' },
+          { path: 'other.png', name: 'other.png', url: 'nexus-asset://ws/?path=three' }
+        ]
+      });
+
+      clickImage(handle);
+
+      const panel = handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      expect(panel).not.toBeNull();
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // 地址写着 `pic`，所以只列以它开头的两张 —— `other.png` 不出现。
+      // 列表是自动补全，不是整个工作区的相册。
+      const items = panel.querySelectorAll<HTMLElement>('.cm-image-picker-item');
+      expect(items).toHaveLength(2);
+      expect(items[1]!.dataset.path).toBe('pic2.png');
+
+      items[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+      expect(session.getSnapshot().source).toBe('Photo: ![Img](pic2.png) end.');
+      // 选完即关：一次挑选是一个完整动作，面板留着只会挡住正文
+      expect(handle.view.dom.querySelector('.cm-image-picker')).toBeNull();
+
+      handle.destroy();
+    });
+
+    it('改地址时列表跟着收敛，清空地址回到列出全部', async () => {
+      const source = 'Photo: ![Img](pic) end.';
+      const { handle } = mountImage(source, 'v-image-picker-live', {
+        surfaceKind: 'visual',
+        workspaceImages: () => [
+          { path: 'pic.png', name: 'pic.png', url: 'u1' },
+          { path: 'other.png', name: 'other.png', url: 'u2' }
+        ]
+      });
+
+      clickImage(handle);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const panel = handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      const paths = (): (string | undefined)[] =>
+        [...panel.querySelectorAll<HTMLElement>('.cm-image-picker-item')].map(
+          (item) => item.dataset.path
+        );
+
+      expect(paths()).toEqual(['pic.png']);
+
+      // 光标停在地址段里，把 `pic` 整段换成 `o`：列表跟着收到 `other.png` 一张
+      const anchor = handle.view.state.selection.main.anchor;
+      handle.view.dispatch({ changes: { from: anchor, to: anchor + 3, insert: 'o' } });
+      expect(paths()).toEqual(['other.png']);
+
+      // 地址清空 → 回到「列出全部」
+      handle.view.dispatch({ changes: { from: anchor, to: anchor + 1, insert: '' } });
+      expect(paths()).toEqual(['pic.png', 'other.png']);
+
+      handle.destroy();
+    });
+
+    it('当前地址指向的那张在列表里被标出来（面板的「预选」）', async () => {
+      const source = 'Photo: ![Img](pic.png) end.';
+      const { handle } = mountImage(source, 'v-image-picker-current', {
+        surfaceKind: 'visual',
+        workspaceImages: () => [
+          { path: 'pic.png', name: 'pic.png', url: 'u1' },
+          { path: 'pic-2.png', name: 'pic-2.png', url: 'u2' }
+        ]
+      });
+
+      clickImage(handle);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const panel = handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      const items = [...panel.querySelectorAll<HTMLElement>('.cm-image-picker-item')];
+      // 地址完整时只命中它自己，且被标成当前那张
+      expect(items).toHaveLength(1);
+      expect(items[0]!.dataset.path).toBe('pic.png');
+      expect(items[0]!.dataset.current).toBe('true');
+
+      handle.destroy();
+    });
+
+    it('行中的图片：预览提到行首，整行源码不被劈开', () => {
+      const source = 'Photo: ![Img](./pic.png) end.';
+      const { handle } = mountImage(source, 'v-image-inline-row', {
+        surfaceKind: 'visual',
+        // 没有文档目录时地址解析不出、退化成占位符，占位符文本会混进下面的断言
+        documentDirectory: 'D:/Note/Note'
+      });
+
+      clickImage(handle);
+
+      const alongside = handle.view.dom.querySelector<HTMLElement>('.cm-visual-image-alongside');
+      expect(alongside).not.toBeNull();
+
+      // 判据是「预览前面没有正文」：插在节点原位时 `Photo: ` 会落在它前面，
+      // 块级预览就把这一行劈开了。提到行首后它前面是空的。
+      let before = '';
+      let node: Node | null = alongside!.previousSibling;
+      while (node) {
+        before = (node.textContent ?? '') + before;
+        node = node.previousSibling;
+      }
+      expect(before.trim()).toBe('');
+      expect(alongside!.closest('.cm-line')?.textContent).toBe(source);
+
+      handle.destroy();
+    });
+
+    it('嵌入档写回时保住 `![[…]]` 的写法，且写的是最短唯一路径', async () => {
+      const source = '前文 ![[pic.png]] 后文';
+      const { session, handle } = mountImage(source, 'v-embed-picker', {
+        surfaceKind: 'visual',
+        documentDirectory: 'D:/Note/Note',
+        workspaceImages: () => [
+          // 嵌入档的候选地址是 Obsidian 的最短唯一路径 —— 列表按它过滤、也按它写回。
+          // 文档目录相对的那份是另一份，`![](…)` 才用它。
+          {
+            path: '../assets/pic.png',
+            wikiPath: 'assets/pic.png',
+            name: 'pic.png',
+            url: 'nexus-asset://ws/?path=pic'
+          }
+        ]
+      });
+
+      clickImage(handle);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const panel = handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      const item = panel.querySelector('.cm-image-picker-item') as HTMLElement;
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+      // 写回的是嵌入档那份地址，且**走 wikilink 事务** —— 走 image 事务会把
+      // `![[…]]` 改写成 `![](…)`，打开一次文件就改掉用户的源文本。
+      expect(session.getSnapshot().source).toBe('前文 ![[assets/pic.png]] 后文');
+      expect(handle.view.dom.querySelector('.cm-image-picker')).toBeNull();
+
+      handle.destroy();
+    });
+
+    it('工作区里没有图片时给出说明，而不是一个空面板', async () => {
+      const { handle } = mountImage('Photo: ![Img](./pic.png) end.', 'v-image-picker-empty', {
+        surfaceKind: 'visual',
+        workspaceImages: () => []
+      });
+
+      clickImage(handle);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const panel = handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      expect(panel.querySelectorAll('.cm-image-picker-item')).toHaveLength(0);
+      expect(panel.querySelector('.cm-image-picker-empty')?.textContent).toBeTruthy();
+
+      handle.destroy();
+    });
+
+    it('引用式图片（地址定义在别处）改写失败时给出提示，不静默', async () => {
+      const source = 'See ![My Img][img1].\n\n[img1]: /img.png "T"';
+      const { session, handle } = mountImage(source, 'v-image-ref-picker', {
+        surfaceKind: 'visual',
+        // 引用式图片的地址是解析后的 `/img.png`，列表按它过滤 —— 候选要写这个值。
+        workspaceImages: () => [{ path: '/img.png', name: 'img.png', url: 'u' }]
+      });
+
+      clickImage(handle);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const panel = handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      const item = panel.querySelector('.cm-image-picker-item') as HTMLElement;
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+      expect(panel.querySelector('.cm-inline-edit-error')?.textContent).toBeTruthy();
+      expect(session.getSnapshot().source).toBe(source);
+
+      handle.destroy();
+    });
+
+    it('上传钩子解析出的地址直接写进文档', async () => {
+      const source = 'Photo: ![Img](./pic.png) end.';
+      let resolveUpload: (url: string) => void = () => {};
+      const mockResolver: ImageSourceResolver = () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        });
+
+      const { session, handle } = mountImage(source, 'v-image-upload', {
+        surfaceKind: 'visual',
+        imageSourceResolver: mockResolver
+      });
+
+      clickImage(handle);
+      const panel = handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      (panel.querySelector('.cm-image-upload-btn') as HTMLButtonElement).click();
+
+      resolveUpload('assets/uploaded.png');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(session.getSnapshot().source).toBe('Photo: ![Img](assets/uploaded.png) end.');
+
+      handle.destroy();
+    });
+
+    it('面板已关 / 文档已被外部改动时，迟到的上传结果不写入', async () => {
+      const source = 'Photo: ![Img](./pic.png) end.';
+
+      // ① 面板先关
+      let resolveFirst: (url: string) => void = () => {};
+      const firstResolver: ImageSourceResolver = () =>
+        new Promise<string>((resolve) => {
+          resolveFirst = resolve;
+        });
+      const first = mountImage(source, 'v-image-upload-closed', {
+        surfaceKind: 'visual',
+        imageSourceResolver: firstResolver
+      });
+      clickImage(first.handle);
+      const firstPanel = first.handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      (firstPanel.querySelector('.cm-image-upload-btn') as HTMLButtonElement).click();
+      firstPanel.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      );
+      expect(first.handle.view.dom.querySelector('.cm-image-picker')).toBeNull();
+
+      resolveFirst('assets/late.png');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(first.session.getSnapshot().source).toBe(source);
+      first.handle.destroy();
+
+      // ② 文档先被别处改动（revision 变了）
+      let resolveSecond: (url: string) => void = () => {};
+      const secondResolver: ImageSourceResolver = () =>
+        new Promise<string>((resolve) => {
+          resolveSecond = resolve;
+        });
+      const second = mountImage(source, 'v-image-upload-stale', {
+        surfaceKind: 'visual',
+        imageSourceResolver: secondResolver
+      });
+      clickImage(second.handle);
+      const secondPanel = second.handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      (secondPanel.querySelector('.cm-image-upload-btn') as HTMLButtonElement).click();
+
+      second.session.dispatch({ changes: [{ from: 0, to: 0, insert: 'Prefix: ' }] });
+
+      resolveSecond('assets/late.png');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(second.session.getSnapshot().source).toBe(`Prefix: ${source}`);
+      second.handle.destroy();
+    });
+
+    it('上传解析失败时把原因写在面板上', async () => {
+      const failingResolver: ImageSourceResolver = () => {
+        throw new Error('上传失败');
+      };
+
+      const { handle } = mountImage('Photo: ![Img](./pic.png) end.', 'v-image-upload-error', {
+        surfaceKind: 'visual',
+        imageSourceResolver: failingResolver
+      });
+
+      clickImage(handle);
+      const panel = handle.view.dom.querySelector('.cm-image-picker') as HTMLElement;
+      (panel.querySelector('.cm-image-upload-btn') as HTMLButtonElement).click();
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(panel.querySelector('.cm-inline-edit-error')?.textContent).toBe('上传失败');
+
+      handle.destroy();
+    });
   });
 });

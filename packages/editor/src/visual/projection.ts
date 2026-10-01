@@ -19,15 +19,25 @@ import {
 } from '../inline-edit.js';
 import { splitTableLines } from '../table-edit.js';
 import { walkBlockNodes } from '../ast-walker.js';
-import { EMPTY_MERMAID_PINS, type MermaidPreviewPin } from './state.js';
+import {
+  EMPTY_MERMAID_PINS,
+  EMPTY_WORKSPACE_ASSETS,
+  type MermaidPreviewPin,
+  type WorkspaceAssetEntry
+} from './state.js';
 import {
   findLinkTextEnd,
   hasFenceOpener,
   isClosedFence,
+  isEmbeddableImage,
   isInsideQuotePrefix,
   isMarkerAtLineEnd,
   leadingQuoteMarkerLength,
-  resolveDocumentAssetUrl
+  lineStartAt,
+  obsidianEmbedStart,
+  parseEmbedWidth,
+  resolveDocumentAssetUrl,
+  resolveWikiEmbedAssetUrl
 } from './source-analysis.js';
 import {
   DelimiterWidget,
@@ -60,7 +70,8 @@ export function buildVisualProjection(
   isFocused: boolean = false,
   documentDirectory: string | null = null,
   locale: string = 'zh-CN',
-  mermaidPins: ReadonlyMap<number, MermaidPreviewPin> = EMPTY_MERMAID_PINS
+  mermaidPins: ReadonlyMap<number, MermaidPreviewPin> = EMPTY_MERMAID_PINS,
+  workspaceAssets: readonly WorkspaceAssetEntry[] = EMPTY_WORKSPACE_ASSETS
 ): DecorationSet {
   const ranges: ProjectionRange[] = [];
   const { root } = parseMarkdown(source);
@@ -299,25 +310,56 @@ export function buildVisualProjection(
         }
       }
     } else if (inlineNode.type === 'image') {
-      const displaySrc = inlineNode.isBlocked
+      const imageFrom = inlineNode.range.from;
+      const imageTo = inlineNode.range.to;
+      const imageRaw = inlineNode.raw;
+      const imageAlt = inlineNode.alt;
+      const imageSafeSrc = inlineNode.safeSrc;
+      const imageBlocked = Boolean(inlineNode.isBlocked);
+      const imageTitle = inlineNode.title;
+      const imageDisplaySrc = imageBlocked
         ? null
         : resolveDocumentAssetUrl(inlineNode.src, documentDirectory);
-      ranges.push({
-        from: inlineNode.range.from,
-        to: inlineNode.range.to,
-        decoration: Decoration.replace({
-          widget: new ImageWidget(
-            inlineNode.range.from,
-            inlineNode.range.to,
-            inlineNode.raw,
-            inlineNode.alt,
-            inlineNode.safeSrc,
-            Boolean(inlineNode.isBlocked),
-            inlineNode.title,
-            displaySrc
-          )
-        })
-      });
+      const buildImageWidget = (alongsideSource: boolean) =>
+        new ImageWidget({
+          from: imageFrom,
+          to: imageTo,
+          raw: imageRaw,
+          alt: imageAlt,
+          safeSrc: imageSafeSrc,
+          isBlocked: imageBlocked,
+          title: imageTitle,
+          displaySrc: imageDisplaySrc,
+          alongsideSource
+        });
+
+      // 揭示态**不等于**图片消失。光标落进范围内部时源码变回真实文本（可编辑），
+      // 同时插一份图片（靠 CSS 独占一行）——「图片 + 源码」同时在场，一边看效果
+      // 一边改地址。整节点替换会让这两件事二选一，所以并存态不能用 `Decoration.replace`，
+      // 只能是「零宽 widget + 覆盖全节点的 mark」。
+      //
+      // 预览插在**行首**而不是节点原位：块级预览插在行中会把这一行劈开（图片前那截文字
+      // 被挤到上一行、源码与后面的文字落到下一行）。提到行首后整行源码保持完整。
+      // 图片本来就独占一行时行首就是节点自身，所以这不是两种模式，是同一条规则。
+      if (isNodeRevealed(inlineNode.range)) {
+        const previewPos = lineStartAt(source, imageFrom);
+        ranges.push({
+          from: previewPos,
+          to: previewPos,
+          decoration: Decoration.widget({ side: -1, widget: buildImageWidget(true) })
+        });
+        ranges.push({
+          from: imageFrom,
+          to: imageTo,
+          decoration: Decoration.mark({ class: 'cm-visual-image-source' })
+        });
+      } else {
+        ranges.push({
+          from: imageFrom,
+          to: imageTo,
+          decoration: Decoration.replace({ widget: buildImageWidget(false) })
+        });
+      }
     } else if (inlineNode.type === 'inline-math') {
       // 与行内代码同构，但多一层：行内代码的正文**就是**渲染结果，而公式的正文是
       // LaTeX 源码，必须由 KaTeX 渲染。所以未揭示态只能是整节点替换；一旦光标落进
@@ -412,19 +454,72 @@ export function buildVisualProjection(
         }
       }
     } else if (inlineNode.type === 'wikilink') {
-      ranges.push({
-        from: inlineNode.range.from,
-        to: inlineNode.range.to,
-        decoration: Decoration.replace({
-          widget: new WikiLinkWidget(
-            inlineNode.range.from,
-            inlineNode.range.to,
-            inlineNode.raw,
-            inlineNode.target,
-            inlineNode.alias
-          )
-        })
-      });
+      // `![[x.png]]`（Obsidian 嵌入）与 `[[x.png]]`（链接）在 AST 里是同一种节点，
+      // 只有前一个字符能区分。目标确实是图片才当图片渲染，其余仍走链接 widget。
+      const embedStart = obsidianEmbedStart(source, inlineNode.range.from);
+      if (embedStart !== null && isEmbeddableImage(inlineNode.target)) {
+        const embedTo = inlineNode.range.to;
+        const embedTarget = inlineNode.target;
+        const embedDisplaySrc = resolveWikiEmbedAssetUrl(
+          embedTarget,
+          documentDirectory,
+          workspaceAssets
+        );
+        const embedWidth = parseEmbedWidth(inlineNode.alias);
+        const buildEmbedWidget = (alongsideSource: boolean) =>
+          new ImageWidget({
+            from: inlineNode.range.from,
+            to: embedTo,
+            raw: source.slice(embedStart, embedTo),
+            // 嵌入没有 alt，用目标名当替代文本 —— 解析不出图片时占位符至少说明缺的是哪张。
+            alt: embedTarget,
+            safeSrc: null,
+            // 嵌入走**回退链**（工作区根相对 → 文件名兜底 → 文档目录保底），与 `![](…)`
+            // 的单档规则不同 —— Obsidian 往嵌入里写的是「全库唯一路径」而不是「相对当前
+            // 文档的路径」，只按文档目录解析，`![[学习笔记/…/x.png]]` 这类必然空白。
+            displaySrc: embedDisplaySrc,
+            width: embedWidth,
+            isEmbed: true,
+            wikilinkTarget: embedTarget,
+            alongsideSource
+          });
+
+        // 与 `![](…)` 同一条揭示契约，也同样「图片不消失」：源码露出来的同时，
+        // 图片插在**行首**并存（行中的嵌入同样不能被劈开，理由见 `image` 分支）。
+        if (isNodeRevealed(inlineNode.range)) {
+          const previewPos = lineStartAt(source, embedStart);
+          ranges.push({
+            from: previewPos,
+            to: previewPos,
+            decoration: Decoration.widget({ side: -1, widget: buildEmbedWidget(true) })
+          });
+          ranges.push({
+            from: embedStart,
+            to: embedTo,
+            decoration: Decoration.mark({ class: 'cm-visual-image-source' })
+          });
+        } else {
+          ranges.push({
+            from: embedStart,
+            to: embedTo,
+            decoration: Decoration.replace({ widget: buildEmbedWidget(false) })
+          });
+        }
+      } else {
+        ranges.push({
+          from: inlineNode.range.from,
+          to: inlineNode.range.to,
+          decoration: Decoration.replace({
+            widget: new WikiLinkWidget(
+              inlineNode.range.from,
+              inlineNode.range.to,
+              inlineNode.raw,
+              inlineNode.target,
+              inlineNode.alias
+            )
+          })
+        });
+      }
     }
   }
 

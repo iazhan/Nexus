@@ -1,4 +1,5 @@
-import { toAssetUrl } from '@nexus/core';
+import { documentTypeForPath, toAssetUrl } from '@nexus/core';
+import { EMPTY_WORKSPACE_ASSETS, type WorkspaceAssetEntry } from './state.js';
 
 export function resolveDocumentAssetUrl(
   src: string,
@@ -111,6 +112,177 @@ export function resolveDocumentAssetUrl(
 }
 
 /**
+ * 工作区里有没有这个嵌入目标；有就返回那一条。
+ *
+ * 两档，命中即返回：
+ * 1. **工作区根相对**精确匹配 —— `![[学习笔记/硬件/图片/x.png]]` 就是这一档。Obsidian
+ *    把 vault 内的完整路径直接写进嵌入，所以这一档必须先试。
+ * 2. **文件名兜底** —— `![[x.png]]` 而图不在文档旁边的写法（Obsidian 里最常见）。
+ *    target 自带目录时还要求路径后缀吻合，否则 `a/x.png` 会匹配到 `b/x.png`。
+ *
+ * 第二档命中多个时交给 `pickNearestAsset` —— 不取最近的话，同一篇笔记在两台机器上
+ * 可能显示不同的图。
+ */
+function findWorkspaceAsset(
+  target: string,
+  assets: readonly WorkspaceAssetEntry[],
+  documentDirectory: string | null | undefined
+): WorkspaceAssetEntry | null {
+  if (assets.length === 0) return null;
+
+  const targetKey = target.toLowerCase();
+  const hasDirectory = target.includes('/');
+  const baseName = (hasDirectory ? target.slice(target.lastIndexOf('/') + 1) : target).toLowerCase();
+
+  const candidates: WorkspaceAssetEntry[] = [];
+  for (const entry of assets) {
+    const relativeKey = entry.relative.replace(/\\/g, '/').toLowerCase();
+    if (relativeKey === targetKey) return entry;
+    if (entry.name.toLowerCase() !== baseName) continue;
+    if (hasDirectory && !relativeKey.endsWith('/' + targetKey)) continue;
+    candidates.push(entry);
+  }
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0]!;
+  return pickNearestAsset(candidates, documentDirectory);
+}
+
+/**
+ * 多个同名候选里取离当前文档最近的那个。
+ *
+ * 排序键：**同目录优先 → 路径浅的优先 → 字典序**。三段都参与是为了让结果**确定** ——
+ * 只按「同目录」排的话，两个都在别处的同名文件谁赢取决于清单顺序，那是随机的。
+ *
+ * 同目录比较用**绝对路径**：`relative` 是工作区根相对的，拿它跟文档目录（绝对）比永远不等。
+ * 大小写折叠与 `toPathKey` 同源 —— 同一路径的多种字符串写法必须先归一（Windows 不区分）。
+ */
+function pickNearestAsset(
+  candidates: readonly WorkspaceAssetEntry[],
+  documentDirectory: string | null | undefined
+): WorkspaceAssetEntry {
+  const docDirKey = documentDirectory
+    ? documentDirectory.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    : null;
+
+  let best = candidates[0]!;
+  let bestKey = nearestKey(best, docDirKey);
+  for (let index = 1; index < candidates.length; index++) {
+    const entry = candidates[index]!;
+    const key = nearestKey(entry, docDirKey);
+    const order =
+      key[0] !== bestKey[0]
+        ? key[0] - bestKey[0]
+        : key[1] !== bestKey[1]
+          ? key[1] - bestKey[1]
+          : key[2] < bestKey[2]
+            ? -1
+            : key[2] > bestKey[2]
+              ? 1
+              : 0;
+    if (order < 0) {
+      best = entry;
+      bestKey = key;
+    }
+  }
+  return best;
+}
+
+function nearestKey(
+  entry: WorkspaceAssetEntry,
+  docDirKey: string | null
+): readonly [number, number, string] {
+  const absolute = entry.path.replace(/\\/g, '/');
+  const slash = absolute.lastIndexOf('/');
+  const directory = slash === -1 ? '' : absolute.slice(0, slash);
+  const sameDirectory = docDirKey !== null && directory.toLowerCase() === docDirKey ? 0 : 1;
+  const relative = entry.relative.replace(/\\/g, '/');
+  return [sameDirectory, relative.split('/').length, relative];
+}
+
+/** 嵌入目标归一化：反斜杠转正斜杠、去 `./` 前缀、折叠重复斜杠。 */
+function normalizeAssetTarget(target: string): string {
+  let normalized = target.trim().replace(/\\/g, '/');
+  while (normalized.startsWith('./')) normalized = normalized.slice(2);
+  return normalized.replace(/\/{2,}/g, '/');
+}
+
+/**
+ * Obsidian 嵌入 `![[…]]` 的目标解析。
+ *
+ * **与 `![](…)` 不是同一套规则**，混用不报错，只让图片静默变空白：
+ * - `![](…)` 是标准 Markdown，相对**当前文档目录**，只此一档 —— 给它加回退，写出的文档
+ *   离开本应用就坏。
+ * - `![[…]]` 是 Obsidian 的 vault 内短链接，必须走**回退链**：Obsidian 写出来的是
+ *   「全库唯一路径」而不是「相对当前文档的路径」，只有一档就必然解析不到。
+ *
+ * 三档：
+ * 1. 绝对路径 —— 没有回退可言。
+ * 2. 工作区清单里的 vault 根相对 / 文件名匹配（见 `findWorkspaceAsset`）。
+ * 3. **按文档目录相对兜底** —— 保底档，保证不比「只有文档目录」的旧行为更差：
+ *    清单还没递进来、或图尚未进索引时，仍按老规矩拼出地址。
+ */
+export function resolveWikiEmbedAssetUrl(
+  target: string,
+  documentDirectory: string | null | undefined,
+  assets: readonly WorkspaceAssetEntry[] = EMPTY_WORKSPACE_ASSETS
+): string | null {
+  const normalized = normalizeAssetTarget(target);
+  if (!normalized) return null;
+
+  if (/^[a-zA-Z]:/.test(normalized) || normalized.startsWith('/')) {
+    return resolveDocumentAssetUrl(normalized, documentDirectory);
+  }
+
+  const hit = findWorkspaceAsset(normalized, assets, documentDirectory);
+  if (hit) {
+    return toAssetUrl(hit.path);
+  }
+
+  return resolveDocumentAssetUrl(target, documentDirectory);
+}
+
+/**
+ * Obsidian 嵌入 `![[…]]` 里 `!` 的下标；不是嵌入则返回 `null`。
+ *
+ * 解析层把 `![[x.png]]` 拆成「文本 `!` + wikilink `[[x.png]]`」两段，**不能**在
+ * 解析层把它归成 `image` 节点：序列化器按节点类型回写源码，wikilink 换成 image
+ * 会让 `![[x.png]]` 往返成 `![](x.png)`，打开一次文件源文本就被改写。
+ * 所以识别只能落在投影层 —— 它只影响显示，不参与往返。
+ *
+ * `wikiFrom` 是 `[[` 的下标。`\![[…]]` 是转义，不算嵌入。
+ */
+export function obsidianEmbedStart(source: string, wikiFrom: number): number | null {
+  if (wikiFrom < 1 || source[wikiFrom - 1] !== '!') return null;
+  if (wikiFrom >= 2 && source[wikiFrom - 2] === '\\') return null;
+  return wikiFrom - 1;
+}
+
+/**
+ * Obsidian 嵌入 `|` 参数的像素宽。
+ *
+ * 嵌入的 `|` 参数**不是**链接别名，而是尺寸：`|200` 是宽，`|200x300` 是宽×高。
+ * 只取宽、丢弃高，让高度按原比例走（按字面设高会把图压扁）。
+ * 非数字（Obsidian 里那是无意义的写法）一律忽略，退化成不限宽。
+ */
+export function parseEmbedWidth(alias: string | undefined): number | null {
+  if (!alias) return null;
+  const match = /^(\d+)(?:x\d+)?$/.exec(alias.trim());
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * 嵌入的目标是不是**可显示的图片**。
+ *
+ * `![[某篇笔记]]`（Obsidian 的笔记嵌入）必须退回链接 widget：我们没有「把另一篇笔记的
+ * 正文拼进来」这个能力，而当图片渲染会得到一个坏图标 —— 比一个可点的链接更糟。
+ * 判据复用文档白名单（`documentTypeForPath`），不另抄一份扩展名表：抄一份就会漂移。
+ */
+export function isEmbeddableImage(target: string): boolean {
+  return documentTypeForPath(target) === 'image';
+}
+
+/**
  * 标记之后是否已经没有内容（含只有空白的情况）。
  *
  * 隐藏标记用的是 replace 型 widget：一旦标记独占该行，行内就不存在可放置 DOM 光标的
@@ -162,14 +334,27 @@ export function stripQuoteMarkers(lineText: string): string {
 }
 
 /**
+ * `pos` 所在行的行首。
+ *
+ * 行中的图片在揭示态下要把预览提到**行首**：块级预览插在节点原位会把这一行劈开
+ * （图片前那截文字被挤到上一行、源码与后面的文字落到下一行）。提到行首之后整行源码
+ * 保持完整、预览贴在它上方；图片本来就独占一行时行首就是节点自身，行为不变 ——
+ * 所以这是同一套规则，不是两种模式。
+ *
+ * 只看 `\n`：CRLF 的 `\r` 属于上一行末尾，不影响行首位置。
+ */
+export function lineStartAt(source: string, pos: number): number {
+  return source.lastIndexOf('\n', pos - 1) + 1;
+}
+
+/**
  * `from` 之前的同一行内容是否只有引用标记。
  *
  * 引用块内的代码块 raw 只有首行不带 `>`、其余行带（`"```ts\n> code\n> ```"`），
  * 所以判断「是否位于引用块内」不能只看节点自身文本，必须回看文档前缀。
  */
 export function isInsideQuotePrefix(source: string, from: number): boolean {
-  const lineStart = source.lastIndexOf('\n', from - 1) + 1;
-  return /^[ \t]*(?:>[ \t]*)+$/.test(source.slice(lineStart, from));
+  return /^[ \t]*(?:>[ \t]*)+$/.test(source.slice(lineStartAt(source, from), from));
 }
 
 /**

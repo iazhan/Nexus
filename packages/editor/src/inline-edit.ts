@@ -22,6 +22,8 @@ export type {
   WikiLinkEditValue,
   ImageEditContext,
   ImageSourceResolver,
+  WorkspaceImageOption,
+  WorkspaceImageProvider,
   InlineEditExtensionOptions
 } from './inline/types.js';
 
@@ -54,5 +56,6 @@ export {
 } from './inline/widgets.js';
 
 export { mathActivationAnchor, activateMathSource } from './inline/math-activation.js';
+export { imageActivationAnchor, activateImageSource } from './inline/image-activation.js';
 
 export { createInlineEditExtension } from './inline/extension.js';

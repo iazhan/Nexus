@@ -31,15 +31,23 @@ export {
   setMermaidPreviewPinEffect,
   mermaidPreviewPinField,
   setHoveredCodeBlockEffect,
-  hoveredCodeBlockField
+  hoveredCodeBlockField,
+  EMPTY_WORKSPACE_ASSETS,
+  setWorkspaceAssetsEffect,
+  workspaceAssetsField,
+  setWorkspaceAssets
 } from './visual/state.js';
 export type {
   TableTarget,
   MermaidPreviewPin,
-  MermaidPreviewSettings
+  MermaidPreviewSettings,
+  WorkspaceAssetEntry
 } from './visual/state.js';
 
-export { resolveDocumentAssetUrl } from './visual/source-analysis.js';
+export {
+  resolveDocumentAssetUrl,
+  resolveWikiEmbedAssetUrl
+} from './visual/source-analysis.js';
 
 export {
   DelimiterWidget,
