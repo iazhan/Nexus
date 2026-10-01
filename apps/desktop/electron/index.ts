@@ -552,6 +552,30 @@ function getIndexStore(webContentsId: number): IndexStore | null {
 }
 
 /**
+ * 关掉再重开某个渲染进程的索引库。
+ *
+ * 「重建索引」必须走这里，不能直接复用 `openIndexStore` 的缓存：`ensureSchema()`
+ * **只在 open 的时候跑**，而复用一个已经打开的库会跳过版本检查 —— 于是
+ * 「改了抽取判据 + bump 了 `SCHEMA_VERSION`」不会触发重建，用户点「重建索引」看到的
+ * 还是旧标签（内容没变的文件被 `contentHash` 跳过，那条跳过判据本身是对的）。
+ *
+ * 版本一致时重开只是白跑一遍检查，一个字节都不会丢 —— 所以对「外部改了文件、
+ * 想让索引跟上」那个原本的用途没有任何影响。
+ */
+function reopenIndexStore(webContentsId: number, rootPath: string): IndexStore {
+  const existing = indexStores.get(webContentsId);
+  if (existing !== undefined && existing.rootPath === rootPath) {
+    try {
+      existing.store.close();
+    } catch {
+      // 关不掉也继续 —— 关键是下面那行 delete，它让下一次 open 重新走一遍 ensureSchema
+    }
+    indexStores.delete(webContentsId);
+  }
+  return openIndexStore(webContentsId, rootPath);
+}
+
+/**
  * 保存前留一份历史快照。
  *
  * 三件刻意做的事：
@@ -1375,7 +1399,9 @@ ipcMain.handle(IPC_CHANNELS.rebuildIndex, async (event, rootPath: unknown) => {
     throw new Error('rebuildIndex: 该工作区尚未授权');
   }
 
-  const store = openIndexStore(event.sender.id, rootPath);
+  // 重开而不是复用：`ensureSchema()` 只在 open 时跑，复用一个已经打开的库会跳过
+  // 版本检查 —— 那样「改了抽取判据 + bump 了 SCHEMA_VERSION」不会触发重建。
+  const store = reopenIndexStore(event.sender.id, rootPath);
   // 处理器注册表**每次索引新建**：它是无状态的纯装配，缓存在进程级只会让
   // 「测试之间不串味」这条性质消失（`p3-10-processors.test.ts` 有一条钉它）。
   // 两个处理器内部的模块懒加载缓存是进程级的，那部分本来就该共用。

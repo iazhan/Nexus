@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
+import { indexPathForWorkspace } from '../electron/index-path.js';
 import {
   launchElectronApp,
   createTempDir,
@@ -12,20 +13,24 @@ import {
 /**
  * 标签面板。
  *
- * 标签来自索引（磁盘内容），不是编辑器草稿。扫描判据的 38 条单测在
- * `packages/core/test/tags.test.ts`、查询的 7 条在 `test/tags.test.ts`、
- * 面板渲染分支的 4 条在 `renderer/test/tags-panel.test.tsx`，
- * 这里验接进 App 之后的整条链路，含 Ctrl+点击编辑器里的标签。
+ * 标签来自索引（磁盘内容），不是编辑器草稿。扫描判据的单测在
+ * `packages/core/test/tags.test.ts`、查询的在 `test/tags.test.ts`、
+ * 面板渲染分支的在 `renderer/test/tags-panel.test.tsx`，
+ * 这里验接进 App 之后的整条链路：Ctrl+点击编辑器里的标签、点文档定位到标签、
+ * 以及「重建索引」会真的把库重开一遍。
  */
 describe('标签面板', () => {
   let tempDir: string;
   let workspace: string;
+  /** 固定 userData：用例要按 `indexPathForWorkspace()` 算出索引库、去改它的版本号。 */
+  let userDataDir: string;
   let activeApp: ElectronAppInstance | null = null;
 
   beforeAll(() => {
     tempDir = createTempDir('nexus-tags-e2e-');
     workspace = path.join(tempDir, 'vault');
     fs.mkdirSync(workspace, { recursive: true });
+    userDataDir = createTempDir('nexus-tags-userdata-');
 
     // a.md 刻意写长、标签放**中间**：前后都要有足够内容，「滚到视口第一行」才验得出来
     // —— 目标离文末不足一屏时滚动会被钳制在最大值，行盒反而落在视口下方。
@@ -51,7 +56,7 @@ describe('标签面板', () => {
   });
 
   it('列出标签与文档数，展开后能看到文档并打开', async () => {
-    activeApp = await launchElectronApp({ filePath: workspace });
+    activeApp = await launchElectronApp({ filePath: workspace, userDataDir });
     const app = activeApp;
 
     // 等索引建好 —— 标签依赖它
@@ -145,17 +150,52 @@ describe('标签面板', () => {
       return true;
     })()`);
 
+    // 等的是**文档列表的内容**，不是「哪一项是 active」：`expandedTag` 一变，active
+    // 立刻就换了，而文档列表是异步查的 —— 中间那一段列的还是上一个标签的文档
+    // （这里踩过：断言到的是 #dma 的 `['a.md', 'b.md']`）。
     await app.waitForFunction(
-      `document.querySelector('.nexus-tag-item-active')?.textContent?.includes('ethercat') === true`,
+      `() => {
+        const items = Array.from(
+          document.querySelectorAll('.nexus-tag-documents .nexus-backlink-item')
+        );
+        return items.length === 1 && items[0].textContent === 'a.md';
+      }`,
       15000
     );
 
-    // ethercat 只在 a.md 里
     expect(
-      await app.evaluate<string[]>(
-        `Array.from(document.querySelectorAll('.nexus-tag-documents .nexus-backlink-item'))
-           .map((el) => el.textContent)`
+      await app.evaluate<string>(
+        `document.querySelector('.nexus-tag-item-active')?.textContent ?? ''`
       )
-    ).toEqual(['a.md']);
+    ).toContain('#ethercat');
+
+    // ── 重建索引：库会被关掉重开 ──
+    //
+    // 重开是「改了抽取判据 + bump 了 SCHEMA_VERSION」能被兑现的**唯一**通道：
+    // `ensureSchema()` 只在 `IndexStore.open()` 时跑，而复用一个已经打开的库会跳过
+    // 版本检查 —— 于是用户点了「重建索引」，看到的还是旧标签。
+    //
+    // 判据用返回的 `skipped`，不能用「标签还在不在」：把库的版本号改回一个旧值之后，
+    //   - 库被重开 → 版本不一致 → 丢表重建 → 全量重扫，一个文件都不跳过（skipped === 0）
+    //   - 库被复用 → 版本检查没跑 → 内容没变的文件全被跳过（skipped === 文件数）
+    // 而「标签还在不在」在两种情况下都成立，区分不了。
+    const dbPath = indexPathForWorkspace(userDataDir, workspace);
+    const { Database } = await import('node-sqlite3-wasm');
+    const raw = new Database(dbPath);
+    raw.run(`UPDATE meta SET value = '0' WHERE key = 'schema_version'`);
+    raw.close();
+
+    const rebuilt = await app.evaluate<{ indexed: number; skipped: number }>(
+      `window.nexus.rebuildIndex(${JSON.stringify(workspace)})`
+    );
+    expect(rebuilt.skipped).toBe(0);
+    expect(rebuilt.indexed).toBeGreaterThan(0);
+
+    // 重建之后标签仍在（重开不能把索引弄丢）
+    const tagsAfterRebuild = await app.evaluate<string>(
+      `window.nexus.listTags().then((tags) => JSON.stringify(tags))`
+    );
+    expect(tagsAfterRebuild).toContain('"dma"');
+    expect(tagsAfterRebuild).toContain('"ethercat"');
   }, INDEXED_TEST_TIMEOUT_MS);
 });
