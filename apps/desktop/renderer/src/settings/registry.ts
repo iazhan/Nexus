@@ -77,6 +77,8 @@ export interface SectionDef {
   order: number;
   /** `planned` = 出现在左栏、进得去但内容区只有空态。 */
   availability: 'available' | 'planned';
+  /** 搜索别名。见 `FieldDef.keywords` —— 两份的规矩完全一样。 */
+  keywords?: readonly string[];
 }
 
 /**
@@ -94,56 +96,64 @@ export const SECTIONS: readonly SectionDef[] = [
     titleKey: 'settings.section.general',
     icon: GeneralIcon,
     order: 1,
-    availability: 'available'
+    availability: 'available',
+    keywords: ['通用', '基础', '常规', 'general', 'basic', 'common']
   },
   {
     id: 'editor',
     titleKey: 'settings.section.editor',
     icon: EditorIcon,
     order: 2,
-    availability: 'available'
+    availability: 'available',
+    keywords: ['编辑', '写作', '正文', '排版', 'editor', 'writing', 'typing', 'layout']
   },
   {
     id: 'files',
     titleKey: 'settings.section.files',
     icon: FilesIcon,
     order: 3,
-    availability: 'available'
+    availability: 'available',
+    keywords: ['附件', '链接', '图片', '粘贴', 'files', 'attachments', 'links', 'images']
   },
   {
     id: 'appearance',
     titleKey: 'settings.section.appearance',
     icon: AppearanceIcon,
     order: 4,
-    availability: 'available'
+    availability: 'available',
+    keywords: ['主题', '配色', '颜色', '皮肤', '明暗', 'theme', 'color', 'colour', 'skin', 'dark', 'light']
   },
   {
     id: 'keybindings',
     titleKey: 'settings.section.keybindings',
     icon: KeybindingsIcon,
     order: 5,
-    availability: 'available'
+    availability: 'available',
+    keywords: ['键位', '按键', '组合键', 'shortcut', 'hotkey', 'key', 'keymap']
   },
   {
     id: 'plugins',
     titleKey: 'settings.section.plugins',
     icon: PluginsIcon,
     order: 6,
-    availability: 'planned'
+    availability: 'planned',
+    keywords: ['扩展', '插件', 'extension', 'addon', 'plugin']
   },
   {
     id: 'sync',
     titleKey: 'settings.section.sync',
     icon: SyncIcon,
     order: 7,
-    availability: 'planned'
+    availability: 'planned',
+    keywords: ['同步', '云端', '备份', 'sync', 'cloud', 'backup']
   },
   {
     id: 'data',
     titleKey: 'settings.section.data',
     icon: DataIcon,
     order: 8,
-    availability: 'available'
+    availability: 'available',
+    keywords: ['索引', '历史', '版本', '快照', '诊断', 'index', 'history', 'snapshot', 'diagnostics']
   }
 ];
 
@@ -236,6 +246,21 @@ export interface FieldDef {
   section: SectionId;
   labelKey: string;
   descriptionKey?: string;
+  /**
+   * 搜索别名：**用户会敲、但界面上不出现的那些词**。
+   *
+   * 只写同义词，**不要抄一遍标签** —— 标签本来就会被搜到，抄一遍是纯粹的重复维护。
+   * 「暗色」也要能搜到 `appearance.themeMode`（标签是「模式」）就是这一条的由来。
+   *
+   * **中英混在一个扁平表里，不按语言分开。** 界面语言是可切的，而搜索这件事没必要跟着切：
+   * 中文界面下敲 `dark`、英文界面下敲「暗色」都该命中 —— 那是同一份数据，分语言只会让
+   * 「英文界面里搜不到中文文档里看到的那个词」这种缺口出现。代价是别名表里两种语言并存，
+   * 但别名不渲染，看的人只有维护者。
+   *
+   * **描述文案不进索引**：它是整句话，模糊匹配扫长句会造出一堆假命中（子序列匹配下
+   * 几乎任何短查询都能在一句话里找到自己）。真需要某个词能搜到，把它写进这里。
+   */
+  keywords?: readonly string[];
   control: FieldControl;
   options?: readonly FieldOption[];
   /**
@@ -359,6 +384,8 @@ export const THEME_MODE_FIELD: ValueFieldDef = {
   id: 'appearance.themeMode',
   section: 'appearance',
   labelKey: 'settings.appearance.themeMode',
+  /* 标签只有「模式」两个字 —— 「暗色」「亮色」这类词必须能搜到它，这是别名机制的第一个消费者。 */
+  keywords: ['暗色', '深色', '亮色', '浅色', '跟随系统', '明暗', 'dark', 'light', 'auto', 'system', 'mode'],
   control: 'radio',
   options: THEME_MODES.map((mode): FieldOption => ({ value: mode, labelKey: MODE_LABEL_KEYS[mode] })),
   accessor: {
@@ -383,6 +410,7 @@ export const THEME_PRESET_FIELD: ValueFieldDef = {
   id: 'appearance.themePreset',
   section: 'appearance',
   labelKey: 'settings.appearance.themePreset',
+  keywords: ['配色', '颜色', '皮肤', '主题库', '预设', 'theme', 'preset', 'color', 'colour', 'scheme', 'palette'],
   control: 'preset',
   /**
    * 当前用户主题要**出现在列表里**，否则编辑完种子之后（编辑会 fork 出一个用户主题）一个预设
@@ -426,6 +454,7 @@ export const LOCALE_FIELD: FieldDef = {
   id: 'general.locale',
   section: 'general',
   labelKey: 'settings.general.locale',
+  keywords: ['语言', '中文', '英文', '界面语言', 'language', 'locale', 'english', 'chinese', 'i18n'],
   control: 'radio',
   options: [
     { value: 'zh-CN', labelKey: 'lang.zhCN' },
@@ -454,6 +483,7 @@ export const UI_ZOOM_FIELD: FieldDef = {
   section: 'appearance',
   labelKey: 'settings.appearance.uiZoom',
   descriptionKey: 'settings.appearance.uiZoomDescription',
+  keywords: ['缩放', '放大', '缩小', '比例', '界面大小', 'zoom', 'scale', 'dpi', 'size'],
   control: 'select',
   options: UI_ZOOM_OPTIONS_LABELLED,
   accessor: {
@@ -479,6 +509,7 @@ export const CHROME_VISIBILITY_FIELD: FieldDef = {
   section: 'appearance',
   labelKey: 'settings.appearance.chromeVisibility',
   descriptionKey: 'settings.appearance.chromeVisibilityDescription',
+  keywords: ['显示', '隐藏', '状态栏', '标签页', '外壳', 'show', 'hide', 'chrome', 'status bar', 'tab bar'],
   control: 'group',
   options: [
     { value: 'statusBar', labelKey: 'settings.appearance.chromeVisibility.statusBar' },
@@ -502,6 +533,7 @@ export const STATUS_BAR_METRICS_FIELD: FieldDef = {
   section: 'appearance',
   labelKey: 'settings.appearance.statusBarMetrics',
   descriptionKey: 'settings.appearance.statusBarMetricsDescription',
+  keywords: ['状态栏', '光标', '行列', '字数', '格式', 'status bar', 'cursor', 'column', 'format'],
   control: 'group',
   options: [
     { value: 'lineColumn', labelKey: 'settings.appearance.statusBarMetrics.lineColumn' },
@@ -520,6 +552,7 @@ export const MERMAID_FIELD: FieldDef = {
   id: 'editor.mermaidClickToReveal',
   section: 'editor',
   labelKey: 'mermaid.clickToReveal',
+  keywords: ['图表', '流程图', '预览', 'mermaid', 'diagram', 'chart', 'preview'],
   control: 'toggle',
   accessor: {
     read: () => String(mermaidPreviewPreference.get()),
@@ -540,6 +573,7 @@ export const PANEL_WIDTH_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.panelWidth',
   descriptionKey: 'settings.editor.panelWidthDescription',
+  keywords: ['侧栏', '侧边栏', '面板', '宽度', 'sidebar', 'panel', 'width'],
   control: 'number',
   min: PANEL_MIN_WIDTH,
   max: PANEL_MAX_WIDTH,
@@ -563,6 +597,7 @@ export const AUTO_SAVE_FIELD: FieldDef = {
   section: 'general',
   labelKey: 'settings.general.autoSave',
   descriptionKey: 'settings.general.autoSaveDescription',
+  keywords: ['保存', '存盘', '自动', 'save', 'autosave', 'write', 'disk'],
   control: 'toggle',
   accessor: {
     read: () => String(settings.get('general.autoSave')),
@@ -583,6 +618,7 @@ export const AUTO_SAVE_DELAY_FIELD: FieldDef = {
   section: 'general',
   labelKey: 'settings.general.autoSaveDelay',
   descriptionKey: 'settings.general.autoSaveDelayDescription',
+  keywords: ['保存', '延迟', '防抖', '等待', 'save', 'delay', 'debounce', 'timeout'],
   control: 'number',
   min: AUTO_SAVE_DELAY.min,
   max: AUTO_SAVE_DELAY.max,
@@ -608,6 +644,7 @@ export const EXTERNAL_CHANGE_FIELD: FieldDef = {
   section: 'general',
   labelKey: 'settings.general.externalChange',
   descriptionKey: 'settings.general.externalChangeDescription',
+  keywords: ['外部修改', '重载', '重新加载', '冲突', 'reload', 'conflict', 'external', 'changed on disk'],
   control: 'select',
   options: EXTERNAL_CHANGE_OPTIONS,
   accessor: {
@@ -633,6 +670,7 @@ export const RESTORE_LAST_WORKSPACE_FIELD: FieldDef = {
   section: 'general',
   labelKey: 'settings.general.restoreLastWorkspace',
   descriptionKey: 'settings.general.restoreLastWorkspaceDescription',
+  keywords: ['启动', '打开', '恢复', '上次', '工作区', 'startup', 'launch', 'restore', 'reopen', 'workspace'],
   control: 'toggle',
   accessor: {
     read: () => String(settings.get('general.restoreLastWorkspace')),
@@ -659,6 +697,7 @@ export const APP_VERSION_FIELD: FieldDef = {
   section: 'general',
   labelKey: 'settings.general.version',
   descriptionKey: 'settings.general.versionDescription',
+  keywords: ['版本号', '关于', '更新', 'version', 'about', 'build', 'update'],
   control: 'readonly',
   readonlyValue: async () => (await window.nexus?.getAppVersion()) ?? null,
   menu: false
@@ -676,6 +715,7 @@ export const FONT_SIZE_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.fontSize',
   descriptionKey: 'settings.editor.fontSizeDescription',
+  keywords: ['字号', '字体大小', '文字大小', 'size', 'font size', 'text size'],
   control: 'number',
   min: EDITOR_FONT_SIZE.min,
   max: EDITOR_FONT_SIZE.max,
@@ -695,6 +735,7 @@ export const LINE_HEIGHT_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.lineHeight',
   descriptionKey: 'settings.editor.lineHeightDescription',
+  keywords: ['行距', '间距', 'line height', 'leading', 'spacing'],
   control: 'number',
   min: EDITOR_LINE_HEIGHT.min,
   max: EDITOR_LINE_HEIGHT.max,
@@ -713,6 +754,7 @@ export const PARAGRAPH_SPACING_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.paragraphSpacing',
   descriptionKey: 'settings.editor.paragraphSpacingDescription',
+  keywords: ['段距', '段间距', '空行', 'paragraph', 'spacing', 'margin', 'blank line'],
   control: 'number',
   min: EDITOR_PARAGRAPH_SPACING.min,
   max: EDITOR_PARAGRAPH_SPACING.max,
@@ -732,6 +774,7 @@ export const CONTENT_WIDTH_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.contentWidth',
   descriptionKey: 'settings.editor.contentWidthDescription',
+  keywords: ['行宽', '栏宽', '宽度', '居中', 'line width', 'column', 'measure', 'centred'],
   control: 'select',
   options: EDITOR_CONTENT_WIDTH_OPTIONS,
   accessor: {
@@ -755,6 +798,7 @@ export const FONT_FAMILY_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.fontFamily',
   descriptionKey: 'settings.editor.fontFamilyDescription',
+  keywords: ['字型', '字体名', 'typeface', 'font', 'family', 'monospace', 'serif', 'sans'],
   control: 'font',
   options: EDITOR_FONT_FAMILIES.map((family): FieldOption => ({
     value: family.value,
@@ -783,6 +827,7 @@ export const CODE_BLOCK_LINE_NUMBERS_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.codeBlockLineNumbers',
   descriptionKey: 'settings.editor.codeBlockLineNumbersDescription',
+  keywords: ['代码', '行号', 'code', 'line number', 'gutter'],
   control: 'toggle',
   accessor: {
     read: () => String(settings.get('editor.codeBlockLineNumbers')),
@@ -801,6 +846,7 @@ export const TABLE_LAYOUT_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.tableLayout',
   descriptionKey: 'settings.editor.tableLayoutDescription',
+  keywords: ['表格', '列宽', '均分', '自适应', 'table', 'column', 'layout', 'width'],
   control: 'select',
   options: EDITOR_TABLE_LAYOUT_OPTIONS,
   accessor: {
@@ -825,6 +871,7 @@ export const LINE_NUMBERS_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.lineNumbers',
   descriptionKey: 'settings.editor.lineNumbersDescription',
+  keywords: ['行号', '栏', 'gutter', 'line number'],
   control: 'toggle',
   accessor: {
     read: () => String(settings.get('editor.lineNumbers')),
@@ -843,6 +890,7 @@ export const WORD_COUNT_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.wordCount',
   descriptionKey: 'settings.editor.wordCountDescription',
+  keywords: ['字数', '统计', '长度', '字符数', 'word count', 'characters', 'length', 'stats'],
   control: 'toggle',
   accessor: {
     read: () => String(settings.get('editor.wordCount')),
@@ -866,6 +914,7 @@ export const TYPEWRITER_MODE_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.typewriterMode',
   descriptionKey: 'settings.editor.typewriterModeDescription',
+  keywords: ['打字机', '居中', '滚动', 'typewriter', 'centred', 'scroll', 'focus line'],
   control: 'toggle',
   accessor: {
     read: () => String(settings.get('editor.typewriterMode')),
@@ -887,6 +936,7 @@ export const VIM_KEYBINDINGS_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.vimKeybindings',
   descriptionKey: 'settings.editor.vimKeybindingsDescription',
+  keywords: ['vim', '键位', '模态编辑', 'hjkl', 'modal', 'motions', 'keymap'],
   control: 'toggle',
   accessor: {
     read: () => String(settings.get('editor.vimKeybindings')),
@@ -908,6 +958,7 @@ export const SPELL_CHECK_FIELD: FieldDef = {
   section: 'editor',
   labelKey: 'settings.editor.spellCheck',
   descriptionKey: 'settings.editor.spellCheckDescription',
+  keywords: ['拼写', '拼错', '下划线', 'spelling', 'spellcheck', 'typo', 'dictionary'],
   control: 'toggle',
   accessor: {
     read: () => String(settings.get('editor.spellCheck')),
@@ -939,6 +990,7 @@ export const REBUILD_INDEX_FIELD: FieldDef = {
   section: 'data',
   labelKey: 'settings.data.rebuildIndex',
   descriptionKey: 'settings.data.rebuildIndexDescription',
+  keywords: ['索引', '重建', '扫描', '搜索', 'index', 'rebuild', 'reindex', 'rescan', 'search'],
   control: 'action',
   actionLabelKey: 'settings.data.rebuildIndexAction',
   probe: workspaceProbe,
@@ -967,6 +1019,7 @@ export const HISTORY_RETENTION_FIELD: FieldDef = {
   section: 'data',
   labelKey: 'settings.data.historyRetention',
   descriptionKey: 'settings.data.historyRetentionDescription',
+  keywords: ['历史', '快照', '版本', '保留', '清理', '删除', 'history', 'snapshot', 'version', 'retention', 'cleanup'],
   control: 'select',
   optionsOf: (t) =>
     HISTORY_RETENTION_OPTIONS.map((value) =>
@@ -991,6 +1044,7 @@ export const OPEN_HISTORY_DIR_FIELD: FieldDef = {
   section: 'data',
   labelKey: 'settings.data.openHistoryDirectory',
   descriptionKey: 'settings.data.openHistoryDirectoryDescription',
+  keywords: ['历史', '快照', '版本', '目录', 'history', 'snapshot', 'version', 'folder'],
   control: 'action',
   actionLabelKey: 'settings.data.openHistoryDirectoryAction',
   probe: workspaceProbe,
@@ -1021,6 +1075,7 @@ export const OPEN_INDEX_DIR_FIELD: FieldDef = {
   section: 'data',
   labelKey: 'settings.data.openIndexDirectory',
   descriptionKey: 'settings.data.openIndexDirectoryDescription',
+  keywords: ['索引', '目录', '数据库', '路径', 'index', 'database', 'db', 'folder', 'path'],
   control: 'action',
   actionLabelKey: 'settings.data.openIndexDirectoryAction',
   probe: workspaceProbe,
@@ -1064,6 +1119,7 @@ export const DIAGNOSTICS_FIELD: FieldDef = {
   section: 'data',
   labelKey: 'settings.data.diagnostics',
   descriptionKey: 'settings.data.diagnosticsDescription',
+  keywords: ['诊断', '日志', '环境', '报错', '排查', 'diagnostics', 'log', 'debug', 'environment', 'troubleshoot'],
   control: 'action',
   actionLabelKey: 'settings.data.copyDiagnosticsAction',
   readonlyValue: readDiagnosticsText,
@@ -1094,6 +1150,7 @@ export const IGNORE_RULES_FIELD: FieldDef = {
   section: 'files',
   labelKey: 'settings.files.ignoreRules',
   descriptionKey: 'settings.files.ignoreRulesDescription',
+  keywords: ['忽略', '排除', '黑名单', '扫描', 'ignore', 'exclude', 'skip', 'scan', 'gitignore'],
   control: 'text',
   accessor: {
     read: () => settings.get('files.ignoreRules'),
@@ -1114,6 +1171,7 @@ export const ATTACHMENT_LOCATION_FIELD: FieldDef = {
   section: 'files',
   labelKey: 'settings.files.attachmentLocation',
   descriptionKey: 'settings.files.attachmentLocationDescription',
+  keywords: ['附件', '图片', '粘贴', '存放', 'attachment', 'image', 'paste', 'assets', 'folder'],
   control: 'radio',
   options: ATTACHMENT_LOCATION_OPTIONS,
   accessor: {
@@ -1135,6 +1193,7 @@ export const NEW_DOCUMENT_LOCATION_FIELD: FieldDef = {
   section: 'files',
   labelKey: 'settings.files.newDocumentLocation',
   descriptionKey: 'settings.files.newDocumentLocationDescription',
+  keywords: ['新建', '保存位置', '目录', 'new', 'save dialog', 'location', 'folder'],
   control: 'radio',
   options: NEW_DOCUMENT_LOCATION_OPTIONS,
   accessor: {
@@ -1159,6 +1218,7 @@ export const ATTACHMENT_DIRECTORY_FIELD: FieldDef = {
   section: 'files',
   labelKey: 'settings.files.attachmentDirectory',
   descriptionKey: 'settings.files.attachmentDirectoryDescription',
+  keywords: ['附件', '子目录', '目录名', 'assets', 'subfolder', 'directory'],
   control: 'text',
   resetValue: ATTACHMENT_DIRECTORY_DEFAULT,
   accessor: {
@@ -1178,6 +1238,7 @@ export const ATTACHMENT_NAME_TEMPLATE_FIELD: FieldDef = {
   section: 'files',
   labelKey: 'settings.files.attachmentNameTemplate',
   descriptionKey: 'settings.files.attachmentNameTemplateDescription',
+  keywords: ['命名', '模板', '文件名', '附件名', 'name', 'template', 'filename', 'timestamp'],
   control: 'text',
   resetValue: ATTACHMENT_NAME_TEMPLATE_DEFAULT,
   accessor: {

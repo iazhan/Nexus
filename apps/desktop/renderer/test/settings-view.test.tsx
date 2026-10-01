@@ -13,7 +13,8 @@ import {
   SECTIONS,
   THEME_MODE_FIELD,
   optionLabel,
-  projectMenuItems
+  projectMenuItems,
+  type SectionId
 } from '../src/settings/registry.js';
 import { useSettingsSection, type SettingsSectionState } from '../src/settings/use-settings-section.js';
 import {
@@ -3031,5 +3032,274 @@ describe('设置视图 · 长路径断行', () => {
     expect(readonly).not.toBeNull();
     expect(readonly!.textContent).toContain('\n');
     expect(readonly!.querySelectorAll('wbr')).toHaveLength(0);
+  });
+});
+
+/**
+ * 设置搜索（`SettingsView` 那一层）。
+ *
+ * 纯逻辑在 `settings-search.test.ts`（三类目标、权重、每个字段可达）；这一层只管**接线**：
+ * 敲字出结果、点或回车选一项、切到那一组、把目标行滚出来并短暂高亮、Escape 清查询而不是关窗。
+ *
+ * 两处刻意的形状，用例要跟着钉住：
+ *
+ * - 结果行是 `<li role="option">`，**不是按钮** —— 设置页有一份「每枚按钮都要落进已知清单」的
+ *   哨兵（见上文），搜索结果不该去动那份清单。
+ * - 搜索框**不在 `role="tablist"` 里**：`tablist` 的直接子元素只该是 tab。
+ *
+ * 高亮那两条要看**节点上的属性**，不看状态：它是瞬时装饰（1600ms 后自己消失），
+ * 故意没走 React 状态 —— 见 `SettingsView` 里那段注释。
+ */
+describe('设置视图 · 搜索', () => {
+  const initialLocale = localeManager.locale;
+
+  beforeEach(() => {
+    /* 查询串是**字面中文**，所以语言必须钉住。`LocaleManager` 的默认值是 `en-US`，不钉的话
+       这些用例会「一条都搜不到」，而失败信息只会说结果是空的 —— 那是这一组里最难看懂的一种红。
+       别名不受影响（它不分语言），钉的是标签那几条。 */
+    localeManager.setLocale('zh-CN');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    act(() => localeManager.setLocale(initialLocale));
+    vi.useRealTimers();
+  });
+
+  /**
+   * 让 `onSelectSection` 真的换掉分组。用固定的 `onSelectSection={() => {}}` 测不出
+   * 「点结果之后页面真的动了」—— 那正是这一层唯一要看的东西。
+   */
+  const Harness: React.FC<{ initial?: SectionId }> = ({ initial = 'appearance' }) => {
+    const [section, setSection] = React.useState<SectionId>(initial);
+    return <SettingsView section={section} onSelectSection={setSection} />;
+  };
+
+  function renderHarness(initial: SectionId = 'appearance'): void {
+    act(() => {
+      root.render(<Harness initial={initial} />);
+    });
+  }
+
+  function searchBox(): HTMLInputElement {
+    return container.querySelector<HTMLInputElement>('[data-settings-search]') as HTMLInputElement;
+  }
+
+  function hits(): HTMLElement[] {
+    return Array.from(container.querySelectorAll<HTMLElement>('[data-search-hit]'));
+  }
+
+  function hit(key: string): HTMLElement | null {
+    return container.querySelector<HTMLElement>(`[data-search-hit="${key}"]`);
+  }
+
+  function type(value: string): void {
+    act(() => setInputValue(searchBox(), value));
+  }
+
+  /** 键盘事件派发到输入框上 —— 焦点在真实使用里也一直在那儿。 */
+  function pressKey(key: string): void {
+    act(() => {
+      searchBox().dispatchEvent(
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      );
+    });
+  }
+
+  function field(fieldId: string): HTMLElement | null {
+    return container.querySelector<HTMLElement>(`[data-field="${fieldId}"]`);
+  }
+
+  it('没敲字时内容区还是分组本身，不是结果列表', () => {
+    renderHarness('editor');
+
+    expect(hits()).toHaveLength(0);
+    expect(field('editor.fontSize')).not.toBeNull();
+    expect(searchBox().value).toBe('');
+  });
+
+  it('敲字出结果：命中字符被标出来，并写出它属于哪一组', () => {
+    renderHarness('editor');
+    type('正文字号');
+
+    const row = hit('field:editor.fontSize');
+    expect(row).not.toBeNull();
+    expect(row!.querySelectorAll('mark').length).toBeGreaterThan(0);
+    // 结果跨分组，所以每一行都要写出它属于哪一组。
+    expect(row!.textContent).toContain(translate(localeManager.locale, 'settings.section.editor'));
+    // 内容区被结果顶掉了 —— 当前分组的字段此刻不在画面上。
+    expect(field('editor.fontSize')).toBeNull();
+  });
+
+  it('别名命中时把那一串别名画出来 —— 否则「敲 dark 得到模式」像撞运气', () => {
+    renderHarness('appearance');
+    type('暗色');
+
+    const row = hit('field:appearance.themeMode');
+    expect(row).not.toBeNull();
+    expect(row!.querySelector('.nexus-settings-search-hit-via')?.textContent).toBe('暗色');
+  });
+
+  it('点结果：切到那一组、把目标行高亮、清掉查询', () => {
+    renderHarness('appearance');
+    type('正文字号');
+
+    act(() => hit('field:editor.fontSize')?.click());
+
+    expect(searchBox().value).toBe('');
+    expect(
+      container.querySelector('.nexus-settings-nav [data-section="editor"]')?.getAttribute(
+        'aria-selected'
+      )
+    ).toBe('true');
+    expect(field('editor.fontSize')?.hasAttribute('data-search-highlight')).toBe(true);
+  });
+
+  it('高亮是瞬时的：定时器到点就摘掉，不留在页面上', () => {
+    vi.useFakeTimers();
+    renderHarness('appearance');
+    type('正文字号');
+    act(() => hit('field:editor.fontSize')?.click());
+
+    expect(field('editor.fontSize')?.hasAttribute('data-search-highlight')).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(field('editor.fontSize')?.hasAttribute('data-search-highlight')).toBe(false);
+  });
+
+  it('分组命中只切页 —— 它没有可跳转的行', () => {
+    renderHarness('general');
+    type('快捷键');
+
+    act(() => hit('section:keybindings')?.click());
+
+    expect(searchBox().value).toBe('');
+    expect(
+      container.querySelector('.nexus-settings-nav [data-section="keybindings"]')?.getAttribute(
+        'aria-selected'
+      )
+    ).toBe('true');
+  });
+
+  it('方向键移动落点，回车选中的是落点那一行（不是第一条）', () => {
+    renderHarness('editor');
+    type('行号');
+
+    const rows = hits();
+    expect(rows.length).toBeGreaterThan(1);
+    // 初始落点在第一条，输入框的 `aria-activedescendant` 指着它。
+    expect(searchBox().getAttribute('aria-activedescendant')).toBe(rows[0]!.id);
+
+    pressKey('ArrowDown');
+    expect(searchBox().getAttribute('aria-activedescendant')).toBe(hits()[1]!.id);
+
+    const chosen = hits()[1]!.dataset.searchHit ?? '';
+    pressKey('Enter');
+
+    expect(searchBox().value).toBe('');
+    // 落点那一行真的被选中了。两行在页面上长得很像，只有这一条分得开。
+    const chosenField = chosen.replace(/^field:/, '');
+    expect(field(chosenField)).not.toBeNull();
+    expect(field(chosenField)?.hasAttribute('data-search-highlight')).toBe(true);
+  });
+
+  it('查询一变就把落点收回第一条 —— 否则它会停在新结果里另一个项上', () => {
+    renderHarness('editor');
+    type('行号');
+    pressKey('ArrowDown');
+    expect(searchBox().getAttribute('aria-activedescendant')).toBe(hits()[1]!.id);
+
+    type('正文字号');
+
+    expect(searchBox().getAttribute('aria-activedescendant')).toBe(hits()[0]!.id);
+  });
+
+  it('Escape 清掉查询并拦下事件 —— 那一刻它的意思不是「关窗」', () => {
+    renderHarness('editor');
+    type('正文字号');
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true
+    });
+    act(() => {
+      searchBox().dispatchEvent(event);
+    });
+
+    expect(searchBox().value).toBe('');
+    // `SettingsWindow` 那层看的就是这个标记（它早就为弹层的 Escape 这么写了）。
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('查询为空时 Escape 不拦截 —— 那时它的意思就是关窗', () => {
+    renderHarness('editor');
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true
+    });
+    act(() => {
+      searchBox().dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('没有匹配时给一行说明，且不画 listbox', () => {
+    renderHarness('editor');
+    type('zzz-不存在的设置项');
+
+    expect(hits()).toHaveLength(0);
+    expect(container.querySelector('[data-search-empty]')?.textContent).toBe(
+      translate(localeManager.locale, 'settings.searchEmpty')
+    );
+    // `aria-controls` 只在列表真的存在时写 —— 指向一个不存在的 id 比不写更糟。
+    expect(searchBox().getAttribute('aria-controls')).toBeNull();
+    expect(searchBox().getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('结果行里一个按钮都没有', () => {
+    renderHarness('editor');
+    type('行号');
+
+    expect(hits().length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('.nexus-settings-search-results button')).toHaveLength(0);
+  });
+
+  it('搜索框在侧栏里，但不在 tablist 里', () => {
+    renderHarness();
+
+    expect(searchBox().closest('[role="tablist"]')).toBeNull();
+    expect(container.querySelector('.nexus-settings-sidebar')?.contains(searchBox())).toBe(true);
+  });
+
+  /**
+   * 换语言之后结果要用**新语言**的标签。
+   *
+   * 这条是冲着「顺手给搜索结果加个 `useMemo`」去的：`t` 是 `useCallback([])` 出来的稳定引用，
+   * 依赖写成 `[query, t]` 时语言变了它不会重算，页面就停在上一种语言的标签上 ——
+   * 而组件本身已经因为语言变化重渲染了一次，所以看不出哪里不对。
+   */
+  it('换语言后结果用的是新语言的标签', () => {
+    renderHarness('appearance');
+    type('暗色');
+
+    const label = (): string =>
+      hit('field:appearance.themeMode')?.querySelector('.nexus-settings-search-hit-label')
+        ?.textContent ?? '';
+    expect(label()).toBe(translate('zh-CN', 'settings.appearance.themeMode'));
+
+    act(() => localeManager.setLocale('en-US'));
+
+    expect(label()).toBe(translate('en-US', 'settings.appearance.themeMode'));
   });
 });

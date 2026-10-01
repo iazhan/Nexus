@@ -295,7 +295,9 @@ export const AppearanceSection: React.FC = () => {
         </button>
       </div>
 
-      <div className="nexus-settings-field">
+      {/* `data-field` 是**搜索跳转的落点**，不是装饰 —— 本分组这两行是手写的，不挂它的话
+          「暗色」搜到「模式」之后没地方可滚。其余三行走 `FieldRow`，那个自带。 */}
+      <div className="nexus-settings-field" data-field={THEME_MODE_FIELD.id}>
         <span className="nexus-settings-field-label">{modeLabel}</span>
         <div className="nexus-theme-modes" role="radiogroup" aria-label={modeLabel}>
           {(THEME_MODE_FIELD.options ?? []).map((option) => {
@@ -341,7 +343,7 @@ export const AppearanceSection: React.FC = () => {
         )}
       </div>
 
-      <div className="nexus-settings-field">
+      <div className="nexus-settings-field" data-field={THEME_PRESET_FIELD.id}>
         <span className="nexus-settings-field-label">{t(THEME_PRESET_FIELD.labelKey)}</span>
 
         <input

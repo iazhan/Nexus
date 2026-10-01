@@ -494,6 +494,64 @@ describe('设置窗口', () => {
       'files.newDocumentLocation'
     ]);
 
+    // ④f 设置搜索。
+    //
+    //     这一层要真机才证得到的只有一件事：**内容区真的滚了**。happy-dom 不排版，
+    //     `scrollIntoView` 在那儿是个空函数，renderer 用例只能证明「属性挂上去了」。
+    //     所以先滚到底，再搜一个**同分组**里靠上的字段 —— 分组不变，`[section]` 那条
+    //     「滚回顶部」不会跑，能动的只有搜索那一次跳转。
+    //
+    //     顺带钉两件 renderer 层证不到的：搜索框在真窗口里真的画出来了（880px 宽的窗口
+    //     走的是宽断点那一支），以及别名在**打包后的真界面**里也进了索引。
+    await app.click('.nexus-settings-nav [data-section="editor"]');
+    await app.waitForSelector('[data-field="editor.spellCheck"]', 10000);
+    await app.evaluate(
+      `(() => { document.querySelector('.nexus-settings-content').scrollTop = 100000; return true; })()`
+    );
+    const scrolledToBottom = await app.evaluate<number>(
+      `document.querySelector('.nexus-settings-content').scrollTop`
+    );
+    expect(scrolledToBottom).toBeGreaterThan(0);
+
+    // 敲 `mermaid`：它**只在别名表里**（标签是「点击图表显示源码」/「Click diagram to show source」），
+    // 所以这一条同时证明别名真的进了搜索索引。查询串用英文别名而不是中文标签，
+    // 是因为真机跑在哪种语言下取决于存档与系统 —— 别名不分语言，标签分。
+    await app.evaluate(`(() => {
+      const input = document.querySelector('[data-settings-search]');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'mermaid');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await app.waitForSelector('[data-search-hit="field:editor.mermaidClickToReveal"]', 10000);
+    // 命中别名时那一串原文要画出来 —— 只给标签的话，「敲 mermaid 得到点击图表显示源码」
+    // 看起来像撞运气。
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('[data-search-hit="field:editor.mermaidClickToReveal"] .nexus-settings-search-hit-via').textContent`
+      )
+    ).toBe('mermaid');
+    // 结果行不是按钮。设置页那份「每枚按钮都要落进已知清单」的哨兵在 renderer 层，
+    // 这里只顺带钉住真 DOM 里也没多出按钮。
+    expect(
+      await app.evaluate<number>(
+        `document.querySelectorAll('.nexus-settings-search-results button').length`
+      )
+    ).toBe(0);
+
+    await app.click('[data-search-hit="field:editor.mermaidClickToReveal"]');
+    await app.waitForFunction(
+      `() => document.querySelector('[data-field="editor.mermaidClickToReveal"]') !== null`,
+      10000
+    );
+    // 查询被清掉、那一页回来了。
+    expect(await app.evaluate<string>(`document.querySelector('[data-settings-search]').value`)).toBe(
+      ''
+    );
+    // **滚动真的发生了** —— 从底部回到上面。分组没换，所以这不可能是「切分组滚回顶部」。
+    expect(
+      await app.evaluate<number>(`document.querySelector('.nexus-settings-content').scrollTop`)
+    ).toBeLessThan(scrolledToBottom);
+
     // ⑤ 跨窗口同步：切回主窗口，它也换过来了。
     //    这条是独立窗口方案最容易漏的地方 —— 两个渲染进程各有一份 `SettingsStore`，
     //    少了主进程中转就是「设置窗口改了、主窗口纹丝不动」。

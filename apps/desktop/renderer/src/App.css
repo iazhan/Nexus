@@ -2079,14 +2079,15 @@ body.nexus-resizing {
   font-family: inherit;
 }
 
-.nexus-settings-nav {
+/* 左栏（标题 + 搜索 + 导航）。宽度与右边框从 `.nexus-settings-nav` 移到这里 ——
+   搜索框要落在标题与分组列表之间，而 `role="tablist"` 的直接子元素只该是 tab，
+   所以多了一层容器。滚动仍然只发生在 nav 那一段，标题与搜索框常驻。 */
+.nexus-settings-sidebar {
   display: flex;
   flex-direction: column;
   width: 200px;
   flex-shrink: 0;
-  padding: 12px 8px;
-  gap: 2px;
-  overflow-y: auto;
+  min-height: 0;
   border-right: 1px solid var(--nexus-border-subtle);
   background-color: var(--nexus-bg-surface);
 }
@@ -2094,12 +2095,46 @@ body.nexus-resizing {
 /* 它是页面的 `h1`（各分组标题是 `h2`），所以 `margin` 要自己清掉。 */
 .nexus-settings-nav-title {
   margin: 0;
-  padding: 4px 8px 10px;
+  padding: 12px 16px 10px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--nexus-text-muted);
+}
+
+/* 设置搜索。轮廓与同页的输入框（`.nexus-settings-text`）同一套：边界走
+   `--nexus-border-control`（图形级 3:1），焦点环走 `--nexus-accent-indicator`。
+   底色取 `--nexus-bg-canvas` 而不是输入框惯用的 `--nexus-bg-surface`：这一格落在
+   **侧栏**里，而侧栏本身就是 surface —— 同色的话它只剩一圈边框，看起来像个空框。 */
+.nexus-settings-search {
+  margin: 0 8px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--nexus-border-control);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-canvas);
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-settings-search::placeholder {
+  color: var(--nexus-text-muted);
+}
+
+.nexus-settings-search:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 0;
+}
+
+.nexus-settings-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0 8px 12px;
+  gap: 2px;
+  overflow-y: auto;
 }
 
 .nexus-settings-nav-item {
@@ -2172,8 +2207,18 @@ body.nexus-resizing {
    标签是**视觉隐藏而不是 `display: none`** —— 它还得留在按钮的可访问名里，不然读屏
    拿到的是八个无名按钮；分组名另外挂了一个 `title`（`SettingsView.tsx`）。 */
 @media (max-width: 720px) {
-  .nexus-settings-nav {
+  .nexus-settings-sidebar {
     width: 56px;
+  }
+
+  /* 56px 放不下一个能用的输入框，所以**整个藏掉** —— 留一个 40px 宽的框只会让人打进去
+     却看不见自己打了什么。搜索在这个宽度下没有可用形态，不是忘了做。 */
+  .nexus-settings-search {
+    display: none;
+  }
+
+  /* 标题在下面被移出文档流（视觉隐藏），nav 于是要自己补上那 12px 的上边距。 */
+  .nexus-settings-nav {
     padding: 12px 6px;
   }
 
@@ -2227,10 +2272,90 @@ body.nexus-resizing {
   color: var(--nexus-text-primary);
 }
 
+/* 搜索结果。命中时内容区整个换成它（不是在下拉里浮一层）—— 结果跨分组，每一行都要写出
+   它属于哪一组，而 200px 的侧栏装不下这些。 */
+.nexus-settings-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 640px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nexus-settings-search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* 落点 ＝ 回车会选中的那一行。键盘用户看不到指针，只画 hover 的话没有落点。 */
+.nexus-settings-search-hit[data-search-active] {
+  background-color: var(--nexus-selection-bg);
+}
+
+.nexus-settings-search-hit-label {
+  font-size: 13px;
+  color: var(--nexus-text-primary);
+}
+
+/* 命中的字符只加粗、**不改色** —— 颜色继承这一行自己那一档，于是「在画布上」与
+   「在选中底色上」两种承载面都落在契约内。改成 `--nexus-accent-text` 的话，落在
+   `--nexus-selection-bg` 上实测只有 2.92:1（`.nexus-settings-nav-item-active` 那段
+   注释记的是同一件事）。 */
+.nexus-settings-search-hit-label mark {
+  background: none;
+  color: inherit;
+  font-weight: 600;
+}
+
+.nexus-settings-search-hit-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+/* 选中底色上的次级文字必须让开 `--nexus-text-muted` —— 它压在这块底色上不过 AA。
+   与 `.nexus-settings-nav-item[data-availability='planned']` 是同一条判据。 */
+.nexus-settings-search-hit[data-search-active] .nexus-settings-search-hit-meta {
+  color: var(--nexus-text-primary);
+}
+
+/* 命中别名 / id 时那一串原文。等宽是有意的：它是一个**字面量**（用户敲进去的那个词），
+   不是一句话。中文会落到 `--font-cjk`，所以不会掉进 `NSimSun`。 */
+.nexus-settings-search-hit-via {
+  padding: 0 5px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+
+.nexus-settings-search-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--nexus-text-muted);
+}
+
 .nexus-settings-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* 搜索结果命中的那一行：**瞬时轮廓**，1.6s 后由 `SettingsView` 摘掉 `data-search-highlight`。
+   用 outline 不用底色 —— 底色要配内边距才好看，而加内边距会在高亮出现的一瞬间把整页推一下；
+   outline 不参与布局。也**没有过渡动画**，所以 `prefers-reduced-motion` 天然满足。
+   环走 `--nexus-accent-indicator`（图形级 3:1），与同页所有焦点环同一个 token。 */
+.nexus-settings-field[data-search-highlight] {
+  outline: 2px solid var(--nexus-accent-indicator);
+  outline-offset: 4px;
+  border-radius: 8px;
 }
 
 .nexus-settings-field-label {
