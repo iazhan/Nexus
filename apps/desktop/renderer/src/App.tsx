@@ -18,7 +18,8 @@ import {
   parseLinkFormat,
   parsePageAnchor,
   relativePathFrom,
-  resolveWikiLink
+  resolveWikiLink,
+  scanTags
 } from '@nexus/core';
 import {
   MarkdownDocumentSession,
@@ -192,6 +193,26 @@ export const App: React.FC = () => {
    * 它是「这次看什么」，不是「文档是什么」，与 WorkspaceStore 各管一摊。
    */
   const [activity, setActivity] = useState(INITIAL_ACTIVITY_STATE);
+
+  /**
+   * 编辑器里 Ctrl+点击标签后，要求标签面板展开的那个标签。
+   *
+   * 带 `seq` 而不是裸字符串：连着点同一个标签两次，两次都要真的展开一次 ——
+   * 而裸字符串两次是同一个值，`useEffect` 的依赖比较看不出区别。
+   */
+  const [tagFocus, setTagFocus] = useState<{ tag: string; seq: number } | null>(null);
+
+  /**
+   * 待兑现的「打开文档后把某个标签滚到视口第一行」。
+   *
+   * 为什么要排队、不在打开之后立刻滚：`handleOpenWorkspaceFile` 返回时 React 还没渲染，
+   * 新文档的 EditorView 尚不存在 —— 那一刻 `activeView` 还是**上一篇**文档的，
+   * 在它上面找标签只会把光标移到无关的位置。
+   */
+  const [pendingTagReveal, setPendingTagReveal] = useState<{
+    tag: string;
+    filePath: string;
+  } | null>(null);
 
   /**
    * 文档内容版本号。唯一用途是让插件面板在编辑后重新读一次扩展状态 ——
@@ -889,6 +910,42 @@ export const App: React.FC = () => {
     },
     [applyOpenedDocument, openViewerDocumentAt, t]
   );
+
+  /**
+   * 标签面板里点文档：打开它，并把**被点击的那个标签**滚到视口第一行。
+   *
+   * 第二个参数是被点的标签，而不是「文档里的某个标签」—— 一篇文档可以带多个标签，
+   * 用户点的是哪一行，就该定位到哪一个。
+   */
+  const handleOpenTaggedDocument = useCallback(
+    async (targetPath: string, tag: string) => {
+      const opened = await handleOpenWorkspaceFile(targetPath);
+      // 打不开就不排队：排了会一直挂着，等下一次打开任何文档时突然生效。
+      if (!opened) return;
+      setPendingTagReveal({ tag, filePath: targetPath });
+    },
+    [handleOpenWorkspaceFile]
+  );
+
+  /**
+   * 兑现上面那个排队项。
+   *
+   * 两个条件缺一不可：目标文档**已经是活动文档**、且它的 view **已就绪**。
+   * 打开是异步的，少任何一个都只会拿到上一篇文档的 view。
+   */
+  useEffect(() => {
+    if (!pendingTagReveal) return;
+    if (!activeView || filePath !== pendingTagReveal.filePath) return;
+
+    const { tag } = pendingTagReveal;
+    // 先清掉再滚：即使滚动那一步抛错，也不会把这一项永远挂在队列里。
+    setPendingTagReveal(null);
+
+    // 落点走大纲跳转那条路径 —— `revealHeadingAt` 会把目标行对齐到视口第一行。
+    // 找不到就什么都不做：标签可能刚被删掉，或磁盘内容与索引还没对齐。
+    const match = scanTags(activeView.state.doc.toString()).find((item) => item.tag === tag);
+    if (match) revealHeadingAt(activeView, match.from);
+  }, [pendingTagReveal, activeView, filePath]);
 
   // Open file via the system dialog
   const handleOpenFile = useCallback(async () => {
@@ -1631,9 +1688,11 @@ export const App: React.FC = () => {
    * Ctrl/Cmd+左键的链接跳转策略。
    *
    * 编辑器只负责识别（命中哪个链接、href 是什么），"往哪去"在这里定：
-   *   1. `#anchor`         → 文档内标题跳转，不离开当前文档
-   *   2. http/https/mailto → 交给系统默认浏览器
-   *   3. 相对路径           → 按当前文档目录解析，再由编辑器打开
+   *   1. `#标签`           → 切到标签面板并展开它
+   *   2. wikilink          → 拿目标名去索引里解析成文档
+   *   3. `#anchor`         → 文档内标题跳转，不离开当前文档
+   *   4. http/https/mailto → 交给系统默认浏览器
+   *   5. 相对路径           → 按当前文档目录解析，再由编辑器打开
    *                          （可带 `#page=` 页码锚点，P3-11 的引用就是这种）
    *
    * 返回 false 表示不处理，事件交回浏览器，保持默认的落光标行为。
@@ -1643,7 +1702,16 @@ export const App: React.FC = () => {
       const target = href.trim();
       if (!target) return false;
 
-      // 0. wikilink：拿目标名去**索引**里解析。编辑器只把名字递过来，
+      // 0. 标签：切到标签面板并展开它。标签不是文件，没有「打开」这一说 ——
+      //    它唯一能去的方向是「列出带这个标签的文档」，而那正是标签面板的职责。
+      //    `target` 已归一化（去 `#`、转小写），与索引库 `tags` 表的存法一致。
+      if (kind === 'tag') {
+        setActivity({ activeId: 'tags', panelOpen: true });
+        setTagFocus((previous) => ({ tag: target, seq: (previous?.seq ?? 0) + 1 }));
+        return true;
+      }
+
+      // 1. wikilink：拿目标名去**索引**里解析。编辑器只把名字递过来，
       //    「它对应工作区里哪个文件」是宿主的策略（与编辑器包的分层一致）。
       if (kind === 'wikilink') {
         void (async () => {
@@ -1677,7 +1745,7 @@ export const App: React.FC = () => {
         return true;
       }
 
-      // 1. 文档内锚点：光标落到标题上并滚动过去
+      // 2. 文档内锚点：光标落到标题上并滚动过去
       if (target.startsWith('#')) {
         const view = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
         if (!view) return false;
@@ -1689,7 +1757,7 @@ export const App: React.FC = () => {
         return true;
       }
 
-      // 2. 外部协议。这里再判一次白名单，是不把"净化器放行过"当成"一定能开"；
+      // 3. 外部协议。这里再判一次白名单，是不把"净化器放行过"当成"一定能开"；
       //    主进程侧还有第三道校验，被拒时它返回 false。
       if (/^(?:https?|mailto):/i.test(target)) {
         const openExternal = window.nexus?.openExternal;
@@ -1705,7 +1773,7 @@ export const App: React.FC = () => {
         return true;
       }
 
-      // 3. 相对路径：必须相对当前文档目录解析，否则会被当成进程 cwd。
+      // 4. 相对路径：必须相对当前文档目录解析，否则会被当成进程 cwd。
       const directory = getDocumentDirectory(filePath);
       if (!directory) {
         setLinkError(t('link.error.unsavedDocument', { target }));
@@ -2514,8 +2582,9 @@ export const App: React.FC = () => {
           >
             {/* 标签来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
             <TagsPanel
-              onOpenFile={handleOpenWorkspaceFile}
+              onOpenDocument={handleOpenTaggedDocument}
               revision={documentRevision}
+              focusTag={tagFocus}
             />
           </div>
           <div

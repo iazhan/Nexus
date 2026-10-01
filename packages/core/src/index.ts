@@ -41,6 +41,14 @@ export {
 } from './document/wikilink.js';
 
 export {
+  scanTags,
+  extractTags,
+  extractFrontmatterTags,
+  extractDocumentTags,
+  type TagMatch
+} from './document/tags.js';
+
+export {
   LINK_FORMATS,
   LINK_FORMAT_DEFAULT,
   LINK_FORMAT_WIKILINK,

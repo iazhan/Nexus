@@ -176,6 +176,12 @@ export const nexusBaseTheme = EditorView.theme({
     color: "var(--nexus-text-muted)",
     textDecoration: "underline dashed"
   },
+  // 标签（`#标签`）。用 syntax-property 而不是 syntax-url：两者都是「引用」，但链接
+  // 已经占了 url 色，同色会让标签看起来像一条坏掉的链接。**不给背景色** ——
+  // 标签常成串出现，底纹连起来会盖过正文本身的强调层级。
+  ".cm-nexus-tag": {
+    color: "var(--nexus-syntax-property)"
+  },
   // 内嵌图片。**`max-width` 是这条链上唯一能兜住图片尺寸的地方** —— 尺寸来自文件本身，
   // 投影层拿不到；缺了它图片按原始像素撑开行宽（实测一张 2001px 的图把行宽推到 2009px，
   // 而编辑区只有 655px），横向滚动条随之出现。

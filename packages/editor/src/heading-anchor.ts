@@ -94,8 +94,9 @@ export function resolveHeadingAnchor(source: string, anchor: string): number | n
 /**
  * 把光标落到目标偏移上，并让该行成为**视口第一行**——行号也完整可见。
  *
- * **凡是「跳到某一行」都要走这里**，包括文档内锚点（`revealHeadingAnchor`）和
- * 大纲面板。原因全在下面那两处：`y: 'start'` 与 `alignLineBoxToTop`。
+ * **凡是「跳到某一行」都要走这里**，包括文档内锚点（`revealHeadingAnchor`）、大纲面板、
+ * 以及标签面板（`#标签` 在源码里的偏移）。原因全在下面那两处：`y: 'start'` 与
+ * `alignLineBoxToTop`。
  */
 export function revealHeadingAt(view: EditorView, from: number): void {
   // 先聚焦再滚动：聚焦会让投影展开目标行的标记（行高可能微调），

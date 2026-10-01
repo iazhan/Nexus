@@ -30,16 +30,20 @@ import type {
  */
 
 /**
- * schema 版本。改表结构就 +1 —— 旧库会被整个重建。
+ * schema 版本。改表结构、或改**任何会改变派生内容**的抽取判据，都要 +1 —— 旧库会被整个重建。
  *
  * v4（Phase 3 / P3-04）：`documents` 加 `type` 列，附件开始进索引。
  * v5（Phase 3 / P3-10）：`documents` 加 `extraction_status` 列，被 Markdown 引用过的
  * PDF / DOCX 提取出的文本开始进 FTS。
+ * v6（0.55.0）：标签抽取判据收紧 —— 代码块 / 行内代码 / frontmatter 里的 `#` 不算标签，
+ * 且纯数字不算（`#1984` 无效）。**表结构一个字没改**，但 `tags` 表的内容变了，而
+ * 「内容没变就跳过」的判据（`contentHash`）会让那些文件永远留着重扫前的旧标签 ——
+ * 只有版本号能把它们逼出来。这就是「改判据也要 +1」的原因。
  * 注意这里**没有迁移脚本** —— 索引是派生数据，重建成本是几秒扫盘，
  * 而迁移脚本会长期背着「派生数据的格式」这个不该背的包袱（见文件头注释）。
- * 所以「schema v5 的 migration」在本项目里的含义就是「把版本号改掉」。
+ * 所以「schema v6 的 migration」在本项目里的含义就是「把版本号改掉」。
  */
-const SCHEMA_VERSION = '5';
+const SCHEMA_VERSION = '6';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS meta (

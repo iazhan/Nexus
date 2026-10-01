@@ -40,6 +40,7 @@ import {
   createLinkNavigationExtension,
   type LinkNavigator
 } from './link-navigation.js';
+import { tagHighlightExtension } from './tag-highlight.js';
 import {
   createImeCompositionExtension,
   isEditorComposing,
@@ -430,7 +431,10 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
           ? [workspaceAssetsField.init(() => options.workspaceAssets ?? EMPTY_WORKSPACE_ASSETS)]
           : []),
         ...(options.linkNavigator ? [createLinkNavigationExtension(options.linkNavigator)] : []),
-        ...visualProjectionExtensions
+        ...visualProjectionExtensions,
+        // 排在投影之后：标签是 mark 装饰，而投影里有 replace(widget)。同 from 时
+        // mark 必须在 replace 之后 —— 顺序反了不是样式问题，是整窗崩。
+        tagHighlightExtension
       ]
     : [
         createInlineEditExtension(options.session, inlineEditOptions),
@@ -441,7 +445,8 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
           ? [workspaceAssetsField.init(() => options.workspaceAssets ?? EMPTY_WORKSPACE_ASSETS)]
           : []),
         ...(options.linkNavigator ? [createLinkNavigationExtension(options.linkNavigator)] : []),
-        ...sourceImageProjectionExtensions
+        ...sourceImageProjectionExtensions,
+        tagHighlightExtension
       ];
 
   return EditorState.create({

@@ -1,53 +1,21 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
-import { extractTags } from '../electron/indexer.js';
 import { IndexStore } from '../electron/index-store.js';
+import { FileService } from '../electron/file-service.js';
+import { indexWorkspace } from '../electron/indexer.js';
 import { createTempDir } from './smoke-harness.js';
 
-describe('标签提取', () => {
-  it('提取 #标签', () => {
-    expect(extractTags('这是 #dma 相关。')).toEqual(['dma']);
-  });
-
-  it('归一化：转小写', () => {
-    expect(extractTags('#DMA')).toEqual(['dma']);
-  });
-
-  it('ATX 标题不是标签 —— `#` 后面有空格', () => {
-    expect(extractTags('# 一级标题')).toEqual([]);
-    expect(extractTags('## 二级标题')).toEqual([]);
-  });
-
-  it('URL 片段不是标签 —— `#` 前面不是空白', () => {
-    expect(extractTags('见 https://example.com/page#anchor')).toEqual([]);
-  });
-
-  it('行首的标签能识别', () => {
-    expect(extractTags('#dma 开头的行')).toEqual(['dma']);
-  });
-
-  it('去掉粘在末尾的标点', () => {
-    expect(extractTags('见 #dma，还有 #ethercat.')).toEqual(['dma', 'ethercat']);
-  });
-
-  it('去重（大小写归一后相同）', () => {
-    expect(extractTags('#a 与 #A')).toEqual(['a']);
-  });
-
-  it('支持中文标签', () => {
-    expect(extractTags('#电机控制')).toEqual(['电机控制']);
-  });
-
-  it('支持路径式标签', () => {
-    expect(extractTags('#项目/nexus')).toEqual(['项目/nexus']);
-  });
-
-  it('没有标签时返回空数组', () => {
-    expect(extractTags('普通文本，没有标签。')).toEqual([]);
-  });
-});
+/**
+ * `tags` 表的读写，以及**索引器往它里面写什么**。
+ *
+ * 扫描判据（哪些 `#` 算标签、代码块与 frontmatter 怎么处理）的用例在
+ * `packages/core/test/tags.test.ts` —— 判据住在 core，编辑器高亮用的是同一份。
+ * 这里只管「判据跑出来的结果有没有真的落进索引」。
+ */
 
 describe('标签索引', () => {
   let dir: string;
@@ -132,5 +100,72 @@ describe('标签索引', () => {
 
   it('没有标签时返回空数组', () => {
     expect(store.listTags()).toEqual([]);
+  });
+});
+
+describe('索引器写进 tags 表的内容', () => {
+  let tempDir: string;
+  let workspace: string;
+  let service: FileService;
+  let store: IndexStore;
+
+  beforeEach(async () => {
+    tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'nexus-tags-index-'));
+    workspace = path.join(tempDir, 'vault');
+    await fsPromises.mkdir(workspace, { recursive: true });
+
+    service = new FileService();
+    await service.authorizeWorkspace(workspace);
+    store = IndexStore.open(path.join(tempDir, 'index.db'));
+  });
+
+  afterEach(async () => {
+    store.close();
+    await fsPromises.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const write = (relativePath: string, content: string) =>
+    fsPromises.writeFile(path.join(workspace, relativePath), content);
+
+  it('正文 inline 与 frontmatter 的标签合并成同一份（同名不裂成两项）', async () => {
+    await write(
+      'a.md',
+      ['---', 'tags: [硬件, DMA]', '---', '', '正文 #ethercat 与 #dma'].join('\n')
+    );
+
+    await indexWorkspace({ service, store, rootPath: workspace });
+
+    expect(store.listTags()).toEqual([
+      { tag: 'dma', count: 1 },
+      { tag: 'ethercat', count: 1 },
+      { tag: '硬件', count: 1 }
+    ]);
+  });
+
+  it('代码块里的 `#` 不进索引', async () => {
+    await write(
+      'b.md',
+      ['```c', '#include <stdio.h>', '#define MAX 8', '```', '', '#real'].join('\n')
+    );
+
+    await indexWorkspace({ service, store, rootPath: workspace });
+
+    expect(store.listTags()).toEqual([{ tag: 'real', count: 1 }]);
+  });
+
+  it('没有 frontmatter 的文档照常收正文标签', async () => {
+    await write('c.md', '# 标题\n\n正文 #dma\n');
+
+    await indexWorkspace({ service, store, rootPath: workspace });
+
+    expect(store.listTags()).toEqual([{ tag: 'dma', count: 1 }]);
+  });
+
+  it('编号引用不进索引 —— `见 issue #123`', async () => {
+    await write('d.md', '见 issue #123，正文 #dma\n');
+
+    await indexWorkspace({ service, store, rootPath: workspace });
+
+    expect(store.listTags()).toEqual([{ tag: 'dma', count: 1 }]);
   });
 });

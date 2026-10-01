@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   attachmentContentFingerprint,
   attachmentReferences,
+  extractDocumentTags,
   normalizeWikilinkTarget,
   type DocumentType,
   type IndexWorkspaceResult,
@@ -23,8 +24,10 @@ import type { IndexStore, UpsertDocumentInput } from './index-store.js';
  * Phase 3 / P3-10 起**被 Markdown 引用过的 PDF / DOCX** 例外：它们的文本会被提取
  * 出来并进全文索引（计划 §10.1 决策 1）。见下方 `extractReferencedAttachments()`。
  *
- * headings 仍不进索引 —— 大纲面板直接从**当前源码**解析，那样才能跟随编辑实时更新；
- * tags 等需求明确之后再落。
+ * headings 仍不进索引 —— 大纲面板直接从**当前源码**解析，那样才能跟随编辑实时更新。
+ * 标签反过来：它要跨文档查询（「哪些文档带 #dma」），只能靠索引，所以正文 inline 与
+ * frontmatter 两处一起抽（`extractDocumentTags()`）。扫描判据住在 core，编辑器高亮
+ * 用的是同一份 —— 否则会出现「高亮着却没进面板」。
  *
  * 全量而非增量：索引是派生数据，重建的代价只是几秒扫盘，而增量状态本身
  * 就是一类需要维护、会出错、还无法自证正确的数据。这里只用内容指纹跳过
@@ -221,7 +224,7 @@ export async function prepareIndexEntry(
       contentHash,
       body: content ?? '',
       links: content !== null ? extractWikiLinkTargets(content) : [],
-      tags: content !== null ? extractTags(content) : []
+      tags: content !== null ? extractDocumentTags(content) : []
     },
     referencedPaths,
     referencedWikilinkTargets
@@ -384,36 +387,4 @@ export function extractWikiLinkTargets(source: string): string[] {
   }
 
   return [...targets];
-}
-
-/**
- * `#标签`：`#` 前必须是行首或空白，`#` 后紧跟非空白、非 `#` 的字符。
- *
- * 这条「前面要是空白」的约束同时排除了两类最常见的误判：
- *   - `# 标题` —— `#` 后是空格，ATX 标题不是标签
- *   - `https://x.com/#anchor` —— `#` 前是 `/`，URL 片段不是标签
- */
-const TAG_PATTERN = /(?:^|\s)#([^\s#]+)/g;
-
-/** 标签的终止标点：遇到就认为标签结束。 */
-const TAG_TERMINATOR = /[.,;:!?，。；：！？、()（）[\]【】"'`]/;
-
-/**
- * 提取正文里的标签并归一化（去前导 `#`、转小写）。
- *
- * 与出链一样用正则、**不跳过代码块**：多收一个标签不致命，
- * 漏掉真的会让人以为功能坏了。
- */
-export function extractTags(source: string): string[] {
-  const tags = new Set<string>();
-
-  for (const match of source.matchAll(TAG_PATTERN)) {
-    // 正则只能按空白切，所以 `#dma，还有` 会整段被吃进来。
-    // 这里再按标点截断一次，只取第一个标点之前的部分。
-    const candidate = match[1]?.split(TAG_TERMINATOR)[0]?.trim();
-    if (!candidate) continue;
-    tags.add(candidate.toLowerCase());
-  }
-
-  return [...tags];
 }

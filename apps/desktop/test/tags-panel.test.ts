@@ -12,8 +12,10 @@ import {
 /**
  * 标签面板。
  *
- * 标签来自索引（磁盘内容），不是编辑器草稿。提取规则的 10 条单测和
- * 查询的 7 条单测在 `test/tags.test.ts`，这里验接进 App 之后的链路。
+ * 标签来自索引（磁盘内容），不是编辑器草稿。扫描判据的 38 条单测在
+ * `packages/core/test/tags.test.ts`、查询的 7 条在 `test/tags.test.ts`、
+ * 面板渲染分支的 4 条在 `renderer/test/tags-panel.test.tsx`，
+ * 这里验接进 App 之后的整条链路，含 Ctrl+点击编辑器里的标签。
  */
 describe('标签面板', () => {
   let tempDir: string;
@@ -25,7 +27,15 @@ describe('标签面板', () => {
     workspace = path.join(tempDir, 'vault');
     fs.mkdirSync(workspace, { recursive: true });
 
-    fs.writeFileSync(path.join(workspace, 'a.md'), '# A\n\n讲 #dma 和 #ethercat。\n', 'utf-8');
+    // a.md 刻意写长、标签放**中间**：前后都要有足够内容，「滚到视口第一行」才验得出来
+    // —— 目标离文末不足一屏时滚动会被钳制在最大值，行盒反而落在视口下方。
+    const filler = (label: string, count: number) =>
+      Array.from({ length: count }, (_, index) => `- ${label} ${index + 1}`).join('\n');
+    fs.writeFileSync(
+      path.join(workspace, 'a.md'),
+      `# A\n\n${filler('上面', 30)}\n\n讲 #dma 和 #ethercat。\n\n${filler('下面', 30)}\n`,
+      'utf-8'
+    );
     fs.writeFileSync(path.join(workspace, 'b.md'), '# B\n\n也讲 #dma。\n', 'utf-8');
   });
 
@@ -97,5 +107,55 @@ describe('标签面板', () => {
     expect(
       await app.evaluate<string>(`document.querySelector('.nexus-filename')?.textContent ?? ''`)
     ).toBe('a.md');
+
+    // ── 打开的同时，文档里那个标签被滚到视口第一行 ──
+    //
+    // 与大纲跳转同一条落点路径（`revealHeadingAt`）。这里只验结果，不验实现：
+    // 标签行的顶边要和滚动容器的顶边对齐。
+    await app.waitForFunction(
+      `() => {
+        const tag = document.querySelector('.cm-nexus-tag[data-tag="dma"]');
+        const scroller = document.querySelector('.cm-scroller');
+        if (!tag || !scroller) return false;
+        return Math.abs(tag.getBoundingClientRect().top - scroller.getBoundingClientRect().top) < 4;
+      }`,
+      15000
+    );
+
+    // 而且要**真的滚过**：文档本来就贴着顶时，上面那条断言同样成立。
+    expect(
+      await app.evaluate<number>(`document.querySelector('.cm-scroller')?.scrollTop ?? 0`)
+    ).toBeGreaterThan(0);
+
+    // ── Ctrl+点击编辑器里的标签 → 标签面板切过去并展开它 ──
+    //
+    // 这一段验的是 App 层那条分支：编辑器只把 `kind: 'tag'` 与归一化后的标签名递出来，
+    // 「往哪去」由宿主决定。它是这条链路上唯一没有单测覆盖的一环 ——
+    // 编辑器侧只验到「navigator 收到了请求」（`packages/editor/test/tag-highlight.test.ts`）。
+    //
+    // 此时面板正展开着 #dma，所以断言「切到 ethercat」同时验了**切换**。
+    await app.waitForSelector('.cm-nexus-tag', 20000);
+    await app.evaluate(`(() => {
+      const tag = Array.from(document.querySelectorAll('.cm-nexus-tag'))
+        .find((el) => el.dataset.tag === 'ethercat');
+      if (!tag) throw new Error('编辑器里没有 #ethercat 的高亮');
+      tag.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, cancelable: true, button: 0, ctrlKey: true
+      }));
+      return true;
+    })()`);
+
+    await app.waitForFunction(
+      `document.querySelector('.nexus-tag-item-active')?.textContent?.includes('ethercat') === true`,
+      15000
+    );
+
+    // ethercat 只在 a.md 里
+    expect(
+      await app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('.nexus-tag-documents .nexus-backlink-item'))
+           .map((el) => el.textContent)`
+      )
+    ).toEqual(['a.md']);
   }, INDEXED_TEST_TIMEOUT_MS);
 });

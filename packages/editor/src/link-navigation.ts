@@ -5,6 +5,7 @@
  * 只由 `cm-visual-link` mark 装饰承载，没有原生 `<a>`（见 visual-projection 的
  * link 分支）。浏览器因此不提供任何导航行为——点击的语义只能是"落光标、准备编辑"。
  * 把导航降级成一个需要修饰键的动作，"点击即编辑"与"跳转"才能共存且互不打扰。
+ * 标签（`#标签`）同理：它也是真实文本上的 mark，普通点击要能落光标改字。
  *
  * 分层：编辑器只负责**识别**（命中哪个链接、href 是什么），决定权交给宿主。
  * 打开系统浏览器、按当前文档目录解析相对路径、跳转文档内锚点都属于宿主策略，
@@ -20,12 +21,15 @@ export interface LinkNavigationRequest {
    *
    * `kind === 'wikilink'` 时这里是 `[[...]]` 里的**目标名**（同样未解析）：
    * 宿主应该拿它去工作区索引里找，而不是当文件路径处理。
+   *
+   * `kind === 'tag'` 时这里是**归一化后的标签名**（已去 `#`、已转小写）——
+   * 与索引库里 `tags` 表的存法一致，宿主可以直接拿去查文档。
    */
   href: string;
   /** 被点击链接文字在文档中的位置；仅用于日志与降级提示，不可作为导航目标。 */
   pos: number;
   /** 省略即视为普通链接（保持向后兼容）。 */
-  kind?: 'link' | 'wikilink';
+  kind?: 'link' | 'wikilink' | 'tag';
 }
 
 /**
@@ -47,7 +51,8 @@ export const linkNavigatorFacet = Facet.define<LinkNavigator, LinkNavigator | un
  * `.cm-visual-wikilink`，改成图片后若漏了这一条，Ctrl+点击会**静默失效** —— 导航按选择器
  * 命中元素，命不中就什么都不做，也不报错。
  */
-const LINK_SELECTOR = '.cm-visual-link, .cm-visual-wikilink, .cm-visual-image-embed';
+const LINK_SELECTOR =
+  '.cm-visual-link, .cm-visual-wikilink, .cm-visual-image-embed, .cm-nexus-tag';
 
 export function createLinkNavigationExtension(navigator: LinkNavigator): Extension {
   return ViewPlugin.fromClass(
@@ -77,20 +82,28 @@ export function createLinkNavigationExtension(navigator: LinkNavigator): Extensi
         const isWikiLink =
           linkEl.classList.contains('cm-visual-wikilink') ||
           linkEl.classList.contains('cm-visual-image-embed');
+        const isTag = linkEl.classList.contains('cm-nexus-tag');
 
         // 普通链接：mark 装饰走 data-safe-href，降级的 LinkWidget 才有真正的 href 属性。
         // wikilink：widget 上没有 href，目标名在 data-wikilink-target 上。
+        // 标签：mark 装饰，归一化后的标签名在 data-tag 上。
         const href = (
-          isWikiLink
-            ? (linkEl.dataset.wikilinkTarget ?? '')
-            : (linkEl.dataset.safeHref ?? linkEl.getAttribute('href') ?? '')
+          isTag
+            ? (linkEl.dataset.tag ?? '')
+            : isWikiLink
+              ? (linkEl.dataset.wikilinkTarget ?? '')
+              : (linkEl.dataset.safeHref ?? linkEl.getAttribute('href') ?? '')
         ).trim();
         if (!href) return;
 
         const request: LinkNavigationRequest = {
           href,
           pos: resolvePos(this.view, linkEl),
-          ...(isWikiLink ? { kind: 'wikilink' as const } : {})
+          ...(isTag
+            ? { kind: 'tag' as const }
+            : isWikiLink
+              ? { kind: 'wikilink' as const }
+              : {})
         };
 
         if (navigator(request) === false) return;
