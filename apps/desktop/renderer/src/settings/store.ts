@@ -42,7 +42,6 @@ import {
   EDITOR_CONTENT_WIDTH_DEFAULT,
   EDITOR_CONTENT_WIDTH_OPTIONS,
   EDITOR_CONTENT_WIDTH_STORAGE_KEY,
-  EDITOR_FONT_FAMILIES,
   EDITOR_FONT_FAMILY_DEFAULT,
   EDITOR_FONT_FAMILY_STORAGE_KEY,
   EDITOR_FONT_SIZE,
@@ -68,6 +67,7 @@ import {
   NEW_DOCUMENT_LOCATION_OPTIONS,
   NEW_DOCUMENT_LOCATION_STORAGE_KEY,
   RESTORE_LAST_WORKSPACE_STORAGE_KEY,
+  parseEditorFontFamily,
   parseGroupSetting,
   parseNumberSetting,
   serializeNumberSetting,
@@ -283,11 +283,19 @@ export const SETTING_DEFS = {
     EDITOR_CONTENT_WIDTH_OPTIONS.map((option) => option.value)
   ),
 
-  'editor.fontFamily': choiceSetting(
-    EDITOR_FONT_FAMILY_STORAGE_KEY,
-    EDITOR_FONT_FAMILY_DEFAULT,
-    EDITOR_FONT_FAMILIES.map((family) => family.value)
-  ),
+  /**
+   * 编辑器字体。**不是 `choiceSetting`** —— 它的值域是「三档预设 + 任意字体家族名」，
+   * 所以没有「未知值回落默认」那一步；规范化（清洗 + 空串回落）在 `parseEditorFontFamily`。
+   *
+   * 存档里存的是**家族名本身**（如 `KaiTi`）而不是字体栈：栈由 `editorFontStack` 现拼，
+   * 那样改兜底链不用迁移存档，也才能让存档里那一段不是一段 CSS。
+   */
+  'editor.fontFamily': defineSetting<string>({
+    storageKey: EDITOR_FONT_FAMILY_STORAGE_KEY,
+    fallback: EDITOR_FONT_FAMILY_DEFAULT,
+    parse: parseEditorFontFamily,
+    serialize: (value) => value
+  }),
 
   'editor.tableLayout': choiceSetting(
     EDITOR_TABLE_LAYOUT_STORAGE_KEY,

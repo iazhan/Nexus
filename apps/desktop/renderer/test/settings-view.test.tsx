@@ -892,6 +892,117 @@ describe('设置视图 · Editor', () => {
     expect(settings.get('editor.fontSize')).toBe(18);
   });
 
+  /**
+   * 编辑器字体（`control: 'font'`）。
+   *
+   * 与别的控件不同的是**值域开放**：三档预设只是值域里的三个值，用户还能填任意家族名。
+   * 所以用例分两头 —— 预设那三个**键**仍要能选中（老存档里存的就是它们），任意家族名也要
+   * 能一路落到存档与 CSS 变量上。
+   *
+   * 判据不写文案：预设的显示名从**控件自己画出来的候选表**里取，取到什么就点什么。
+   */
+  describe('编辑器字体', () => {
+    function fontInput(): HTMLInputElement {
+      return container.querySelector<HTMLInputElement>(
+        '[data-field-input="editor.fontFamily"]'
+      ) as HTMLInputElement;
+    }
+
+    function candidates(): HTMLOptionElement[] {
+      return Array.from(
+        container.querySelectorAll<HTMLOptionElement>(
+          '[data-field-candidates="editor.fontFamily"] option'
+        )
+      );
+    }
+
+    it('是自由输入框 + 候选表，不是下拉', () => {
+      renderSettings('editor');
+
+      expect(fontInput().tagName).toBe('INPUT');
+      expect(container.querySelector('select[data-field-input="editor.fontFamily"]')).toBeNull();
+      // 候选表靠 `list` 属性挂上去 —— 少一个字符就是一个画不出来、又不报错的下拉。
+      expect(fontInput().getAttribute('list')).toBe(
+        container.querySelector('[data-field-candidates="editor.fontFamily"]')?.id
+      );
+    });
+
+    it('候选表里既有三档预设的显示名，也有精选清单里的家族名', () => {
+      renderSettings('editor');
+
+      const values = candidates().map((option) => option.value);
+
+      expect(values).toContain('KaiTi');
+      expect(values).toContain('Microsoft YaHei');
+      // 预设排在最前 —— 它们是唯一「一定可用」的几个值。
+      expect(values.slice(0, 3)).not.toContain('default');
+      expect(values).toHaveLength(new Set(values).size);
+    });
+
+    it('默认档在输入框里显示的是显示名，不是内部键 default', () => {
+      renderSettings('editor');
+
+      expect(fontInput().value).toBe(candidates()[0].value);
+      expect(fontInput().value).not.toBe('default');
+    });
+
+    it('选预设的显示名写回的是它的键', () => {
+      settings.set('editor.fontFamily', 'KaiTi');
+      renderSettings('editor');
+
+      act(() => setInputValue(fontInput(), candidates()[0].value));
+
+      expect(settings.get('editor.fontFamily')).toBe('default');
+    });
+
+    it('输入家族名写进存档，并把字体栈写到 documentElement 上', () => {
+      renderSettings('editor');
+
+      act(() => setInputValue(fontInput(), 'KaiTi'));
+
+      expect(settings.get('editor.fontFamily')).toBe('KaiTi');
+      // 兜底链必须在：只有拉丁字形的字体后面要接界面那套栈，否则中文掉到默认衬线字体。
+      expect(document.documentElement.style.getPropertyValue('--nx-editor-font-family')).toBe(
+        '"KaiTi", var(--font-family)'
+      );
+    });
+
+    it('输入里的引号被清洗掉，不会把写出去的字体栈截断', () => {
+      renderSettings('editor');
+
+      act(() => setInputValue(fontInput(), 'Kai"Ti'));
+
+      expect(settings.get('editor.fontFamily')).toBe('KaiTi');
+      expect(document.documentElement.style.getPropertyValue('--nx-editor-font-family')).toBe(
+        '"KaiTi", var(--font-family)'
+      );
+    });
+
+    it('清空输入框回落到默认档，而不是留一个空串', () => {
+      settings.set('editor.fontFamily', 'KaiTi');
+      renderSettings('editor');
+
+      act(() => setInputValue(fontInput(), ''));
+
+      expect(settings.get('editor.fontFamily')).toBe('default');
+    });
+
+    it('值偏离默认档时画重置键，点它回到默认档', () => {
+      settings.set('editor.fontFamily', 'KaiTi');
+      renderSettings('editor');
+
+      const reset = container.querySelector<HTMLButtonElement>(
+        '[data-field-reset="editor.fontFamily"]'
+      );
+      expect(reset).not.toBeNull();
+
+      act(() => reset?.click());
+
+      expect(settings.get('editor.fontFamily')).toBe('default');
+      expect(container.querySelector('[data-field-reset="editor.fontFamily"]')).toBeNull();
+    });
+  });
+
   it('内容宽度是枚举，选中项写进存档', () => {
     renderSettings('editor');
 

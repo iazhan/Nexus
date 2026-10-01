@@ -8,8 +8,10 @@
  * 值的读写全走 `accessor` 的三个动作，渲染器**不知道**值存在 store、`localeManager` 还是别处 ——
  * 这是「字段表是唯一数据源」能覆盖 `locale` / mermaid 那两个未迁移项的原因。
  *
- * 控件覆盖 `radio / select / toggle / number / text / action`。`preset` **不在这里**：
- * 那是主题卡片网格（专用组件）。
+ * 控件覆盖 `radio / select / toggle / number / text / action / group / font / readonly`。
+ * `preset` **不在这里**：那是主题卡片网格（专用组件）。
+ *
+ * `readonly` 是唯一一个 `controlFor` 返回 `null` 的：那一行只画说明与只读值，没有控件。
  *
  * 除控件之外还有一行**只读值**（`FieldDef.readonlyValue`）：说明下面、控件上面的一段文本，
  * 用来把「某个只有主进程算得出的东西」显示出来（索引库路径）。它不是一个控件 ——
@@ -18,10 +20,18 @@
  * 重置键的显隐判据是 `resetValue` 且**当前值不等于它** —— 见 `FieldDef.resetValue` 的注释。
  */
 
-import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react';
 import { useLocale } from '../hooks.js';
-import { disabledMembers, toggleGroupMember } from './preference-specs.js';
+import { EDITOR_FONT_CANDIDATES, disabledMembers, toggleGroupMember } from './preference-specs.js';
 import { optionLabel, optionsOf, type FieldDef } from './registry.js';
+import { localFontFamilies } from './system-fonts.js';
 
 type Translate = (key: string, vars?: Record<string, string>) => string;
 
@@ -309,6 +319,113 @@ const TextControl: React.FC<{ field: FieldDef; label: string; value: string }> =
 };
 
 /**
+ * 字体家族：**自由输入框 + `<datalist>`**。
+ *
+ * 为什么不是「下拉选一个」：这台机器上能用哪些字体，静态表列不全 —— 枚举归
+ * `localFontFamilies()`（`queryLocalFonts`）。它是异步的，而且**筛不出「哪些含中文字形」**
+ * （`document.fonts.check` 对系统字体恒为真）。于是把两件事拆开：**输入框保证任意家族名
+ * 都能用**，`<datalist>` 只负责给一份可搜索的候选 —— 它是浏览器原生控件，打字即过滤，
+ * 不必自己写列表与键盘处理。
+ *
+ * 候选顺序：三档预设的**显示名** → 精选清单 → 本机枚举。预设在最前，因为它们是唯一
+ * 「一定可用」的几个值；本机枚举排在最后，因为它最不稳（拿不到就少一截）。
+ *
+ * **三档预设存的是键**（`default` / `sans` / `serif`），输入框里显示的却是它们的译文 ——
+ * 让输入框里出现 `default` 这种键，用户不会知道那是什么。写回时按显示名反查回键。
+ *
+ * **不画按钮**：设置页有一份「每枚按钮都必须落进已知清单」的哨兵
+ * （`settings-view.test.tsx`），多一枚按钮就要显式解释；而原生 `datalist` 已经够用。
+ */
+const FontControl: React.FC<{ field: FieldDef; label: string; t: Translate; value: string }> = ({
+  field,
+  label,
+  t,
+  value
+}) => {
+  const presets = optionsOf(field, t);
+
+  /** 值 → 输入框里显示的文本。预设显示译文，其余原样。 */
+  const labelOf = (raw: string): string => {
+    const preset = presets.find((option) => option.value === raw);
+    return preset ? optionLabel(preset, t) : raw;
+  };
+
+  const [installed, setInstalled] = useState<readonly string[]>([]);
+  const [draft, setDraft] = useState(() => labelOf(value));
+  const editing = useRef(false);
+
+  // 本机枚举只在挂载时问一次，拿不到就是空数组（候选表少一截，输入框照用）。
+  useEffect(() => {
+    let alive = true;
+    void localFontFamilies().then((families) => {
+      if (alive) setInstalled(families);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const candidates = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const name of [
+      ...presets.map((option) => optionLabel(option, t)),
+      ...EDITOR_FONT_CANDIDATES,
+      ...installed
+    ]) {
+      const key = name.trim().toLocaleLowerCase();
+      if (key === '' || seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+    return out;
+  }, [presets, t, installed]);
+
+  // 外部改了值（重置键、另一个窗口）→ 输入框跟上；**正在打字时不跟**，与 `TextControl` 同理。
+  useEffect(() => {
+    if (editing.current) return;
+    const preset = presets.find((option) => option.value === value);
+    setDraft(preset ? optionLabel(preset, t) : value);
+  }, [value, presets, t]);
+
+  const listId = `nexus-font-candidates-${field.id}`;
+
+  return (
+    <>
+      <input
+        type="text"
+        className="nexus-settings-text"
+        list={listId}
+        value={draft}
+        aria-label={label}
+        data-field-input={field.id}
+        onFocus={() => {
+          editing.current = true;
+        }}
+        onBlur={() => {
+          editing.current = false;
+          // 离开时回到**存档里的值**：空串被落回默认档，这里就显示默认档的译文，
+          // 用户不必猜「我清空了，现在到底存的是什么」。
+          setDraft(labelOf(value));
+        }}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          // 选中的是预设的**译文**就写回它的键，否则原样写 —— 值域是开放的，这一层不拦。
+          const preset = presets.find((option) => optionLabel(option, t) === next);
+          field.accessor?.write(preset ? preset.value : next);
+        }}
+      />
+      <datalist id={listId} data-field-candidates={field.id}>
+        {candidates.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
+    </>
+  );
+};
+
+/**
  * 动作按钮。三种状态：可用、探测中（禁用）、被挡住（禁用 + 一行原因）。
  *
  * 探测是**异步**的 —— 「当前有没有工作区」要问主进程。只探一次：设置窗口是短命窗口，
@@ -392,6 +509,8 @@ function controlFor(field: FieldDef, label: string, t: Translate, value: string)
       return <ActionControl field={field} t={t} />;
     case 'group':
       return <GroupControl field={field} label={label} t={t} value={value} />;
+    case 'font':
+      return <FontControl field={field} label={label} t={t} value={value} />;
     case 'readonly':
       // 只读值那一行由 `FieldRow` 自己画（它在控件**上方**，与控件不是同一个位置），
       // 所以这里什么都不画。返回 `null` 而不是省略这个 case：`FieldControl` 是联合类型，

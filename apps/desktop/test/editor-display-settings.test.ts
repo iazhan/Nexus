@@ -32,6 +32,10 @@ describe('编辑器显示设置', () => {
     '| --- | --- |',
     '| a | b |',
     '',
+    '```ts',
+    'const a = 1;',
+    '```',
+    '',
     '正文一行。'
   ].join('\n');
 
@@ -41,6 +45,7 @@ describe('编辑器显示设置', () => {
     window.nexusSettings.set('editor.tableLayout', 'auto');
     window.nexusSettings.set('editor.wordCount', true);
     window.nexusSettings.set('general.externalChange', 'smart');
+    window.nexusSettings.set('editor.fontFamily', 'default');
   `;
 
   beforeAll(async () => {
@@ -59,6 +64,7 @@ describe('编辑器显示设置', () => {
         localStorage.removeItem('nexus-editor-table-layout');
         localStorage.removeItem('nexus-editor-word-count');
         localStorage.removeItem('nexus-external-change');
+        localStorage.removeItem('nexus-editor-font-family');
       `);
       await app.close();
     }
@@ -171,5 +177,34 @@ describe('编辑器显示设置', () => {
     await app.waitForSelector('.nexus-conflict-banner', 15000);
     // 没有自动重载：文档里不该出现第二次写进去的内容。
     expect(await app.evaluate<string>(readDoc)).not.toContain(PROMPT_MARKER);
+  }, 90000);
+
+  /**
+   * 编辑器字体。组件层只能证明「CSS 变量写对了」，这里证明**编辑器真的跟着换** ——
+   * 中间隔着 CodeMirror 的主题（`var(--nx-editor-font-family)`），少接一环不报错，
+   * 只是静默用回旧字体。
+   *
+   * 两半都要看：编辑器换、**代码块不换**。代码块固定用宿主的等宽栈，跟随编辑器字体就会让
+   * 「编辑器设成衬线」把代码一起带偏 —— 那是这条链上唯一容易走错的地方。
+   */
+  it('编辑器字体换成具体家族名后真的换，代码块不跟随', async () => {
+    await app.evaluate(RESET_SETTINGS);
+    await app.evaluate(`window.nexusSettings.set('editor.fontFamily', 'Georgia')`);
+    await app.waitForFunction(
+      `() => getComputedStyle(document.querySelector('.cm-editor')).fontFamily.includes('Georgia')`,
+      10000
+    );
+
+    // 代码块只在可视化投影里有节点；表格那条用例已经切过一次，所以先判再切。
+    if (!(await app.evaluate<boolean>(`Boolean(document.querySelector('.cm-visual-code-line'))`))) {
+      await app.click('.nexus-surface-toggle');
+    }
+    await app.waitForSelector('.cm-visual-code-line', 20000);
+
+    expect(
+      await app.evaluate<string>(
+        `getComputedStyle(document.querySelector('.cm-visual-code-line')).fontFamily`
+      )
+    ).not.toContain('Georgia');
   }, 90000);
 });

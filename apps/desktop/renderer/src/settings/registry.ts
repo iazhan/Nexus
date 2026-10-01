@@ -47,6 +47,7 @@ import {
   AUTO_SAVE_DELAY,
   EDITOR_CONTENT_WIDTH_OPTIONS,
   EDITOR_FONT_FAMILIES,
+  EDITOR_FONT_FAMILY_DEFAULT,
   EDITOR_FONT_SIZE,
   EDITOR_LINE_HEIGHT,
   EDITOR_PARAGRAPH_SPACING,
@@ -179,6 +180,17 @@ export type FieldControl =
    * 「选项随状态而变」的控件用的，组不属于那一类。
    */
   | 'group'
+  /**
+   * **字体家族**：自由输入框 + `<datalist>` 候选。值是**家族名**，不是枚举。
+   *
+   * 与 `select` 的区别是「值域不由 `options` 决定」：`options` 在这一类里只是**预设**
+   * （三档：等宽 / 无衬线 / 衬线），控件用它们把 `default` 这类**键**显示成人话，
+   * 真正的候选来自 `EDITOR_FONT_CANDIDATES` 与本机枚举（`system-fonts.ts`）。
+   *
+   * 所以这一类**不能用 `optionsOf` 去判合法值** —— 用户装了什么字体只有他自己知道，
+   * 值域是开放的。见 `FieldRow.tsx` 的 `FontControl`。
+   */
+  | 'font'
   /**
    * **只读值**：这一行只显示一段用户改不了的文本（`readonlyValue` 取），自己不画控件。
    *
@@ -730,16 +742,25 @@ export const CONTENT_WIDTH_FIELD: FieldDef = {
   menu: false
 };
 
+/**
+ * 编辑器字体。**值域是开放的**（三档预设 + 任意家族名），所以 `control: 'font'` 而不是
+ * `select` —— 这里那份 `options` 只承担一件事：把 `default` / `sans` / `serif` 这三个**键**
+ * 翻译成人话，控件靠它决定输入框里显示什么、以及用户选中的显示名该写回哪个键。
+ *
+ * `resetValue` 给的是默认档：能自由填值之后，「回到等宽」不再等于「再点一次原来那一项」，
+ * 而它又是唯一一个「一定存在」的档 —— 没有重置键就只能靠记得那个译文。
+ */
 export const FONT_FAMILY_FIELD: FieldDef = {
   id: 'editor.fontFamily',
   section: 'editor',
   labelKey: 'settings.editor.fontFamily',
   descriptionKey: 'settings.editor.fontFamilyDescription',
-  control: 'select',
+  control: 'font',
   options: EDITOR_FONT_FAMILIES.map((family): FieldOption => ({
     value: family.value,
     labelKey: `settings.editor.fontFamily.${family.value}`
   })),
+  resetValue: EDITOR_FONT_FAMILY_DEFAULT,
   accessor: {
     read: () => settings.get('editor.fontFamily'),
     write: (value) => settings.set('editor.fontFamily', value),

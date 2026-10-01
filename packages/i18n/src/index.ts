@@ -207,7 +207,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       'The build that is running right now. Read from the app itself — there is nothing to set here.',
     'settings.editor.fontFamily': 'Font',
     'settings.editor.fontFamilyDescription':
-      'Typeface for document text. Headings and inline code scale along with it.',
+      'Typeface for document text. Pick one of the presets, or type the name of any font installed on this computer.',
     'settings.editor.fontFamily.default': 'Monospace',
     'settings.editor.fontFamily.sans': 'Sans-serif',
     'settings.editor.fontFamily.serif': 'Serif',
@@ -713,7 +713,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       '此刻正在运行的版本号。由应用自己报出，这里没有可改的东西。',
     'settings.editor.fontFamily': '字体',
     'settings.editor.fontFamilyDescription':
-      '正文的字体。标题与行内代码会跟着一起缩放。',
+      '正文的字体。可以选下面几档预设，也可以直接输入这台电脑上装了的字体名。',
     'settings.editor.fontFamily.default': '等宽',
     'settings.editor.fontFamily.sans': '无衬线',
     'settings.editor.fontFamily.serif': '衬线',

@@ -233,10 +233,15 @@ export const EDITOR_CONTENT_WIDTH_OPTIONS: ReadonlyArray<{
 export const EDITOR_CONTENT_WIDTH_DEFAULT = 'none';
 
 /**
- * 编辑器字体。值是**键**，栈在这里查表 —— 栈里含逗号与引号，直接当设置值存会让磁盘格式
- * 变成一段 CSS，将来想改栈就得迁移存档。
+ * 编辑器字体的三档**预设**。值是**键**，栈在这里查表 —— 栈里含逗号与引号，直接当设置值存
+ * 会让磁盘格式变成一段 CSS，将来想改栈就得迁移存档。
  *
  * `default` / `sans` 复用 `App.css` 已有的两个字体变量，不在这里抄第二份字体列表。
+ *
+ * **它们不是值域的全部**（2026-10-01 起）：这一项同时接受**任意字体家族名**。三档能表达的
+ * 只有「界面那两套 + 一个衬线兜底」，而用户装了什么字体只有他自己知道 —— 想用楷体时三档里
+ * 没有可选项，等于把这件事判成做不到。三档因此降级为**预设**：它们仍是存档里最稳的值
+ * （不随系统字体增减而失效），其余值按家族名原样存。
  */
 export const EDITOR_FONT_FAMILIES: ReadonlyArray<{ value: string; stack: string }> = [
   { value: 'default', stack: 'var(--font-mono)' },
@@ -246,9 +251,106 @@ export const EDITOR_FONT_FAMILIES: ReadonlyArray<{ value: string; stack: string 
 
 export const EDITOR_FONT_FAMILY_DEFAULT = 'default';
 
-/** 设置值 → 真正写进 CSS 变量的字体栈。存档里有未知值时回落到默认档。 */
+/**
+ * 候选字体家族名 —— 设置页那个下拉的**静态**部分。
+ *
+ * 它是**打底**不是全部：这台机器真装了什么由 `queryLocalFonts()` 现问
+ * （`settings/system-fonts.ts`），两者合并成候选表。所以这里只列跨平台常见的那些；
+ * 列了没装的不会出错（字体栈会往后回退），但列一堆本机没有的只会把下拉撑长。
+ *
+ * 中文名与英文名**各列一条**：Windows 上 `Microsoft YaHei` 与 `微软雅黑` 指向同一个家族，
+ * 而 `queryLocalFonts()` 报的是英文名 —— 用户脑子里记的往往是中文名。
+ */
+export const EDITOR_FONT_CANDIDATES: readonly string[] = [
+  'Microsoft YaHei',
+  '微软雅黑',
+  'PingFang SC',
+  'Noto Sans SC',
+  'Source Han Sans SC',
+  'SimSun',
+  '宋体',
+  'SimHei',
+  '黑体',
+  'KaiTi',
+  '楷体',
+  'FangSong',
+  '仿宋',
+  'DengXian',
+  '等线',
+  'Inter',
+  'Georgia',
+  'Times New Roman',
+  'Cambria',
+  'Arial',
+  'Helvetica',
+  'Verdana',
+  'JetBrains Mono',
+  'Fira Code',
+  'Cascadia Code',
+  'Consolas',
+  'Menlo',
+  'Monaco'
+];
+
+/**
+ * 家族名 → 能安全写进 CSS 的家族名。
+ *
+ * **这是必需的，不是洁癖。** 这个值来自一个自由输入框，最终会被 `editorFontStack`
+ * **用双引号包起来**拼进 `--nx-editor-font-family`。值里的 `"` 或 `\` 会提前闭合那对引号，
+ * 于是后面的 `var(--font-family)` 变成同一个家族名的一部分 —— 表现是「选了字体却没生效」，
+ * 而且不报错。
+ *
+ * 所以规则是**去掉能改变字符串边界的字符**（引号、反斜杠）、**能开始一段新声明或新块的
+ * 字符**（分号、花括号、圆括号）、逗号（家族名里不会有逗号，留着它等于让一个输入框同时
+ * 表达两个家族）与控制字符（CSS 字符串里不许有裸换行）。
+ *
+ * 长度截到 64：家族名没有这么长的，截断只影响粘贴进来的垃圾。
+ */
+export function sanitizeFontFamily(raw: string): string {
+  return Array.from(raw)
+    // 控制字符（含换行与制表）先摘掉：CSS 字符串里不许有裸换行，而它们在家族名里也没用。
+    // 按码点过滤而不是写一个 `\u0000-\u001f` 的字符组 —— 后者会被 `no-control-regex` 拦下。
+    .filter((char) => char.charCodeAt(0) > 0x1f && char.charCodeAt(0) !== 0x7f)
+    .join('')
+    .replace(/["'\\;,{}()]/g, '')
+    .trim()
+    .slice(0, 64);
+}
+
+/**
+ * 设置值 → 真正写进 CSS 变量的字体栈。
+ *
+ * 三档预设查表；其余按**家族名**处理，并在后面接 `var(--font-family)` 兜底 ——
+ * 用户挑的字体常常只有拉丁字形（打包的 Inter / JetBrains Mono 就是），后面那截负责让没被
+ * 覆盖到的字符落到界面那套栈上（它自带中文回退），否则中文会掉到浏览器默认的衬线字体。
+ *
+ * 空串与清洗后为空一律回落等宽档 —— 那正是 `default` 的栈，与「没有值」的语义一致。
+ */
 export function editorFontStack(value: string): string {
-  return EDITOR_FONT_FAMILIES.find((family) => family.value === value)?.stack ?? 'var(--font-mono)';
+  const preset = EDITOR_FONT_FAMILIES.find((family) => family.value === value);
+  if (preset) return preset.stack;
+
+  const name = sanitizeFontFamily(value);
+  if (name === '') return 'var(--font-mono)';
+  return `"${name}", var(--font-family)`;
+}
+
+/**
+ * 存档 → 值。**这是值域的唯一权威** —— `store` 的读初值与 `set` 都过它一遍。
+ *
+ * 它做的不是「校验合法性」而是**规范化**：这一项的值域是「三档预设 + 任意家族名」，
+ * 所以只有两件事 —— 空串（含只剩清洗字符的）回落默认档，其余存清洗后的家族名。
+ *
+ * 归一化必须留在这一层：`store.set` / `reload` 判「值变了没有」比的是规范化后的结果，
+ * 不在这里收口的话，输入框里多一个引号就会让同一个字体出现两种写法。
+ */
+export function parseEditorFontFamily(raw: string | null): string {
+  if (raw === null) return EDITOR_FONT_FAMILY_DEFAULT;
+  const trimmed = raw.trim();
+  if (trimmed === '') return EDITOR_FONT_FAMILY_DEFAULT;
+  if (EDITOR_FONT_FAMILIES.some((family) => family.value === trimmed)) return trimmed;
+  const name = sanitizeFontFamily(trimmed);
+  return name === '' ? EDITOR_FONT_FAMILY_DEFAULT : name;
 }
 
 /**
