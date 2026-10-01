@@ -1,3 +1,10 @@
+/**
+ * 三个窗口共用的入口 —— 字体在这里 import 一次就覆盖全部角色（`ROOT_BY_ROLE` 是唯一的渲染分叉，
+ * 放进任一角色的样式里，另外两个窗口就没有打包字体）。
+ *
+ * 两个包提供 `Inter Variable` / `JetBrains Mono Variable` 两个家族名，由 `App.css` 的 `:root` 引用。
+ * **两者都不含中文字形**，中文靠那两条栈里的显式候选。
+ */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
@@ -6,6 +13,8 @@ import { SettingsWindow } from './settings/SettingsWindow';
 import { ThemeWindow } from './settings/ThemeWindow';
 import { readWindowRole, type WindowRole } from './window-role';
 import { startHostSettingsSync } from './host-settings';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/jetbrains-mono';
 import './App.css';
 
 /**

@@ -1,8 +1,13 @@
 /* 命名空间：`--nexus-*` 是主题 token（由 ThemeManager 注入，审计脚本只看这一族），
    `--nx-*` 是应用自己的布局 / 运行期变量，两者不可混用前缀。 */
 :root {
-  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", Consolas, Monaco, monospace;
+  /* 界面字体与等宽字体。**前两个是打包进来的**（由入口模块 import 字体包），不再靠用户机器上装没装 ——
+     在此之前 `JetBrains Mono` / `Fira Code` 只是栈里的名字：装了才是它，没装就是 Consolas，
+     同一份代码在不同机器上观感不同。两者都只有拉丁字形，中文落到后面的显式候选；
+     不写这几项，中文走的是浏览器兜底，各平台给什么不可控。
+     打包字体从产物 `assets/` 加载（`'self'`），CSP 不需要 `font-src`。 */
+  --font-family: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Fira Code", Consolas, Monaco, "Sarasa Mono SC", monospace;
   /* 与 Electron 主进程 titleBarOverlay.height 保持一致 */
   --nx-header-height: 42px;
   /* 编辑器排版。这里只是**初值**（与 settings/editor-typography.ts 的默认档一致），

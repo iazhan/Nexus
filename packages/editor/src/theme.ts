@@ -8,6 +8,9 @@ import { tags as t } from "@lezer/highlight";
 // 而不是主题 token：它们是**用户偏好**，不是主题的一部分 —— 换主题不该把字号或行号重置回去。
 // 变量由宿主（App.css 的 `:root` 给默认值、渲染进程按设置覆盖）提供，包内只引用。
 //
+// 代码块是唯一的例外：它固定用宿主的等宽栈 `--font-mono`，**不跟随** `--nx-editor-font-family` ——
+// 编辑器字体可以设成衬线，代码必须留在等宽。
+//
 // 字号是**基准**：标题与行内元素一律用 `em`，所以改这一个值整篇一起缩放。
 export const nexusBaseTheme = EditorView.theme({
   "&": {
@@ -236,7 +239,7 @@ export const nexusBaseTheme = EditorView.theme({
   // Code block line decorations and styling
   ".cm-visual-code-line": {
     backgroundColor: "var(--nexus-bg-canvas)",
-    fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace",
+    fontFamily: "var(--font-mono, monospace)",
     paddingLeft: "12px",
     paddingRight: "12px"
   },
