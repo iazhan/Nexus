@@ -34,14 +34,35 @@ describe('标签面板', () => {
 
     // a.md 刻意写长、标签放**中间**：前后都要有足够内容，「滚到视口第一行」才验得出来
     // —— 目标离文末不足一屏时滚动会被钳制在最大值，行盒反而落在视口下方。
+    //
+    // 行尾一律 CRLF：真实笔记就是这样（Windows 上 Obsidian / 记事本写出来的都是），
+    // 而判据曾经在 CRLF 上整个失效、在 LF 上全绿 —— fixture 用 LF 就永远测不到那条路径。
     const filler = (label: string, count: number) =>
       Array.from({ length: count }, (_, index) => `- ${label} ${index + 1}`).join('\n');
+    const crlf = (text: string) => text.replace(/\n/g, '\r\n');
+
     fs.writeFileSync(
       path.join(workspace, 'a.md'),
-      `# A\n\n${filler('上面', 30)}\n\n讲 #dma 和 #ethercat。\n\n${filler('下面', 30)}\n`,
+      crlf(
+        [
+          '# A',
+          '',
+          filler('上面', 30),
+          '',
+          '讲 #dma 和 #ethercat。',
+          '',
+          '```c',
+          '#include <stdio.h>',
+          '#define MAX 8',
+          '```',
+          '',
+          filler('下面', 30),
+          ''
+        ].join('\n')
+      ),
       'utf-8'
     );
-    fs.writeFileSync(path.join(workspace, 'b.md'), '# B\n\n也讲 #dma。\n', 'utf-8');
+    fs.writeFileSync(path.join(workspace, 'b.md'), crlf('# B\n\n也讲 #dma。\n'), 'utf-8');
   });
 
   afterAll(() => {
@@ -90,6 +111,14 @@ describe('标签面板', () => {
     expect(rows[0]).toContain('2');
     expect(rows[1]).toContain('#ethercat');
     expect(rows[1]).toContain('1');
+
+    // a.md 里有一个 ```c 代码块（含 `#include` / `#define`），里面的 `#` 不该进索引。
+    // 这条在 CRLF fixture 上才有效 —— 判据曾经在 CRLF 上整个失效、在 LF 上全绿。
+    expect(
+      await app.evaluate<string[]>(
+        `window.nexus.listTags().then((tags) => tags.map((t) => t.tag))`
+      )
+    ).toEqual(['dma', 'ethercat']);
 
     // 点 #dma 展开它下面的文档
     await app.evaluate(`(() => {

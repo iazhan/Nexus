@@ -281,3 +281,39 @@ describe('extractDocumentTags', () => {
     expect(extractDocumentTags('普通文本。')).toEqual([]);
   });
 });
+
+describe('CRLF 文件（Windows 上 Obsidian / 记事本写出来的都是）', () => {
+  // 这一组是**用真实工作区查出来的**：JS 的 `.` 不匹配 `\r`，所以 `(.*)$` 那种正则在
+  // CRLF 文件上会整条失配 —— 围栏一个都认不出来，代码块里的 `#` 全被当成标签。
+  // 之前的用例清一色 `\n`，于是这个洞一直没露。
+  const crlf = (lines: string[]) => lines.join('\r\n');
+
+  it('围栏代码块照常跳过', () => {
+    expect(
+      names(crlf(['```c', '#include <stdio.h>', '#define MAX 8', '```', '', '#real']))
+    ).toEqual(['real']);
+  });
+
+  it('带语言标记的围栏照常跳过（反引号后有空格 + 大写语言）', () => {
+    expect(names(crlf(['``` C', '#include <stdlib.h>', '```', '', '#real']))).toEqual(['real']);
+  });
+
+  it('缩进代码块照常跳过', () => {
+    expect(names(crlf(['正文', '', '    #include <stdio.h>', '', '#real']))).toEqual(['real']);
+  });
+
+  it('行内代码照常跳过', () => {
+    expect(names(crlf(['写 `#include` 得到 #c语言']))).toEqual(['c语言']);
+  });
+
+  it('frontmatter 的 tags 照常认', () => {
+    expect(extractFrontmatterTags(crlf(['---', 'tags: [dma, ethercat]', '---', '']))).toEqual([
+      'dma',
+      'ethercat'
+    ]);
+  });
+
+  it('正文标签照常认', () => {
+    expect(names(crlf(['正文 #dma 与 #ethercat']))).toEqual(['dma', 'ethercat']);
+  });
+});

@@ -223,7 +223,8 @@ function skippedSpans(source: string): Span[] {
  * 逐行推进而不是全文正则：围栏的**闭合条件**依赖开标记（同种字符、不短于开标记），
  * 缩进代码块的**开始条件**依赖前一行（不能打断段落），这两条都不是一个正则能表达的。
  *
- * 每行先剥掉引用块前缀（`>`，可嵌套）再判结构 —— 否则「引用块里贴代码」
+ * 每行先剥掉行尾的 `\r`（CRLF 文件里它在 `(.*)$` 那种正则上会**整条失配**，
+ * 见循环里那段说明），再剥掉引用块前缀（`>`，可嵌套）判结构 —— 否则「引用块里贴代码」
  * （`> ```c` 那一整块）会被当成正文。
  *
  * 取舍：**缩进 ≥ 4 空格或 1 个 tab 的行一律当代码**。CommonMark 里要区分「列表项自己的
@@ -254,7 +255,12 @@ function codeSpans(source: string): Span[] {
     // 行尾的 `\n` 也要计进去，否则下一行的偏移会逐行少 1
     offset = lineTo + 1;
 
-    const line = stripBlockquotePrefix(rawLine);
+    // 先剥掉行尾的 `\r`：**JS 的 `.` 不匹配 `\r`**，所以 `(.*)$` 这种正则在 CRLF 文件上
+    // 会整条失配 —— 而 Windows 上 Obsidian / 记事本写出来的 Markdown 全是 CRLF，
+    // 于是围栏一个都认不出来，代码块里的 `#` 全被当成标签。
+    // 偏移仍按**原始**长度算：`\r` 属于这一行。
+    const raw = stripCr(rawLine);
+    const line = stripBlockquotePrefix(raw);
     const open = FENCE_PATTERN.exec(line);
 
     if (fence !== null) {
@@ -296,7 +302,7 @@ function codeSpans(source: string): Span[] {
     closeIndented(lineFrom);
     // 行内代码用**原始行**扫：剥掉引用前缀会打乱后面的列偏移，而 `>` 本来也不影响
     // 反引号的配对。
-    collectInlineCodeSpans(rawLine, lineFrom, spans);
+    collectInlineCodeSpans(raw, lineFrom, spans);
     afterBlankLine = false;
   }
 
