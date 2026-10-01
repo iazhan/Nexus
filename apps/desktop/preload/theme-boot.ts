@@ -18,7 +18,7 @@ import { BUILT_IN_PRESETS, resolveKnownThemeId, THEME_STORAGE_KEY } from '@nexus
 /**
  * 静态 CSS 只覆盖内置主题（用户主题靠 renderer 的运行时注入），所以这里只认内置 id。
  *
- * **从预设表推 id，不要引 `builtInThemes()`** —— 那个函数会把每套主题的 43 个 token 全派生
+ * **从预设表推 id，不要引 `builtInThemes()`** —— 那个函数会把每套主题的 44 个 token 全派生
  * 一遍（一百多套实测 74ms、产物上百 KB），而 preload 只需要知道「哪些 id 有效」。
  * 这条路径在首帧之前跑，代价直接落在窗口出现的时间上。
  */

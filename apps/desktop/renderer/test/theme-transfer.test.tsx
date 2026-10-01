@@ -85,13 +85,13 @@ describe('主题导入 · 纯逻辑', () => {
 
   /**
    * 这一条是 D4 的核心：**导入的是 16 个种子，不是 token**。文件里带的 `tokenColors` 必须被忽略，
-   * 43 个 token 全部由派生管线算出来 —— 采信文件里的值等于绕过对比度契约。
+   * 44 个 token 全部由派生管线算出来 —— 采信文件里的值等于绕过对比度契约。
    */
   it('文件里的 token 颜色被忽略，token 全部来自派生', () => {
     importBase16Text(DRACULA_YAML, 'dracula');
 
     const tokens = themeManager.theme.tokens;
-    expect(Object.keys(tokens)).toHaveLength(43);
+    expect(Object.keys(tokens)).toHaveLength(44);
     expect(tokens['accent-solid']).not.toBe('#ff0000');
     // accent-solid 是「压到承白字」的深色，与种子 base0D 不是一回事 —— 它变了就说明派生跑了。
     expect(tokens['accent-solid']).not.toBe('#bd93f9');

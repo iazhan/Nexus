@@ -56,8 +56,8 @@ describe('内置主题就是派生输出', () => {
     expect(nexusDark.tokens).toEqual(seedsToTokens(nexusDarkSeeds));
   });
 
-  it('每套 43 个 token，两套的名字一致', () => {
-    expect(Object.keys(nexusLight.tokens)).toHaveLength(43);
+  it('每套 44 个 token，两套的名字一致', () => {
+    expect(Object.keys(nexusLight.tokens)).toHaveLength(44);
     expect(Object.keys(nexusDark.tokens).sort()).toEqual(Object.keys(nexusLight.tokens).sort());
   });
 
@@ -73,7 +73,7 @@ describe('内置主题的对比度不变量', () => {
   it('两套主题在契约矩阵下零不达标', () => {
     for (const [name, tokens] of THEMES) {
       const report = measureTheme(tokens);
-      expect(report.measured, `${name} 的测量对数变了`).toBe(140);
+      expect(report.measured, `${name} 的测量对数变了`).toBe(145);
       expect(
         report.failures.map((f) => `${f.token}@${f.ground} ${f.ratio.toFixed(2)}`),
         `${name} 有不达标的配对`,
@@ -150,7 +150,7 @@ describe('派生规则对第三方种子成立', () => {
 
   it('守卫不成立时不抛错，输出仍全部达标（Solarized Light 的带太窄）', () => {
     const tokens = seedsToTokens(SOLARIZED_LIGHT);
-    expect(Object.keys(tokens)).toHaveLength(43);
+    expect(Object.keys(tokens)).toHaveLength(44);
     expect(measureTheme(tokens).failures).toEqual([]);
   });
 });
@@ -240,6 +240,7 @@ describe('seedsToTokensWithReport', () => {
   it('target 不低于该 token 的档位：图形类 3:1，其余 4.5:1', () => {
     const GRAPHICAL = new Set([
       'accent-indicator',
+      'border-control',
       'status-success-border',
       'status-warning-border',
       'status-error-border',

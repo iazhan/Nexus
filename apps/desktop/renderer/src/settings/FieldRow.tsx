@@ -343,7 +343,9 @@ const ActionControl: React.FC<{ field: FieldDef; t: Translate }> = ({ field, t }
   }, [field]);
 
   return (
-    <div className="nexus-settings-action">
+    /* `aria-live` 挂在**常驻**的容器上，不是那行回执自己 —— 读屏只在「已经存在的 live region
+       内容变化」时播报；动态插入一个带 `role="status"` 的元素是不响的。 */
+    <div className="nexus-settings-action" aria-live="polite">
       <button
         type="button"
         className="nexus-settings-action-button"
@@ -402,6 +404,26 @@ function controlFor(field: FieldDef, label: string, t: Translate, value: string)
   }
 }
 
+/**
+ * 路径在分隔符**之后**插入 `<wbr>`。
+ *
+ * CSS 不认 `\` 与 `/` 是断行机会，所以长路径只能在任意字符处断开（那是 `word-break: break-all`
+ * 的效果）—— 断点落在目录名中间，用户没法按层级扫读。插 `<wbr>` 把断点挪到分隔符后。
+ *
+ * 多行文本（诊断信息）原样返回：它自己带换行，`white-space: pre-wrap` 会处理。
+ */
+function withBreakOpportunities(value: string): React.ReactNode {
+  if (value.includes('\n')) return value;
+  const parts = value.split(/(?<=[\\/])/);
+  if (parts.length < 2) return value;
+  return parts.map((part, index) => (
+    <React.Fragment key={`${index}-${part}`}>
+      {part}
+      {index < parts.length - 1 ? <wbr /> : null}
+    </React.Fragment>
+  ));
+}
+
 export const FieldRow: React.FC<{ field: FieldDef }> = ({ field }) => {
   const { t } = useLocale();
   const value = useFieldValue(field);
@@ -432,7 +454,7 @@ export const FieldRow: React.FC<{ field: FieldDef }> = ({ field }) => {
           离说明近、离按钮也近。它不可选、不可改，所以是一段文本而不是输入框。 */}
       {readonlyValue !== null ? (
         <p className="nexus-settings-field-readonly" data-field-readonly={field.id}>
-          {readonlyValue}
+          {withBreakOpportunities(readonlyValue)}
         </p>
       ) : null}
       {controlFor(field, label, t, value)}

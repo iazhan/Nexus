@@ -109,7 +109,15 @@ export const KeybindingsSection: React.FC = () => {
           const actionNotice = notice?.actionId === action.id ? notice : null;
 
           return (
-            <div className="nexus-settings-keybinding" key={action.id} data-keybinding={action.id}>
+            /* 冲突提示是「刚才那次捕获被拒了」，要立刻知道 —— `assertive` 而不是 `polite`。
+               `aria-live` 挂在这一行的容器上（常驻），不是那行提示自己 —— 动态插入一个带
+               `role="alert"` 的元素是不响的。 */
+            <div
+              className="nexus-settings-keybinding"
+              key={action.id}
+              data-keybinding={action.id}
+              aria-live="assertive"
+            >
               <span className="nexus-settings-keybinding-label">{t(action.labelKey)}</span>
 
               <button

@@ -110,9 +110,9 @@ function unmount(): void {
 }
 
 describe('主题编辑器 · 数据表', () => {
-  it('43 个 token 不重不漏，且与主题实际的 token 集合一致', () => {
-    expect(ALL_EDITABLE_TOKENS).toHaveLength(43);
-    expect(new Set(ALL_EDITABLE_TOKENS).size).toBe(43);
+  it('44 个 token 不重不漏，且与主题实际的 token 集合一致', () => {
+    expect(ALL_EDITABLE_TOKENS).toHaveLength(44);
+    expect(new Set(ALL_EDITABLE_TOKENS).size).toBe(44);
     expect([...ALL_EDITABLE_TOKENS].sort()).toEqual(Object.keys(themeManager.theme.tokens).sort());
   });
 
@@ -508,11 +508,11 @@ describe('主题编辑器 · 高级档', () => {
     });
   }
 
-  it('切到高级档：43 个 token 行，种子与滑块消失', () => {
+  it('切到高级档：44 个 token 行，种子与滑块消失', () => {
     openAdvanced();
 
     expect(el('[data-theme-tier-panel="advanced"]')).not.toBeNull();
-    expect(all('[data-theme-token]')).toHaveLength(43);
+    expect(all('[data-theme-token]')).toHaveLength(44);
     expect(all('[data-theme-seed]')).toHaveLength(0);
     expect(el('[data-theme-tier="advanced"]')?.getAttribute('aria-selected')).toBe('true');
   });
@@ -563,7 +563,7 @@ describe('主题编辑器 · 高级档', () => {
     expect(el('[data-override-banner]')).toBeNull();
   });
 
-  /** 43 行分五组铺开，不搜就只能滚；空匹配要给空态，而不是一片空白。 */
+  /** 44 行分五组铺开，不搜就只能滚；空匹配要给空态，而不是一片空白。 */
   it('token 搜索过滤到子集，无匹配时给空态', () => {
     openAdvanced();
     const groupCount = all('[data-theme-token-group]').length;

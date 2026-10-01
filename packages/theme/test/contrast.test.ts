@@ -19,8 +19,8 @@ const THEMES: ReadonlyArray<readonly [string, Record<string, string>]> = [
 
 const keyOf = (theme: string, failure: ContrastFailure): string => `${theme}/${failure.token}@${failure.ground}`;
 
-/** 契约表实际测到的对数：每套 140 对。数字变了说明承载面或契约被改动，需要一并复核。 */
-const MEASURED_PER_THEME = 140;
+/** 契约表实际测到的对数：每套 145 对。数字变了说明承载面或契约被改动，需要一并复核。 */
+const MEASURED_PER_THEME = 145;
 
 /** 装饰边框豁免：不参与测量，但必须显式列出，不能靠「没测到」。 */
 const EXEMPT_BORDER_TOKENS = ['border-default', 'border-strong', 'border-subtle'];
@@ -160,5 +160,62 @@ describe('对比度不变量', () => {
     }
 
     expect(measured).toBe(MEASURED_PER_THEME * THEMES.length);
+  });
+});
+
+describe('选中态：压在 selection-bg 上的文字与图形', () => {
+  // `selection-bg` 是遮罩（`OVERLAYS`），不在契约矩阵里 —— 但设置页与菜单把它当选中态的
+  // **常态底色**用（不是临时的文本选区），所以这一组要单独守。两条判据都是实测出来的：
+  // 深色原本的 alpha 0.4 会让 text-primary 掉到 4.49:1、accent-indicator 掉到 2.91:1。
+  it('text-primary ≥ 4.5、accent-indicator ≥ 3，且 accent-text 不再被用在这里', () => {
+    for (const [name, tokens] of THEMES) {
+      const scrim = parseColour(tokens['selection-bg'] ?? '');
+      const surface = parseColour(tokens['bg-surface'] ?? '');
+      if (!scrim || !surface) throw new Error(`${name} 缺 selection-bg 或 bg-surface`);
+
+      const ratioOn = (token: string): number => {
+        const fg = parseColour(tokens[token] ?? '');
+        if (!fg) throw new Error(`${name} 缺 ${token}`);
+        return contrastRatio(fg, scrim, surface);
+      };
+
+      expect(ratioOn('text-primary'), `${name}: text-primary 压在 selection-bg 上`).toBeGreaterThanOrEqual(4.5);
+      expect(
+        ratioOn('accent-indicator'),
+        `${name}: accent-indicator（选中项的图标）压在 selection-bg 上`,
+      ).toBeGreaterThanOrEqual(3);
+      // 记录「选中态为什么不用 accent-text」：它在这块底色上不达标，换回去就会踩同一个坑。
+      expect(ratioOn('accent-text'), `${name}: accent-text 不该再被用在 selection-bg 上`).toBeLessThan(4.5);
+    }
+  });
+
+  /**
+   * 第二段：**其余两个文字色在至少一套主题上不达标** —— 所以「压在选中底色上的文字」只有
+   * primary 一个选项，没有第二档可挑。把它写死成断言，是因为「换一个弱一档的灰」看起来
+   * 是个无害的选择，改起来毫无心理负担。
+   *
+   * 实测（浅色 / 深色）：`text-primary` 8.80 / 5.49、`text-secondary` 6.07 / **4.30**、
+   * `text-muted` **4.25** / **3.41**。判据是「**至少一套主题上不达标**」而不是「每套都不达标」——
+   * token 是跨主题共用的，只要有一套踩线，它就不能当选「通用选择」。
+   *
+   * 这条是被真机抓出来的：设置页的**未实现分组**（Plugins / Sync）选中时，标签仍吃
+   * `[data-availability='planned']` 的 `text-muted`（那条选择器多一个属性，特异性更高），
+   * 深色下压在选中底色上是 3.41:1。修法是让那条降级规则**在选中时不生效**，不是换一个更亮的灰。
+   */
+  it('text-secondary 与 text-muted 都至少在一套主题上不达标 —— 这里只有 primary 一个选项', () => {
+    for (const token of ['text-secondary', 'text-muted']) {
+      const failing = THEMES.map(([name, tokens]) => {
+        const scrim = parseColour(tokens['selection-bg'] ?? '');
+        const surface = parseColour(tokens['bg-surface'] ?? '');
+        const fg = parseColour(tokens[token] ?? '');
+        if (!scrim || !surface || !fg) throw new Error(`${name} 缺 ${token} / selection-bg / bg-surface`);
+        return { name, ratio: contrastRatio(fg, scrim, surface) };
+      }).filter((entry) => entry.ratio < 4.5);
+
+      expect(
+        failing.length,
+        `${token} 现在每套主题上都达标了（${failing.length === 0 ? '全部通过' : ''}）—— 该回来改这条断言与 CSS`,
+      ).toBeGreaterThan(0);
+    }
   });
 });

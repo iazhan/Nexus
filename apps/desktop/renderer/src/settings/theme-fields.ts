@@ -1,5 +1,5 @@
 /**
- * 主题编辑器的**数据表**：哪些种子、哪些系数、43 个 token 怎么分组。
+ * 主题编辑器的**数据表**：哪些种子、哪些系数、44 个 token 怎么分组。
  *
  * 只放数据，不放视图 —— 分组表同时被「高级档渲染」与「分组覆盖完整性测试」读，两处各列一遍
  * 必然漂移（漏一个 token 不会有任何东西报错，只会在界面上少一行）。
@@ -95,7 +95,7 @@ const SYNTAX_HIGHLIGHT_TOKENS: readonly string[] = [
   'syntax-url'
 ];
 
-/** 43 个 token 分五组，**不重不漏**由测试守着。 */
+/** 44 个 token 分五组，**不重不漏**由测试守着。 */
 export const TOKEN_GROUPS: readonly TokenGroup[] = [
   {
     id: 'surface',
@@ -135,6 +135,7 @@ export const TOKEN_GROUPS: readonly TokenGroup[] = [
       'border-subtle',
       'border-default',
       'border-strong',
+      'border-control',
       'status-success-text',
       'status-warning-text',
       'status-error-text',

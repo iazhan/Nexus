@@ -1,5 +1,5 @@
 /**
- * `seedsToTokens()` —— 16 色种子 → 43 个语义 token 的纯计算。另外两个出口：`applyOverrides()`
+ * `seedsToTokens()` —— 16 色种子 → 44 个语义 token 的纯计算。另外两个出口：`applyOverrides()`
  * 是它之后的可选一层，`seedsToTokensWithReport()` 多带一份「哪些 token 被对比度修正动过」。
  *
  * 六段顺序有依赖，不能重排：背景梯度 → 边框 → 中性文字 → accent → 语法与状态 → 半透明。
@@ -207,7 +207,10 @@ export function seedsToTokensWithReport(scheme: NexusThemeScheme): DeriveReport 
   tokens['bg-quote'] = mix(canvas, seed('base0D'), tuning.quote);
 
   // ---- 2. 边框 ----
-  tokens['border-subtle'] = mix(canvas, seed('base02'), tuning.borderSubtle);
+  // 这三个是**分隔线**（`contrast.ts` 里显式豁免，纯装饰）：面板之间的缝、列表行之间的线。
+  // 控件自己的轮廓是另一回事，见下面 `border-control`。
+  const borderSubtle = mix(canvas, seed('base02'), tuning.borderSubtle);
+  tokens['border-subtle'] = borderSubtle;
   tokens['border-default'] = seed('base02');
   tokens['border-strong'] = mix(seed('base02'), seed('base05'), tuning.borderStrong);
 
@@ -226,6 +229,24 @@ export function seedsToTokensWithReport(scheme: NexusThemeScheme): DeriveReport 
       binding = resolved;
     }
   }
+
+  /**
+   * 控件边界的专用 token —— 与上面三个**装饰性**边框分开。
+   *
+   * 判据是「这个 1px 是不是某个可交互元素的完整轮廓」：是，它就是 WCAG 1.4.11 说的
+   * 「识别该组件所必需的视觉边界」，按图形级 3:1；不是（分隔线、面板缝），纯装饰，豁免。
+   * 两者差一个数量级 —— 深色的 `border-subtle` 压在 `bg-canvas` 上只有 1.18:1。
+   *
+   * 位置在这里而不是「2. 边框」那一段：它要压在 `binding`（最亮的通用面）上取值，
+   * 而 `binding` 要等背景梯度全部算完。
+   */
+  tokens['border-control'] = fixed(
+    'border-control',
+    borderSubtle,
+    atRatio(borderSubtle, binding, GRAPHICAL_MIN, dir),
+    binding,
+    GRAPHICAL_MIN
+  );
 
   const primary = atRatio(seed('base05'), binding, TEXT_MIN, dir);
   const primaryRatio = contrastRatio(primary, binding);
@@ -300,7 +321,10 @@ export function seedsToTokensWithReport(scheme: NexusThemeScheme): DeriveReport 
   }
 
   // ---- 6. 半透明 ----
-  tokens['selection-bg'] = { ...seed('base0D'), a: variant === 'light' ? 0.2 : 0.4 };
+  // 遮罩的 alpha **不是自由参数**：它同时决定「压在上面的文字」与「压在它上面的图形」的对比度。
+  // 深色原本的 0.4 实测让 text-primary 掉到 4.49:1、accent-indicator 掉到 2.91:1（两条都不达标，
+  // 后者是设置页导航选中项的图标）；0.3 分别是 5.49 / 3.56。浅色的 0.2 本来就够（8.80 / 3.14）。
+  tokens['selection-bg'] = { ...seed('base0D'), a: variant === 'light' ? 0.2 : 0.3 };
   tokens['syntax-inline-code-bg'] = { ...seed('base05'), a: variant === 'light' ? 0.05 : 0.15 };
 
   const out: Record<string, string> = {};

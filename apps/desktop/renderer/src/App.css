@@ -114,7 +114,7 @@ body {
   height: 24px;
   padding: 0 6px;
   background: transparent;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 4px;
   color: var(--nexus-text-secondary);
   font: inherit;
@@ -1459,7 +1459,10 @@ body.nexus-resizing {
 @media (prefers-reduced-motion: reduce) {
   .nexus-activity-panel,
   .nexus-activity-icon,
-  .nexus-activity-icon::before {
+  .nexus-activity-icon::before,
+  /* 设置页的开关滑块也是动效。漏了它，「减少动态效果」开着时滑块照样滑过去。 */
+  .nexus-settings-switch,
+  .nexus-settings-switch-knob {
     transition: none;
   }
 }
@@ -1789,7 +1792,7 @@ body.nexus-resizing {
   padding: 6px 10px;
   border-radius: 8px;
   background-color: var(--nexus-bg-surface);
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   color: var(--nexus-text-secondary);
   max-width: min(100%, 720px);
   overflow-wrap: anywhere;
@@ -2008,7 +2011,8 @@ body.nexus-resizing {
 .nexus-command-palette-item.selected,
 .nexus-command-palette-item:hover {
   background-color: var(--nexus-selection-bg);
-  color: var(--nexus-accent-text);
+  /* 文字不用 accent-text —— 理由见 `.nexus-settings-nav-item-active`。 */
+  color: var(--nexus-text-primary);
 }
 
 .nexus-command-title {
@@ -2038,6 +2042,21 @@ body.nexus-resizing {
   background-color: var(--nexus-bg-canvas);
 }
 
+/* 原生 `<button>` 不继承 `font-family`（UA 样式表给它的是系统字体），所以每个按钮类都得
+   自己写一句 `font-family: inherit` —— 漏一个就掉回 Arial。2026-10-01 的审核一次查出**六个**
+   类漏了，说明「靠人记得写」这条约定不可靠，于是把它变成默认。
+
+   `:where()` 是为了**把特异性压成 0**：整条选择器只剩 `.nexus-settings-view` 那一个类，
+   与各按钮类同为 (0,1,0)。于是「谁在后面谁赢」—— 这条排在设置视图所有按钮类**之前**，
+   有意要偏离等宽字体的地方（`.nexus-settings-keybinding-capture` 显示的是组合键）写在后面，
+   照样盖得住。写成 `.nexus-settings-view button` 会变成 (0,1,1)，那些偏离就全被压掉了。
+
+   下面各处逐类写的 `font-family: inherit` 因此是冗余的，但保留无害 —— 它们还挡着
+   「某个类被搬到设置视图之外」的情况。 */
+.nexus-settings-view :where(button) {
+  font-family: inherit;
+}
+
 .nexus-settings-nav {
   display: flex;
   flex-direction: column;
@@ -2050,7 +2069,9 @@ body.nexus-resizing {
   background-color: var(--nexus-bg-surface);
 }
 
+/* 它是页面的 `h1`（各分组标题是 `h2`），所以 `margin` 要自己清掉。 */
 .nexus-settings-nav-title {
+  margin: 0;
   padding: 4px 8px 10px;
   font-size: 11px;
   font-weight: 600;
@@ -2103,15 +2124,60 @@ body.nexus-resizing {
   background-color: var(--nexus-selection-bg);
 }
 
+/* 选中态的文字走 `--nexus-text-primary`，**不用 `--nexus-accent-text`**：
+   `--nexus-selection-bg` 是遮罩（`contrast.ts` 的 `OVERLAYS`，刻意不参与对比度契约），
+   accent-text 压在它上面实测只有 2.92:1（深色）/ 4.14:1（浅色），低于 AA 的 4.5:1；
+   text-primary 在同一底色上是 5.0:1。选中感由底色 + `--nexus-accent-indicator` 边框
+   （图形级 3:1）给，不靠文字变色 —— `.nexus-theme-mode-active` 一直是这么写的。 */
 .nexus-settings-nav-item-active {
   background-color: var(--nexus-selection-bg);
-  color: var(--nexus-accent-text);
+  color: var(--nexus-text-primary);
   font-weight: 500;
 }
 
-/* 未实现的分组仍然可点（点不动比空态更糟），靠弱化表达「还没有内容」 */
-.nexus-settings-nav-item[data-availability='planned'] {
+/* 未实现的分组仍然可点（点不动比空态更糟），靠弱化表达「还没有内容」。
+   **选中时必须让开**：这条选择器多一个属性，特异性比 `.nexus-settings-nav-item-active` 高，
+   不排除选中态的话，标签会继续吃 `text-muted` —— 压在选中底色上实测 4.25:1（浅）/ 3.41:1（深），
+   两条都低于 AA 的 4.5:1。换一个「更亮的灰」也不行：`text-secondary` 在深色上只有 4.30:1，
+   这块底色上**只有 `text-primary` 两侧都过**（`contrast.test.ts` 第二段把这条钉住了）。
+   选中时的「未实现」由右侧空态说明，不靠标签变灰。 */
+.nexus-settings-nav-item[data-availability='planned']:not(.nexus-settings-nav-item-active) {
   color: var(--nexus-text-muted);
+}
+
+/* 窄窗口（设置窗最小 560px）：固定 200px 的导航要吃掉 36%，内容区只剩 360px，
+   字段说明折成五行。收成图标条。
+   标签是**视觉隐藏而不是 `display: none`** —— 它还得留在按钮的可访问名里，不然读屏
+   拿到的是八个无名按钮；分组名另外挂了一个 `title`（`SettingsView.tsx`）。 */
+@media (max-width: 720px) {
+  .nexus-settings-nav {
+    width: 56px;
+    padding: 12px 6px;
+  }
+
+  /* 视觉隐藏而不是 `display: none` —— 它现在是页面的 `h1`，要留在可访问树里当标题锚点。 */
+  .nexus-settings-nav-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .nexus-settings-nav-item {
+    justify-content: center;
+    padding: 8px;
+  }
+
+  .nexus-settings-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .nexus-settings-content {
@@ -2160,18 +2226,24 @@ body.nexus-resizing {
 
 /* 只读值（`FieldDef.readonlyValue`）：路径这类「用户改不了、但需要看得见」的一段文本。
    做成有边框的块而不是裸文本 —— 裸文本会被当成说明的一部分，而它的内容是**数据**。
-   等宽字体 + `word-break: break-all`：路径里没有空格，默认断行规则下它会横向撑破容器。 */
+   等宽字体：路径里没有空格，比例字体下 `l` 与 `1` 分不清。断行规则见下面的 `overflow-wrap`。 */
 .nexus-settings-field-readonly {
   margin: 0;
-  padding: 5px 8px;
-  border: 1px solid var(--nexus-border-subtle);
-  border-radius: 4px;
+  /* 圆角与内边距跟输入框（`.nexus-settings-text`）对齐 —— 两者是同一页里并列的「值容器」，
+     差 2px 在 1px 描边下肉眼可辨。 */
+  padding: 6px 10px;
+  /* 边框同理跟输入框走 `--nexus-border-control`，尽管它自己不可交互：它**紧挨着**输入框出现，
+     两者用不同浓度的描边，看起来就是两套控件体系（审核 P2-5 的另一半）。 */
+  border: 1px solid var(--nexus-border-control);
+  border-radius: 6px;
   background-color: var(--nexus-bg-surface);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
   color: var(--nexus-text-primary);
-  word-break: break-all;
+  /* 不用 `break-all`：它会在目录名中间断开。`anywhere` 只在放不下时才断，且优先用已有的
+     断行机会（路径分隔符后的 `<wbr>`，见 `FieldRow.tsx` 的 `withBreakOpportunities`）。 */
+  overflow-wrap: anywhere;
   /* 只读值有两种：一条路径（索引库位置）与一整段多行文本（诊断信息）。
      `pre-wrap` 让后者按自己的换行断行，同时对前者没有任何影响。
      不这么做的话，那一段会被 HTML 折成一整行 —— 界面上与复制出来的不一样长。 */
@@ -2187,9 +2259,12 @@ body.nexus-resizing {
 
 .nexus-settings-option {
   padding: 6px 14px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   background-color: var(--nexus-bg-surface);
+  /* 原生 `<button>` 不继承字体（同 `.nexus-settings-nav-item` 那条）。漏写会掉回 Arial，
+     与同一页的输入框（`font-family: inherit`）混排。 */
+  font-family: inherit;
   font-size: 13px;
   color: var(--nexus-text-primary);
   cursor: pointer;
@@ -2202,7 +2277,8 @@ body.nexus-resizing {
 .nexus-settings-option-active {
   border-color: var(--nexus-accent-indicator);
   background-color: var(--nexus-selection-bg);
-  color: var(--nexus-accent-text);
+  /* 文字不用 accent-text —— 理由见 `.nexus-settings-nav-item-active`。 */
+  color: var(--nexus-text-primary);
   font-weight: 500;
 }
 
@@ -2234,7 +2310,7 @@ body.nexus-resizing {
 }
 
 .nexus-settings-field-reset:hover {
-  border-color: var(--nexus-border-subtle);
+  border-color: var(--nexus-border-control);
   background-color: var(--nexus-bg-surface-hover);
   color: var(--nexus-text-primary);
 }
@@ -2244,18 +2320,19 @@ body.nexus-resizing {
   outline-offset: 1px;
 }
 
-/* 数值输入：单位是覆盖层而不是 `<input>` 的兄弟，否则它会被算进输入框宽度。 */
+/* 数值输入：单位是覆盖层而不是 `<input>` 的兄弟，否则它会被算进输入框宽度。
+   148px 而不是 132：单位占掉 32px 的右内边距后，文字区只剩 ~90px，四位数就会横向滚动。 */
 .nexus-settings-number {
   position: relative;
   display: inline-flex;
   align-items: center;
-  width: 132px;
+  width: 148px;
 }
 
 .nexus-settings-number-input {
   width: 100%;
   padding: 6px 32px 6px 10px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   background-color: var(--nexus-bg-surface);
   font-family: inherit;
@@ -2276,12 +2353,16 @@ body.nexus-resizing {
   pointer-events: none;
 }
 
+/* 控件轮廓走 `--nexus-border-control`（图形级 3:1），**不是** `--nexus-border-subtle`。
+   判据是「这个 1px 是不是某个可交互元素的完整轮廓」：是 → WCAG 1.4.11 要求 3:1；
+   不是（面板缝、列表行分隔线、纯展示块）→ 纯装饰，`--nexus-border-subtle` 保持很弱。
+   混用的代价是实测出来的：深色下输入框边界只剩 1.18:1，等于看不见。 */
 .nexus-settings-select,
 .nexus-settings-text {
   width: 100%;
   max-width: 280px;
   padding: 6px 10px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   background-color: var(--nexus-bg-surface);
   font-family: inherit;
@@ -2326,7 +2407,7 @@ body.nexus-resizing {
   width: 34px;
   height: 20px;
   padding: 0;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 10px;
   background-color: var(--nexus-bg-surface);
   cursor: pointer;
@@ -2370,10 +2451,12 @@ body.nexus-resizing {
 
 .nexus-settings-action-button {
   padding: 6px 14px;
+  /* 同上：`<button>` 不继承字体。 */
+  font-family: inherit;
   font-size: 13px;
   color: var(--nexus-text-primary);
   background-color: var(--nexus-bg-surface);
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -2421,7 +2504,7 @@ body.nexus-resizing {
 .nexus-settings-keybinding-capture {
   min-width: 96px;
   padding: 4px 10px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 5px;
   background-color: var(--nexus-bg-surface);
   font-family: var(--font-mono);
@@ -2437,7 +2520,8 @@ body.nexus-resizing {
 .nexus-settings-keybinding-capture-active {
   border-color: var(--nexus-accent-indicator);
   background-color: var(--nexus-selection-bg);
-  color: var(--nexus-accent-text);
+  /* 文字不用 accent-text —— 理由见 `.nexus-settings-nav-item-active`。 */
+  color: var(--nexus-text-primary);
 }
 
 .nexus-settings-keybinding-action,
@@ -2446,6 +2530,8 @@ body.nexus-resizing {
   border: 1px solid transparent;
   border-radius: 5px;
   background: none;
+  /* 同上：`<button>` 不继承字体。这一组 11 行 × 最多 2 枚，漏写是整片 Arial。 */
+  font-family: inherit;
   font-size: 12px;
   color: var(--nexus-text-muted);
   cursor: pointer;
@@ -2453,7 +2539,7 @@ body.nexus-resizing {
 
 .nexus-settings-keybinding-action:hover:not(:disabled),
 .nexus-settings-keybinding-resetall:hover {
-  border-color: var(--nexus-border-subtle);
+  border-color: var(--nexus-border-control);
   background-color: var(--nexus-bg-surface-hover);
   color: var(--nexus-text-primary);
 }
@@ -2521,9 +2607,11 @@ body.nexus-resizing {
   align-items: stretch;
   gap: 8px;
   padding: 10px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 8px;
   background-color: var(--nexus-bg-surface);
+  /* 同上：`<button>` 不继承字体。卡片名是这一页里字数最多的按钮文本，掉 Arial 最显眼。 */
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -2543,7 +2631,8 @@ body.nexus-resizing {
 }
 
 .nexus-theme-card-active .nexus-theme-card-name {
-  color: var(--nexus-accent-text);
+  /* 文字不用 accent-text —— 理由见 `.nexus-settings-nav-item-active`。 */
+  color: var(--nexus-text-primary);
   font-weight: 500;
 }
 
@@ -2591,7 +2680,7 @@ body.nexus-resizing {
   width: 22px;
   height: 22px;
   padding: 0;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   background-color: var(--nexus-bg-surface);
   color: var(--nexus-text-secondary);
@@ -2614,10 +2703,12 @@ body.nexus-resizing {
   width: 100%;
   margin-top: 8px;
   padding: 10px;
-  border: 1px dashed var(--nexus-border-subtle);
+  border: 1px dashed var(--nexus-border-control);
   border-radius: 8px;
   background-color: transparent;
   color: var(--nexus-text-secondary);
+  /* 同上：`<button>` 不继承字体。 */
+  font-family: inherit;
   font-size: 13px;
   cursor: pointer;
 }
@@ -2661,7 +2752,7 @@ body.nexus-resizing {
   gap: 8px;
   max-width: 220px;
   padding: 10px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 8px;
   background-color: var(--nexus-bg-surface);
   font: inherit;
@@ -2906,7 +2997,7 @@ body.nexus-resizing {
   width: 260px;
   margin-top: 4px;
   padding: 6px 10px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   background-color: var(--nexus-bg-surface);
   font: inherit;
@@ -2927,15 +3018,39 @@ body.nexus-resizing {
 
 .nexus-settings-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   flex: 1;
   min-height: 200px;
+  text-align: center;
+}
+
+.nexus-settings-empty-icon {
+  display: flex;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-settings-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nexus-text-secondary);
 }
 
 .nexus-settings-empty-text {
   margin: 0;
   font-size: 13px;
+  color: var(--nexus-text-muted);
+}
+
+/* 一句「为什么还没有」比一句「尚未提供」有用：它区分「这里坏了」与「这里还没做」。 */
+.nexus-settings-empty-hint {
+  margin: 0;
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--nexus-text-muted);
 }
 
@@ -2996,7 +3111,7 @@ body.nexus-resizing {
   min-width: 0;
   padding: 2px 6px;
   margin-left: -6px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 4px;
   background-color: transparent;
   font-family: inherit;
@@ -3029,7 +3144,7 @@ body.nexus-resizing {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   background-color: var(--nexus-bg-canvas);
 }
@@ -3076,7 +3191,7 @@ body.nexus-resizing {
   min-height: 120px;
   max-height: 240px;
   padding: 8px 10px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   background-color: var(--nexus-bg-canvas);
   color: var(--nexus-text-primary);
@@ -3182,7 +3297,7 @@ body.nexus-resizing {
   flex: 1;
   min-width: 160px;
   padding: 6px 10px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   background-color: var(--nexus-bg-surface);
   color: var(--nexus-text-primary);
@@ -3220,6 +3335,8 @@ body.nexus-resizing {
   border-radius: 6px;
   background-color: var(--nexus-bg-surface);
   color: var(--nexus-text-primary);
+  /* 同上：`<button>` 不继承字体。 */
+  font-family: inherit;
   font-size: 13px;
   cursor: pointer;
 }
@@ -3244,7 +3361,7 @@ body.nexus-resizing {
    写在最后：`:disabled` 与 `:hover` 同特异性，靠源码顺序取胜。 */
 .nexus-theme-action:disabled,
 .nexus-theme-action-primary:disabled {
-  border-color: var(--nexus-border-subtle);
+  border-color: var(--nexus-border-control);
   background-color: transparent;
   color: var(--nexus-text-muted);
   cursor: not-allowed;
@@ -3257,7 +3374,7 @@ body.nexus-resizing {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 14px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 8px;
   background-color: var(--nexus-bg-surface);
 }
@@ -3482,7 +3599,7 @@ body.nexus-resizing {
   align-items: center;
   gap: 2px 8px;
   padding: 6px 8px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -3496,7 +3613,7 @@ body.nexus-resizing {
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 4px;
   background: none;
   cursor: pointer;
@@ -3562,7 +3679,7 @@ body.nexus-resizing {
 
 .nexus-theme-tuning-input::-webkit-slider-runnable-track {
   height: 4px;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 2px;
   background-color: var(--nexus-bg-surface);
 }
@@ -3671,7 +3788,7 @@ body.nexus-resizing {
   width: 28px;
   height: 22px;
   padding: 0;
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 4px;
   background: none;
   cursor: pointer;
@@ -3838,7 +3955,7 @@ body.nexus-resizing {
 }
 
 .nexus-theme-preview-input {
-  border: 1px solid var(--nexus-border-subtle);
+  border: 1px solid var(--nexus-border-control);
   border-radius: 6px;
   font-size: 13px;
   padding: 8px 10px;

@@ -74,10 +74,13 @@ export const ThemeTransfer: React.FC = () => {
     });
   };
 
+  // 导入 / 导出的结果要能被读屏念出来 —— `aria-live` 挂在这个常驻容器上，
+  // 不是那几条状态行自己（动态插入的 live region 不响）。
   return (
     <section
       className="nexus-theme-transfer"
       data-theme-transfer=""
+      aria-live="polite"
       data-drop-active={dropping}
       onDragOver={(event) => {
         event.preventDefault();

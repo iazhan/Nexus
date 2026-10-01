@@ -2544,3 +2544,323 @@ describe('设置视图 · 数据', () => {
     ]);
   });
 });
+
+/**
+ * 可访问性与排版收口（2026-10-01 设置页审核）。
+ *
+ * 这一批改的全是「看不见、但会出事」的地方：读屏认不认得出这是标签页、页面有没有一个标题
+ * 锚点、空态读起来像不像「坏了」、切分组之后用户落在哪、长路径在哪断行。
+ *
+ * 判据一律取结构与 ARIA 属性。配色、尺寸、字体继承、窄窗口断点**不在这里** ——
+ * happy-dom 不排版也解不出自定义属性，那些只有真机量得出来（见
+ * `.workbuddy-ai/skills/nexus-ui-audit`）。
+ */
+describe('设置视图 · 可访问性结构', () => {
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  /**
+   * 左栏是**竖排标签页**。少了 `role`，读屏念到的是一串按钮 —— 听不出「这七个属于同一组、
+   * 每次只有一个是当前的」，也听不出右边那一大片属于哪一个。
+   *
+   * 互指是双向的：tab 有 `id`，panel 的 `aria-labelledby` 指着它。只写一边等于没写。
+   */
+  it('左栏是竖排 tablist，tab 与 tabpanel 用 id 互指', () => {
+    renderSettings('appearance');
+
+    const nav = container.querySelector('.nexus-settings-nav');
+    expect(nav?.getAttribute('role')).toBe('tablist');
+    expect(nav?.getAttribute('aria-orientation')).toBe('vertical');
+    // 标签页组本身也要有个名字，否则读屏只说「标签页」，不说这是「设置分组」。
+    expect(nav?.getAttribute('aria-label')).toBe(
+      translate(localeManager.locale, 'settings.navAria')
+    );
+
+    const tabs = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
+    expect(tabs).toHaveLength(SECTIONS.length);
+    for (const tab of tabs) {
+      const id = tab.dataset.section ?? '';
+      expect(tab.id, id).not.toBe('');
+      expect(tab.getAttribute('aria-selected'), id).not.toBeNull();
+    }
+
+    const panel = container.querySelector<HTMLElement>('[role="tabpanel"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.id).not.toBe('');
+    expect(panel?.getAttribute('aria-labelledby')).toBe(
+      container.querySelector('[data-section="appearance"]')?.id
+    );
+    // 面板可聚焦：键盘用户按 Tab 进来之后要能直接滚内容，而不是先落在某个控件上。
+    expect(panel?.getAttribute('tabindex')).toBe('0');
+  });
+
+  /**
+   * 页面只有**一个** `h1`（设置窗口的标题），各分组标题是 `h2`。
+   *
+   * 空态也要有 `h2`：可用分组各有一个，只有空态没有的话，读屏按标题跳转是「进得来、出不去」——
+   * 停在一个不知道自己属于哪一组的位置上。
+   */
+  it('页面一个 h1，可用分组与空态各有一个 h2', () => {
+    renderSettings('editor');
+
+    expect(container.querySelectorAll('h1')).toHaveLength(1);
+    expect(container.querySelector('.nexus-settings-nav-title')?.tagName).toBe('H1');
+    expect(container.querySelectorAll('.nexus-settings-section-title')).toHaveLength(1);
+    expect(container.querySelector('.nexus-settings-section-title')?.tagName).toBe('H2');
+
+    act(() => {
+      root.render(<SettingsView section="sync" onSelectSection={() => {}} />);
+    });
+
+    expect(container.querySelectorAll('h1')).toHaveLength(1);
+    expect(container.querySelector('.nexus-settings-empty-title')?.tagName).toBe('H2');
+    // 空态的标题是**这一组**的名字，不是一句通用的「空」。
+    expect(container.querySelector('.nexus-settings-empty-title')?.textContent).toBe(
+      translate(
+        localeManager.locale,
+        SECTIONS.find((item) => item.id === 'sync')!.titleKey
+      )
+    );
+  });
+
+  /**
+   * 空态要说清「这里还没做」，不是「这里坏了」—— 只给一句「尚未提供」，用户分不出这两种，
+   * 于是会去查是不是自己弄坏了什么。
+   *
+   * 图标是**装饰**（`aria-hidden`）：读屏把方框图形念一遍没有任何信息量。
+   */
+  it('空态是「图标 + 标题 + 两行说明」，图标是装饰', () => {
+    renderSettings('sync');
+
+    const empty = container.querySelector('.nexus-settings-empty');
+    expect(empty).not.toBeNull();
+    expect(
+      empty?.querySelector('.nexus-settings-empty-icon svg')?.getAttribute('aria-hidden')
+    ).toBe('true');
+    expect(empty?.querySelector('.nexus-settings-empty-text')?.textContent).toBe(
+      translate(localeManager.locale, 'settings.planned')
+    );
+    // 这一句是这次新加的那一行 —— 它区分「这里坏了」与「这里还没做」。
+    expect(empty?.querySelector('.nexus-settings-empty-hint')?.textContent).toBe(
+      translate(localeManager.locale, 'settings.plannedHint')
+    );
+    expect(container.querySelector('[data-field]')).toBeNull();
+  });
+
+  /**
+   * 导航项带 `title`。窄窗口（≤720px）下标签被**视觉隐藏**（不是 `display: none` ——
+   * 那样可访问名一起没了），那一刻 `title` 是唯一能把分组名看全的地方。
+   */
+  it('导航项带 title，窄窗口收起标签后仍能看全分组名', () => {
+    renderSettings();
+
+    for (const item of navItems()) {
+      const id = item.dataset.section ?? '';
+      const section = SECTIONS.find((candidate) => candidate.id === id);
+      expect(item.getAttribute('title'), id).toBe(
+        translate(localeManager.locale, section!.titleKey)
+      );
+    }
+  });
+
+  /**
+   * 切分组把内容区滚回顶部。不这么做会**保留上一个分组的滚动位置** —— 从长分组切到另一个
+   * 长分组时用户落在半空中，看不到分组标题（真机实测：Editor 滚到 859，切到 Files 之后是 9，
+   * 那还是被新内容高度夹过的结果）。
+   *
+   * 判据是「同一个 DOM 节点上收到了 `scrollTo({ top: 0 })`」—— 不是「组件重渲染了」。
+   */
+  it('切分组把内容区滚回顶部', () => {
+    renderSettings('editor');
+
+    const content = container.querySelector<HTMLElement>('.nexus-settings-content');
+    expect(content).not.toBeNull();
+
+    const scrollTo = vi.fn();
+    content!.scrollTo = scrollTo as unknown as Element['scrollTo'];
+
+    act(() => {
+      root.render(<SettingsView section="files" onSelectSection={() => {}} />);
+    });
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+  });
+});
+
+/**
+ * 活区（live region）。
+ *
+ * 三处效果都**不在当前窗口里发生**：动作按钮的效果落在别的窗口 / 资源管理器；快捷键捕获被拒
+ * 只在那一行给一行字；主题导入导出的结果落进存档。读屏只在「**已经存在的** live region 内容
+ * 变化」时播报 —— 动态插入一个带 `role="status"` 的元素是不响的。
+ *
+ * 所以判据是「**常驻容器**上有 `aria-live`」，不是「那行提示上有 `role`」。两处的区别正是
+ * 这一批要修的东西，写成后者这条用例会假绿。
+ */
+describe('设置视图 · 活区', () => {
+  const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
+
+  beforeEach(() => {
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve([])
+    };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    (window as unknown as { nexus?: unknown }).nexus = originalBridge;
+  });
+
+  /** 探测是异步的，让它落地再断言 —— 否则会在用例之外刷 `act(...)` 警告。 */
+  async function settle(): Promise<void> {
+    await act(async () => {
+      for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
+    });
+  }
+
+  it('动作字段的容器是 polite 活区，「为什么不能按」与回执都靠它念出来', async () => {
+    renderSettings('data');
+    await settle();
+
+    const actions = Array.from(container.querySelectorAll<HTMLElement>('[data-field-action]'));
+    expect(actions.length).toBeGreaterThan(0);
+
+    for (const button of actions) {
+      const id = button.dataset.fieldAction ?? '';
+      // 容器是按钮的**父节点**，且按钮自己不是活区 —— 活区必须常驻。
+      expect(button.getAttribute('aria-live'), id).toBeNull();
+      expect(button.parentElement?.getAttribute('aria-live'), id).toBe('polite');
+    }
+  });
+
+  it('快捷键每一行是 assertive 活区 —— 捕获被拒要立刻知道，不是等这一句读完', () => {
+    renderSettings('keybindings');
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('[data-keybinding]'));
+    expect(rows).toHaveLength(REMAPPABLE_ACTIONS.length);
+    for (const row of rows) {
+      expect(row.getAttribute('aria-live'), row.dataset.keybinding ?? '').toBe('assertive');
+    }
+  });
+
+  it('主题导入导出是 polite 活区', () => {
+    renderSettings('appearance');
+
+    expect(
+      container.querySelector('[data-theme-transfer]')?.getAttribute('aria-live')
+    ).toBe('polite');
+  });
+});
+
+/**
+ * 长路径的断行点（`FieldRow.tsx` 的 `withBreakOpportunities`）。
+ *
+ * CSS 不认 `\` 与 `/` 是断行机会，所以长路径要么撑破容器，要么只能在任意字符处断开
+ * （`word-break: break-all`）—— 断点落在目录名中间，用户没法按层级扫读。`<wbr>` 把断点挪到
+ * 分隔符**之后**。
+ *
+ * 判据是 DOM 结构（`<wbr>` 的条数与文本内容），不是视觉 —— happy-dom 不排版。
+ * 「文本内容一字不差」这条尤其重要：插元素最坏的结果是把用户要复制的路径改掉了。
+ */
+describe('设置视图 · 长路径断行', () => {
+  const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
+
+  const INDEX_PATH = 'C:/Users/tester/AppData/Roaming/Nexus/workspace-index/9f3a1c07.db';
+
+  function stubBridge(indexPath: string | null): void {
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve(['E:/notes']),
+      getIndexPath: () => Promise.resolve(indexPath),
+      getDiagnostics: () => Promise.resolve(null)
+    };
+  }
+
+  async function settle(): Promise<void> {
+    await act(async () => {
+      for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
+    });
+  }
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    (window as unknown as { nexus?: unknown }).nexus = originalBridge;
+  });
+
+  it('路径按分隔符切成多段，段间插 wbr，且文本一字不差', async () => {
+    stubBridge(INDEX_PATH);
+    renderSettings('data');
+    await settle();
+
+    const readonly = container.querySelector<HTMLElement>(
+      '[data-field-readonly="data.openIndexDirectory"]'
+    );
+    expect(readonly).not.toBeNull();
+
+    // 7 段（`C:/` `Users/` `tester/` `AppData/` `Roaming/` `Nexus/` `workspace-index/` `…db`）
+    // 之间有 7 个断点。
+    const breaks = readonly!.querySelectorAll('wbr');
+    expect(breaks).toHaveLength(7);
+
+    // 插元素不改内容：用户框选复制出来的还是同一条路径。
+    expect(readonly!.textContent).toBe(INDEX_PATH);
+  });
+
+  it('没有分隔符的值原样输出，不插 wbr', async () => {
+    stubBridge('9f3a1c07.db');
+    renderSettings('data');
+    await settle();
+
+    const readonly = container.querySelector<HTMLElement>(
+      '[data-field-readonly="data.openIndexDirectory"]'
+    );
+    expect(readonly?.textContent).toBe('9f3a1c07.db');
+    expect(readonly?.querySelectorAll('wbr')).toHaveLength(0);
+  });
+
+  /**
+   * 多行文本（诊断信息）自己带换行，`white-space: pre-wrap` 会处理 —— 再插 `<wbr>` 只会让
+   * 每一行内部多出一堆无意义的断点。
+   */
+  it('多行文本原样输出，不插 wbr', async () => {
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve([]),
+      getDiagnostics: () =>
+        Promise.resolve({
+          version: '0.45.0',
+          platform: 'win32-x64',
+          electron: '33.0.0',
+          chromium: '130.0.0.0',
+          node: '20.18.0',
+          workspaceRoot: 'E:/notes'
+        })
+    };
+    renderSettings('data');
+    await settle();
+
+    const readonly = container.querySelector<HTMLElement>(
+      '[data-field-readonly="data.diagnostics"]'
+    );
+    expect(readonly).not.toBeNull();
+    expect(readonly!.textContent).toContain('\n');
+    expect(readonly!.querySelectorAll('wbr')).toHaveLength(0);
+  });
+});

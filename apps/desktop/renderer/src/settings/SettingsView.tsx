@@ -1,9 +1,31 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { useLocale } from '../hooks.js';
 import { SECTIONS, fieldsOfSection, sectionById, type SectionId } from './registry.js';
 import { AppearanceSection } from './AppearanceSection.js';
 import { KeybindingsSection } from './KeybindingsSection.js';
 import { FieldList } from './FieldRow.js';
+
+/** `role="tab"` 与 `role="tabpanel"` 靠这一对 id 互相指认。 */
+const tabId = (id: SectionId): string => `nexus-settings-tab-${id}`;
+const panelId = (id: SectionId): string => `nexus-settings-panel-${id}`;
+
+/** 空态的图标：一个虚线方框加一条短横 —— 「这里预留了位置，但还没有东西」。 */
+const EmptyIcon = (
+  <svg
+    width="28"
+    height="28"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="3" y="4" width="18" height="16" rx="2" strokeDasharray="3 3" />
+    <path d="M8 12h8" />
+  </svg>
+);
 
 export interface SettingsViewProps {
   section: SectionId;
@@ -24,7 +46,17 @@ export interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSection }) => {
   const { t } = useLocale();
   const navRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const current = sectionById(section);
+
+  /**
+   * 切分组把内容区滚回顶部。不这么做会**保留上一个分组的滚动位置** —— 从长分组切到另一个
+   * 长分组时用户落在半空中，看不到分组标题（实测：Editor 滚到 859，切到 Files 之后是 9，
+   * 那还是被新内容高度夹过的结果）。
+   */
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [section]);
 
   /**
    * 上下键在七项之间移动**焦点**，只有 `available` 的项会被选中。
@@ -54,6 +86,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSec
       <nav
         className="nexus-settings-nav"
         ref={navRef}
+        role="tablist"
+        aria-orientation="vertical"
         aria-label={t('settings.navAria')}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') {
@@ -65,7 +99,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSec
           }
         }}
       >
-        <span className="nexus-settings-nav-title">{t('settings.title')}</span>
+        {/* 页面的 `h1`。整个设置窗口只有这一个一级标题 —— 各分组的标题是 `h2`，
+            读屏按标题跳转时需要一个根锚点。 */}
+        <h1 className="nexus-settings-nav-title">{t('settings.title')}</h1>
 
         {SECTIONS.map((item) => {
           const selected = item.id === section;
@@ -74,10 +110,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSec
               key={item.id}
               type="button"
               role="tab"
+              id={tabId(item.id)}
               aria-selected={selected}
               className={`nexus-settings-nav-item${selected ? ' nexus-settings-nav-item-active' : ''}`}
               data-section={item.id}
               data-availability={item.availability}
+              /* 窄窗口下标签被视觉隐藏（见 App.css 的 720px 断点），`title` 是那时唯一
+                 能把分组名看全的地方。 */
+              title={t(item.titleKey)}
               onClick={() => onSelectSection(item.id)}
             >
               {/* 图标是 `aria-hidden` 的：`aria-selected` 已经说清选中态，分组名才是可读信息，
@@ -89,10 +129,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSec
         })}
       </nav>
 
-      <div className="nexus-settings-content">
+      <div
+        className="nexus-settings-content"
+        ref={contentRef}
+        role="tabpanel"
+        id={panelId(section)}
+        aria-labelledby={tabId(section)}
+        tabIndex={0}
+      >
         {current?.availability !== 'available' ? (
           <div className="nexus-settings-empty" data-availability="planned">
+            <span className="nexus-settings-empty-icon" aria-hidden="true">
+              {EmptyIcon}
+            </span>
+            {/* 空态也要有标题：可用分组各有一个 `h2`，只有这两个没有的话，读屏按标题
+                跳转时是「进得来、出不去」—— 不知道自己落在哪一组。 */}
+            <h2 className="nexus-settings-empty-title">
+              {t(current?.titleKey ?? 'settings.planned')}
+            </h2>
             <p className="nexus-settings-empty-text">{t('settings.planned')}</p>
+            <p className="nexus-settings-empty-hint">{t('settings.plannedHint')}</p>
           </div>
         ) : section === 'appearance' ? (
           /* 主题卡片网格不是通用控件能表达的，走专用组件；其余分组全是普通字段。 */

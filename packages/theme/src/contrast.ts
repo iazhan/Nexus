@@ -12,6 +12,8 @@
  * - `accent-solid` 是按钮底色而非前景，只作承载面；图形前景是 `accent-indicator`。
  * - `status-*-border` 与 `border-*` 的 tier 不同：前者是语义指示器（1.4.11 适用，3:1），
  *   后者是分隔线（纯装饰，豁免）。按 `-border` 后缀归一类是错的口径。
+ * - `border-control` 是上面那条的第三个实例：同样是 `border-` 前缀，但它是**控件轮廓**，
+ *   按图形级 3:1。判据是「这个 1px 是不是某个可交互元素的完整轮廓」，不是名字。
  * - `bg-quote` 属于通用背景；`OVERLAYS` 单独一组，正文不落在遮罩与选区高亮上。
  */
 
@@ -158,6 +160,10 @@ export const FOREGROUND_CONTRACT: Record<string, TokenContract> = {
   'border-subtle': { tier: 'border', on: [] },
   'border-default': { tier: 'border', on: [] },
   'border-strong': { tier: 'border', on: [] },
+
+  // 控件边界不是分隔线：它是「识别这个控件所必需的视觉边界」，1.4.11 适用，按图形级 3:1 实测。
+  // 按 `-border` 后缀归进上面那一类是错的口径 —— 与 `status-*-border` 同一类错误。
+  'border-control': { tier: 'graphical', on: [...general] },
 };
 
 for (const name of SYNTAX_HIGHLIGHTS) {
