@@ -734,6 +734,84 @@ describe('工作区索引', () => {
       });
     });
 
+    /**
+     * 边的方向。
+     *
+     * 一条边一行，`mutual` 记住「两边都写了」—— 不拆成两条重合的线，那会把密处读成一团麻。
+     * 这一组的关键是**别把「同方向的重复」误判成双向**。
+     */
+    describe('边的方向', () => {
+      const edgeOf = (graph: { edges: Array<{ source: number; target: number; mutual: boolean }> }) =>
+        graph.edges;
+
+      it('单向：source → target，mutual 为假', async () => {
+        await writeDoc('a.md', '[[b]]');
+        await writeDoc('b.md', '终点。');
+
+        const store = await openIndexed();
+        const a = store.listDocuments().find((doc) => doc.name === 'a.md')!;
+        const b = store.listDocuments().find((doc) => doc.name === 'b.md')!;
+
+        expect(edgeOf(store.getGraph())).toEqual([
+          { source: a.id, target: b.id, mutual: false }
+        ]);
+
+        store.close();
+      });
+
+      it('互引：仍然只有一条边，标成 mutual', async () => {
+        await writeDoc('a.md', '[[b]]');
+        await writeDoc('b.md', '[[a]]');
+
+        const store = await openIndexed();
+        const graph = store.getGraph();
+
+        expect(graph.edges).toHaveLength(1);
+        expect(graph.edges[0]!.mutual).toBe(true);
+
+        store.close();
+      });
+
+      it('同方向的重复**不**算互引', async () => {
+        /*
+          一篇里写 `[[dma]]` 与 `[[notes/dma]]`，两条链接指向同一篇 —— 解析后是同一个
+          (source, target) 对。按「这条边出现过第二次」判 mutual 的话，这里会画成双箭头，
+          而实际上根本没有反向引用。
+        */
+        await writeDoc('notes/dma.md', 'DMA 主体。');
+        await writeDoc('index.md', '见 [[dma]] 与 [[notes/dma]]。');
+
+        const store = await openIndexed();
+        const graph = store.getGraph();
+
+        expect(graph.edges).toHaveLength(1);
+        expect(graph.edges[0]!.mutual).toBe(false);
+
+        store.close();
+      });
+
+      it('同一份工作区两次取图完全一致（朝向也一致）', async () => {
+        // 朝向取决于哪一行先被扫到 —— 不加 ORDER BY 的话换个查询计划箭头就反了
+        await writeDoc('a.md', '[[b]]');
+        await writeDoc('b.md', '[[c]]');
+        await writeDoc('c.md', '[[a]]');
+
+        const store = await openIndexed();
+        expect(store.getGraph()).toEqual(store.getGraph());
+
+        store.close();
+      });
+
+      it('断链一律单向 —— 对面没有文档，不可能互引', async () => {
+        await writeDoc('index.md', '[[还没写的]]');
+
+        const store = await openIndexed();
+        expect(store.getGraph().edges.every((edge) => edge.mutual === false)).toBe(true);
+
+        store.close();
+      });
+    });
+
     it('范围与类型可以叠加', async () => {
       await chain();
       const store = await openIndexed();

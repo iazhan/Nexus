@@ -302,6 +302,19 @@ describe('图谱控制条', () => {
     expect(rows[0]!.getAttribute('data-cluster')).toBe('Other');
   });
 
+  it('把边的方向交给绘制层（画箭头要用）', async () => {
+    getGraph.mockImplementation(async () => ({
+      nodes: [node(1, 'a.md', 'markdown', 1), node(2, 'b.md', 'markdown', 1)],
+      edges: [{ source: 1, target: 2, mutual: true }]
+    }));
+    await render();
+
+    // 方向丢了的话箭头就画不出来，而画布上的东西从外面看不见 —— 只能在这里守
+    expect(
+      JSON.parse(container.querySelector('.nexus-graph-hitmap')!.getAttribute('data-edges')!)
+    ).toEqual([{ source: 1, target: 2, mutual: true }]);
+  });
+
   it('拖侧栏时等尺寸停下来再重算布局', async () => {
     /*
       拖侧栏时 `ResizeObserver` 每个像素报一次，而一次布局是 300 次迭代的 O(n²)。

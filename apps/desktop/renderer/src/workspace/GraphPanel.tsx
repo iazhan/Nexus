@@ -55,6 +55,9 @@ const MAX_LABELS = 48;
 const LABEL_AREA_BUDGET_PX = 6000;
 const LABEL_FONT_SIZE_PX = 10;
 
+/** 连线短于这个长度就不画箭头 —— 密集处它们会叠成一坨黑点，比没有更看不出方向。 */
+const MIN_ARROW_LINE_PX = 14;
+
 /** 滚轮一格大约 100，乘这个系数后每格约 1.1 倍 —— 再快就调不准。 */
 const WHEEL_ZOOM_SENSITIVITY = 0.001;
 /** 双击 / 生长后自动取景时四周留的空隙。 */
@@ -85,6 +88,55 @@ const LAYOUT_SETTLE_MS = 150;
 /** 节点的屏幕半径：基础值 + degree 加成。绘制、命中、标签避让三处必须用同一个值。 */
 function nodeRadius(node: { degree: number }): number {
   return NODE_RADIUS + Math.min(node.degree, MAX_DEGREE_BONUS);
+}
+
+/**
+ * 箭头大小随缩放走，但夹在 3–8 屏幕像素之间。
+ *
+ * 不夹的话：缩到 0.3 倍时箭头只有 2px，看不出是个箭头；放到 4 倍时箭头比节点还大，
+ * 图会变成一堆三角。
+ */
+function clampArrowSize(scale: number): number {
+  return Math.min(8, Math.max(3, 6 * scale));
+}
+
+/**
+ * 在 `to` 那一端画一个箭头，尖端落在 `to` 节点**边缘**（`edgeRadius` 之外 1px）。
+ *
+ * ## 两个必须的判据
+ *
+ * 1. **线太短就不画。** 节点密集时相邻两点的连线只有几像素，箭头会叠成一坨黑点 ——
+ *    那比没有箭头更看不出方向。
+ * 2. **从节点边缘收住**，不是从圆心。画在圆心的话，后画的节点圆会把它盖掉，
+ *    表现成「箭头不见了」，而代码看起来完全正常。
+ */
+function drawArrowhead(
+  context: CanvasRenderingContext2D,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  edgeRadius: number,
+  size: number
+): void {
+  const deltaX = to.x - from.x;
+  const deltaY = to.y - from.y;
+  const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+  if (length < MIN_ARROW_LINE_PX) return;
+
+  const unitX = deltaX / length;
+  const unitY = deltaY / length;
+  const tipX = to.x - unitX * (edgeRadius + 1);
+  const tipY = to.y - unitY * (edgeRadius + 1);
+
+  const baseX = tipX - unitX * size;
+  const baseY = tipY - unitY * size;
+  const half = size * 0.42;
+
+  context.beginPath();
+  context.moveTo(tipX, tipY);
+  context.lineTo(baseX + -unitY * half, baseY + unitX * half);
+  context.lineTo(baseX - -unitY * half, baseY - unitX * half);
+  context.closePath();
+  context.fill();
 }
 
 /**
@@ -571,6 +623,10 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
         ? null
         : new Set<number>([hoveredId, ...(neighborsById.get(hoveredId) ?? [])]);
 
+    /** 每个节点在屏幕上的半径。箭头要从节点边缘收住，不能画到圆心（会被圆盖掉）。 */
+    const radiusById = new Map<number, number>();
+    for (const node of graph.nodes) radiusById.set(node.id, nodeRadius(node) * view.scale);
+
     context.strokeStyle = edgeColor;
     context.lineWidth = 1;
     context.beginPath();
@@ -583,6 +639,27 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
       context.lineTo(target.x, target.y);
     }
     context.stroke();
+    context.globalAlpha = 1;
+
+    /*
+      箭头单独走一遍，画在**节点之前** —— 节点是后画的，箭头留在圆心就会被圆盖住。
+      所以尖端要沿连线退到目标节点的边缘外一点点。
+    */
+    context.fillStyle = edgeColor;
+    const arrowSize = clampArrowSize(view.scale);
+    for (const edge of graph.edges) {
+      const source = toScreen(edge.source);
+      const target = toScreen(edge.target);
+      if (!source || !target) continue;
+
+      context.globalAlpha =
+        litIds !== null && !(litIds.has(edge.source) && litIds.has(edge.target)) ? DIM_ALPHA : 1;
+      drawArrowhead(context, source, target, radiusById.get(edge.target) ?? 0, arrowSize);
+      // 互相引用画双箭头：一条线就说清了「两边都写了」，不必拆成两条重合的线
+      if (edge.mutual) {
+        drawArrowhead(context, target, source, radiusById.get(edge.source) ?? 0, arrowSize);
+      }
+    }
     context.globalAlpha = 1;
 
     for (const node of graph.nodes) {
@@ -876,6 +953,13 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
                 })
               )}
               data-view={JSON.stringify(view)}
+              data-edges={JSON.stringify(
+                graph.edges.map((edge) => ({
+                  source: edge.source,
+                  target: edge.target,
+                  mutual: edge.mutual
+                }))
+              )}
               data-hover={JSON.stringify({
                 id: hoveredId,
                 neighbors: hoveredId === null ? [] : [...(neighborsById.get(hoveredId) ?? [])]

@@ -92,12 +92,46 @@ describe('图谱面板', () => {
   });
 
   it('画出节点、边与标签', async () => {
+    /*
+      布局比画布晚一帧：画布要等 IPC 回来才渲染，而布局还要等画布尺寸量出来
+      （尺寸是 `ResizeObserver` 报的，见 `LAYOUT_SETTLE_MS` 那段）。所以这里要等。
+    */
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-hitmap')?.dataset.nodes !== '[]'`,
+      20000
+    );
+
     const nodes = JSON.parse(
       await app.evaluate<string>(
         `document.querySelector('.nexus-graph-hitmap')?.dataset.nodes ?? '[]'`
       )
     ) as Array<{ id: number; x: number; y: number }>;
     expect(nodes).toHaveLength(4);
+
+    const screenNodes = JSON.parse(
+      await app.evaluate<string>(
+        `document.querySelector('.nexus-graph-hitmap')?.dataset.screenNodes ?? '[]'`
+      )
+    ) as Array<{ id: number; name: string }>;
+
+    /*
+      边的方向：夹具是 a → b → c，没有任何互引。
+      方向在存储层算（`index-store.test.ts` 的「边的方向」逐条验过），这里只确认它
+      **走到了画布这一层** —— 丢了的话箭头画不出来，而画布上的东西从外面看不见。
+    */
+    const edges = JSON.parse(
+      await app.evaluate<string>(
+        `document.querySelector('.nexus-graph-hitmap')?.dataset.edges ?? '[]'`
+      )
+    ) as Array<{ source: number; target: number; mutual: boolean }>;
+    const idOf = (name: string) => screenNodes.find((item) => item.name === name)!.id;
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        { source: idOf('a.md'), target: idOf('b.md'), mutual: false },
+        { source: idOf('b.md'), target: idOf('c.md'), mutual: false }
+      ])
+    );
+    expect(edges).toHaveLength(2);
 
     /*
       标签在**绘制时**才算出来（要量文字宽度），所以等一拍再读。

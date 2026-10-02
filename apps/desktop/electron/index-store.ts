@@ -649,10 +649,14 @@ export class IndexStore {
   /**
    * 整个工作区的链接图：节点是文档，边是 wikilink。
    *
-   * ## 边按**无向**合并
+   * ## 边按**配对**合并，方向记在 `mutual` 上
    *
-   * `A → B` 与 `B → A` 只留一条。图谱是给人看全局形状的，双向箭头会把图读成一团麻；
-   * 「谁引用谁」在单篇文档的反向链接面板里已经有了。
+   * `A → B` 与 `B → A` 只留**一条线**，两边都写了时把它标成 `mutual`（画双箭头）。
+   *
+   * 早先的版本是彻底无向的，理由是「双向箭头会把图读成一团麻」。那个理由现在只对
+   * **两条重合的线**成立 —— 一条带箭头的线既不重复也不乱，还多给了「谁引用谁」。
+   * 反过来，「谁引用谁」只在单篇的反向链接面板里能看到，那是**逐篇**的视角；
+   * 全局的形状里少掉方向，用户就看不出「这是个汇聚点还是发散点」。
    *
    * ## 目标名到文档的映射只取第一个
    *
@@ -700,12 +704,20 @@ export class IndexStore {
       }
     }
 
-    // 一趟扫完 links：能解析的进 docEdges，解析不了的按目标名归拢来源
+    /*
+      一趟扫完 links：能解析的进 docEdges，解析不了的按目标名归拢来源。
+
+      **必须带 `ORDER BY`**：`source`/`target` 的朝向取决于哪一行先被扫到，
+      而「同一对节点谁是 source」决定箭头指向哪边。不加排序的话 SQLite 换一个查询计划
+      就会让箭头反向 —— 同一份工作区两次打开长得不一样。
+    */
     const docEdges: GraphEdge[] = [];
-    const seen = new Set<string>();
+    const edgeByKey = new Map<string, GraphEdge>();
     const sourcesByUnresolved = new Map<string, Set<number>>();
 
-    for (const row of this.db.all(`SELECT source_id, target FROM links`)) {
+    for (const row of this.db.all(
+      `SELECT source_id, target FROM links ORDER BY source_id, target`
+    )) {
       const source = Number(row.source_id);
       // 来源被筛掉（或本来就不在索引里）时，这条链接整条不参与 —— 无论解析得出解析不出
       if (!allowed.has(source)) continue;
@@ -727,9 +739,16 @@ export class IndexStore {
       if (!allowed.has(resolved)) continue;
 
       const key = source < resolved ? `${source}:${resolved}` : `${resolved}:${source}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      docEdges.push({ source, target: resolved });
+      const existing = edgeByKey.get(key);
+      if (existing === undefined) {
+        const edge: GraphEdge = { source, target: resolved, mutual: false };
+        edgeByKey.set(key, edge);
+        docEdges.push(edge);
+      } else if (existing.source === resolved && existing.target === source) {
+        // 反向那条也来了 → 互相引用。**同方向**的重复（`[[dma]]` 与 `[[notes/dma]]`
+        // 指向同一篇）走不到这里，它们不会把边误标成双向。
+        existing.mutual = true;
+      }
     }
 
     /*
@@ -747,10 +766,13 @@ export class IndexStore {
       nextSyntheticId += 1;
     }
 
+    // 断链不可能「互相引用」（对面没有文档），所以一律单向
     const missingEdges: GraphEdge[] = [];
     for (const [rawTarget, sources] of sourcesByUnresolved) {
       const syntheticId = missingIdByTarget.get(rawTarget)!;
-      for (const source of sources) missingEdges.push({ source, target: syntheticId });
+      for (const source of sources) {
+        missingEdges.push({ source, target: syntheticId, mutual: false });
+      }
     }
 
     const edges = [...docEdges, ...missingEdges];

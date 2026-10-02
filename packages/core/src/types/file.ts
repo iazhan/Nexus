@@ -206,10 +206,23 @@ export interface GraphMissingNode {
 
 export type GraphNode = GraphDocumentNode | GraphMissingNode;
 
-/** 图谱里的一条边。**无向**：`A → B` 与 `B → A` 已合并。 */
+/**
+ * 图谱里的一条边。
+ *
+ * ## 一条边一行，方向记在字段里
+ *
+ * `A → B` 与 `B → A` **合成一条**，用 `mutual` 记住「两边都写了」。
+ * 不拆成两条线：两条几乎重合的线会把密处读成一团麻，而它们表达的信息
+ * （「互相引用」）恰恰是**一条双箭头**就能说清的。
+ *
+ * `source → target` 是链接的**真实方向**（`source` 那篇里写了指向 `target` 的链接）。
+ * 两边都有时方向取哪个不影响观感 —— 那时画的是双箭头。
+ */
 export interface GraphEdge {
   source: number;
   target: number;
+  /** 反向也有一条链接（`target` 也指向 `source`）。画成双箭头。 */
+  mutual: boolean;
 }
 
 /**
