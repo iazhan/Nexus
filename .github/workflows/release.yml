@@ -4,9 +4,9 @@
 #
 # 版本号在 Nexus 是**单一事实源**（VERSIONING.md）：`pnpm version:bump` 推进十个清单，
 # 提交跟着走，tag 是「这个提交就是那个版本」的落款。挂在分支上编译等于把「哪次提交
-# 对应哪个安装包」这件事交给时间顺序，而 tag 是唯一能回答它的东西。
+# 对应哪个安装包」交给时间顺序，而 tag 是唯一能回答它的东西。
 #
-# ## 三条判据
+# ## 四条判据
 #
 # 1. **tag 必须与 `package.json` 的版本号相等。** 不等就退出 —— 否则会产出一个
 #    文件名写着 A、`app.getVersion()` 报 B 的安装包，而自动更新正是靠这两个值比较的。
@@ -14,9 +14,21 @@
 # 2. **`contents: write` 是必需的。** 仓库默认的 `GITHUB_TOKEN` 可能只读，
 #    少了这一句的表现是「打包全成功、上传资产 403」。
 #
-# 3. **`releaseType: release`（在 electron-builder.yml 里）不能改成 draft。**
-#    electron-updater 走 `releases/latest/download/latest.yml` 取最新版本，
-#    而 draft release 不在 `latest` 里 —— 症状是「发布成功了，但所有客户端都说已是最新」。
+# 3. **发布由这个 workflow 用 `gh` 显式做**，打包那一步是 `--publish never`。
+#    理由见下面「为什么不用 electron-builder 发布」。
+#
+# 4. **先建 draft、资产传齐再转正式。** draft 不在 `releases/latest` 里，
+#    所以自动更新永远看不到一个「发布了一半」的版本。
+#
+# ## 为什么不用 electron-builder 的 `--publish always`
+#
+# 实测（2026-10-02，v0.64.0 第一次跑）：它把**同一个 tag 建成了两个 release**，
+# 资产被劈成两半 —— 一个只有 `.blockmap`，另一个有 `.exe` + `latest.yml`。
+# 而 `releases/latest` 只解析其中一个，另一个的资产等于不存在（差分更新拿不到 blockmap）。
+# 更糟的是**流水线报的是绿**：它认为自己干完了。
+#
+# 所以发布这段自己写：资产清单是显式的、draft→正式 的次序是显式的，
+# 而且顺序本身就把上面那个竞态消掉了（release 先存在，就不存在「两个并发创建」）。
 #
 # ## 刻意不做的事
 #
@@ -71,7 +83,50 @@ jobs:
       - name: 构建
         run: pnpm build
 
-      - name: 打包并发布到 Releases
-        run: pnpm --filter @nexus/desktop exec electron-builder --win --publish always
+      # `--publish never` 只关掉「自动发布」，不影响产物：NSIS target 照样写出
+      # `latest.yml`，包内也照样带 `app-update.yml`（那是 electron-updater 运行时读的）。
+      - name: 打包
+        run: pnpm --filter @nexus/desktop exec electron-builder --win --publish never
+
+      - name: 校验打包产物齐全
+        shell: bash
+        working-directory: apps/desktop/dist
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for f in "Nexus-${version}-Setup.exe" "Nexus-${version}-Setup.exe.blockmap" "latest.yml"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::打包产物缺少 $f"
+              exit 1
+            fi
+          done
+          ls -l
+
+      - name: 发布到 Releases
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${GITHUB_REF_NAME#v}"
+          dist="apps/desktop/dist"
+
+          # 同一个 tag 下只允许一个 release。已经有就报错退出，而不是再建一个 ——
+          # 重复 release 是静默的（GitHub 不禁），代价却落在所有客户端身上。
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::tag $tag 下已经存在 release —— 确认要重发就先把旧的删掉"
+            exit 1
+          fi
+
+          gh release create "$tag" \
+            --draft \
+            --title "$tag" \
+            --notes "Windows x64 installer, built from tag ${tag}." \
+            --verify-tag
+
+          gh release upload "$tag" \
+            "$dist/Nexus-${version}-Setup.exe" \
+            "$dist/Nexus-${version}-Setup.exe.blockmap" \
+            "$dist/latest.yml"
+
+          gh release edit "$tag" --draft=false

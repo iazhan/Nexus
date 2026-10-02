@@ -17,9 +17,10 @@
 #    `files` 里那条 `!node_modules/@nexus/**` 是第二道闸：即使有人挪错了，
 #    至少 workspace 包本身不会再进一份源码。
 #
-# 3. **`publish` 只是「发到哪」的定义，不等于「要不要发」。**
-#    它会写进包内的 app-update.yml，electron-updater 运行时读的就是它。
-#    真正发布与否由命令行决定：本地 `--publish never`，CI `--publish always`。
+# 3. **这里的 `publish` 只用来生成包内的 `app-update.yml`** —— 那是 electron-updater
+#    运行时读的文件，决定它去哪问新版本。**发布本身不由 electron-builder 做**：
+#    本地与 CI 都用 `--publish never` 打包，再由 workflow 用 `gh` 把产物显式传到 Releases
+#    （理由见 `.github/workflows/release.yml` 的「为什么不用 electron-builder 发布」）。
 appId: com.iazhan.nexus
 productName: Nexus
 copyright: Copyright © 2026 iazhan
