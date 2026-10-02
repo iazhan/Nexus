@@ -25,10 +25,14 @@ export interface AttachmentReferences {
    */
   paths: readonly string[];
   /**
-   * wikilink 目标，**已归一化**（去 `.md`、转小写），已去重。
+   * wikilink 目标，**已归一化**（切掉 `#锚点`、去 `.md`、转小写），已去重。
    *
    * 与 `links` 表同一口径，否则会出现「能跳转但没被索引」。名字式引用没有目录信息，
    * 所以调用方要拿候选集去比对（`wikilinkCandidates()`）。
+   *
+   * 切锚点这一半是必须的：`[[stm32.pdf#page=342]]` 引用的就是那个 PDF，
+   * 锚点只是「翻到第几页」。不切的话这份引用集里没有它，附件会被判成「没被引用」，
+   * 于是提取过的正文被清掉 —— 症状是「明明引用了却搜不到」。
    */
   wikilinkTargets: readonly string[];
 }

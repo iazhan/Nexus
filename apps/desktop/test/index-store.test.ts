@@ -311,7 +311,7 @@ describe('工作区索引', () => {
       await indexWorkspace({ service, store, rootPath: workspace });
 
       const pdf = store.listDocuments().find((doc) => doc.name === 'stm32.pdf')!;
-      expect(store.findBacklinks(pdf).map((doc) => doc.name)).toEqual(['index.md']);
+      expect(store.findBacklinks(pdf).map((entry) => entry.document.name)).toEqual(['index.md']);
 
       store.close();
     });
@@ -330,9 +330,30 @@ describe('工作区索引', () => {
 
       // `[[stm32]]` 归 .md —— 与 resolveWikiLink 的候选顺序是同一套规则。
       // 反向链接侧没有「顺序」只有集合匹配，所以这条要靠 hasMarkdownTarget() 兜住。
-      expect(store.findBacklinks(markdown).map((doc) => doc.name)).toEqual(['short.md']);
+      expect(store.findBacklinks(markdown).map((entry) => entry.document.name)).toEqual(['short.md']);
       // 附件不抢短名：只有写全名的那篇指向它
-      expect(store.findBacklinks(pdf).map((doc) => doc.name)).toEqual(['full.md']);
+      expect(store.findBacklinks(pdf).map((entry) => entry.document.name)).toEqual(['full.md']);
+
+      store.close();
+    });
+
+    it('`[[目标#锚点]]` 照样连上边，锚点被带回', async () => {
+      // 走的是「读文件 → 抽 links → 落库 → 查反向链接」整条链。只测 extractWikiLinkTargets
+      // 抓不住「抽取对了但落库时又用回了带锚点的目标名」这类断层。
+      await writeDoc('dma.md', 'DMA 主体。');
+      await writeDoc('index.md', '见 [[dma#性能]]。');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+
+      const dma = store.listDocuments().find((doc) => doc.name === 'dma.md')!;
+      const backlinks = store.findBacklinks(dma);
+      expect(backlinks.map((entry) => entry.document.name)).toEqual(['index.md']);
+      expect(backlinks[0]!.anchor).toBe('性能');
+
+      // 图谱走的是同一张 links 表，所以这条边必须也连上 —— 改之前它和反向链接
+      // 一起消失，而两处是两条独立的查询路径，只测一处会漏。
+      expect(store.getGraph().edges).toHaveLength(1);
 
       store.close();
     });
@@ -348,6 +369,249 @@ describe('工作区索引', () => {
       expect(graph.nodes).toHaveLength(2);
       expect(graph.edges).toHaveLength(1);
       expect(graph.nodes.every((node) => node.degree === 1)).toBe(true);
+
+      store.close();
+    });
+  });
+
+  /**
+   * 图谱的范围裁剪与类型筛选。
+   *
+   * 两个口径必须一起守：**裁剪掉谁**（节点集合）与 **degree 怎么算**。
+   * 后者最容易错：先按全量算 degree、再筛节点，就会得到「一个点很大却只连着一根线」——
+   * 那看起来像漏画了边，而实际上是算错了大小。
+   */
+  describe('图谱的范围与筛选', () => {
+    /*
+      a 同时指向 b 与 lonely：于是从 b 出发走一跳时，lonely 是**二跳**邻居、必须在图外，
+      而 a—lonely 那条边也必须跟着消失。没有这条边的话，「不留指向图外的线」这句断言
+      是空的 —— 子图内部本来就没有通向图外的边。
+    */
+    const chain = async () => {
+      await writeDoc('a.md', 'A → [[b]] 与 [[lonely]]');
+      await writeDoc('b.md', 'B → [[c]]，附件 [[manual.pdf]]');
+      await writeDoc('c.md', 'C 是终点。');
+      await writeDoc('lonely.md', '谁也不链。');
+      await writeDoc('manual.pdf', 'PDF 占位');
+    };
+
+    const openIndexed = async () => {
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+      return store;
+    };
+
+    const names = (graph: { nodes: Array<{ name: string }> }) =>
+      graph.nodes.map((node) => node.name).sort();
+
+    it('按中心文档裁邻域：只留中心与一跳之内', async () => {
+      await chain();
+      const store = await openIndexed();
+
+      const center = store.listDocuments().find((doc) => doc.name === 'b.md')!;
+      const graph = store.getGraph({ centerPath: center.path, degrees: 1 });
+
+      // b 一跳之内：a（指向它）、c（它指向的）、manual.pdf（它引用的）。
+      // lonely 只有经过 a 才够得到（二跳），必须在图外。
+      expect(names(graph)).toEqual(['a.md', 'b.md', 'c.md', 'manual.pdf']);
+      // 子图内三条边：a—b、b—c、b—manual。
+      // 而 a—lonely **不能**出现 —— 一端在图外的边要整条丢掉，否则画出来是一条通向空处的线。
+      expect(graph.edges).toHaveLength(3);
+
+      store.close();
+    });
+
+    it('degrees 覆盖整个连通分量时等于全图', async () => {
+      // 反例：链式连通的 4 篇，从一端走 3 跳就够到全部。
+      // 少了这条，BFS 少走一跳也能过上面那条「一跳之内」的用例。
+      await writeDoc('n1.md', '[[n2]]');
+      await writeDoc('n2.md', '[[n3]]');
+      await writeDoc('n3.md', '[[n4]]');
+      await writeDoc('n4.md', '终点。');
+
+      const store = await openIndexed();
+      const full = store.getGraph();
+      const start = store.listDocuments().find((doc) => doc.name === 'n1.md')!;
+
+      expect(names(store.getGraph({ centerPath: start.path, degrees: 3 }))).toEqual(names(full));
+      expect(store.getGraph({ centerPath: start.path, degrees: 3 }).edges).toHaveLength(
+        full.edges.length
+      );
+
+      store.close();
+    });
+
+    it('中心文档不在索引里时退回全图，而不是给一张空图', async () => {
+      await chain();
+      const store = await openIndexed();
+
+      const full = store.getGraph();
+      const fallback = store.getGraph({ centerPath: '/vault/还没建的.md', degrees: 1 });
+
+      expect(names(fallback)).toEqual(names(full));
+
+      store.close();
+    });
+
+    it('按类型筛选：被筛掉的节点与它的边一起消失', async () => {
+      await chain();
+      const store = await openIndexed();
+
+      const graph = store.getGraph({ types: ['markdown'] });
+
+      expect(names(graph)).toEqual(['a.md', 'b.md', 'c.md', 'lonely.md']);
+      // 正反两面：只断言「附件没了」对「把笔记也一起筛掉」同样成立
+      expect(graph.nodes.every((node) => node.type === 'markdown')).toBe(true);
+      expect(graph.nodes.some((node) => node.name === 'b.md')).toBe(true);
+
+      store.close();
+    });
+
+    it('degree 只数**返回的**边 —— 筛掉附件后引用它的笔记要跟着变小', async () => {
+      await chain();
+      const store = await openIndexed();
+
+      const full = store.getGraph();
+      const b = store.listDocuments().find((doc) => doc.name === 'b.md')!;
+      const degreeOf = (graph: { nodes: Array<{ id: number; degree: number }> }) =>
+        graph.nodes.find((node) => node.id === b.id)!.degree;
+
+      // 全量下 b 连着 a、c 与 manual.pdf，三条
+      expect(degreeOf(full)).toBe(3);
+      // 筛掉附件后只剩 a 与 c —— 若 degree 仍按全量算，这里会是 3，节点画得比它的线多
+      expect(degreeOf(store.getGraph({ types: ['markdown'] }))).toBe(2);
+
+      store.close();
+    });
+
+    /**
+     * 断链。它不再被丢掉，而是变成一个 `kind: 'missing'` 的节点。
+     *
+     * 丢掉是**静默消失**：用户看到某篇文档在图上什么也不连，以为它没有引用，
+     * 而真相是它引用了一篇还没建的笔记。
+     */
+    describe('断链节点', () => {
+      const missingOf = (graph: { nodes: Array<{ kind: string; name: string }> }) =>
+        graph.nodes.filter((node) => node.kind === 'missing').map((node) => node.name).sort();
+
+      it('指向不存在的文档时生成 missing 节点，边照画', async () => {
+        await writeDoc('index.md', '见 [[还没写的方案]]。');
+
+        const store = await openIndexed();
+        const graph = store.getGraph();
+
+        expect(missingOf(graph)).toEqual(['还没写的方案']);
+        // 两个节点（index.md 与那个断链）、一条边
+        expect(graph.nodes).toHaveLength(2);
+        expect(graph.edges).toHaveLength(1);
+
+        store.close();
+      });
+
+      it('missing 节点的 id 是合成且确定的，不会撞上真实文档 id', async () => {
+        await writeDoc('index.md', '见 [[a-没建]] 与 [[b-没建]]。');
+
+        const store = await openIndexed();
+        const first = store.getGraph();
+        const second = store.getGraph();
+
+        // 同一份工作区两次取图必须完全一致 —— 否则布局会画出两种形状
+        expect(first).toEqual(second);
+
+        const documentIds = store.listDocuments().map((doc) => doc.id);
+        for (const node of first.nodes.filter((item) => item.kind === 'missing')) {
+          expect(documentIds).not.toContain(node.id);
+        }
+        // 目标名排序后依次编号，所以「a-没建」的 id 比「b-没建」小
+        const byName = new Map(first.nodes.map((node) => [node.name, node.id]));
+        expect(byName.get('a-没建')!).toBeLessThan(byName.get('b-没建')!);
+
+        store.close();
+      });
+
+      it('degree 把断链算进去 —— 它确实连着一条边', async () => {
+        await writeDoc('index.md', '见 [[还没写的方案]]。');
+
+        const store = await openIndexed();
+        const graph = store.getGraph();
+        const index = graph.nodes.find((node) => node.name === 'index.md')!;
+        const missing = graph.nodes.find((node) => node.kind === 'missing')!;
+
+        expect(index.degree).toBe(1);
+        expect(missing.degree).toBe(1);
+
+        store.close();
+      });
+
+      it('来源被类型筛掉时，它的断链也跟着消失', async () => {
+        // 来源不可见时那个点会变成悬空的 —— 用户看不出是谁引出来的
+        await writeDoc('note.md', '见 [[还没写的方案]]。');
+        await writeDoc('manual.pdf', 'PDF 占位');
+
+        const store = await openIndexed();
+        expect(missingOf(store.getGraph({ types: ['pdf'] }))).toEqual([]);
+        // 正反两面：不过滤时它必须在
+        expect(missingOf(store.getGraph())).toEqual(['还没写的方案']);
+
+        store.close();
+      });
+
+      it('断链算一跳邻居 —— 从中心文档看得到「它引用了什么还没建的东西」', async () => {
+        await writeDoc('a.md', '见 [[还没写的方案]]。');
+        await writeDoc('b.md', '无关。');
+
+        const store = await openIndexed();
+        const a = store.listDocuments().find((doc) => doc.name === 'a.md')!;
+        const graph = store.getGraph({ centerPath: a.path, degrees: 1 });
+
+        expect(graph.nodes.map((node) => node.name).sort()).toEqual(['a.md', '还没写的方案']);
+
+        store.close();
+      });
+
+      it('被类型筛掉的目标**不是**断链 —— 它明明存在，只是藏起来了', async () => {
+        /*
+          这条守的是一个很隐蔽的错法：用「筛过的那批文档」去建目标名映射时，
+          `[[manual.pdf]]` 会解析不到任何文档，于是图上多出一个「还没创建」的红点。
+          而那个附件就在那儿。「缺失」的含义是「整个工作区都没有这个目标」，
+          不是「当前看不见」—— 所以映射必须用**全部**文档来建。
+        */
+        await writeDoc('note.md', '见 [[manual.pdf]]。');
+        await writeDoc('manual.pdf', 'PDF 占位');
+
+        const store = await openIndexed();
+
+        expect(missingOf(store.getGraph({ types: ['markdown'] }))).toEqual([]);
+        // 反向：真的没有这个目标时才算断链
+        expect(missingOf(store.getGraph({ types: ['image'] }))).toEqual([]);
+        expect(missingOf(store.getGraph())).toEqual([]);
+
+        store.close();
+      });
+
+      it('有锚点的断链不把锚点带进节点名', async () => {
+        // 归一化在抽取期就切掉了锚点，这里守的是「别把 `dma#性能` 当成要新建的文件名」
+        await writeDoc('index.md', '见 [[还没写的方案#第三版]]。');
+
+        const store = await openIndexed();
+        expect(missingOf(store.getGraph())).toEqual(['还没写的方案']);
+
+        store.close();
+      });
+    });
+
+    it('范围与类型可以叠加', async () => {
+      await chain();
+      const store = await openIndexed();
+
+      const center = store.listDocuments().find((doc) => doc.name === 'b.md')!;
+      const graph = store.getGraph({
+        centerPath: center.path,
+        degrees: 1,
+        types: ['markdown']
+      });
+
+      expect(names(graph)).toEqual(['a.md', 'b.md', 'c.md']);
 
       store.close();
     });

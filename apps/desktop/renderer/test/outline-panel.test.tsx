@@ -123,6 +123,7 @@ describe('大纲面板：折叠', () => {
   let container: HTMLDivElement;
   let root: Root;
   let onJump: ReturnType<typeof vi.fn>;
+  let onOpenFile: ReturnType<typeof vi.fn>;
   let stub: ReturnType<typeof fakeSession>;
 
   beforeEach(() => {
@@ -130,6 +131,7 @@ describe('大纲面板：折叠', () => {
     document.body.appendChild(container);
     root = createRoot(container);
     onJump = vi.fn();
+    onOpenFile = vi.fn();
     activeTop = 0;
   });
 
@@ -138,6 +140,8 @@ describe('大纲面板：折叠', () => {
       root.unmount();
     });
     container.remove();
+    // 反向链接那组用例会打桩 `window.nexus`；不清掉的话它会跟着进程活到下一个用例
+    delete (window as unknown as { nexus?: unknown }).nexus;
     // 单例：本文件改过 locale 与设置项的用例必须还原，否则同进程里后面的用例会跟着变
     act(() => {
       localeManager.setLocale('en-US');
@@ -148,7 +152,7 @@ describe('大纲面板：折叠', () => {
 
   const render = (
     source = DOC,
-    options: { view?: EditorView | null; cursorOffset?: number } = {}
+    options: { view?: EditorView | null; cursorOffset?: number; filePath?: string | null } = {}
   ) => {
     stub = fakeSession(source);
     act(() => {
@@ -156,8 +160,8 @@ describe('大纲面板：折叠', () => {
         <OutlinePanel
           session={stub.session}
           onJump={onJump}
-          filePath={null}
-          onOpenFile={vi.fn()}
+          filePath={options.filePath ?? null}
+          onOpenFile={onOpenFile}
           view={options.view ?? null}
           cursorOffset={options.cursorOffset ?? 0}
         />
@@ -433,6 +437,76 @@ describe('大纲面板：折叠', () => {
     it('默认是全部层级（与加这一项之前一致）', () => {
       render();
       expect(titles()).toEqual(['A', 'A1', 'A1a', 'A2', 'B']);
+    });
+  });
+
+  /**
+   * 反向链接的**锚点**渲染。
+   *
+   * 为什么要这一层：主进程那条链（抽取 → 落库 → 查回来）由 `backlinks.test.ts` 与
+   * `index-store.test.ts` 守着，但它们验不了「锚点到底画没画出来」。
+   * 而这一块最容易出的错法是**静默的**：字段改名后锚点不显示了，页面上什么都不报。
+   */
+  describe('反向链接：锚点', () => {
+    const documentOf = (relativePath: string, id: number) => ({
+      id,
+      path: `/vault/${relativePath}`,
+      relativePath,
+      name: relativePath.split('/').pop() ?? relativePath,
+      title: relativePath,
+      type: 'markdown',
+      sizeBytes: 1,
+      modifiedAtMs: 1,
+      contentHash: relativePath,
+      extractionStatus: 'none'
+    });
+
+    const backlinkItems = () =>
+      Array.from(container.querySelectorAll<HTMLElement>('.nexus-backlink-item'));
+    const anchors = () =>
+      Array.from(container.querySelectorAll<HTMLElement>('.nexus-backlink-anchor')).map(
+        (el) => el.textContent
+      );
+
+    const renderWithBacklinks = async (
+      entries: Array<{ document: ReturnType<typeof documentOf>; anchor: string | null }>
+    ) => {
+      (window as unknown as { nexus: unknown }).nexus = {
+        findBacklinks: vi.fn(async () => entries)
+      };
+      render(DOC, { filePath: '/vault/dma.md' });
+      // 反向链接是异步查回来的，得让微任务跑完再断言
+      await act(async () => {});
+    };
+
+    it('带锚点的引用把锚点画出来，不带的就不画', async () => {
+      await renderWithBacklinks([
+        { document: documentOf('index.md', 1), anchor: '性能' },
+        { document: documentOf('plain.md', 2), anchor: null }
+      ]);
+
+      expect(backlinkItems().map((el) => el.textContent)).toEqual([
+        'index.md性能',
+        'plain.md'
+      ]);
+      // **正反两面**：只断言「有一个锚点」对「两条都画了同一个锚点」同样成立
+      expect(anchors()).toEqual(['性能']);
+    });
+
+    it('锚点只作提示，点击仍然打开来源文档', async () => {
+      await renderWithBacklinks([{ document: documentOf('index.md', 1), anchor: '性能' }]);
+
+      act(() => {
+        backlinkItems()[0]!.click();
+      });
+      expect(onOpenFile).toHaveBeenCalledWith('/vault/index.md');
+    });
+
+    it('没有反向链接时是空态，不画列表', async () => {
+      await renderWithBacklinks([]);
+
+      expect(backlinkItems()).toEqual([]);
+      expect(container.querySelector('.nexus-backlinks .nexus-sidebar-note')).not.toBeNull();
     });
   });
 });

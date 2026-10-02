@@ -11,6 +11,8 @@ import type {
   SearchHit,
   IndexWorkspaceResult,
   WorkspaceGraph,
+  GraphQuery,
+  BacklinkEntry,
   HistoryEntry
 } from '@nexus/core';
 import {
@@ -147,7 +149,7 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.listIndexedDocuments);
   },
 
-  findBacklinks: (documentPath: string): Promise<IndexedDocument[]> => {
+  findBacklinks: (documentPath: string): Promise<BacklinkEntry[]> => {
     return ipcRenderer.invoke(IPC_CHANNELS.findBacklinks, documentPath);
   },
 
@@ -159,8 +161,8 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.findDocumentsByTag, tag);
   },
 
-  getGraph: (): Promise<WorkspaceGraph> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.getGraph);
+  getGraph: (query?: GraphQuery): Promise<WorkspaceGraph> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGraph, query);
   },
 
   listHistory: (documentPath: string): Promise<HistoryEntry[]> => {

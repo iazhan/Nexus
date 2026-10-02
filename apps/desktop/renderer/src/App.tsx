@@ -15,6 +15,7 @@ import {
   expandAttachmentName,
   formatAttachmentReference,
   isViewerDocumentType,
+  missingTargetToWorkspacePath,
   parseLinkFormat,
   parsePageAnchor,
   relativePathFrom,
@@ -1380,6 +1381,42 @@ export const App: React.FC = () => {
   );
 
   /**
+   * 点图谱上的**断链节点** → 按目标名新建一篇 Markdown 并打开。
+   *
+   * 落点由 `missingTargetToWorkspacePath()` 从链接目标推出来（`notes/dma` → `notes/dma.md`）。
+   * 它返回 `null` 时**什么都不做**，且这是刻意的：那种情况是「这条链接指向的是别的类型的
+   * 东西」（`[[stm32.pdf]]` 缺的是一个 PDF），给它建一篇 `stm32.pdf.md` 会让链接看起来通了、
+   * 指向的却是一篇空笔记 —— 比让链接断着更糟，断链至少是可见的。
+   *
+   * 目标目录不存在时 `createFile` 会抛错，`createEntry` 会把它报出来。不在这里替用户
+   * 逐级建目录：那等于按一条链接的名字在工作区里造出一串目录，代价远大于收益。
+   */
+  const createMissingLinkDocument = useCallback(
+    async (linkTarget: string) => {
+      if (!workspaceRoot) return;
+
+      const relativePath = missingTargetToWorkspacePath(linkTarget);
+      if (relativePath === null) return;
+
+      /*
+        目录与文件名从**工作区相对路径**上切，不从拼出来的绝对路径上切。
+
+        绝对路径的分隔符跟随平台（Windows 下是 `\`），在它上面找 `/` 会找不到 ——
+        于是 `fileName` 变成一整条绝对路径，`createFile` 会因为「名字里不能有分隔符」
+        直接抛错。相对路径这一侧永远是正斜杠，切出来才可靠。
+      */
+      const slash = relativePath.lastIndexOf('/');
+      const fileName = slash < 0 ? relativePath : relativePath.slice(slash + 1);
+      const directoryPath =
+        slash < 0 ? workspaceRoot : resolveRelativePath(workspaceRoot, relativePath.slice(0, slash));
+      if (directoryPath === null) return;
+
+      await createEntry('file', directoryPath, fileName);
+    },
+    [workspaceRoot, createEntry]
+  );
+
+  /**
    * 重新扫描工作区：重扫目录 + 重建索引。
    *
    * 两个参考实现都没有这个动作（Markra 靠 file watcher 整树 refresh、OpenKnowledge
@@ -2596,6 +2633,7 @@ export const App: React.FC = () => {
             <GraphPanel
               activeFilePath={filePath}
               onOpenFile={handleOpenWorkspaceFile}
+              onCreateMissingLink={createMissingLinkDocument}
               revision={documentRevision}
             />
           </div>

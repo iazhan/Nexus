@@ -7,7 +7,9 @@ import {
   ASSET_SCHEME,
   parseLaunchArgs,
   type LaunchContext,
+  type DocumentType,
   type FileWatchEvent,
+  type GraphQuery,
   type HistoryEntry,
   type Unsubscribe
 } from '@nexus/core';
@@ -25,7 +27,7 @@ import {
   readRecentWorkspace,
   writeRecentWorkspace
 } from './recent-workspace.js';
-import { IndexStore } from './index-store.js';
+import { DOCUMENT_TYPES, IndexStore } from './index-store.js';
 import { deriveTitle, indexSingleFile, indexWorkspace } from './indexer.js';
 import { rewriteReferencesInSource } from './link-rewrite.js';
 import { createProcessorRegistry } from './processor/index.js';
@@ -852,6 +854,38 @@ function requireRenameRequest(value: unknown): RenameFileRequest {
   };
 }
 
+/**
+ * 把 IPC 传来的图谱查询收敛成一个可信对象。
+ *
+ * 与 `requireRenameRequest` 的取舍**相反**：那个认不出就抛错（改别人文件，失败方向必须是不做），
+ * 这里认不出一律**当没传**。原因是这个查询只影响「看什么」，不写任何东西 ——
+ * 一个坏值让它退回全图，用户至少还看得到东西；抛错则会把整个图谱面板打挂。
+ *
+ * `types` 里认不出的字符串直接丢掉，但**保留「数组为空」这个事实**：那是用户把类型开关
+ * 全关掉的意思，结果就是一张空图。渲染进程那边有「显示全部」的出路，所以空图是可达的
+ * 正常状态，不该被悄悄改成「不过滤」。
+ */
+function readGraphQuery(value: unknown): GraphQuery {
+  if (typeof value !== 'object' || value === null) return {};
+  const query = value as Partial<GraphQuery>;
+
+  const centerPath =
+    typeof query.centerPath === 'string' && query.centerPath.length > 0
+      ? query.centerPath
+      : undefined;
+
+  const degrees =
+    typeof query.degrees === 'number' && Number.isFinite(query.degrees) && query.degrees >= 0
+      ? Math.min(Math.floor(query.degrees), 10)
+      : undefined;
+
+  const types = Array.isArray(query.types)
+    ? query.types.filter((item): item is DocumentType => DOCUMENT_TYPES.includes(item as DocumentType))
+    : undefined;
+
+  return { centerPath, degrees, types };
+}
+
 /** 绝对路径 → 工作区相对路径（正斜杠）。没有工作区或在工作区之外时返回 `null`。 */
 function relativeInWorkspace(root: string | null, filePath: string): string | null {
   if (!root) return null;
@@ -1463,8 +1497,10 @@ ipcMain.handle(IPC_CHANNELS.findDocumentsByTag, (event, tag: unknown) => {
   return getIndexStore(event.sender.id)?.findDocumentsByTag(tag) ?? [];
 });
 
-ipcMain.handle(IPC_CHANNELS.getGraph, (event) => {
-  return getIndexStore(event.sender.id)?.getGraph() ?? { nodes: [], edges: [] };
+ipcMain.handle(IPC_CHANNELS.getGraph, (event, query: unknown) => {
+  return (
+    getIndexStore(event.sender.id)?.getGraph(readGraphQuery(query)) ?? { nodes: [], edges: [] }
+  );
 });
 
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {

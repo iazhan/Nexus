@@ -1,12 +1,29 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkspaceGraph } from '@nexus/core';
+import type { DocumentType, GraphNode, WorkspaceGraph } from '@nexus/core';
 import { useLocale } from '../hooks.js';
 import { layoutGraph } from './graph-layout.js';
+import { planGraphLabels, type GraphLabelCandidate, type GraphLabelPlacement } from './graph-labels.js';
+import {
+  IDENTITY_VIEW,
+  fitView,
+  panBy,
+  projectPoint,
+  unprojectPoint,
+  zoomAt,
+  type GraphView
+} from './graph-view.js';
 
 export interface GraphPanelProps {
   /** 当前活动文档的绝对路径，用于高亮它的节点 */
   activeFilePath: string | null;
   onOpenFile: (filePath: string) => void;
+  /**
+   * 点击**断链节点**时调用，参数是归一化后的链接目标（如 `notes/dma`）。
+   *
+   * 与 `onOpenFile` 分开是有意的：断链没有文件可打开，它对应的动作是**新建**。
+   * 合成到一个回调里、靠「路径存不存在」分流的话，图谱这一层就要去查磁盘了。
+   */
+  onCreateMissingLink: (linkTarget: string) => void;
   /** 索引变化信号；变化时重读图 */
   revision: number;
 }
@@ -16,6 +33,32 @@ const NODE_RADIUS = 3;
 const MAX_DEGREE_BONUS = 6;
 /** 点击命中额外放宽的像素，手指不好精确点到 3px 的圆。 */
 const HIT_SLACK = 4;
+
+/** 标签最多画几条：按画布面积给，并夹在上下限之间。 */
+const MIN_LABELS = 6;
+const MAX_LABELS = 48;
+/** 每一条标签大致占多少平方像素 —— 越小画得越多、越容易显得挤。 */
+const LABEL_AREA_BUDGET_PX = 6000;
+const LABEL_FONT_SIZE_PX = 10;
+
+/** 滚轮一格大约 100，乘这个系数后每格约 1.1 倍 —— 再快就调不准。 */
+const WHEEL_ZOOM_SENSITIVITY = 0.001;
+/** 双击 / 生长后自动取景时四周留的空隙。 */
+const FIT_PADDING_PX = 28;
+/** 鼠标移动不超过这个距离才算「点击」，否则算拖拽 —— 否则拖完节点会顺手打开文档。 */
+const CLICK_SLOP_PX = 4;
+/** 悬停时非邻域节点的不透明度。太低会看不清「图还在那儿」。 */
+const DIM_ALPHA = 0.25;
+
+/** 图谱范围的两种取值。`current` 需要一篇活动文档才有意义。 */
+type GraphScope = 'all' | 'current';
+/** 邻域层数。2 层已经能看到「邻居的邻居」，再多图就回到一坨了。 */
+const SCOPE_DEGREES = 2;
+
+/** 节点的屏幕半径：基础值 + degree 加成。绘制、命中、标签避让三处必须用同一个值。 */
+function nodeRadius(node: { degree: number }): number {
+  return NODE_RADIUS + Math.min(node.degree, MAX_DEGREE_BONUS);
+}
 
 /**
  * 从 CSS 变量读颜色。Canvas 不认变量，只能读出来再传给绘制调用 —— 写死颜色的话，
@@ -29,20 +72,113 @@ function readColor(element: HTMLElement, name: string): string {
   return value;
 }
 
+interface DragState {
+  kind: 'pan' | 'node';
+  /** `kind === 'node'` 时有值 */
+  nodeId: number | null;
+  /** 按下时的屏幕坐标 */
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  /** 是否已经超过点击容差。决定松手时是「打开文档」还是「拖完了」 */
+  moved: boolean;
+}
+
 /** 图谱面板：把工作区的链接关系画成一张图。 */
-export const GraphPanel: React.FC<GraphPanelProps> = ({ activeFilePath, onOpenFile, revision }) => {
+export const GraphPanel: React.FC<GraphPanelProps> = ({
+  activeFilePath,
+  onOpenFile,
+  onCreateMissingLink,
+  revision
+}) => {
   const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [graph, setGraph] = useState<WorkspaceGraph>({ nodes: [], edges: [] });
+  /**
+   * 工作区里**出现过**的文档类型及各类型篇数。
+   *
+   * 单独取一次全量图是为了它：类型筛选一旦生效，`graph` 里就看不到被筛掉的类型了，
+   * 用它渲染筛选条的话，用户一关掉某个类型、那个类型的开关就消失了 —— 再也打不开。
+   */
+  const [typeCounts, setTypeCounts] = useState<Array<{ type: DocumentType; count: number }>>([]);
+  const [scope, setScope] = useState<GraphScope>('all');
+  /** 被**关掉**的类型（而不是「打开的类型」）：默认空 = 全部显示，与旧行为一致。 */
+  const [hiddenTypes, setHiddenTypes] = useState<DocumentType[]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  /** 标签放置结果。绘制时算出来，只为**暴露给测试**而存进 state —— canvas 上的文字从外面看不见。 */
+  const [labelPlacements, setLabelPlacements] = useState<GraphLabelPlacement[]>([]);
+  const [view, setView] = useState<GraphView>(IDENTITY_VIEW);
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
+  /** 被拖动过的节点位置（**图坐标**）。只是视图副本：布局一重排就丢弃，见下面的 effect。 */
+  const [pinned, setPinned] = useState<ReadonlyMap<number, { x: number; y: number }>>(new Map());
+  const [panning, setPanning] = useState(false);
+
+  const dragRef = useRef<DragState | null>(null);
+  /**
+   * 事件处理器要读**当前**的视图（把屏幕坐标反投影成图坐标）。
+   *
+   * 用 ref 而不是把 `view` 放进依赖：放进依赖的话每次缩放/平移都要重建一堆 handler，
+   * 而 `wheel` 是原生监听、重建意味着反复摘挂。事件里读 ref 是这里唯一需要「最新值」的场景。
+   */
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  /** 当前生效的类型白名单；全都没关掉时是 `undefined`（= 不筛）。 */
+  const visibleTypes = useMemo(
+    () => typeCounts.map((entry) => entry.type).filter((type) => !hiddenTypes.includes(type)),
+    [typeCounts, hiddenTypes]
+  );
+  const hasTypeFilter = hiddenTypes.length > 0 && typeCounts.length > 0;
+
+  /*
+    查询对象**记忆化**之后再进 effect 依赖。
+
+    直接依赖 `visibleTypes` 会在每次渲染时换一个新数组、effect 每轮都跑；
+    而写 `visibleTypes.join(',')` 这种表达式又绕过了依赖检查。记忆化对象两头都满足。
+  */
+  const query = useMemo(
+    () => ({
+      centerPath: scope === 'current' ? (activeFilePath ?? undefined) : undefined,
+      degrees: scope === 'current' ? SCOPE_DEGREES : undefined,
+      types: hasTypeFilter ? visibleTypes : undefined
+    }),
+    [scope, activeFilePath, hasTypeFilter, visibleTypes]
+  );
+
+  // 筛选条上的类型清单只在索引变化时重取 —— 与范围/筛选无关
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const full = (await window.nexus?.getGraph?.()) ?? { nodes: [], edges: [] };
+        if (cancelled) return;
+        const counts = new Map<DocumentType, number>();
+        for (const node of full.nodes) {
+          // 断链没有类型 —— 它们不该出现在类型筛选条上（没有「断链」这一类可关）
+          if (node.kind !== 'document') continue;
+          counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+        }
+        setTypeCounts([...counts].map(([type, count]) => ({ type, count })));
+      } catch (err) {
+        console.error('Failed to load graph types:', err);
+        if (!cancelled) setTypeCounts([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [revision]);
 
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       try {
-        const result = (await window.nexus?.getGraph?.()) ?? { nodes: [], edges: [] };
+        const result = (await window.nexus?.getGraph?.(query)) ?? { nodes: [], edges: [] };
         if (!cancelled) setGraph(result);
       } catch (err) {
         console.error('Failed to load graph:', err);
@@ -53,9 +189,26 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({ activeFilePath, onOpenFi
     return () => {
       cancelled = true;
     };
-  }, [revision]);
+  }, [revision, query]);
 
-  // 跟随容器尺寸。侧栏可以拖宽，布局要跟着重算，否则图会挤在旧尺寸的画布里。
+  /*
+    没有活动文档时退回全图。
+
+    不退回的话，`scope` 还是 `'current'` 而 `centerPath` 是空的 —— 查询会按「没有中心」
+    处理、返回全图，但按钮上仍然写着「当前文档」。界面说的和画出来的不一致，
+    而用户只会觉得图谱没反应。
+  */
+  useEffect(() => {
+    if (activeFilePath === null) setScope('all');
+  }, [activeFilePath]);
+
+  /*
+    跟随**画布本身**的尺寸，不是整个面板。
+
+    两者差一个头部（`.nexus-sidebar-header`）。量错的话 `size.height` 会比画布高出一截，
+    而画布的像素尺寸是按 `size` 设的、CSS 高度却由 flex 决定 —— 结果是位图被纵向压扁，
+    图与标签一起走形。判据：`size` 必须等于 `canvas.getBoundingClientRect()`。
+  */
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
@@ -74,6 +227,177 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({ activeFilePath, onOpenFi
     if (size.width <= 0 || size.height <= 0) return [];
     return layoutGraph(graph, { width: size.width, height: size.height });
   }, [graph, size.width, size.height]);
+
+  /*
+    布局重排就丢弃拖动结果。
+
+    拖动是**视图层的临时覆盖**，不是新的布局事实：留着它会让「图上的位置」与
+    「布局算出来的位置」两套事实长期并存，而重排之后旧坐标可能落在任何地方。
+    索引一变（增删文档）就重排，那时用户本来也认不出原来那个形状。
+  */
+  useEffect(() => {
+    setPinned(new Map());
+  }, [layout]);
+
+  /** 有效位置：拖动过的用拖动值，其余用布局值。 */
+  const positionById = useMemo(() => {
+    const positions = new Map<number, { x: number; y: number }>();
+    for (const node of layout) positions.set(node.id, pinned.get(node.id) ?? { x: node.x, y: node.y });
+    return positions;
+  }, [layout, pinned]);
+
+  /** 一度邻域。悬停时用来决定「谁亮着」。 */
+  const neighborsById = useMemo(() => {
+    const neighbors = new Map<number, Set<number>>();
+    const link = (a: number, b: number) => {
+      const set = neighbors.get(a) ?? new Set<number>();
+      set.add(b);
+      neighbors.set(a, set);
+    };
+    for (const edge of graph.edges) {
+      link(edge.source, edge.target);
+      link(edge.target, edge.source);
+    }
+    return neighbors;
+  }, [graph.edges]);
+
+  /** 屏幕坐标 → 命中的节点 id（取最近的一个）。 */
+  const hitTest = useCallback(
+    (screenX: number, screenY: number): number | null => {
+      const current = viewRef.current;
+      let hit: { id: number; distance: number } | null = null;
+
+      for (const node of graph.nodes) {
+        const position = positionById.get(node.id);
+        if (!position) continue;
+
+        const screen = projectPoint(current, position.x, position.y);
+        const distance = Math.hypot(screen.x - screenX, screen.y - screenY);
+        const radius = nodeRadius(node) * current.scale + HIT_SLACK;
+        if (distance <= radius && (hit === null || distance < hit.distance)) {
+          hit = { id: node.id, distance };
+        }
+      }
+
+      return hit?.id ?? null;
+    },
+    [graph.nodes, positionById]
+  );
+
+  /*
+    滚轮缩放要**原生**监听并 `preventDefault`：React 的 `onWheel` 挂在根容器上且是 passive 的，
+    在里面调 `preventDefault` 不生效 —— 表现是「缩放的同时侧栏跟着滚」，两个动作一起发生。
+  */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const factor = Math.exp(-event.deltaY * WHEEL_ZOOM_SENSITIVITY);
+      setView((prev) =>
+        zoomAt(prev, factor, event.clientX - rect.left, event.clientY - rect.top)
+      );
+    };
+
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, [graph.nodes.length]);
+
+  const screenPointOf = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+
+  const handleMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLCanvasElement>) => {
+      if (event.button !== 0) return;
+      const point = screenPointOf(event);
+      const nodeId = hitTest(point.x, point.y);
+
+      dragRef.current = {
+        kind: nodeId === null ? 'pan' : 'node',
+        nodeId,
+        startX: point.x,
+        startY: point.y,
+        lastX: point.x,
+        lastY: point.y,
+        moved: false
+      };
+      setPanning(nodeId === null);
+    },
+    [hitTest]
+  );
+
+  const handleMouseMove = useCallback(
+    (event: React.MouseEvent<HTMLCanvasElement>) => {
+      const point = screenPointOf(event);
+      const drag = dragRef.current;
+
+      if (drag === null) {
+        setHoveredId(hitTest(point.x, point.y));
+        return;
+      }
+
+      const deltaX = point.x - drag.lastX;
+      const deltaY = point.y - drag.lastY;
+      drag.lastX = point.x;
+      drag.lastY = point.y;
+      if (Math.hypot(point.x - drag.startX, point.y - drag.startY) > CLICK_SLOP_PX) {
+        drag.moved = true;
+      }
+
+      if (drag.kind === 'pan') {
+        setView((prev) => panBy(prev, deltaX, deltaY));
+        return;
+      }
+
+      if (drag.nodeId !== null) {
+        const target = unprojectPoint(viewRef.current, point.x, point.y);
+        setPinned((prev) => new Map(prev).set(drag.nodeId!, target));
+      }
+    },
+    [hitTest]
+  );
+
+  const endDrag = useCallback(() => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    setPanning(false);
+    if (drag === null) return;
+
+    // 拖过了就不算点击 —— 否则拖完一个节点会顺手把它打开，把用户从图谱里踢出去
+    if (drag.moved || drag.kind !== 'node' || drag.nodeId === null) return;
+
+    const node = graph.nodes.find((candidate) => candidate.id === drag.nodeId);
+    if (node === undefined) return;
+    // 断链没有文件可打开 —— 它走的是「按这个目标名新建一篇」
+    if (node.kind === 'missing') onCreateMissingLink(node.linkTarget);
+    else onOpenFile(node.path);
+  }, [graph.nodes, onOpenFile, onCreateMissingLink]);
+
+  const handleMouseLeave = useCallback(() => {
+    dragRef.current = null;
+    setPanning(false);
+    setHoveredId(null);
+  }, []);
+
+  /** 双击空白取景；双击节点时不取景（那是「打开文档」的位置）。 */
+  const handleDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLCanvasElement>) => {
+      const point = screenPointOf(event);
+      if (hitTest(point.x, point.y) !== null) return;
+      setView(
+        fitView(
+          [...positionById.values()],
+          { width: size.width, height: size.height },
+          FIT_PADDING_PX
+        )
+      );
+    },
+    [hitTest, positionById, size.width, size.height]
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -94,72 +418,154 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({ activeFilePath, onOpenFi
     const edgeColor = readColor(canvas, '--nexus-border-default');
     const nodeColor = readColor(canvas, '--nexus-text-muted');
     const activeColor = readColor(canvas, '--nexus-accent-indicator');
+    // 断链走警告色：它不是「另一类文档」，是「这里缺了东西」
+    const missingColor = readColor(canvas, '--nexus-status-warning-text');
 
-    const positionById = new Map(layout.map((node) => [node.id, node]));
+    const normalizedActive = activeFilePath?.replace(/\\/g, '/');
+    const isActiveNode = (node: GraphNode) =>
+      node.kind === 'document' &&
+      normalizedActive !== undefined &&
+      node.relativePath.replace(/\\/g, '/') === normalizedActive;
+
+    const toScreen = (id: number) => {
+      const position = positionById.get(id);
+      return position ? projectPoint(view, position.x, position.y) : null;
+    };
+
+    // 悬停时「谁亮着」：被悬停的那个 + 它的一度邻域
+    const litIds =
+      hoveredId === null
+        ? null
+        : new Set<number>([hoveredId, ...(neighborsById.get(hoveredId) ?? [])]);
 
     context.strokeStyle = edgeColor;
     context.lineWidth = 1;
     context.beginPath();
     for (const edge of graph.edges) {
-      const source = positionById.get(edge.source);
-      const target = positionById.get(edge.target);
+      const source = toScreen(edge.source);
+      const target = toScreen(edge.target);
       if (!source || !target) continue;
+      context.globalAlpha = litIds !== null && !(litIds.has(edge.source) && litIds.has(edge.target)) ? DIM_ALPHA : 1;
       context.moveTo(source.x, source.y);
       context.lineTo(target.x, target.y);
     }
     context.stroke();
+    context.globalAlpha = 1;
 
-    const normalizedActive = activeFilePath?.replace(/\\/g, '/');
     for (const node of graph.nodes) {
-      const position = positionById.get(node.id);
-      if (!position) continue;
+      const screen = toScreen(node.id);
+      if (!screen) continue;
 
-      const isActive = normalizedActive !== undefined &&
-        node.relativePath.replace(/\\/g, '/') === normalizedActive;
+      const radius = nodeRadius(node) * view.scale;
+      context.globalAlpha = litIds !== null && !litIds.has(node.id) ? DIM_ALPHA : 1;
 
-      context.beginPath();
-      context.arc(
-        position.x,
-        position.y,
-        NODE_RADIUS + Math.min(node.degree, MAX_DEGREE_BONUS),
-        0,
-        Math.PI * 2
-      );
-      context.fillStyle = isActive ? activeColor : nodeColor;
-      context.fill();
-    }
-  }, [graph, layout, size, activeFilePath]);
-
-  const handleClick = useCallback(
-    (event: React.MouseEvent<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-
-      // 取**最近**的命中，而不是第一个命中的：节点密集处第一个往往是视觉上的邻居
-      let hit: { path: string; distance: number } | null = null;
-
-      for (const node of graph.nodes) {
-        const position = layout.find((item) => item.id === node.id);
-        if (!position) continue;
-
-        const distance = Math.hypot(position.x - x, position.y - y);
-        const radius = NODE_RADIUS + Math.min(node.degree, MAX_DEGREE_BONUS) + HIT_SLACK;
-        if (distance <= radius && (hit === null || distance < hit.distance)) {
-          hit = { path: node.path, distance };
-        }
+      if (node.kind === 'missing') {
+        /*
+          断链画成**空心 + 虚线环**，不是实心点。
+          只靠颜色区分不行：色觉障碍用户读不出「这个点还没建」，而虚线轮廓与填充是
+          形状差异，任何配色下都成立。
+        */
+        context.beginPath();
+        context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+        context.strokeStyle = missingColor;
+        context.lineWidth = 1.5;
+        context.setLineDash([3, 2]);
+        context.stroke();
+        context.setLineDash([]);
+      } else {
+        context.beginPath();
+        context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+        context.fillStyle = isActiveNode(node) ? activeColor : nodeColor;
+        context.fill();
       }
 
-      if (hit) onOpenFile(hit.path);
-    },
-    [graph.nodes, layout, onOpenFile]
-  );
+      // 悬停的那个点加一圈描边 —— 只靠不透明度区分，密处看不出是哪一个
+      if (node.id === hoveredId) {
+        context.strokeStyle = activeColor;
+        context.lineWidth = 2;
+        context.beginPath();
+        context.arc(screen.x, screen.y, radius + 3, 0, Math.PI * 2);
+        context.stroke();
+      }
+    }
+    context.globalAlpha = 1;
+
+    /*
+      标签画在最后，且**不与节点共用颜色**：节点是图形（3:1 就够），标签是文字（要 4.5:1），
+      两者用同一个 token 会让标签在浅色主题下糊在点里。
+    */
+    const labelColor = readColor(canvas, '--nexus-text-secondary');
+    const activeLabelColor = readColor(canvas, '--nexus-text-primary');
+    const fontFamily = getComputedStyle(canvas).fontFamily || 'sans-serif';
+    context.font = `${LABEL_FONT_SIZE_PX}px ${fontFamily}`;
+    context.textBaseline = 'top';
+
+    const candidates: GraphLabelCandidate[] = graph.nodes.flatMap((node) => {
+      const screen = toScreen(node.id);
+      if (!screen) return [];
+      return [
+        {
+          id: node.id,
+          screenX: screen.x,
+          screenY: screen.y,
+          radiusPx: nodeRadius(node) * view.scale,
+          text: node.name,
+          isActive: isActiveNode(node),
+          degree: node.degree
+        }
+      ];
+    });
+
+    const placements = planGraphLabels({
+      candidates,
+      viewport: { width: size.width, height: size.height },
+      maxLabels: Math.min(
+        MAX_LABELS,
+        Math.max(MIN_LABELS, Math.floor((size.width * size.height) / LABEL_AREA_BUDGET_PX))
+      ),
+      maxLabelWidthPx: Math.max(60, size.width * 0.4),
+      measureTextWidth: (text) => context.measureText(text).width
+    });
+
+    for (const placement of placements) {
+      context.globalAlpha = litIds !== null && !litIds.has(placement.id) ? DIM_ALPHA : 1;
+      context.fillStyle = placement.isActive ? activeLabelColor : labelColor;
+      context.fillText(placement.text, placement.textX, placement.textY);
+    }
+    context.globalAlpha = 1;
+
+    /*
+      悬停信息条。标签只给名字，所以这里补上「名字之外还需要知道的那一点」：
+      普通节点是度数，断链是「它指向的文档还没建」—— 后者才是用户此刻的疑问。
+    */
+    const hovered = hoveredId === null ? null : graph.nodes.find((node) => node.id === hoveredId);
+    if (hovered) {
+      const screen = toScreen(hovered.id);
+      if (screen) {
+        const text =
+          hovered.kind === 'missing'
+            ? `${hovered.name} · ${t('graph.missingHint')}`
+            : `${hovered.name} · ${hovered.degree}`;
+        context.fillStyle = hovered.kind === 'missing' ? missingColor : activeLabelColor;
+        context.fillText(text, screen.x + nodeRadius(hovered) * view.scale + 6, screen.y - 6);
+      }
+    }
+
+    setLabelPlacements(placements);
+  }, [
+    graph,
+    layout,
+    positionById,
+    neighborsById,
+    view,
+    size,
+    activeFilePath,
+    hoveredId,
+    t
+  ]);
 
   return (
-    <div className="nexus-graph" ref={containerRef}>
+    <div className="nexus-graph">
       <div className="nexus-sidebar-header">
         <span className="nexus-sidebar-root">{t('activity.graph')}</span>
         {graph.nodes.length > 0 && (
@@ -167,35 +573,154 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({ activeFilePath, onOpenFi
         )}
       </div>
 
-      {graph.nodes.length === 0 ? (
-        <p className="nexus-sidebar-note">{t('graph.empty')}</p>
-      ) : (
-        <>
-          <canvas
-            ref={canvasRef}
-            className="nexus-graph-canvas"
-            role="img"
-            aria-label={t('graph.title')}
-            onClick={handleClick}
-          />
-          {/*
-            布局坐标暴露给测试。canvas 画出来的点从外部没法定位，
-            而「点某个节点能打开文档」这条链路值得端到端验证 ——
-            没有它就只能断言「canvas 有像素」。
-          */}
-          <div
-            className="nexus-graph-hitmap"
-            hidden
-            data-nodes={JSON.stringify(
-              layout.map((node) => ({
-                id: node.id,
-                x: Math.round(node.x),
-                y: Math.round(node.y)
-              }))
-            )}
-          />
-        </>
-      )}
+      {/*
+        控制条。两件事：范围（全图 / 当前文档邻域）与类型筛选。
+        类型清单来自**未筛选**的那次查询（`typeCounts`），所以关掉一个类型之后
+        它的开关还在 —— 否则用户关掉之后就再也打不开了。
+      */}
+      <div className="nexus-graph-controls">
+        <div className="nexus-graph-scope" role="group" aria-label={t('graph.scope')}>
+          <button
+            type="button"
+            className="nexus-graph-chip"
+            data-scope="all"
+            aria-pressed={scope === 'all'}
+            onClick={() => setScope('all')}
+          >
+            {t('graph.scopeAll')}
+          </button>
+          <button
+            type="button"
+            className="nexus-graph-chip"
+            data-scope="current"
+            aria-pressed={scope === 'current'}
+            disabled={activeFilePath === null}
+            title={activeFilePath === null ? t('graph.scopeCurrentUnavailable') : undefined}
+            onClick={() => setScope('current')}
+          >
+            {t('graph.scopeCurrent')}
+          </button>
+        </div>
+
+        {typeCounts.length > 1 && (
+          <div className="nexus-graph-types" role="group" aria-label={t('graph.filterTypes')}>
+            {typeCounts.map(({ type, count }) => {
+              const visible = !hiddenTypes.includes(type);
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  className="nexus-graph-chip"
+                  data-type={type}
+                  aria-pressed={visible}
+                  onClick={() =>
+                    setHiddenTypes((prev) =>
+                      prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type]
+                    )
+                  }
+                >
+                  {t(`graph.type.${type}`)}
+                  <span className="nexus-graph-chip-count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/*
+        这一层是**画布的盒子**：尺寸由它量、绘制坐标也以它为准（见上面 ResizeObserver 的说明）。
+        它必须始终存在（空态时也在），否则 `[]` 依赖的观察 effect 首次挂载时拿到 null，
+        之后图谱有数据了也不会重新观察。
+      */}
+      <div className="nexus-graph-body" ref={containerRef}>
+        {graph.nodes.length === 0 ? (
+          /*
+            两种「空」必须分开：本来就没什么可画，和**被筛空了**。
+            后者要给一条出路（「显示全部」）—— 否则用户面对一张空画布，只能靠猜是哪个开关干的。
+            与文件树的过滤规则是同一条判据。
+          */
+          hasTypeFilter ? (
+            <p className="nexus-sidebar-note">
+              {t('graph.filteredEmpty')}
+              <button
+                type="button"
+                className="nexus-graph-reset"
+                onClick={() => {
+                  setHiddenTypes([]);
+                  setScope('all');
+                }}
+              >
+                {t('graph.resetFilters')}
+              </button>
+            </p>
+          ) : (
+            <p className="nexus-sidebar-note">{t('graph.empty')}</p>
+          )
+        ) : (
+          <>
+            <canvas
+              ref={canvasRef}
+              className="nexus-graph-canvas"
+              role="img"
+              aria-label={t('graph.title')}
+              data-panning={panning ? 'true' : 'false'}
+              data-hovered={hoveredId === null ? '' : String(hoveredId)}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={endDrag}
+              onMouseLeave={handleMouseLeave}
+              onDoubleClick={handleDoubleClick}
+            />
+            {/*
+              画布上的东西从外部没法定位，所以把三样显式暴露出来：
+              - `data-nodes`：**布局**坐标，验「布局本身」；
+              - `data-screen-nodes`：**投影后**的坐标，验「点击命中」—— 缩放之后必须点得中，
+                用布局坐标去点会点空，而那恰恰是投影写反时唯一会露馅的地方；
+              - `data-labels`：标签矩形，验「互不重叠、不越界」。
+              没有这些就只能断言「canvas 有像素」。
+            */}
+            <div
+              className="nexus-graph-hitmap"
+              hidden
+              data-nodes={JSON.stringify(
+                layout.map((node) => ({
+                  id: node.id,
+                  x: Math.round(node.x),
+                  y: Math.round(node.y)
+                }))
+              )}
+              data-screen-nodes={JSON.stringify(
+                graph.nodes.flatMap((node) => {
+                  const position = positionById.get(node.id);
+                  if (!position) return [];
+                  const screen = projectPoint(view, position.x, position.y);
+                  return [
+                    { id: node.id, name: node.name, kind: node.kind, x: screen.x, y: screen.y }
+                  ];
+                })
+              )}
+              data-view={JSON.stringify(view)}
+              data-hover={JSON.stringify({
+                id: hoveredId,
+                neighbors: hoveredId === null ? [] : [...(neighborsById.get(hoveredId) ?? [])]
+              })}
+              data-labels={JSON.stringify(
+                labelPlacements.map((placement) => ({
+                  id: placement.id,
+                  text: placement.text,
+                  rect: {
+                    left: Math.round(placement.rect.left),
+                    top: Math.round(placement.rect.top),
+                    right: Math.round(placement.rect.right),
+                    bottom: Math.round(placement.rect.bottom)
+                  }
+                }))
+              )}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 };

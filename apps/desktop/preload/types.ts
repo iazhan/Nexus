@@ -9,6 +9,8 @@ import type {
   SearchHit,
   IndexWorkspaceResult,
   WorkspaceGraph,
+  GraphQuery,
+  BacklinkEntry,
   HistoryEntry
 } from '@nexus/core';
 import type {
@@ -120,17 +122,21 @@ export interface NexusBridge {
   /** 已索引的文档列表，按相对路径排序。 */
   listIndexedDocuments: () => Promise<IndexedDocument[]>;
   /**
-   * 反向链接：所有链接到该文档的文档。
+   * 反向链接：所有链接到该文档的文档，各带一条它指向的锚点。
    *
    * 文档还没进索引时返回空数组（而不是报错）—— 「暂无反向链接」比一个错误更合理。
    */
-  findBacklinks: (documentPath: string) => Promise<IndexedDocument[]>;
+  findBacklinks: (documentPath: string) => Promise<BacklinkEntry[]>;
   /** 所有标签及其文档数，按标签名排序。 */
   listTags: () => Promise<Array<{ tag: string; count: number }>>;
   /** 带某个标签的文档。标签可以带 `#`、大小写随意，归一化在索引层做。 */
   findDocumentsByTag: (tag: string) => Promise<IndexedDocument[]>;
-  /** 整个工作区的链接图：文档为节点，wikilink 为无向边。 */
-  getGraph: () => Promise<WorkspaceGraph>;
+  /**
+   * 链接图：文档为节点，wikilink 为无向边。
+   *
+   * 不传 `query` 就是整个工作区；传了就按中心文档的邻域 / 文档类型裁剪。
+   */
+  getGraph: (query?: GraphQuery) => Promise<WorkspaceGraph>;
   /** 某文档的历史版本，**新的在前**。没有历史时返回空数组。 */
   listHistory: (documentPath: string) => Promise<HistoryEntry[]>;
   /** 读某一版的内容。条目不存在时抛错，不返回空字符串。 */

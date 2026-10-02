@@ -1,11 +1,15 @@
 import { Database } from 'node-sqlite3-wasm';
 import fs from 'node:fs';
 import type {
+  BacklinkEntry,
   DocumentType,
   ExtractionStatus,
   GraphEdge,
+  GraphNode,
+  GraphQuery,
   IndexedDocument,
   SearchHit,
+  WikiLinkTarget,
   WorkspaceGraph
 } from '@nexus/core';
 
@@ -45,11 +49,14 @@ import type {
  * `(.*)$` 因此整条失配，而 Windows 上 Obsidian / 记事本写出来的笔记全是 CRLF，
  * 于是代码块里的 `#` 全被当成标签。判据在 LF 上一直是对的，所以单测全绿 ——
  * **这个洞是拿真实工作区跑出来的**（85 篇笔记里冒出 19 个假标签）。
+ * v9：`links` 加 `anchor` 列，且 `target` 改成**切掉锚点之后**的目标名。改之前
+ * `[[dma#性能]]` 存进去的是 `dma#性能`，而反向链接侧拿 `dma` 去比 —— 永远匹配不上，
+ * 于是带锚点的引用**既不进反向链接面板也不进图谱**，且两边单独看都对。
  * 注意这里**没有迁移脚本** —— 索引是派生数据，重建成本是几秒扫盘，
  * 而迁移脚本会长期背着「派生数据的格式」这个不该背的包袱（见文件头注释）。
- * 所以「schema v8 的 migration」在本项目里的含义就是「把版本号改掉」。
+ * 所以「schema v9 的 migration」在本项目里的含义就是「把版本号改掉」。
  */
-const SCHEMA_VERSION = '8';
+const SCHEMA_VERSION = '9';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -87,12 +94,17 @@ const SCHEMA_STATEMENTS = [
    )`,
   // 反向链接：某篇文档里出现了哪些 wikilink 目标。
   //
-  // 存的是**归一化后的目标名**（去掉 `.md`、转小写），不是解析出来的 document id ——
-  // 链接指向的文档可能在链接写完之后才被创建，存 id 就意味着每次新增文件都要重建索引。
-  // 代价是查询时要拿当前文档的路径/文件名去比对，见 findBacklinks()。
+  // 存的是**归一化后的目标名**（切掉 `#锚点`、去掉 `.md`、转小写），不是解析出来的
+  // document id —— 链接指向的文档可能在链接写完之后才被创建，存 id 就意味着每次新增文件
+  // 都要重建索引。代价是查询时要拿当前文档的路径/文件名去比对，见 findBacklinks()。
+  //
+  // `anchor` 是第一个 `#` 之后的原文（标题锚点区分大小写，所以不归一化），没有则为 NULL。
+  // 它不参与主键：一条边只存一行，同一目标写多个锚点时取先出现的那个，
+  // 理由见 `extractWikiLinkTargets()` 的说明。
   `CREATE TABLE IF NOT EXISTS links (
      source_id INTEGER NOT NULL,
      target TEXT NOT NULL,
+     anchor TEXT,
      PRIMARY KEY (source_id, target)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_links_target ON links(target)`,
@@ -137,12 +149,12 @@ export interface UpsertDocumentInput {
    */
   body: string;
   /**
-   * 本文档里的 wikilink 目标，**已归一化**（去掉 `.md`、转小写）。
+   * 本文档里的 wikilink，**已归一化**（切掉 `#锚点`、去掉 `.md`、转小写），锚点另带。
    *
    * 归一化放在索引器里做，存进来的必须已经是这个形式 —— 查询端
    * （`findBacklinks`）只做等值比较，两边各归一化一次迟早不一致。
    */
-  links: string[];
+  links: WikiLinkTarget[];
   /**
    * 本文档里的标签，**已归一化**（去掉前导 `#`、转小写）。
    *
@@ -397,10 +409,11 @@ export class IndexStore {
         segmentForIndex(input.body)
       ]);
 
-      for (const target of input.links) {
-        this.db.run(`INSERT OR IGNORE INTO links(source_id, target) VALUES(?, ?)`, [
+      for (const link of input.links) {
+        this.db.run(`INSERT OR IGNORE INTO links(source_id, target, anchor) VALUES(?, ?, ?)`, [
           documentId,
-          target
+          link.target,
+          link.anchor
         ]);
       }
 
@@ -557,19 +570,29 @@ export class IndexStore {
   }
 
   /**
-   * 找出所有链接到这篇文档的文档（反向链接）。
+   * 找出所有链接到这篇文档的文档（反向链接），带上各自指向的**锚点**。
    *
    * 匹配口径必须与 `resolveWikiLink` 一致：那边是「先按相对路径、再按文件名」，
    * 都大小写不敏感。两处口径不一致的话，能跳转的链接反而查不到反向链接 ——
    * 那种不一致极难被发现，因为两边单独看都对。
+   *
+   * ## 锚点为什么在这里返回
+   *
+   * `links` 表存了锚点，但「哪篇文档指向我的哪一节」只有把两边拼起来才知道 ——
+   * 面板要显示「谁、引的是哪一节」，就得在这里一次带出。分成两次查（先找来源、
+   * 再按 source_id 捞锚点）会多一轮往返，而这两件事本来就是同一行的两列。
+   *
+   * 一条 `(source, target)` 只返回一条：主键决定了同一来源对同一目标只存一行，
+   * 所以这里不需要去重。
    */
-  findBacklinks(document: IndexedDocument): IndexedDocument[] {
+  findBacklinks(document: IndexedDocument): BacklinkEntry[] {
     const targets = this.backlinkTargetsOf(document);
     const placeholders = targets.map(() => '?').join(', ');
 
     const rows = this.db.all(
-      `SELECT DISTINCT d.id, d.path, d.relative_path, d.name, d.title, d.type,
-              d.size_bytes, d.modified_at_ms, d.content_hash, d.extraction_status
+      `SELECT d.id, d.path, d.relative_path, d.name, d.title, d.type,
+              d.size_bytes, d.modified_at_ms, d.content_hash, d.extraction_status,
+              l.anchor AS anchor
          FROM links l
          JOIN documents d ON d.id = l.source_id
         WHERE l.target IN (${placeholders})
@@ -578,7 +601,10 @@ export class IndexStore {
       [...targets, document.id]
     );
 
-    return rows.map(mapDocument);
+    return rows.map((row) => ({
+      document: mapDocument(row),
+      anchor: typeof row.anchor === 'string' && row.anchor.length > 0 ? row.anchor : null
+    }));
   }
 
   /**
@@ -630,49 +656,149 @@ export class IndexStore {
    * 同名文件落在不同目录时（`notes/dma.md` 与 `archive/dma.md`），
    * `[[dma]]` 该指向哪一篇是有歧义的（`resolveWikiLink` 会返回 ambiguous）。
    * 图谱不做歧义提示 —— 那属于跳转时的决策，这里是概览。
+   *
+   * ## 范围裁剪与 `degree` 的口径
+   *
+   * 类型筛选与邻域裁剪都在**这里**做，不在渲染进程做。理由是 `degree`：它决定节点画多大，
+   * 必须与**本次返回的边**一致。渲染进程先拿全量再自己筛的话，节点大小会按「看不见的边」
+   * 算出来 —— 表现成「一个点很大，却只连着一根线」，用户会以为漏画了边。
+   *
+   * 于是 `degree` 的定义是「**本次返回的边里**与它相连的条数」，不是全局度数。
+   *
+   * ## 未解析的目标不再被丢掉
+   *
+   * 它们变成 `kind: 'missing'` 的节点。丢掉是**静默消失**：用户看到某篇文档在图上什么
+   * 也不连，以为它没有引用，而真相是它引用了一篇还没建的笔记。
+   *
+   * 合成 id 从 `max(documents.id) + 1` 起、按目标名**排序**依次编号 ——
+   * 必须确定性，否则同一份工作区两次打开会得到不同的形状。
    */
-  getGraph(): WorkspaceGraph {
-    const documents = this.listDocuments();
+  getGraph(query: GraphQuery = {}): WorkspaceGraph {
+    /*
+      `byTarget` 必须用**全部**文档来建，不能用筛过的那批。
+
+      用筛过的建会有一个很隐蔽的错：类型筛选把 `manual.pdf` 排掉之后，
+      `[[manual.pdf]]` 就解析不到任何文档了 —— 于是它被当成**断链**，图上多出一个
+      「还没创建」的红点。而那个附件明明就在那儿，只是用户把它藏起来了。
+      「缺失」的含义是「整个工作区里都没有这个目标」，不是「当前看不见」。
+    */
+    const allDocuments = this.listDocuments();
+    const documents = allDocuments.filter(
+      (document) => query.types === undefined || query.types.includes(document.type)
+    );
+    const allowed = new Set(documents.map((document) => document.id));
 
     // 目标名 → 文档 id。口径与 resolveWikiLink / findBacklinks 一致：
     // 相对路径或文件名，都去掉 `.md` 并转小写。
     const byTarget = new Map<string, number>();
-    for (const document of documents) {
+    for (const document of allDocuments) {
       for (const key of this.backlinkTargetsOf(document)) {
         if (!byTarget.has(key)) byTarget.set(key, document.id);
       }
     }
 
-    const edges: GraphEdge[] = [];
+    // 一趟扫完 links：能解析的进 docEdges，解析不了的按目标名归拢来源
+    const docEdges: GraphEdge[] = [];
     const seen = new Set<string>();
-    const degree = new Map<number, number>();
+    const sourcesByUnresolved = new Map<string, Set<number>>();
 
     for (const row of this.db.all(`SELECT source_id, target FROM links`)) {
       const source = Number(row.source_id);
-      const target = byTarget.get(String(row.target));
+      // 来源被筛掉（或本来就不在索引里）时，这条链接整条不参与 —— 无论解析得出解析不出
+      if (!allowed.has(source)) continue;
 
-      // 指向不存在的文档（还没建）、自链接都不进图
-      if (target === undefined || target === source) continue;
+      const rawTarget = String(row.target);
+      const resolved = byTarget.get(rawTarget);
 
-      const key = source < target ? `${source}:${target}` : `${target}:${source}`;
+      // 自链接不进图
+      if (resolved === source) continue;
+
+      if (resolved === undefined) {
+        const sources = sourcesByUnresolved.get(rawTarget);
+        if (sources === undefined) sourcesByUnresolved.set(rawTarget, new Set([source]));
+        else sources.add(source);
+        continue;
+      }
+
+      // 解析到了、但那一端被筛掉：这条边不画。**不是断链** —— 目标确实存在。
+      if (!allowed.has(resolved)) continue;
+
+      const key = source < resolved ? `${source}:${resolved}` : `${resolved}:${source}`;
       if (seen.has(key)) continue;
       seen.add(key);
-
-      edges.push({ source, target });
-      degree.set(source, (degree.get(source) ?? 0) + 1);
-      degree.set(target, (degree.get(target) ?? 0) + 1);
+      docEdges.push({ source, target: resolved });
     }
 
-    return {
-      nodes: documents.map((document) => ({
-        id: document.id,
-        path: document.path,
-        relativePath: document.relativePath,
-        name: document.name,
-        degree: degree.get(document.id) ?? 0
-      })),
-      edges
-    };
+    /*
+      断链的合成 id。
+
+      排序后编号是为了**确定性**：同一份工作区两次打开必须得到同一组 id，
+      否则力导向布局会画出两种形状，用户会以为「什么都没改，图却变了」。
+      从 `max(id) + 1` 起编号，与真实文档 id 不可能撞上。
+    */
+    const maxDocumentId = documents.reduce((max, document) => Math.max(max, document.id), 0);
+    const missingIdByTarget = new Map<string, number>();
+    let nextSyntheticId = maxDocumentId + 1;
+    for (const rawTarget of [...sourcesByUnresolved.keys()].sort()) {
+      missingIdByTarget.set(rawTarget, nextSyntheticId);
+      nextSyntheticId += 1;
+    }
+
+    const missingEdges: GraphEdge[] = [];
+    for (const [rawTarget, sources] of sourcesByUnresolved) {
+      const syntheticId = missingIdByTarget.get(rawTarget)!;
+      for (const source of sources) missingEdges.push({ source, target: syntheticId });
+    }
+
+    const edges = [...docEdges, ...missingEdges];
+
+    const center =
+      query.centerPath === undefined
+        ? undefined
+        : documents.find((document) => document.path === query.centerPath);
+    const reached =
+      center === undefined
+        ? null
+        : reachableFrom(center.id, edges, query.degrees ?? 1);
+
+    const keptDocuments =
+      reached === null ? documents : documents.filter((document) => reached.has(document.id));
+    const keptDocumentIds = new Set(keptDocuments.map((document) => document.id));
+
+    const visibleEdges = edges.filter(
+      (edge) => keptDocumentIds.has(edge.source) && (reached === null || reached.has(edge.target))
+    );
+
+    const degree = new Map<number, number>();
+    for (const edge of visibleEdges) {
+      degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
+      degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
+    }
+
+    const nodes: GraphNode[] = keptDocuments.map((document) => ({
+      kind: 'document',
+      id: document.id,
+      path: document.path,
+      relativePath: document.relativePath,
+      name: document.name,
+      type: document.type,
+      degree: degree.get(document.id) ?? 0
+    }));
+
+    for (const [rawTarget, syntheticId] of missingIdByTarget) {
+      const nodeDegree = degree.get(syntheticId) ?? 0;
+      // 度数为 0 的断链在图上是一个飘着的孤立点，没有信息量
+      if (nodeDegree === 0) continue;
+      nodes.push({
+        kind: 'missing',
+        id: syntheticId,
+        name: rawTarget,
+        linkTarget: rawTarget,
+        degree: nodeDegree
+      });
+    }
+
+    return { nodes, edges: visibleEdges };
   }
 
   getStats(): IndexStats {
@@ -746,8 +872,13 @@ export class IndexStore {
   }
 }
 
-/** 允许出现在 `documents.type` 列里的值，用于把库里的字符串收敛回类型。 */
-const DOCUMENT_TYPES: readonly DocumentType[] = ['markdown', 'pdf', 'docx', 'image'];
+/**
+ * 允许出现在 `documents.type` 列里的值，用于把库里的字符串收敛回类型。
+ *
+ * 导出是给主进程的 IPC 入参校验用的（`readGraphQuery`）—— 白名单只留一份，
+ * 加了新类型时两处不会漂。
+ */
+export const DOCUMENT_TYPES: readonly DocumentType[] = ['markdown', 'pdf', 'docx', 'image'];
 
 /** 允许出现在 `documents.extraction_status` 列里的值。 */
 const EXTRACTION_STATUSES: readonly ExtractionStatus[] = [
@@ -756,6 +887,51 @@ const EXTRACTION_STATUSES: readonly ExtractionStatus[] = [
   'empty',
   'failed'
 ];
+
+/**
+ * 从 `centerId` 出发、沿**无向**边走 `degrees` 跳能到达的全部节点 id（含中心自己）。
+ *
+ * 返回 id 集合而不是文档列表：图里有**两类**节点（文档与断链），断链那类不在
+ * `documents` 表里，没有对应的行可以过滤。调用方拿这个集合去筛两类节点。
+ *
+ * 中心不在图里时返回**只含中心自己**的集合 —— 调用方据此退回全集（见 `getGraph`）。
+ * 判据：走不到任何东西时，用户看到的是「这篇文档谁也不连」，那是**对的**；
+ * 而返回空集会让他看到一张空画布，那是错的。
+ */
+function reachableFrom(
+  centerId: number,
+  edges: readonly GraphEdge[],
+  degrees: number
+): Set<number> {
+  const visited = new Set<number>([centerId]);
+  if (degrees <= 0) return visited;
+
+  const adjacency = new Map<number, number[]>();
+  const connect = (from: number, to: number) => {
+    const existing = adjacency.get(from);
+    if (existing === undefined) adjacency.set(from, [to]);
+    else existing.push(to);
+  };
+  for (const edge of edges) {
+    connect(edge.source, edge.target);
+    connect(edge.target, edge.source);
+  }
+
+  let frontier = [centerId];
+  for (let hop = 0; hop < degrees && frontier.length > 0; hop += 1) {
+    const next: number[] = [];
+    for (const id of frontier) {
+      for (const neighbor of adjacency.get(id) ?? []) {
+        if (visited.has(neighbor)) continue;
+        visited.add(neighbor);
+        next.push(neighbor);
+      }
+    }
+    frontier = next;
+  }
+
+  return visited;
+}
 
 function mapDocument(row: Record<string, unknown>): IndexedDocument {
   return {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView, MarkdownDocumentSession } from '@nexus/editor';
-import type { IndexedDocument } from '@nexus/core';
+import type { BacklinkEntry } from '@nexus/core';
 import { useLocale, useSettingValue } from '../hooks.js';
 import { outlineLevelToMaxLevel } from '../settings/preference-specs.js';
 import { extractOutline } from './outline.js';
@@ -91,7 +91,7 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({
 }) => {
   const { t } = useLocale();
   const [source, setSource] = useState(() => session.getSnapshot().source);
-  const [backlinks, setBacklinks] = useState<IndexedDocument[]>([]);
+  const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
 
   useEffect(() => {
     // 换文档（切标签页）时先同步一次，再订阅后续变更
@@ -322,15 +322,22 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({
             <p className="nexus-sidebar-note">{t('backlinks.empty')}</p>
           ) : (
             <ul className="nexus-sidebar-list">
-              {backlinks.map((document) => (
+              {backlinks.map(({ document, anchor }) => (
                 <li key={document.id}>
                   <button
                     type="button"
                     className="nexus-backlink-item"
-                    title={document.path}
+                    title={anchor === null ? document.path : `${document.path} › ${anchor}`}
                     onClick={() => onOpenFile(document.path)}
                   >
                     {document.relativePath}
+                    {/*
+                      锚点只是「引的是哪一节」的提示，不参与跳转 —— 打开文档这件事
+                      在编辑器侧还没接上「滚到某个标题」。所以它是纯文本而不是按钮。
+                    */}
+                    {anchor !== null && (
+                      <span className="nexus-backlink-anchor">{anchor}</span>
+                    )}
                   </button>
                 </li>
               ))}

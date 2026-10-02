@@ -20,7 +20,9 @@ export {
 
 export {
   wikilinkCandidates,
+  splitWikilinkAnchor,
   normalizeWikilinkTarget,
+  missingTargetToWorkspacePath,
   attachmentContentFingerprint
 } from './document/links.js';
 
@@ -97,8 +99,13 @@ export {
   type SearchHit,
   type IndexWorkspaceResult,
   type GraphNode,
+  type GraphDocumentNode,
+  type GraphMissingNode,
   type GraphEdge,
+  type GraphQuery,
   type WorkspaceGraph,
+  type WikiLinkTarget,
+  type BacklinkEntry,
   type HistoryEntry,
   type DiffLineKind,
   type DiffLine,

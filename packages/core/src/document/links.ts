@@ -43,7 +43,41 @@ export function wikilinkCandidates(target: string): readonly string[] {
 }
 
 /**
- * 把 wikilink 目标归一化成 `links` 表要存的形式：**去 `.md`、转小写**。
+ * 把 wikilink 目标切成「指向哪一篇」与「指向它的哪一节」两半。
+ *
+ * ```
+ * [[dma#性能]]  → { path: 'dma', anchor: '性能' }
+ * [[dma]]       → { path: 'dma', anchor: null }
+ * ```
+ *
+ * ## 为什么必须是一份实现
+ *
+ * 「切掉 `#` 之后」才是链接的目标名，而这件事有三处要做：写索引、查反向链接、判跳转。
+ * 各写一遍的症状是**带锚点的引用凭空消失** —— 写进库的是 `dma#性能`，比对用的是 `dma`，
+ * 永远匹配不上；两边单独看都对，所以没人会怀疑到它头上。本函数被抽出来之前，
+ * 这个洞真实存在过：`[[dma#性能]]` 既不进反向链接面板，也不进图谱。
+ *
+ * ## 只切第一个 `#`
+ *
+ * `[[doc#标题#子标题]]` 与 `[[doc#^blockid]]` 都把第一个 `#` 之后整段当锚点，
+ * 不再细分 —— 这是 Obsidian 的切法。
+ *
+ * ## 空路径是合法的切法，收不收由调用方决定
+ *
+ * `[[#性能]]`（同文档内的标题链接）切出 `path === ''`。这里不替调用方判断：
+ * 索引层会因为归一化后为空而跳过它（同文档链接不该在 `links` 表里留一行指向自己），
+ * 但那是索引层的取舍，不是切分规则的一部分。
+ */
+export function splitWikilinkAnchor(target: string): { path: string; anchor: string | null } {
+  const hashIndex = target.indexOf('#');
+  if (hashIndex < 0) return { path: target, anchor: null };
+
+  const anchor = target.slice(hashIndex + 1).trim();
+  return { path: target.slice(0, hashIndex), anchor: anchor.length > 0 ? anchor : null };
+}
+
+/**
+ * 把 wikilink 目标归一化成 `links` 表要存的形式：**切掉锚点、去 `.md`、转小写**。
  *
  * ## 为什么单独提出来
  *
@@ -54,9 +88,63 @@ export function wikilinkCandidates(target: string): readonly string[] {
  *
  * 这里只去 `.md`、不去其它扩展名：`[[stm32.pdf]]` 必须保持 `.pdf`，
  * 否则附件引用会和笔记引用撞在同一个键上。
+ *
+ * ## 锚点先切、扩展名后去
+ *
+ * 顺序不能换：`[[dma.md#性能]]` 里 `.md` 不在末尾，先按 `$` 去扩展名会一个字符都去不掉，
+ * 于是库里存下 `dma.md#性能`。切法是 `splitWikilinkAnchor()`，与跳转侧共用同一份。
  */
 export function normalizeWikilinkTarget(target: string): string {
-  return target.trim().toLowerCase().replace(/\.md$/, '');
+  return splitWikilinkAnchor(target).path.trim().toLowerCase().replace(/\.md$/, '');
+}
+
+/**
+ * 把「指向不存在的文档」的链接目标，变成一个可以**新建**的工作区相对路径；
+ * 不该替他新建时返回 `null`。
+ *
+ * ```
+ * dma            → dma.md
+ * notes/dma      → notes/dma.md
+ * dma.md         → dma.md          （已经写了扩展名，原样用）
+ * stm32.pdf      → null            （这是缺一个附件，不是缺一篇笔记）
+ * ../outside     → null
+ * ```
+ *
+ * ## 为什么带附件扩展名的一律不建
+ *
+ * `[[stm32.pdf]]` 缺的是一个 PDF，不是一篇 Markdown。给它建一个 `stm32.pdf.md` 会让
+ * 链接**看起来通了**、指向的却是一篇空笔记 —— 那比让链接断着更糟：断链是可见的。
+ * 判据与 `wikilinkCandidates()` 同源：白名单里除 `.md` / `.markdown` 之外的扩展名
+ * 都算「这是别的类型的引用」。
+ *
+ * ## 为什么拒绝 `..` 与绝对路径
+ *
+ * wikilink 的路径段本来就是**工作区根相对**的，`../x` 在解析阶段就匹配不到
+ * （见 `resolveWikiLink`）。真给它拼出一条逃出工作区的路径，就会在用户的 vault 外面
+ * 建文件 —— 这是这一层最不该发生的事，所以宁可返回 `null`。
+ */
+export function missingTargetToWorkspacePath(target: string): string | null {
+  const segments = target
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) return null;
+  if (segments.some((segment) => segment === '.' || segment === '..')) return null;
+
+  const last = segments[segments.length - 1]!;
+  const markdownExtensions = ['.md', '.markdown'];
+  if (markdownExtensions.some((extension) => last.toLowerCase().endsWith(extension))) {
+    return segments.join('/');
+  }
+
+  const otherExtensions = supportedDocumentExtensions().filter(
+    (extension) => !markdownExtensions.includes(extension)
+  );
+  if (otherExtensions.some((extension) => last.toLowerCase().endsWith(extension))) return null;
+
+  return `${segments.join('/')}.md`;
 }
 
 /**

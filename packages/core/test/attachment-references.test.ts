@@ -157,6 +157,13 @@ describe('attachmentReferences', () => {
       expect(targets('[[Notes/DMA.MD]]')).toEqual(['notes/dma']);
     });
 
+    it('带锚点的引用照样算引用 —— `#page=342` 是翻到第几页，不是另一个文件', () => {
+      // 不切锚点的话这里会得到 `['stm32.pdf#page=342']`，于是「被引用附件」判据落空，
+      // 那个 PDF 提取过的正文会被当成「没被引用」清掉 —— 症状是「明明引用了却搜不到」。
+      expect(targets('见 [[stm32.pdf#page=342]]。')).toEqual(['stm32.pdf']);
+      expect(targets('[[手册.pdf#第3章]]')).toEqual(['手册.pdf']);
+    });
+
     it('Obsidian 的嵌入写法 `![[...]]` 也算引用', () => {
       expect(targets('![[原理图.png]]')).toEqual(['原理图.png']);
     });

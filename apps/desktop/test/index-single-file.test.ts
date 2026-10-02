@@ -112,7 +112,7 @@ describe('单文件索引与全量索引的对账', () => {
       const backlinksOf = (store: IndexStore) =>
         store
           .findBacklinks(store.listDocuments().find((d) => d.relativePath === 'notes/dma.md')!)
-          .map((document) => document.relativePath)
+          .map((entry) => entry.document.relativePath)
           .sort();
       expect(backlinksOf(singleStore)).toEqual(backlinksOf(fullStore));
 

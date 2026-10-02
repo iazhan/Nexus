@@ -1122,6 +1122,14 @@ button.nexus-outline-toggle:hover {
   color: var(--nexus-text-primary);
 }
 
+/* 锚点：这条引用指的是文档里的哪一节。弱一档，且排在主文案之后 ——
+   省略号只作用于主文案，锚点被挤出容器比把它截断一半更好读。 */
+.nexus-backlink-anchor {
+  margin-left: 6px;
+  color: var(--nexus-text-muted);
+  font-size: 12px;
+}
+
 .nexus-tags {
   display: flex;
   flex-direction: column;
@@ -1185,13 +1193,114 @@ button.nexus-outline-toggle:hover {
   overflow: hidden;
 }
 
-/* Canvas 撑满剩余空间。像素尺寸由 ResizeObserver 驱动，
+/*
+  图谱控制条：范围 + 类型筛选。
+  放在头部与画布之间，宽度受限（侧栏可窄到 ~180px），所以 chip 会换行 —— 不换行的话
+  类型一多就把画布挤没了。
+*/
+.nexus-graph-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 8px 8px;
+}
+
+.nexus-graph-scope,
+.nexus-graph-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.nexus-graph-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nexus-text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+  /* 关了就是「不显示这一类」—— 靠颜色之外还要靠边框，色觉障碍用户读得出状态 */
+  border-style: dashed;
+}
+
+.nexus-graph-chip:hover:not(:disabled) {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-graph-chip[aria-pressed='true'] {
+  border-style: solid;
+  border-color: var(--nexus-border-control);
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-graph-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.nexus-graph-chip-count {
+  color: var(--nexus-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 被筛空时的出路。与大纲空态的按钮同一条取舍：做得轻，它是一条提示不是主操作。 */
+.nexus-graph-reset {
+  display: block;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nexus-graph-reset:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+/*
+  画布的盒子。**尺寸由它量**（ResizeObserver 观察的是这个元素），所以它必须与画布严格同框 ——
+  把观察目标挂到 `.nexus-graph` 上的话会多算一个头部的高度，画布位图被纵向压扁。
+*/
+.nexus-graph-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Canvas 撑满盒子。像素尺寸由 ResizeObserver 驱动，
    这里只负责让它占满 —— 两者都设的话会互相打架。 */
 .nexus-graph-canvas {
   display: block;
   flex: 1;
   min-height: 0;
   width: 100%;
+  /* 空白处拖动 = 平移；按下去之后换成 grabbing，用户才知道自己抓到了什么 */
+  cursor: grab;
+  touch-action: none;
+}
+
+.nexus-graph-canvas[data-panning='true'] {
+  cursor: grabbing;
+}
+
+/* 悬停在节点上时是「可点开」的语义，与拖空白区分开 */
+.nexus-graph-canvas[data-hovered]:not([data-hovered='']) {
   cursor: pointer;
 }
 

@@ -155,16 +155,56 @@ export interface IndexWorkspaceResult {
   errors: string[];
 }
 
-/** 图谱里的一个节点 = 一篇文档。 */
-export interface GraphNode {
+/** 图谱里一个**已存在**的文档节点。 */
+export interface GraphDocumentNode {
+  kind: 'document';
   id: number;
   /** 绝对路径。点击节点要拿它去打开文档，相对路径不够。 */
   path: string;
   relativePath: string;
   name: string;
-  /** 关联的边数（出入合并计）。用来决定节点画多大。 */
+  /**
+   * 文档类型。图谱侧要它做两件事：按类型筛选，以及**不只用颜色区分节点**
+   * （蓝图 §12 的要求 —— 只靠颜色的话，色觉障碍用户读不出哪个点是附件）。
+   */
+  type: DocumentType;
+  /** 关联的边数（出入合并计）。用来决定节点画多大。**只数本次返回的边**。 */
   degree: number;
 }
+
+/**
+ * 图谱里一个**指向不存在的文档**的节点（死链）。
+ *
+ * ## 为什么要给它一个节点，而不是把这条边丢掉
+ *
+ * 丢掉是「静默消失」：用户看到某篇文档在图上什么也不连，以为它没有引用，
+ * 而真相是它引用了一篇还没建的笔记。`[[还没写的方案]]` 在写下来的那一刻就是一条
+ * **真实存在**的链接，只是目标还没落地 —— 图谱的职责是把它显示出来，而不是替用户
+ * 判断它不算数。
+ *
+ * ## `id` 是合成的
+ *
+ * 它不在 `documents` 表里，没有真 id。合成规则见 `IndexStore.getGraph()`：从
+ * `max(documents.id) + 1` 起按目标名排序依次编号。**必须是确定性的** ——
+ * 同一份工作区两次打开要得到同一组 id，否则布局形状会变。
+ *
+ * 因此它**不能**拿去当文档 id 用：没有 `path`，点它只能走「新建」而不是「打开」。
+ */
+export interface GraphMissingNode {
+  kind: 'missing';
+  id: number;
+  /** 展示名 = 归一化后的链接目标（如 `notes/dma`）。 */
+  name: string;
+  /**
+   * 归一化后的链接目标，与 `links.target` 同一口径（切掉锚点、去 `.md`、小写）。
+   *
+   * 「新建」时由它推导落点，所以它必须是可以直接拼成路径的形状 —— 不能带锚点。
+   */
+  linkTarget: string;
+  degree: number;
+}
+
+export type GraphNode = GraphDocumentNode | GraphMissingNode;
 
 /** 图谱里的一条边。**无向**：`A → B` 与 `B → A` 已合并。 */
 export interface GraphEdge {
@@ -172,9 +212,56 @@ export interface GraphEdge {
   target: number;
 }
 
+/**
+ * 取图时的范围参数。全部可选，不传就是「全工作区的完整图」。
+ */
+export interface GraphQuery {
+  /**
+   * 以哪篇文档为中心（**绝对路径**）。不传 = 全图。
+   *
+   * 路径在索引里找不到时**退回全图**，而不是返回空图 —— 用户刚新建、还没进索引的文档
+   * 是常见情形，那时给他一张空画布比给他全图更让人困惑。
+   */
+  centerPath?: string;
+  /**
+   * 邻域层数（只在有 `centerPath` 时有意义），默认 1。
+   *
+   * 边是无向的，所以「出链」和「入链」都算一跳 —— 与图本身的口径一致。
+   */
+  degrees?: number;
+  /** 只保留这些文档类型。不传 = 全部类型。 */
+  types?: readonly DocumentType[];
+}
+
 export interface WorkspaceGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+/**
+ * 一条出链的**持久化形式**：指向哪一篇 + 指向它的哪一节。
+ *
+ * `target` 已归一化（切掉 `#锚点`、去 `.md`、转小写），与 `links` 表存的是同一个值 ——
+ * 它必须能被 `backlinkTargetsOf()` 的候选直接等值比中，否则这条链接会「写得进、查不到」。
+ *
+ * `anchor` 是第一个 `#` 之后的原文（未归一化：标题锚点区分大小写），没有则为 `null`。
+ * 同一篇文档重复指向同一个目标时**只留第一次出现的锚点** —— `links` 表的主键是
+ * `(source_id, target)`，一条边只存一行，而「代表哪个锚点」在参考实现里也是取代表值。
+ */
+export interface WikiLinkTarget {
+  target: string;
+  anchor: string | null;
+}
+
+/**
+ * 一条反向链接：谁引用了我 + 引用的是我的哪一节。
+ *
+ * 定义在 core 而不是主进程 —— preload 要把它作为 IPC 参数类型传给渲染进程，
+ * 跨进程类型不能住在一侧的实现文件里（与 `HistoryEntry` 同理）。
+ */
+export interface BacklinkEntry {
+  document: IndexedDocument;
+  anchor: string | null;
 }
 
 /**

@@ -5,9 +5,11 @@ import {
   attachmentReferences,
   extractDocumentTags,
   normalizeWikilinkTarget,
+  splitWikilinkAnchor,
   type DocumentType,
   type IndexWorkspaceResult,
-  type ProcessorRegistry
+  type ProcessorRegistry,
+  type WikiLinkTarget
 } from '@nexus/core';
 import type { FileService, ScanWorkspaceOptions } from './file-service.js';
 import type { IndexStore, UpsertDocumentInput } from './index-store.js';
@@ -365,26 +367,36 @@ export function deriveTitle(fileName: string): string {
 const WIKILINK_PATTERN = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g;
 
 /**
- * 提取正文里的 wikilink 目标，**归一化**成 `links` 表要的形式（去 `.md`、转小写）。
+ * 提取正文里的 wikilink，**归一化**成 `links` 表要的形式（切掉 `#锚点`、去 `.md`、转小写），
+ * 锚点单独带回。
  *
- * 归一化本身在 `@nexus/core` 的 `normalizeWikilinkTarget()` —— 查询端只做等值比较，
- * 两边各归一化一次迟早不一致，而那种不一致的表现是「能跳转但查不到反向链接」，
- * 很难察觉。
+ * 归一化本身在 `@nexus/core` 的 `normalizeWikilinkTarget()` / `splitWikilinkAnchor()` ——
+ * 查询端只做等值比较，两边各归一化一次迟早不一致，而那种不一致的表现是
+ * 「能跳转但查不到反向链接」，很难察觉。
  *
  * 用正则而不是完整 parser：索引器只要目标名，为几个链接跑一遍 AST 不划算。
  * 代价是**代码块里的 `[[...]]` 也会被收进来**。这是刻意选的方向：
  * 反向链接多一条不致命，而漏掉真链接会让人以为功能坏了。
+ *
+ * ## 同一目标写多次时只留第一条的锚点
+ *
+ * `links` 表的主键是 `(source_id, target)`，一条边一行。`[[dma#A]]` 与 `[[dma#B]]`
+ * 会合成一行，锚点取**先出现的那个**（扫描顺序确定，所以结果也确定）。
+ * 要保留全部锚点就得把主键扩成三列，而 `anchor` 可空 —— SQLite 的唯一索引把多个 NULL
+ * 视为互不相同，同一篇文档会插出多行 `(id, 'dma', NULL)`。不值得为「一篇文章里
+ * 分两处指向同一篇的两个标题」付这个代价。
  */
-export function extractWikiLinkTargets(source: string): string[] {
-  const targets = new Set<string>();
+export function extractWikiLinkTargets(source: string): WikiLinkTarget[] {
+  const byTarget = new Map<string, string | null>();
 
   for (const match of source.matchAll(WIKILINK_PATTERN)) {
     const raw = match[1];
     if (!raw) continue;
     const normalized = normalizeWikilinkTarget(raw);
     if (normalized.length === 0) continue;
-    targets.add(normalized);
+    if (byTarget.has(normalized)) continue;
+    byTarget.set(normalized, splitWikilinkAnchor(raw).anchor);
   }
 
-  return [...targets];
+  return [...byTarget].map(([target, anchor]) => ({ target, anchor }));
 }

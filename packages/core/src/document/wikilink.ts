@@ -1,4 +1,4 @@
-import { wikilinkCandidates } from './links.js';
+import { splitWikilinkAnchor, wikilinkCandidates } from './links.js';
 import type { IndexedDocument } from '../types/file.js';
 
 export type WikiLinkStatus = 'resolved' | 'not-found' | 'ambiguous';
@@ -34,15 +34,13 @@ export interface WikiLinkResolution {
  * ## 锚点不参与「指向哪一篇」的判断
  *
  * `[[dma#性能]]` 指向的是 `dma.md` 里的一个位置，`#性能` 是位置后缀、不是名字的一部分。
- * 所以先把它切掉再取候选。这与附件侧早就有的口径一致 —— `resolveWorkspacePath()` 同样
- * 先切 `#page=342` 再解析（`references.ts`）。
+ * 所以先把它切掉再取候选，切法走 `splitWikilinkAnchor()`（`links.ts`）——
+ * **索引侧、反向链接侧、这里共用同一份**，各写一遍会让带锚点的引用在某一侧凭空消失。
  *
- * **目前只有「切掉」这一半**：切完能打开正确的文档，但还不会滚到那个标题（标题锚点
- * 跳转尚未实现）。不切的话结果是「点了报链接解析失败」，比打开到顶部更糟。
- *
- * `links` 表的归一化（`normalizeWikilinkTarget`）**故意不动** —— 它写进的是持久化数据，
- * 改了会让存量库里的行失配、要等重建索引才对齐。代价是带锚点的引用**查不到反向链接**，
- * 与 `[[dma.markdown]]` 属同一类已知缺口（见 `docs/rename-and-link-rewrite-proposal.md` §4）。
+ * 切完只剩「打开正确的文档」这一半：**还不会滚到那个标题**。滚动落点是编辑器侧的事
+ * （`heading-anchor.ts` 的 `revealHeadingAt`），反向链接面板把它接上之前，
+ * 带锚点的链接与不带的行为一致 —— 打开到顶部。
+ * 不切的话结果更糟：`点了报链接解析失败`。
  *
  * ## 为什么同名要返回 ambiguous 而不是挑一个
  *
@@ -60,7 +58,7 @@ export function resolveWikiLink(
   target: string,
   documents: readonly IndexedDocument[]
 ): WikiLinkResolution {
-  const candidates = wikilinkCandidates(pathPartOf(target));
+  const candidates = wikilinkCandidates(splitWikilinkAnchor(target).path);
   if (candidates.length === 0) return { status: 'not-found', candidates: [] };
 
   // 先相对路径、再文件名 —— 两个阶段各自按候选顺序扫，先命中的候选优先。
@@ -94,12 +92,6 @@ function matchInOrder(
     if (hits.length > 0) return hits;
   }
   return [];
-}
-
-/** 切掉 `#锚点`（`#` 本身一起切）。没有锚点就原样返回。 */
-function pathPartOf(target: string): string {
-  const hashIndex = target.indexOf('#');
-  return hashIndex >= 0 ? target.slice(0, hashIndex) : target;
 }
 
 /**
