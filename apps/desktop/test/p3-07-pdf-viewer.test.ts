@@ -64,6 +64,32 @@ const COUNT_PAINTED_PIXELS = `(() => {
   return painted;
 })()`;
 
+/**
+ * 数**有几张** canvas 真的被画过（不是数像素个数）。
+ *
+ * 连续模式与缩略图要验的是「每一页都画出来了」，而不是「画了很多像素」——
+ * 后者在一页画满、其余全空时同样是大的。
+ */
+const COUNT_PAINTED_CANVASES = (selector: string): string => `(() => {
+  let painted = 0;
+  for (const canvas of document.querySelectorAll(${JSON.stringify(selector)})) {
+    if (canvas.width <= 1 || canvas.height <= 1) continue;
+    const context = canvas.getContext('2d');
+    if (context === null) continue;
+    const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] > 0 && (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250)) {
+        painted += 1;
+        break;
+      }
+    }
+  }
+  return painted;
+})()`;
+
+const COUNT_PAINTED_PAGES = COUNT_PAINTED_CANVASES('.nexus-pdf-canvas');
+const COUNT_PAINTED_THUMBS = COUNT_PAINTED_CANVASES('.nexus-pdf-thumb-canvas');
+
 describe('P3-07 PDF Viewer', () => {
   let activeApp: ElectronAppInstance | null = null;
 
@@ -112,7 +138,9 @@ describe('P3-07 PDF Viewer', () => {
           bitmapWidth: el.width,
           cssWidth: parseInt(el.style.width, 10),
           devicePixelRatio: window.devicePixelRatio,
-          pageNumber: el.dataset.pageNumber ?? null
+          // 页码挂在**页容器**上，不是 canvas —— 连续模式下一页由容器撑高度，
+          // canvas 只是它里面的一层
+          pageNumber: el.closest('.nexus-pdf-page')?.dataset.pageNumber ?? null
         };
       })()`
     );
@@ -138,9 +166,9 @@ describe('P3-07 PDF Viewer', () => {
     // 第一页：「上一页」必须 disabled —— 边界状态要如实反映在可交互性上
     expect(await pageButtonState()).toEqual({ previous: true, next: false });
 
-    await app.click('.nexus-pdf-page-button:nth-of-type(2)');
+    await app.click('[data-page-nav="next"]');
     await app.waitForFunction(
-      `() => document.querySelector('.nexus-pdf-canvas')?.dataset.pageNumber === '2'`,
+      `() => document.querySelector('.nexus-pdf-page')?.dataset.pageNumber === '2'`,
       15000
     );
     expect(await pageButtonState()).toEqual({ previous: false, next: true });
@@ -150,9 +178,9 @@ describe('P3-07 PDF Viewer', () => {
       15000
     );
 
-    await app.click('.nexus-pdf-page-button:nth-of-type(1)');
+    await app.click('[data-page-nav="previous"]');
     await app.waitForFunction(
-      `() => document.querySelector('.nexus-pdf-canvas')?.dataset.pageNumber === '1'`,
+      `() => document.querySelector('.nexus-pdf-page')?.dataset.pageNumber === '1'`,
       15000
     );
     expect(await pageButtonState()).toEqual({ previous: true, next: false });
@@ -255,7 +283,117 @@ describe('P3-07 PDF Viewer', () => {
       hasSession: false
     });
 
+    // ---- 8. 连续滚动：切成连续模式后每一页都真的画出像素 ----
+    // 渲染器单测验的是「哪些页该渲染」这套分支；这里验的是**真 Chromium 里多页同时渲染**
+    // 这件事 —— 它同时覆盖了「占位高度把滚动条撑对」与「懒渲染的 observer 真的会触发」。
+    await app.click('.nexus-pdf-layout-button');
+    await app.waitForFunction(
+      `() => document.querySelectorAll('.nexus-pdf-page').length === ${PAGE_COUNT}`,
+      20000
+    );
+    await app.waitForFunction(
+      `() => ${COUNT_PAINTED_PAGES} === ${PAGE_COUNT}`,
+      30000
+    );
+
+    // ---- 9. 侧栏缩略图：每一张都真的画出像素 ----
+    // 缩略图是另一条渲染路径（按页宽重算 scale），全白的症状与正文页一样：
+    // 不报错，只是列表里一排空框。
+    await app.click('.nexus-pdf-sidebar-button');
+    await app.waitForFunction(
+      `() => document.querySelectorAll('.nexus-pdf-thumb-canvas').length === ${PAGE_COUNT}`,
+      15000
+    );
+    await app.waitForFunction(
+      `() => ${COUNT_PAINTED_THUMBS} === ${PAGE_COUNT}`,
+      30000
+    );
+
     // 页数被如实读到 —— PAGE_COUNT 是 fixture 的显式参数，不是猜的
     expect(PAGE_COUNT).toBe(2);
+
+    // ---- 10. Ctrl + 滚轮缩放：真的缩放，且光标下那一点不动 ----
+    // 滚轮缩放的坑全在**锚点**上：算错的话放大之后想看的地方跑出视野，而画面看起来
+    // 完全正常。所以这里不光断言百分比变了，还断言光标压着的那一点**在页内的相对位置没变**。
+    // 另外必须断言界面缩放没被改 —— 不 `preventDefault` 的话 Electron 会把整个 Nexus
+    // 窗口放大，而 PDF 一动不动（判据用 `window.innerWidth`：页面缩放会让它变小）。
+    //
+    // fixture 的页是 200×200（100% 时 300px 高），两页加起来装不满窗口 ——
+    // 滚动位置恒为 0 时锚点无从谈起。所以先放大到 200% 让内容真的可滚。
+    await app.evaluate(`(() => {
+      const input = document.querySelector('.nexus-pdf-zoom-level');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, '200');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    })()`);
+    // 200% 时一页正好 600px 高。**等它落地再动滚动位置**：缩放后的对齐要等一帧。
+    // 这条同时钉住了「页容器跟着 scale 立刻变高」—— 容器若还停在旧高度，这里就等不到。
+    await app.waitForFunction(
+      `() => {
+        const pages = document.querySelectorAll('.nexus-pdf-page');
+        return pages.length === 2 && Math.round(pages[0].getBoundingClientRect().height) === 600;
+      }`,
+      15000
+    );
+
+    const before = await app.evaluate<{
+      scrollable: boolean;
+      cursorX: number;
+      cursorY: number;
+      zoom: string;
+      innerWidth: number;
+    }>(
+      `(() => {
+        const stage = document.querySelector('.nexus-pdf-stage');
+        const page = document.querySelectorAll('.nexus-pdf-page')[1];
+        // 内容装不满窗口的话滚动位置恒为 0，锚点不可能成立 —— 把前提显式断言出来，
+        // 免得将来窗口变大之后这条用例静默退化成「测了个寂寞」。
+        if (stage.scrollHeight <= stage.clientHeight) {
+          return { scrollable: false, cursorX: 0, cursorY: 0, zoom: '', innerWidth: 0 };
+        }
+        stage.scrollTop = page.offsetTop;
+        const rect = page.getBoundingClientRect();
+        const stageRect = stage.getBoundingClientRect();
+        return {
+          scrollable: true,
+          cursorX: Math.round(stageRect.left + stageRect.width / 2),
+          cursorY: Math.round(rect.top + rect.height * 0.4),
+          zoom: document.querySelector('.nexus-pdf-zoom-level').value,
+          innerWidth: window.innerWidth
+        };
+      })()`
+    );
+    expect(before.scrollable).toBe(true);
+
+    // 2 = Ctrl
+    await app.mouseWheelCoords(before.cursorX, before.cursorY, -120, 2);
+
+    // 百分比由 effect 先写、锚点要等下一帧才落地，所以要等锚点真的对上再断言，
+    // 否则读到的是中间态。
+    await app.waitForFunction(
+      `() => {
+        const page = document.querySelectorAll('.nexus-pdf-page')[1];
+        const rect = page.getBoundingClientRect();
+        return Math.abs((${before.cursorY} - rect.top) / rect.height - 0.4) < 0.01;
+      }`,
+      10000
+    );
+
+    const after = await app.evaluate<{ fraction: number; zoom: string; innerWidth: number }>(
+      `(() => {
+        const page = document.querySelectorAll('.nexus-pdf-page')[1];
+        const rect = page.getBoundingClientRect();
+        return {
+          fraction: (${before.cursorY} - rect.top) / rect.height,
+          zoom: document.querySelector('.nexus-pdf-zoom-level').value,
+          innerWidth: window.innerWidth
+        };
+      })()`
+    );
+
+    expect(Number(after.zoom)).toBeGreaterThan(Number(before.zoom));
+    expect(after.fraction).toBeCloseTo(0.4, 2);
+    expect(after.innerWidth).toBe(before.innerWidth);
   });
 });

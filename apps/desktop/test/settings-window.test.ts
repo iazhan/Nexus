@@ -105,6 +105,7 @@ describe('设置窗口', () => {
     ).toEqual([
       'general',
       'editor',
+      'viewer',
       'files',
       'appearance',
       'keybindings',
@@ -124,7 +125,7 @@ describe('设置窗口', () => {
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('.nexus-settings-nav [data-availability="available"]')).map((el) => el.getAttribute('data-section'))`
       )
-    ).toEqual(['general', 'editor', 'files', 'appearance', 'keybindings', 'data']);
+    ).toEqual(['general', 'editor', 'viewer', 'files', 'appearance', 'keybindings', 'data']);
     // 独立窗口没有「返回工作区」这个键了 —— 关窗归标题栏与 Escape
     expect(await app.evaluate<boolean>(`!!document.querySelector('[data-settings-back]')`)).toBe(
       false

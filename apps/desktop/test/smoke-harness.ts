@@ -633,6 +633,29 @@ export class ElectronAppInstance {
     });
   }
 
+  /**
+   * 派发一次滚轮。`deltaY` 正数向下滚。
+   *
+   * 滚轮在 CDP 里是 `mouseWheel` 类型（不是 `mousePressed` 加个参数），增量走
+   * `deltaX` / `deltaY`。**修饰键只认位掩码**：1=Alt、2=Ctrl、4=Meta、8=Shift ——
+   * 应用里的「Ctrl+滚轮缩放」要靠它，用键盘事件是模拟不出来的。
+   */
+  public async mouseWheelCoords(
+    x: number,
+    y: number,
+    deltaY: number,
+    modifiers = 0
+  ): Promise<void> {
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseWheel',
+      x,
+      y,
+      deltaX: 0,
+      deltaY,
+      modifiers
+    });
+  }
+
   public async pressKey(key: string, modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean }): Promise<void> {
     const isCtrl = Boolean(modifiers?.ctrl);
     const isShift = Boolean(modifiers?.shift);

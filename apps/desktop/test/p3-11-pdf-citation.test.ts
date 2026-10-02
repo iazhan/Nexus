@@ -45,16 +45,16 @@ describe('P3-11 PDF citation loop', () => {
 
     await app.waitForSelector('.nexus-pdf-canvas', 30000);
     await app.waitForFunction(
-      `() => document.querySelector('.nexus-pdf-canvas')?.dataset.pageNumber === '1'`,
+      `() => document.querySelector('.nexus-pdf-page')?.dataset.pageNumber === '1'`,
       15000
     );
     await app.waitForFunction(
       `() => document.querySelectorAll('.nexus-pdf-page-button')[1]?.disabled === false`,
       15000
     );
-    await app.click('.nexus-pdf-page-button:nth-of-type(2)');
+    await app.click('[data-page-nav="next"]');
     await app.waitForFunction(
-      `() => document.querySelector('.nexus-pdf-canvas')?.dataset.pageNumber === '2'`,
+      `() => document.querySelector('.nexus-pdf-page')?.dataset.pageNumber === '2'`,
       15000
     );
     await app.waitForFunction(
@@ -119,7 +119,7 @@ describe('P3-11 PDF citation loop', () => {
 
     try {
       await app.waitForFunction(
-        `() => document.querySelector('.nexus-pdf-canvas')?.dataset.pageNumber === '2'`,
+        `() => document.querySelector('.nexus-pdf-page')?.dataset.pageNumber === '2'`,
         15000
       );
     } catch (error) {
@@ -127,7 +127,7 @@ describe('P3-11 PDF citation loop', () => {
         hrefs: Array.from(document.querySelectorAll('.cm-visual-link')).map((link) =>
           link.getAttribute('data-safe-href')
         ),
-        page: document.querySelector('.nexus-pdf-canvas')?.getAttribute('data-page-number') ?? null,
+        page: document.querySelector('.nexus-pdf-page')?.getAttribute('data-page-number') ?? null,
         activeTab: document.querySelector('.nexus-tab-active .nexus-tab-name')?.textContent ?? null,
         activeKind: document.querySelector('.nexus-tab-active')?.getAttribute('data-document-kind') ?? null
       }))()`);

@@ -662,22 +662,261 @@ body {
   cursor: default;
 }
 
+/* 页码 = 可编辑输入框 + `/ 总页数`。 */
 .nexus-pdf-page-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-family: var(--font-mono);
   color: var(--nexus-text-muted);
 }
 
-/* 滚动的是 stage，不是 canvas —— 与图片同一个理由（页比窗口大时不能撑破布局）。 */
-.nexus-pdf-stage {
+/* 宽度按 4 位数字定死并居中 —— 跟着内容变的话，翻到第 10 页整条工具栏会横向抖一下。
+   `content-box` 是必需的：`border-box` 下这 4ch 会被 padding 与边框吃掉近 10px，
+   内容只剩两个半数字，显示 `300` 就会裁掉最后一位。 */
+.nexus-pdf-page-input,
+.nexus-pdf-zoom-level {
+  flex: none;
+  box-sizing: content-box;
+  width: 4ch;
+  padding: 2px 4px;
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 4px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* 焦点环要看得见，但不用默认的 outline —— 它在 12px 的小框上会把相邻按钮压住。 */
+.nexus-pdf-page-input:focus,
+.nexus-pdf-zoom-level:focus {
+  outline: none;
+  border-color: var(--nexus-accent-solid);
+}
+
+.nexus-pdf-page-input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.nexus-pdf-zoom-suffix {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
+/* 工具栏的分隔线与四个「次要按钮」共用一个外观 —— 它们做的是同一层级的事
+   （切换视图），各自写一遍边框颜色迟早会漂。 */
+.nexus-pdf-toolbar-divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background-color: var(--nexus-border-subtle);
+}
+
+.nexus-pdf-sidebar-button,
+.nexus-pdf-zoom-button,
+.nexus-pdf-fit-button,
+.nexus-pdf-layout-button {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 4px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nexus-pdf-sidebar-button:hover,
+.nexus-pdf-zoom-button:hover:not(:disabled),
+.nexus-pdf-fit-button:hover,
+.nexus-pdf-layout-button:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-pdf-zoom-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 按下态与「选中态」是两件事：`aria-pressed` 表示侧栏现在是开的，
+   所以给底色而不是只给 hover —— hover 一移开就看不出它还开着。 */
+.nexus-pdf-sidebar-button[aria-pressed='true'] {
+  background-color: var(--nexus-bg-surface-active);
+  border-color: var(--nexus-accent-solid);
+}
+
+/* 侧栏与正文并排。`align-items: stretch` 让侧栏与 stage 同高 ——
+   默认的 `stretch` 被 `min-height: 0` 破坏的话，侧栏会缩成内容高度。 */
+.nexus-pdf-body {
   flex: 1;
   min-height: 0;
-  position: relative;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  align-items: stretch;
+}
+
+.nexus-pdf-sidebar {
+  flex: none;
+  width: 200px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--nexus-border-subtle);
+  background-color: var(--nexus-bg-surface);
+}
+
+/* 标签栏在滚动容器之外：跟着列表一起滚上去的话，滚到第 200 页缩略图时就没法切回大纲。 */
+.nexus-pdf-sidebar-tabs {
+  flex: none;
+  display: flex;
+  border-bottom: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-pdf-sidebar-tab {
+  flex: 1;
+  padding: 6px 8px;
+  border: none;
+  background-color: transparent;
+  color: var(--nexus-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nexus-pdf-sidebar-tab:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+/* 选中态用内阴影画下划线，而不是 `border-bottom` —— 后者会把标签内容顶高一像素，
+   两个标签的基线就对不齐了。 */
+.nexus-pdf-sidebar-tab[aria-selected='true'] {
+  color: var(--nexus-text-primary);
+  box-shadow: inset 0 -2px 0 var(--nexus-accent-solid);
+}
+
+.nexus-pdf-sidebar-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.nexus-pdf-sidebar-empty {
+  margin: 0;
+  padding: 12px 4px;
+  color: var(--nexus-text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.nexus-pdf-thumbs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.nexus-pdf-thumb-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background-color: transparent;
+  cursor: pointer;
+}
+
+.nexus-pdf-thumb-button:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-pdf-thumb-button[data-active] {
+  border-color: var(--nexus-accent-solid);
+}
+
+/* 与正文页同一条理由：pdfjs 只画内容、不画页面背景，深色主题下 canvas 透明 →
+   黑底黑字，看起来像「渲染失败」。 */
+.nexus-pdf-thumb-canvas {
+  display: block;
+  background-color: #ffffff; /* @constant PDF 纸面恒白，深色主题下也不反色 */
+  box-shadow: 0 1px 3px rgb(0 0 0 / 18%); /* @constant 抬升阴影，与主题无关 */
+}
+
+.nexus-pdf-thumb-number {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-pdf-outline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* 缩进由渲染器写成内联的 `padding-left`（层级是数据，不是样式表能表达的东西），
+   所以这里**不写** `padding-left` —— 写了也只是被内联值覆盖，读的人却会以为它在起作用。 */
+.nexus-pdf-outline-item {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background-color: transparent;
+  color: var(--nexus-text-secondary);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.nexus-pdf-outline-item:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-pdf-outline-item[data-active] {
+  color: var(--nexus-text-primary);
+  background-color: var(--nexus-bg-surface-active);
+}
+
+/* 滚动的是 stage，不是 canvas —— 与图片同一个理由（页比窗口大时不能撑破布局）。
+
+   侧栏出现后 stage 不再独占整宽，所以补 `min-width: 0`：flex 子项的 `min-width`
+   默认是 `auto`，会被内容（一页的宽度）顶住 —— 窗口变窄时被挤出去的是侧栏，
+   而用户看到的是「侧栏自己消失了」。 */
+.nexus-pdf-stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
   overflow: auto;
   padding: 16px;
   background-color: var(--nexus-bg-canvas);
+}
+
+/* 页面列。单页模式下只有一项，连续模式下有 N 项 —— 两种模式共用同一套排版。
+
+   `width: fit-content` + `min-width: 100%` 是「放大到超出窗口时仍能横向滚到左边缘」的
+   关键：纯 `align-items: center` 在内容比容器宽时会把两侧一起裁掉，而裁剪掉的那部分
+   **滚不到**（滚动范围由内容宽度决定，而内容宽度被容器锁死了）。 */
+.nexus-pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: fit-content;
+  min-width: 100%;
 }
 
 /* canvas 的宽高由 JS 按 `viewport × devicePixelRatio` 内联设置，这里只保证

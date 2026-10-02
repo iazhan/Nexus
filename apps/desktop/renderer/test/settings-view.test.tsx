@@ -113,7 +113,7 @@ describe('设置视图 · 左栏', () => {
     container.remove();
   });
 
-  it('八组全显示，两组标 planned、其余可用', () => {
+  it('九组全显示，两组标 planned、其余可用', () => {
     renderSettings();
 
     expect(navItems()).toHaveLength(SECTIONS.length);
@@ -125,6 +125,7 @@ describe('设置视图 · 左栏', () => {
     expect(available.map((item) => item.dataset.section)).toEqual([
       'general',
       'editor',
+      'viewer',
       'files',
       'appearance',
       'keybindings',

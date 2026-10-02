@@ -30,7 +30,8 @@ import {
   GeneralIcon,
   KeybindingsIcon,
   PluginsIcon,
-  SyncIcon
+  SyncIcon,
+  ViewerIcon
 } from '../components/section-icons.js';
 import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
 import { hostSettingsSynced } from '../host-settings.js';
@@ -57,6 +58,7 @@ import {
   LINK_FORMAT_OPTIONS,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   OUTLINE_LEVEL_OPTIONS,
+  PDF_PAGE_LAYOUT_OPTIONS,
   UI_ZOOM_OPTIONS_LABELLED
 } from './preference-specs.js';
 import type { MenuBarItem } from '../MenuBar.js';
@@ -64,6 +66,7 @@ import type { MenuBarItem } from '../MenuBar.js';
 export type SectionId =
   | 'general'
   | 'editor'
+  | 'viewer'
   | 'files'
   | 'appearance'
   | 'keybindings'
@@ -85,10 +88,14 @@ export interface SectionDef {
 }
 
 /**
- * 八个分组，**数组顺序即左栏顺序**。
+ * 九个分组，**数组顺序即左栏顺序**。
  *
  * `files` 是后加的第八组：它管「文件落在哪、链接怎么写」，与 `editor` 同属「文档本身」，
  * 所以排在 `editor` 之后、`appearance` 这类界面项之前。
+ *
+ * `viewer` 是第九组，插在 `editor` 之后：它管的是**只读打开一份文档时怎么读**（PDF 翻页
+ * 方式这一项），与 `editor` 同属「读文档」，但一个改内容、一个不改 —— 分开放才不会让
+ * 「编辑器」这个标题把只读的行为也罩进去。
  *
  * `availability` 落在数据上而不是组件里的分支 —— 未实现的分组**可点、可进入**，内容区给空态。
  * 把它们从数组里删掉（每加一组都要改导航结构）或禁用（「点了没反应」）都更糟。
@@ -111,10 +118,30 @@ export const SECTIONS: readonly SectionDef[] = [
     keywords: ['编辑', '写作', '正文', '排版', 'editor', 'writing', 'typing', 'layout']
   },
   {
+    id: 'viewer',
+    titleKey: 'settings.section.viewer',
+    icon: ViewerIcon,
+    order: 3,
+    availability: 'available',
+    keywords: [
+      '阅读',
+      '查看',
+      '阅读器',
+      '翻页',
+      'pdf',
+      '图片',
+      '文档',
+      'viewer',
+      'reader',
+      'reading',
+      'document'
+    ]
+  },
+  {
     id: 'files',
     titleKey: 'settings.section.files',
     icon: FilesIcon,
-    order: 3,
+    order: 4,
     availability: 'available',
     keywords: ['附件', '链接', '图片', '粘贴', 'files', 'attachments', 'links', 'images']
   },
@@ -122,7 +149,7 @@ export const SECTIONS: readonly SectionDef[] = [
     id: 'appearance',
     titleKey: 'settings.section.appearance',
     icon: AppearanceIcon,
-    order: 4,
+    order: 5,
     availability: 'available',
     keywords: ['主题', '配色', '颜色', '皮肤', '明暗', 'theme', 'color', 'colour', 'skin', 'dark', 'light']
   },
@@ -130,7 +157,7 @@ export const SECTIONS: readonly SectionDef[] = [
     id: 'keybindings',
     titleKey: 'settings.section.keybindings',
     icon: KeybindingsIcon,
-    order: 5,
+    order: 6,
     availability: 'available',
     keywords: ['键位', '按键', '组合键', 'shortcut', 'hotkey', 'key', 'keymap']
   },
@@ -138,7 +165,7 @@ export const SECTIONS: readonly SectionDef[] = [
     id: 'plugins',
     titleKey: 'settings.section.plugins',
     icon: PluginsIcon,
-    order: 6,
+    order: 7,
     availability: 'planned',
     keywords: ['扩展', '插件', 'extension', 'addon', 'plugin']
   },
@@ -146,7 +173,7 @@ export const SECTIONS: readonly SectionDef[] = [
     id: 'sync',
     titleKey: 'settings.section.sync',
     icon: SyncIcon,
-    order: 7,
+    order: 8,
     availability: 'planned',
     keywords: ['同步', '云端', '备份', 'sync', 'cloud', 'backup']
   },
@@ -154,7 +181,7 @@ export const SECTIONS: readonly SectionDef[] = [
     id: 'data',
     titleKey: 'settings.section.data',
     icon: DataIcon,
-    order: 8,
+    order: 9,
     availability: 'available',
     keywords: ['索引', '历史', '版本', '快照', '诊断', 'index', 'history', 'snapshot', 'diagnostics']
   }
@@ -1420,6 +1447,48 @@ export const ATTACHMENT_NAME_TEMPLATE_FIELD: FieldDef = {
   menu: false
 };
 
+/**
+ * PDF 的翻页方式。
+ *
+ * `radio` 而不是 `select`：只有两档、短语长度相当 —— `select` 那一档留给多到画不下的项。
+ *
+ * **缩放与侧栏开关没有对应的设置项**：它们是每次打开都要重设的视图状态，只活在
+ * `PdfRenderer` 的组件状态里（判据见 `PDF_PAGE_LAYOUT_STORAGE_KEY` 的说明）。
+ *
+ * `menu: false`：入口在设置页。菜单栏里放一个「PDF 怎么翻页」得先打开一份 PDF 才看得到
+ * 效果，与相邻的文件偏好项同一个理由。
+ */
+export const PDF_PAGE_LAYOUT_FIELD: FieldDef = {
+  id: 'viewer.pdfPageLayout',
+  section: 'viewer',
+  labelKey: 'settings.viewer.pdfPageLayout',
+  descriptionKey: 'settings.viewer.pdfPageLayoutDescription',
+  keywords: [
+    'pdf',
+    '阅读',
+    '翻页',
+    '连续',
+    '单页',
+    '滚动',
+    '布局',
+    'viewer',
+    'reader',
+    'page',
+    'scroll',
+    'continuous',
+    'single',
+    'layout'
+  ],
+  control: 'radio',
+  options: PDF_PAGE_LAYOUT_OPTIONS,
+  accessor: {
+    read: () => settings.get('viewer.pdfPageLayout'),
+    write: (value) => settings.set('viewer.pdfPageLayout', value),
+    subscribe: (listener) => settings.subscribe('viewer.pdfPageLayout', listener)
+  },
+  menu: false
+};
+
 /** 全部字段。**加一项只改这里** —— 菜单投影与设置页内容区都从它派生。 */
 export const FIELDS: readonly FieldDef[] = [
   THEME_MODE_FIELD,
@@ -1456,6 +1525,7 @@ export const FIELDS: readonly FieldDef[] = [
   LINK_FORMAT_FIELD,
   PANEL_WIDTH_FIELD,
   OUTLINE_LEVEL_FIELD,
+  PDF_PAGE_LAYOUT_FIELD,
   REBUILD_INDEX_FIELD,
   HISTORY_RETENTION_FIELD,
   OPEN_HISTORY_DIR_FIELD,

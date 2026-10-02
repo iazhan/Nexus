@@ -781,3 +781,43 @@ export function parseGraphHiddenTypes(raw: string | null | undefined): DocumentT
 export function serializeGraphHiddenTypes(hidden: readonly DocumentType[]): string {
   return DOCUMENT_TYPES.filter((type) => hidden.includes(type)).join(',');
 }
+
+/* -------------------------------------------------------------------------- *
+ * PDF 阅读器
+ * -------------------------------------------------------------------------- */
+
+/**
+ * PDF 的翻页方式。
+ *
+ * **这一项进 `FIELDS`，而缩放与侧栏开关不进** —— 判据是「跨会话是否成立」：翻页方式是
+ * 「我读 PDF 一直想这么读」的习惯，与打开哪一份无关；而缩放到 150%、把侧栏拉出来，
+ * 是这一次阅读的临时状态，下次打开就该回到默认。图谱面板的缩放/平移按同一条判据不落盘。
+ *
+ * 默认是**单页**：必须等于这一项存在之前的行为（P3-07 起 PDF 就是一次一页）。
+ * 连续滚动对长文档更好用，但把默认值改成它等于替所有老用户改了行为，那要单独一次决定。
+ */
+export const PDF_PAGE_LAYOUT_STORAGE_KEY = 'nexus-pdf-page-layout';
+
+export const PDF_PAGE_LAYOUTS = ['single', 'continuous'] as const;
+export type PdfPageLayout = (typeof PDF_PAGE_LAYOUTS)[number];
+
+export const PDF_PAGE_LAYOUT_DEFAULT: PdfPageLayout = 'single';
+
+export const PDF_PAGE_LAYOUT_OPTIONS: ReadonlyArray<{ value: PdfPageLayout; labelKey: string }> =
+  PDF_PAGE_LAYOUTS.map((value) => ({
+    value,
+    labelKey: `settings.viewer.pdfPageLayout.${value}`
+  }));
+
+/**
+ * 把存档里的字符串收窄成 `PdfPageLayout`。
+ *
+ * `choiceSetting` 的 `parse` 已经做过一次同样的回落，但那一层的结果类型是 `string`
+ * （它服务的是整张设置表）。渲染器要用这个值去选渲染分支，所以需要一次**类型上的**收窄。
+ * 两处都对着 `PDF_PAGE_LAYOUTS` 这个列表，加档位不会漏 —— 这是它值得多写一遍的理由。
+ */
+export function parsePdfPageLayout(raw: string): PdfPageLayout {
+  return (PDF_PAGE_LAYOUTS as readonly string[]).includes(raw)
+    ? (raw as PdfPageLayout)
+    : PDF_PAGE_LAYOUT_DEFAULT;
+}

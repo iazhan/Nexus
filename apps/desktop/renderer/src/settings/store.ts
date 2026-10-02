@@ -76,6 +76,9 @@ import {
   OUTLINE_LEVELS,
   OUTLINE_LEVEL_DEFAULT,
   OUTLINE_LEVEL_STORAGE_KEY,
+  PDF_PAGE_LAYOUTS,
+  PDF_PAGE_LAYOUT_DEFAULT,
+  PDF_PAGE_LAYOUT_STORAGE_KEY,
   RESTORE_LAST_WORKSPACE_STORAGE_KEY,
   WORKSPACE_SHOW_IMAGES_STORAGE_KEY,
   GRAPH_HIDDEN_TYPES_STORAGE_KEY,
@@ -546,6 +549,21 @@ export const SETTING_DEFS = {
    * 自己的动作，主进程不需要知道它。判据仍是「`syncHostSettings` 只服务主进程主动发起的行为」。
    */
   'files.linkFormat': choiceSetting(LINK_FORMAT_STORAGE_KEY, LINK_FORMAT_DEFAULT, LINK_FORMATS),
+
+  /**
+   * PDF 的翻页方式：一次一页，还是连续滚动。
+   *
+   * `choiceSetting`：两个取值构成**有限枚举**，认不出的值回落默认档（单页 ＝ 这一项存在
+   * 之前的行为）。与 `graph.mode` 那几项的区别是**它进设置页** —— 图谱那几项是面板自己的
+   * 视图状态，这一项是跨文档的阅读习惯。
+   *
+   * 不走宿主设置通道：PDF 的解析与绘制全在渲染进程，主进程不需要知道它。
+   */
+  'viewer.pdfPageLayout': choiceSetting(
+    PDF_PAGE_LAYOUT_STORAGE_KEY,
+    PDF_PAGE_LAYOUT_DEFAULT,
+    PDF_PAGE_LAYOUTS
+  ),
 
   /**
    * 版本历史每个文档保留几份。**`data` 组第一个带值的设置项** ——
