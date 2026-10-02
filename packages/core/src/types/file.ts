@@ -261,6 +261,29 @@ export interface HubEntry {
 }
 
 /**
+ * 一处「未链接提及」：某篇文档在正文里提到了目标文档，却没有写成链接。
+ *
+ * 定义在 core 而不是主进程 —— preload 要把它作为 IPC 结果类型传给渲染进程，
+ * 跨进程类型不能住在一侧的实现文件里（与 `HistoryEntry` 同理）。
+ */
+export interface UnlinkedMention {
+  /** 提到它的那篇文档。 */
+  document: IndexedDocument;
+  /** 命中的原文，**保留源码里的大小写**。 */
+  text: string;
+  from: number;
+  to: number;
+  /** 命中处所在行的片段。 */
+  excerpt: string;
+}
+
+/** 未链接提及的查询结果。`truncated` 为真时**如实告诉用户**结果被截断了。 */
+export interface MentionResult {
+  mentions: UnlinkedMention[];
+  truncated: boolean;
+}
+
+/**
  * 一条出链的**持久化形式**：指向哪一篇 + 指向它的哪一节。
  *
  * `target` 已归一化（切掉 `#锚点`、去 `.md`、转小写），与 `links` 表存的是同一个值 ——

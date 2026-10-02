@@ -11,6 +11,7 @@ import type {
   WorkspaceGraph,
   GraphQuery,
   HubEntry,
+  MentionResult,
   OrphanMode,
   BacklinkEntry,
   HistoryEntry
@@ -147,6 +148,12 @@ export interface NexusBridge {
   getGraphOrphans: (mode: OrphanMode) => Promise<IndexedDocument[]>;
   /** 枢纽：被引用最多的文档，**只含入度大于 0 的**。 */
   getGraphHubs: (limit?: number) => Promise<HubEntry[]>;
+  /**
+   * 未链接提及：哪些文档在正文里提到了这篇，却没有写成链接。
+   *
+   * 要扫全库正文，所以比其它查询重 —— 只在反向链接面板需要时问一次。
+   */
+  findMentions: (documentPath: string) => Promise<MentionResult>;
   /** 某文档的历史版本，**新的在前**。没有历史时返回空数组。 */
   listHistory: (documentPath: string) => Promise<HistoryEntry[]>;
   /** 读某一版的内容。条目不存在时抛错，不返回空字符串。 */

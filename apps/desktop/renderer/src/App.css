@@ -1122,6 +1122,58 @@ button.nexus-outline-toggle:hover {
   color: var(--nexus-text-primary);
 }
 
+/* 未链接提及。与反向链接同形（都是面板底部的一节），但每一项是两行：来源 + 摘录。 */
+.nexus-mentions {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  max-height: 40%;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--nexus-border-subtle);
+}
+
+.nexus-mention-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nexus-mention-item:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-mention-source {
+  color: var(--nexus-text-secondary);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 摘录弱一档，并夹到两行 —— 提及列表可能很长，每项都铺开会把面板撑满。 */
+.nexus-mention-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--nexus-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.nexus-mention-truncated {
+  padding-top: 0;
+}
+
 /* 锚点：这条引用指的是文档里的哪一节。弱一档，且排在主文案之后 ——
    省略号只作用于主文案，锚点被挤出容器比把它截断一半更好读。 */
 .nexus-backlink-anchor {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView, MarkdownDocumentSession } from '@nexus/editor';
-import type { BacklinkEntry } from '@nexus/core';
+import type { BacklinkEntry, UnlinkedMention } from '@nexus/core';
 import { useLocale, useSettingValue } from '../hooks.js';
 import { outlineLevelToMaxLevel } from '../settings/preference-specs.js';
 import { extractOutline } from './outline.js';
@@ -92,6 +92,8 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({
   const { t } = useLocale();
   const [source, setSource] = useState(() => session.getSnapshot().source);
   const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
+  const [mentions, setMentions] = useState<UnlinkedMention[]>([]);
+  const [mentionsTruncated, setMentionsTruncated] = useState(false);
 
   useEffect(() => {
     // 换文档（切标签页）时先同步一次，再订阅后续变更
@@ -119,6 +121,44 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({
       } catch (err) {
         console.error('Failed to load backlinks:', err);
         if (!cancelled) setBacklinks([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath]);
+
+  /*
+    未链接提及：哪些文档在正文里提到了这一篇，却没有写成链接。
+
+    与反向链接**同一次查询时机**（换文档时才查）：两者都由「别的文档写了什么」决定，
+    而编辑当前文档不会改变它。区别是这一次要扫全库正文，所以主进程那边有大小与条数两道闸。
+  */
+  useEffect(() => {
+    if (!filePath) {
+      setMentions([]);
+      setMentionsTruncated(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const result = (await window.nexus?.findMentions?.(filePath)) ?? {
+          mentions: [],
+          truncated: false
+        };
+        if (cancelled) return;
+        setMentions(result.mentions);
+        setMentionsTruncated(result.truncated);
+      } catch (err) {
+        console.error('Failed to load mentions:', err);
+        if (!cancelled) {
+          setMentions([]);
+          setMentionsTruncated(false);
+        }
       }
     })();
 
@@ -342,6 +382,51 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+
+      {/*
+        未链接提及。与反向链接分开两节（而不是混进同一个列表）：它们的**动作**不同 ——
+        反向链接是「已经连上了，去看看」，提及是「还没连上，去补一条」。混在一起的话，
+        用户分不清哪一条点了会跳走、哪一条点了要自己动手。
+      */}
+      {filePath !== null && (
+        <div className="nexus-mentions">
+          <div className="nexus-sidebar-header">
+            <span className="nexus-sidebar-root">{t('mentions.title')}</span>
+            {mentions.length > 0 && (
+              <span className="nexus-sidebar-count">{mentions.length}</span>
+            )}
+          </div>
+
+          {mentions.length === 0 ? (
+            <p className="nexus-sidebar-note">{t('mentions.empty')}</p>
+          ) : (
+            <>
+              <ul className="nexus-sidebar-list">
+                {mentions.map((mention) => (
+                  <li key={`${mention.document.id}:${mention.from}`}>
+                    <button
+                      type="button"
+                      className="nexus-mention-item"
+                      title={mention.document.path}
+                      onClick={() => onOpenFile(mention.document.path)}
+                    >
+                      <span className="nexus-mention-source">{mention.document.relativePath}</span>
+                      {/* 摘录让用户不必打开就能判断「这处提的是不是这一篇」 */}
+                      <span className="nexus-mention-excerpt">{mention.excerpt}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {mentionsTruncated && (
+                // 截断了就说出来 —— 静默少几条会让用户以为「就这么多」
+                <p className="nexus-sidebar-note nexus-mention-truncated">
+                  {t('mentions.truncated', { count: String(mentions.length) })}
+                </p>
+              )}
+            </>
           )}
         </div>
       )}

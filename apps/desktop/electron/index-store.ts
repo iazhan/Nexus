@@ -909,6 +909,10 @@ export class IndexStore {
    * 与 `resolveWikiLink`（renderer 侧）的匹配口径必须一致。两处若不一致，会出现
    * 「能跳转但查不到反向链接」这种极难察觉的偏差 —— 两边单独看都是对的。
    *
+   * 公开是因为「未链接提及」也要用它（`electron/mentions.ts`）：那里要扫的是
+   * 「正文里有没有写出这些写法」。口径同样是这一份 —— 换个地方再列一遍候选，
+   * 就会出现「建议了一条点开是 not-found 的链接」。
+   *
    * ## 为什么只给附件加「去扩展名」
    *
    * 给 Markdown 也加的话，`[[readme.txt]]` 会命中 `readme.md` —— 而用户写出 `.txt`
@@ -922,7 +926,7 @@ export class IndexStore {
    * 出现在两篇的反向链接面板里，而跳转只会去 `.md`，两处行为不一致。
    * 这是「附件引用必须显式写扩展名」这条契约的另一半。
    */
-  private backlinkTargetsOf(document: IndexedDocument): string[] {
+  backlinkTargetsOf(document: IndexedDocument): string[] {
     const stripMarkdown = (value: string) => value.toLowerCase().replace(/\.md$/, '');
     const targets = new Set([stripMarkdown(document.relativePath), stripMarkdown(document.name)]);
 

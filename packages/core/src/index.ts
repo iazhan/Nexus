@@ -44,6 +44,13 @@ export {
 } from './document/wikilink.js';
 
 export {
+  findUnlinkedMentions,
+  type MentionRange
+} from './document/mentions.js';
+
+export {
+  skippedSpans,
+  type Span,
   scanTags,
   extractTags,
   extractFrontmatterTags,
@@ -109,6 +116,8 @@ export {
   isOrphanMode,
   type OrphanMode,
   type HubEntry,
+  type UnlinkedMention,
+  type MentionResult,
   type WikiLinkTarget,
   type BacklinkEntry,
   type HistoryEntry,

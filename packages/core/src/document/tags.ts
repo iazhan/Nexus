@@ -42,8 +42,14 @@ export interface TagMatch {
   readonly to: number;
 }
 
-/** 源码里的一个区间 `[from, to)`。 */
-interface Span {
+/**
+ * 源码里的一个区间 `[from, to)`。
+ *
+ * 导出是给「未链接提及」扫描用的 —— 那里要问的是同一个问题：
+ * **这段源码里哪些位置不是正文**。两处各写一遍必然漂，而漂了之后一边多收一边少收，
+ * 症状是「同一个词在标签面板里不算、在提及建议里算」。
+ */
+export interface Span {
   readonly from: number;
   readonly to: number;
 }
@@ -218,7 +224,7 @@ function stripCr(line: string): string {
 }
 
 /** 代码块、行内代码与 frontmatter 的区间合集 —— 这些地方出现的 `#` 不是标签。 */
-function skippedSpans(source: string): Span[] {
+export function skippedSpans(source: string): Span[] {
   const spans = codeSpans(source);
   const frontmatter = frontmatterSpan(source);
   if (frontmatter !== null) spans.push(frontmatter);

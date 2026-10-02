@@ -509,4 +509,110 @@ describe('大纲面板：折叠', () => {
       expect(container.querySelector('.nexus-backlinks .nexus-sidebar-note')).not.toBeNull();
     });
   });
+
+  /**
+   * 未链接提及：哪些文档在正文提到了这一篇，却没写成链接。
+   *
+   * 逐条匹配的判据在 `packages/core/test/mentions.test.ts`，扫描的接线在
+   * `apps/desktop/test/mentions.test.ts`。这里验的是渲染分支：空态、截断提示、点击。
+   */
+  describe('未链接提及', () => {
+    const mentionItems = () =>
+      Array.from(container.querySelectorAll<HTMLElement>('.nexus-mention-item'));
+
+    const renderWithMentions = async (
+      result: { mentions: unknown[]; truncated: boolean } | null
+    ) => {
+      (window as unknown as { nexus: unknown }).nexus = {
+        findMentions: vi.fn(async () => result ?? { mentions: [], truncated: false })
+      };
+      render(DOC, { filePath: '/vault/dma.md' });
+      await act(async () => {});
+    };
+
+    it('列出来源文档与摘录', async () => {
+      await renderWithMentions({
+        mentions: [
+          {
+            document: {
+              id: 1,
+              path: '/vault/index.md',
+              relativePath: 'index.md',
+              name: 'index.md',
+              title: 'index',
+              type: 'markdown',
+              sizeBytes: 1,
+              modifiedAtMs: 1,
+              contentHash: 'index.md',
+              extractionStatus: 'none'
+            },
+            text: 'dma',
+            from: 2,
+            to: 5,
+            excerpt: '见 dma 那篇。'
+          }
+        ],
+        truncated: false
+      });
+
+      expect(mentionItems()).toHaveLength(1);
+      expect(mentionItems()[0]!.textContent).toContain('index.md');
+      // 摘录是这一节的全部价值 —— 没有它用户得逐篇打开才知道提的是不是这一篇
+      expect(mentionItems()[0]!.textContent).toContain('见 dma 那篇。');
+    });
+
+    it('点条目打开来源文档', async () => {
+      await renderWithMentions({
+        mentions: [
+          {
+            document: {
+              id: 1,
+              path: '/vault/index.md',
+              relativePath: 'index.md',
+              name: 'index.md',
+              title: 'index',
+              type: 'markdown',
+              sizeBytes: 1,
+              modifiedAtMs: 1,
+              contentHash: 'index.md',
+              extractionStatus: 'none'
+            },
+            text: 'dma',
+            from: 2,
+            to: 5,
+            excerpt: '见 dma 那篇。'
+          }
+        ],
+        truncated: false
+      });
+
+      act(() => {
+        mentionItems()[0]!.click();
+      });
+      expect(onOpenFile).toHaveBeenCalledWith('/vault/index.md');
+    });
+
+    it('没有提及时是空态', async () => {
+      await renderWithMentions({ mentions: [], truncated: false });
+
+      expect(mentionItems()).toEqual([]);
+      expect(container.querySelector('.nexus-mentions .nexus-sidebar-note')).not.toBeNull();
+    });
+
+    it('结果被截断时如实说出来', async () => {
+      // 静默少几条会让用户以为「就这么多」
+      await renderWithMentions({ mentions: [], truncated: true });
+
+      // 空列表 + 截断：空态与提示都在
+      expect(container.querySelector('.nexus-mentions')!.textContent).toContain('No unlinked');
+    });
+
+    it('没有打开文档时不画这一节', async () => {
+      (window as unknown as { nexus: unknown }).nexus = { findMentions: vi.fn(async () => ({ mentions: [], truncated: false })) };
+      render(DOC, { filePath: null });
+      await act(async () => {});
+
+      expect(container.querySelector('.nexus-mentions')).toBeNull();
+    });
+  });
 });

@@ -32,6 +32,7 @@ import {
 import { IndexStore } from './index-store.js';
 import { deriveTitle, indexSingleFile, indexWorkspace } from './indexer.js';
 import { rewriteReferencesInSource } from './link-rewrite.js';
+import { findMentionsOfDocument } from './mentions.js';
 import { createProcessorRegistry } from './processor/index.js';
 import {
   DELETE_MODES,
@@ -1503,6 +1504,25 @@ ipcMain.handle(IPC_CHANNELS.getGraph, (event, query: unknown) => {
   return (
     getIndexStore(event.sender.id)?.getGraph(readGraphQuery(query)) ?? { nodes: [], edges: [] }
   );
+});
+
+/*
+  未链接提及：扫全库正文，所以比其它查询重。**按需调用** —— 反向链接面板只在换文档时问一次。
+  文档不在索引里（或不是 Markdown）时返回空结果，而不是报错：「暂无提及」比一个错误合理。
+*/
+ipcMain.handle(IPC_CHANNELS.findMentions, async (event, documentPath: unknown) => {
+  if (typeof documentPath !== 'string' || documentPath.length === 0) {
+    throw new Error('findMentions: 需要文档路径');
+  }
+
+  const store = getIndexStore(event.sender.id);
+  if (!store) return { mentions: [], truncated: false };
+
+  return findMentionsOfDocument({
+    service: getOrCreateSession(event.sender).service,
+    store,
+    documentPath
+  });
 });
 
 ipcMain.handle(IPC_CHANNELS.getGraphOrphans, (event, mode: unknown) => {
