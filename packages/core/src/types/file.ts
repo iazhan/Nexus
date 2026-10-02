@@ -239,6 +239,28 @@ export interface WorkspaceGraph {
 }
 
 /**
+ * 孤儿模式：按**哪个方向的度数为 0** 来判。
+ *
+ * - `incoming`：没有任何文档链接到它（没人引用它）；
+ * - `outgoing`：它不链接任何东西（**写下来的链接**一条都没有，见 `getOrphans`）；
+ * - `both`：两者都满足，也就是图谱上完全孤立。
+ */
+export const ORPHAN_MODES = ['incoming', 'outgoing', 'both'] as const;
+
+export type OrphanMode = (typeof ORPHAN_MODES)[number];
+
+export function isOrphanMode(value: unknown): value is OrphanMode {
+  return typeof value === 'string' && (ORPHAN_MODES as readonly string[]).includes(value);
+}
+
+/** 一个枢纽：被引用最多的文档之一。 */
+export interface HubEntry {
+  document: IndexedDocument;
+  /** 入链条数（有多少篇文档引用了它）。自链接不算。 */
+  count: number;
+}
+
+/**
  * 一条出链的**持久化形式**：指向哪一篇 + 指向它的哪一节。
  *
  * `target` 已归一化（切掉 `#锚点`、去 `.md`、转小写），与 `links` 表存的是同一个值 ——

@@ -10,6 +10,8 @@ import type {
   IndexWorkspaceResult,
   WorkspaceGraph,
   GraphQuery,
+  HubEntry,
+  OrphanMode,
   BacklinkEntry,
   HistoryEntry
 } from '@nexus/core';
@@ -137,6 +139,14 @@ export interface NexusBridge {
    * 不传 `query` 就是整个工作区；传了就按中心文档的邻域 / 文档类型裁剪。
    */
   getGraph: (query?: GraphQuery) => Promise<WorkspaceGraph>;
+  /**
+   * 孤儿：某个方向上一条链接都没有的文档。
+   *
+   * `mode` 认不出时按 `'both'` 处理 —— 它是只读查询，落回一个默认值比抛错有用。
+   */
+  getGraphOrphans: (mode: OrphanMode) => Promise<IndexedDocument[]>;
+  /** 枢纽：被引用最多的文档，**只含入度大于 0 的**。 */
+  getGraphHubs: (limit?: number) => Promise<HubEntry[]>;
   /** 某文档的历史版本，**新的在前**。没有历史时返回空数组。 */
   listHistory: (documentPath: string) => Promise<HistoryEntry[]>;
   /** 读某一版的内容。条目不存在时抛错，不返回空字符串。 */

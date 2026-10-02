@@ -90,7 +90,12 @@ describe('图谱控制条', () => {
       };
     });
 
-    (window as unknown as { nexus: unknown }).nexus = { getGraph };
+    // 切到清单视图时那两个组件会挂上，必须一起打桩，否则它们会去调 undefined
+    (window as unknown as { nexus: unknown }).nexus = {
+      getGraph,
+      getGraphOrphans: vi.fn(async () => []),
+      getGraphHubs: vi.fn(async () => [])
+    };
   });
 
   afterEach(() => {
@@ -225,6 +230,43 @@ describe('图谱控制条', () => {
     expect(container.querySelector('.nexus-graph-reset')).toBeNull();
   });
 
+  it('三个视图开关，切到清单时画布让位', async () => {
+    await render();
+
+    expect(
+      ['explore', 'orphans', 'hubs'].map(
+        (mode) => chip(`[data-mode="${mode}"]`)?.getAttribute('aria-pressed')
+      )
+    ).toEqual(['true', 'false', 'false']);
+    // 画布只在图谱视图下占位
+    expect(chip('.nexus-graph-body')?.hasAttribute('hidden')).toBe(false);
+
+    await act(async () => {
+      chip('[data-mode="orphans"]')!.click();
+    });
+    await act(async () => {});
+
+    expect(chip('[data-mode="orphans"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(chip('.nexus-graph-body')?.hasAttribute('hidden')).toBe(true);
+    expect(container.querySelector('.nexus-graph-list')).not.toBeNull();
+    // 范围与类型筛选只对画布有意义，切到清单就不该再占地方
+    expect(chip('[data-scope="all"]')).toBeNull();
+
+    await act(async () => {
+      chip('[data-mode="hubs"]')!.click();
+    });
+    await act(async () => {});
+    expect(container.querySelector('.nexus-graph-list')).not.toBeNull();
+    expect(chip('[data-orphan-mode="both"]')).toBeNull();
+
+    await act(async () => {
+      chip('[data-mode="explore"]')!.click();
+    });
+    await act(async () => {});
+    expect(chip('.nexus-graph-body')?.hasAttribute('hidden')).toBe(false);
+    expect(chip('[data-scope="all"]')).not.toBeNull();
+  });
+
   it('工作区本来就空时不给出路按钮（那不是筛出来的）', async () => {
     getGraph.mockImplementation(async () => ({ nodes: [], edges: [] }));
     await render();
@@ -233,7 +275,9 @@ describe('图谱控制条', () => {
     expect(note.textContent).toContain('No documents to draw yet');
     expect(container.querySelector('.nexus-graph-reset')).toBeNull();
     // 一个类型都没有时不画筛选条 —— 空的分段控件只会占地方
-    expect(chips()).toHaveLength(2); // 只剩范围那两个
+    expect(chips().filter((el) => el.dataset.type)).toHaveLength(0);
+    // 范围那两个还在
+    expect(chips().filter((el) => el.dataset.scope)).toHaveLength(2);
   });
 
   it('只有一种类型时不画筛选条', async () => {

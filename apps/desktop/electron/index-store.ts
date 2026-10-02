@@ -7,7 +7,9 @@ import type {
   GraphEdge,
   GraphNode,
   GraphQuery,
+  HubEntry,
   IndexedDocument,
+  OrphanMode,
   SearchHit,
   WikiLinkTarget,
   WorkspaceGraph
@@ -799,6 +801,96 @@ export class IndexStore {
     }
 
     return { nodes, edges: visibleEdges };
+  }
+
+  /**
+   * 每篇文档的**入度与出度**。
+   *
+   * ## 两个方向的口径不一样，都是有意的
+   *
+   * - **出度**数的是「**写下来的**链接」：解析不出来的目标（`[[还没写的方案]]`）**也算**。
+   *   用户确实写下了一条链接，只是目标还没落地 —— 把它排除的话，一篇全是断链的文档
+   *   会被报成「孤儿」，而那恰恰是最需要被看见的一类。
+   * - **入度**只数**解析得到**的目标：断链没有文档可以落在上面。
+   *
+   * ## 来源不存在的行一律跳过
+   *
+   * `removeDocuments()` 不删 `links`（只删 `documents` 与 `search_fts`），所以表里会留下
+   * 来源已经不在的行。拿它去算出度会把「一个已经删掉的文档写了什么」算进来。
+   * 自链接同样不算入度 —— 与 `getGraph` 的口径一致。
+   */
+  private linkDegrees(): {
+    incoming: Map<number, number>;
+    outgoing: Map<number, number>;
+  } {
+    const documents = this.listDocuments();
+    const existing = new Set(documents.map((document) => document.id));
+
+    // 目标名 → 文档 id，用**全部**文档建（理由见 getGraph：筛掉的目标不是断链）
+    const byTarget = new Map<string, number>();
+    for (const document of documents) {
+      for (const key of this.backlinkTargetsOf(document)) {
+        if (!byTarget.has(key)) byTarget.set(key, document.id);
+      }
+    }
+
+    const incoming = new Map<number, number>();
+    const outgoing = new Map<number, number>();
+
+    for (const row of this.db.all(`SELECT source_id, target FROM links`)) {
+      const source = Number(row.source_id);
+      if (!existing.has(source)) continue;
+
+      outgoing.set(source, (outgoing.get(source) ?? 0) + 1);
+
+      const target = byTarget.get(String(row.target));
+      if (target === undefined || target === source) continue;
+      incoming.set(target, (incoming.get(target) ?? 0) + 1);
+    }
+
+    return { incoming, outgoing };
+  }
+
+  /**
+   * 孤儿：某个方向上一条链接都没有的文档。
+   *
+   * 用途是「写了就忘」的文档 —— 它们在图谱上是孤立的点，但图一大就找不着了，
+   * 列成清单才能一篇篇处理。
+   */
+  getOrphans(mode: OrphanMode = 'both'): IndexedDocument[] {
+    const { incoming, outgoing } = this.linkDegrees();
+
+    return this.listDocuments().filter((document) => {
+      const hasIncoming = (incoming.get(document.id) ?? 0) > 0;
+      const hasOutgoing = (outgoing.get(document.id) ?? 0) > 0;
+
+      if (mode === 'incoming') return !hasIncoming;
+      if (mode === 'outgoing') return !hasOutgoing;
+      return !hasIncoming && !hasOutgoing;
+    });
+  }
+
+  /**
+   * 枢纽：被引用最多的 N 篇。
+   *
+   * 只列**入度大于 0** 的 —— 一个 0 计数的「枢纽」没有信息量，而且会把列表填满
+   * 那些本来就没人引用的文档，真正的枢纽反而被挤下去。
+   *
+   * 同分时按相对路径排，所以结果与 `listDocuments()` 的顺序一致、可断言。
+   */
+  getHubs(limit = 20): HubEntry[] {
+    const { incoming } = this.linkDegrees();
+    const effectiveLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 20;
+
+    return this.listDocuments()
+      .map((document) => ({ document, count: incoming.get(document.id) ?? 0 }))
+      .filter((entry) => entry.count > 0)
+      .sort((a, b) =>
+        b.count === a.count
+          ? a.document.relativePath.localeCompare(b.document.relativePath)
+          : b.count - a.count
+      )
+      .slice(0, effectiveLimit);
   }
 
   getStats(): IndexStats {

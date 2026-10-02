@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DocumentType, GraphNode, WorkspaceGraph } from '@nexus/core';
 import { useLocale } from '../hooks.js';
+import { HubsList, OrphansList } from './GraphLists.js';
 import { layoutGraph } from './graph-layout.js';
 import { planGraphLabels, type GraphLabelCandidate, type GraphLabelPlacement } from './graph-labels.js';
 import {
@@ -52,6 +53,15 @@ const DIM_ALPHA = 0.25;
 
 /** 图谱范围的两种取值。`current` 需要一篇活动文档才有意义。 */
 type GraphScope = 'all' | 'current';
+
+/**
+ * 面板的三个视图。
+ *
+ * 孤儿与枢纽**不是画布上的两种滤镜**，而是两张清单（理由见 `GraphLists.tsx`）。
+ * 所以这里是「换一屏」而不是「给画布加参数」。
+ */
+const GRAPH_MODES = ['explore', 'orphans', 'hubs'] as const;
+type GraphMode = (typeof GRAPH_MODES)[number];
 /** 邻域层数。2 层已经能看到「邻居的邻居」，再多图就回到一坨了。 */
 const SCOPE_DEGREES = 2;
 
@@ -103,6 +113,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
    * 用它渲染筛选条的话，用户一关掉某个类型、那个类型的开关就消失了 —— 再也打不开。
    */
   const [typeCounts, setTypeCounts] = useState<Array<{ type: DocumentType; count: number }>>([]);
+  const [mode, setMode] = useState<GraphMode>('explore');
   const [scope, setScope] = useState<GraphScope>('all');
   /** 被**关掉**的类型（而不是「打开的类型」）：默认空 = 全部显示，与旧行为一致。 */
   const [hiddenTypes, setHiddenTypes] = useState<DocumentType[]>([]);
@@ -568,7 +579,8 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     <div className="nexus-graph">
       <div className="nexus-sidebar-header">
         <span className="nexus-sidebar-root">{t('activity.graph')}</span>
-        {graph.nodes.length > 0 && (
+        {/* 计数是**画布上**的节点数；清单视图里那个数由各自的列表回答，这里不重复 */}
+        {mode === 'explore' && graph.nodes.length > 0 && (
           <span className="nexus-sidebar-count">{graph.nodes.length}</span>
         )}
       </div>
@@ -579,6 +591,23 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
         它的开关还在 —— 否则用户关掉之后就再也打不开了。
       */}
       <div className="nexus-graph-controls">
+        <div className="nexus-graph-modes" role="group" aria-label={t('graph.mode')}>
+          {GRAPH_MODES.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className="nexus-graph-chip"
+              data-mode={value}
+              aria-pressed={mode === value}
+              onClick={() => setMode(value)}
+            >
+              {t(`graph.mode.${value}`)}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'explore' && (
+          <>
         <div className="nexus-graph-scope" role="group" aria-label={t('graph.scope')}>
           <button
             type="button"
@@ -626,14 +655,25 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
             })}
           </div>
         )}
+          </>
+        )}
       </div>
+
+      {/*
+        两个清单视图**不进画布那一层**：画布的尺寸由 ResizeObserver 量，
+        而清单是普通流式布局，塞进 `.nexus-graph-body` 会把它撑成一个画布盒子。
+      */}
+      {mode === 'orphans' && (
+        <OrphansList revision={revision} onOpenFile={onOpenFile} />
+      )}
+      {mode === 'hubs' && <HubsList revision={revision} onOpenFile={onOpenFile} />}
 
       {/*
         这一层是**画布的盒子**：尺寸由它量、绘制坐标也以它为准（见上面 ResizeObserver 的说明）。
         它必须始终存在（空态时也在），否则 `[]` 依赖的观察 effect 首次挂载时拿到 null，
         之后图谱有数据了也不会重新观察。
       */}
-      <div className="nexus-graph-body" ref={containerRef}>
+      <div className="nexus-graph-body" ref={containerRef} hidden={mode !== 'explore'}>
         {graph.nodes.length === 0 ? (
           /*
             两种「空」必须分开：本来就没什么可画，和**被筛空了**。

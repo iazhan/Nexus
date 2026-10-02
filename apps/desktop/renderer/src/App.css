@@ -1206,10 +1206,40 @@ button.nexus-outline-toggle:hover {
 }
 
 .nexus-graph-scope,
-.nexus-graph-types {
+.nexus-graph-types,
+.nexus-graph-modes {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+/*
+  清单视图（孤儿 / 枢纽）。
+  与画布互斥：切到清单时画布那一层用 `hidden` 藏着，但它**仍然挂在树上** ——
+  `ResizeObserver` 的 effect 只跑一次，卸载了就拿不到重新观察的机会，切回来时
+  画布会停在旧尺寸上。
+*/
+.nexus-graph-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.nexus-graph-list-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 8px;
+}
+
+/* 清单里的计数。与反向链接的锚点同一档：弱一档，不抢主文案。 */
+.nexus-graph-list-count {
+  margin-left: 6px;
+  color: var(--nexus-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .nexus-graph-chip {
@@ -1281,6 +1311,15 @@ button.nexus-outline-toggle:hover {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/*
+  `hidden` 属性靠 UA 样式表的 `[hidden] { display: none }`，而它的优先级**低于**
+  上面那条 `.nexus-graph-body { display: flex }` —— 不补这一条的话 `hidden` 完全不生效，
+  切到清单视图时画布还在下面撑着一半高度。
+*/
+.nexus-graph-body[hidden] {
+  display: none;
 }
 
 /* Canvas 撑满盒子。像素尺寸由 ResizeObserver 驱动，

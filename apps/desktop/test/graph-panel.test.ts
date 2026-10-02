@@ -354,6 +354,62 @@ describe('图谱面板', () => {
     );
   }, INDEXED_TEST_TIMEOUT_MS);
 
+  it('切到孤儿 / 枢纽清单，画布真的让位', async () => {
+    /*
+      夹具的度数（a → b → c，外加一篇孤立的）：
+                   out  in
+        a.md          1   0
+        b.md          1   1
+        c.md          0   1
+        lonely.md     0   0
+    */
+    const listItems = () =>
+      app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('.nexus-graph-list .nexus-backlink-item')).map((el) => el.textContent)`
+      );
+
+    /** 画布那一层的实际高度。`hidden` 属性必须真的把它收掉 —— 只断言属性会漏掉 CSS 优先级问题。 */
+    const bodyHeight = () =>
+      app.evaluate<number>(
+        `document.querySelector('.nexus-graph-body').getBoundingClientRect().height`
+      );
+
+    expect(await bodyHeight()).toBeGreaterThan(0);
+
+    await app.click('.nexus-graph-chip[data-mode="orphans"]');
+    await app.waitForSelector('.nexus-graph-list', 10000);
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-body').getBoundingClientRect().height === 0`,
+      10000
+    );
+
+    // 默认是「两者都缺」—— 只有 lonely
+    expect(await listItems()).toEqual(['lonely.md']);
+
+    // 切到「没人引用」：a 与 lonely
+    await app.click('.nexus-graph-chip[data-orphan-mode="incoming"]');
+    await app.waitForFunction(
+      `document.querySelectorAll('.nexus-graph-list .nexus-backlink-item').length === 2`,
+      10000
+    );
+    expect((await listItems()).sort()).toEqual(['a.md', 'lonely.md']);
+
+    // 切到枢纽：b 与 c 各被引用一次，同分按路径排
+    await app.click('.nexus-graph-chip[data-mode="hubs"]');
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-list')?.textContent?.includes('b.md')`,
+      10000
+    );
+    expect(await listItems()).toEqual(['b.md1 incoming', 'c.md1 incoming']);
+
+    // 切回图谱视图，画布回来
+    await app.click('.nexus-graph-chip[data-mode="explore"]');
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-body').getBoundingClientRect().height > 0`,
+      10000
+    );
+  }, INDEXED_TEST_TIMEOUT_MS);
+
   it('拖空白处平移画布，缩放不变', async () => {
     const viewBefore = await readView();
 

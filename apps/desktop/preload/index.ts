@@ -12,6 +12,8 @@ import type {
   IndexWorkspaceResult,
   WorkspaceGraph,
   GraphQuery,
+  HubEntry,
+  OrphanMode,
   BacklinkEntry,
   HistoryEntry
 } from '@nexus/core';
@@ -163,6 +165,14 @@ const bridge: NexusBridge = {
 
   getGraph: (query?: GraphQuery): Promise<WorkspaceGraph> => {
     return ipcRenderer.invoke(IPC_CHANNELS.getGraph, query);
+  },
+
+  getGraphOrphans: (mode: OrphanMode): Promise<IndexedDocument[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGraphOrphans, mode);
+  },
+
+  getGraphHubs: (limit?: number): Promise<HubEntry[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGraphHubs, limit);
   },
 
   listHistory: (documentPath: string): Promise<HistoryEntry[]> => {

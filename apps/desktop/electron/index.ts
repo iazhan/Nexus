@@ -11,7 +11,8 @@ import {
   type FileWatchEvent,
   type GraphQuery,
   type HistoryEntry,
-  type Unsubscribe
+  type Unsubscribe,
+  isOrphanMode
 } from '@nexus/core';
 import { FileService } from './file-service.js';
 import { buildDiagnostics } from './diagnostics.js';
@@ -1501,6 +1502,18 @@ ipcMain.handle(IPC_CHANNELS.getGraph, (event, query: unknown) => {
   return (
     getIndexStore(event.sender.id)?.getGraph(readGraphQuery(query)) ?? { nodes: [], edges: [] }
   );
+});
+
+ipcMain.handle(IPC_CHANNELS.getGraphOrphans, (event, mode: unknown) => {
+  return getIndexStore(event.sender.id)?.getOrphans(isOrphanMode(mode) ? mode : 'both') ?? [];
+});
+
+ipcMain.handle(IPC_CHANNELS.getGraphHubs, (event, limit: unknown) => {
+  const effectiveLimit =
+    typeof limit === 'number' && Number.isFinite(limit) && limit > 0
+      ? Math.min(Math.floor(limit), 200)
+      : 20;
+  return getIndexStore(event.sender.id)?.getHubs(effectiveLimit) ?? [];
 });
 
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {

@@ -71,6 +71,8 @@ export const IPC_CHANNELS = {
   listTags: 'nexus:list-tags',
   findDocumentsByTag: 'nexus:find-documents-by-tag',
   getGraph: 'nexus:get-graph',
+  getGraphOrphans: 'nexus:get-graph-orphans',
+  getGraphHubs: 'nexus:get-graph-hubs',
   listHistory: 'nexus:list-history',
   readHistory: 'nexus:read-history',
   restoreHistory: 'nexus:restore-history',

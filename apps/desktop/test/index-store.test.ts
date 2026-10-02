@@ -600,6 +600,140 @@ describe('工作区索引', () => {
       });
     });
 
+    /**
+     * 孤儿与枢纽。
+     *
+     * 这一组的关键判据是**出度的口径**：数的是「**写下来的**链接」，
+     * 解析不出来的目标也算。把它排除的话，一篇全是断链的文档会被报成孤儿 ——
+     * 而那恰恰是最需要被看见的一类（用户以为它连着什么，其实什么都没连上）。
+     */
+    describe('孤儿与枢纽', () => {
+      /*
+        夹具的度数（人算的）：
+                    out  in
+        index.md      2   0
+        a.md          1   0
+        b.md          1   1
+        hub.md        0   3
+        lonely.md     0   0
+        dead.md       1   0   ← 唯一那条链接指向不存在的文档
+      */
+      const fixture = async () => {
+        await writeDoc('index.md', '[[hub]] 与 [[b]]');
+        await writeDoc('a.md', '[[hub]]');
+        await writeDoc('b.md', '[[hub]]');
+        await writeDoc('hub.md', '枢纽，谁也不链。');
+        await writeDoc('lonely.md', '谁也不链，也没人链。');
+        await writeDoc('dead.md', '[[还没写的]]');
+      };
+
+      const names = (documents: Array<{ name: string }>) => documents.map((doc) => doc.name).sort();
+
+      it('按文件名排序列出三种模式的孤儿', async () => {
+        await fixture();
+        const store = await openIndexed();
+
+        // 没人引用：index / a / lonely / dead（hub 被三篇引用，b 被 index 引用）
+        expect(names(store.getOrphans('incoming'))).toEqual([
+          'a.md',
+          'dead.md',
+          'index.md',
+          'lonely.md'
+        ]);
+        // 不引用别人：hub 与 lonely（dead 有一条链接，虽然指向空处）
+        expect(names(store.getOrphans('outgoing'))).toEqual(['hub.md', 'lonely.md']);
+        // 两者都缺只有 lonely
+        expect(names(store.getOrphans('both'))).toEqual(['lonely.md']);
+
+        store.close();
+      });
+
+      it('默认模式是 both', async () => {
+        await fixture();
+        const store = await openIndexed();
+
+        expect(names(store.getOrphans())).toEqual(names(store.getOrphans('both')));
+
+        store.close();
+      });
+
+      it('只有断链的文档**不算**出链为 0', async () => {
+        await fixture();
+        const store = await openIndexed();
+
+        const outgoing = names(store.getOrphans('outgoing'));
+        expect(outgoing).not.toContain('dead.md');
+        // 反向：真正一条链接都没写的仍在名单里
+        expect(outgoing).toContain('lonely.md');
+
+        store.close();
+      });
+
+      it('自链接不算入度 —— 否则自己引用自己就不是孤儿了', async () => {
+        await writeDoc('self.md', '[[self]]');
+        const store = await openIndexed();
+
+        expect(names(store.getOrphans('incoming'))).toEqual(['self.md']);
+
+        store.close();
+      });
+
+      it('已删除文档留下的出链不算数', async () => {
+        /*
+          `removeDocuments()` 只删 `documents` 与 `search_fts`，**不删 `links`** ——
+          表里会留下来源已经不在的行。不判来源是否存在的话，hub 会一直背着一条
+          来自幽灵文档的入链，`getHubs` 的计数也就永远偏高。
+        */
+        await fixture();
+        const store = await openIndexed();
+        const hub = store.listDocuments().find((doc) => doc.name === 'hub.md')!;
+
+        expect(store.getHubs().find((entry) => entry.document.id === hub.id)!.count).toBe(3);
+
+        const a = store.listDocuments().find((doc) => doc.name === 'a.md')!;
+        store.removeDocuments([a.path]);
+
+        expect(store.getHubs().find((entry) => entry.document.id === hub.id)!.count).toBe(2);
+
+        store.close();
+      });
+
+      it('枢纽按入链降序，同分按相对路径，且不含 0 入度的文档', async () => {
+        await fixture();
+        const store = await openIndexed();
+
+        expect(store.getHubs().map((entry) => [entry.document.name, entry.count])).toEqual([
+          ['hub.md', 3],
+          ['b.md', 1]
+        ]);
+        // 0 入度的一律不进榜 —— 否则真正的枢纽会被一堆「没人引用」的文档挤下去
+        expect(store.getHubs().some((entry) => entry.count === 0)).toBe(false);
+
+        store.close();
+      });
+
+      it('limit 生效，且非法 limit 落回默认', async () => {
+        await fixture();
+        const store = await openIndexed();
+
+        expect(store.getHubs(1).map((entry) => entry.document.name)).toEqual(['hub.md']);
+        expect(store.getHubs(0)).toEqual([]);
+        // NaN / 负数走默认值 20，而不是把列表清空
+        expect(store.getHubs(Number.NaN)).toHaveLength(2);
+
+        store.close();
+      });
+
+      it('空工作区两种查询都给空数组', async () => {
+        const store = await openIndexed();
+
+        expect(store.getOrphans('both')).toEqual([]);
+        expect(store.getHubs()).toEqual([]);
+
+        store.close();
+      });
+    });
+
     it('范围与类型可以叠加', async () => {
       await chain();
       const store = await openIndexed();
