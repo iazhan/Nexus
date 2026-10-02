@@ -302,6 +302,25 @@ describe('图谱控制条', () => {
     expect(rows[0]!.getAttribute('data-cluster')).toBe('Other');
   });
 
+  it('标出当前活动文档的那个节点', async () => {
+    /*
+      这条守的是一个从图谱落地起就存在的 bug：判据拿节点的**相对路径**去比 App 传下来的
+      **绝对路径**，永远不相等 —— 于是活跃文档从来没被高亮过。
+      画布上的描边从外面看不见，所以只能靠 `data-active-node` 守。
+    */
+    await render({ activeFilePath: '/vault/b.md' });
+    const hitmap = () => container.querySelector('.nexus-graph-hitmap')!;
+    expect(hitmap().getAttribute('data-active-node')).toBe('2');
+
+    // 反向：不在图上的路径不该匹配到任何节点
+    await render({ activeFilePath: '/vault/没进索引.md' });
+    expect(hitmap().getAttribute('data-active-node')).toBe('');
+
+    // 反斜杠写法也要认（Windows 上主进程给的是原生分隔符）
+    await render({ activeFilePath: '\\vault\\b.md' });
+    expect(hitmap().getAttribute('data-active-node')).toBe('2');
+  });
+
   it('把边的方向交给绘制层（画箭头要用）', async () => {
     getGraph.mockImplementation(async () => ({
       nodes: [node(1, 'a.md', 'markdown', 1), node(2, 'b.md', 'markdown', 1)],
@@ -353,6 +372,109 @@ describe('图谱控制条', () => {
       vi.advanceTimersByTime(200);
     });
     expect(positions()).not.toBe(at400);
+  });
+
+  /**
+   * 聚焦当前文档：把它带进视野。
+   *
+   * 三条一起才成立：**在视野里就不动**、**被拖出去了要带回来**、**要求减少动态效果时不动**。
+   * 只测中间那条的话，「每次换文档图都抖一下」照样能过。
+   */
+  describe('聚焦当前文档', () => {
+    const bodySize = (width: number, height: number) => {
+      const body = container.querySelector<HTMLElement>('.nexus-graph-body')!;
+      Object.defineProperty(body, 'clientWidth', { value: width, configurable: true });
+      Object.defineProperty(body, 'clientHeight', { value: height, configurable: true });
+    };
+
+    const readView = () =>
+      JSON.parse(container.querySelector('.nexus-graph-hitmap')!.getAttribute('data-view')!);
+
+    const readScreenNodes = () =>
+      JSON.parse(
+        container.querySelector('.nexus-graph-hitmap')!.getAttribute('data-screen-nodes')!
+      ) as Array<{ id: number; x: number; y: number }>;
+
+    const screenXOf = (id: number) => readScreenNodes().find((item) => item.id === id)!.x;
+
+    /** 首帧的尺寸是**立即**生效的（没有防抖），所以这里不用假时钟。 */
+    const renderSized = async (graph: WorkspaceGraph, activeFilePath: string | null) => {
+      getGraph.mockImplementation(async () => graph);
+      await render({ activeFilePath });
+      bodySize(400, 300);
+      await act(async () => {
+        StubResizeObserver.instances.at(-1)!.fire();
+      });
+    };
+
+    const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 450)));
+
+    /** 把图往右拖 600px —— 所有节点都会被拖出 400 宽的视口。 */
+    const panAway = () =>
+      act(async () => {
+        const canvas = container.querySelector<HTMLCanvasElement>('.nexus-graph-canvas')!;
+        const fire = (type: string, clientX: number) =>
+          canvas.dispatchEvent(
+            new MouseEvent(type, { bubbles: true, button: 0, clientX, clientY: 0 })
+          );
+        fire('mousedown', 0);
+        fire('mousemove', 600);
+        fire('mouseup', 600);
+      });
+
+    it('当前文档被平移到视野外时，把它带回来', async () => {
+      await renderSized(FULL, null);
+      expect(screenXOf(1)).toBeGreaterThan(0);
+      expect(screenXOf(1)).toBeLessThan(400);
+
+      await panAway();
+      // 前提成立：现在它真的在视口外
+      expect(screenXOf(1)).toBeGreaterThan(400);
+
+      await render({ activeFilePath: '/vault/a.md' });
+      await settle();
+
+      // 断言「回到视口里」，而不是「offsetX 变了」—— 后者对「往反方向移」同样成立
+      expect(screenXOf(1)).toBeGreaterThan(0);
+      expect(screenXOf(1)).toBeLessThan(400);
+      expect(readView().scale).toBe(1);
+    });
+
+    it('当前文档已经在视野里时一动不动', async () => {
+      /*
+        单节点会被重心回拉收敛到画布正中 —— 那时「聚焦」没有任何可做的。
+        少了「在视野里就不动」这条判据的话，这里会平移一下，用户看到的是一次莫名其妙的抖动。
+      */
+      await renderSized({ nodes: [node(1, 'a.md', 'markdown', 0)], edges: [] }, '/vault/a.md');
+
+      await settle();
+      expect(readView()).toEqual({ scale: 1, offsetX: 0, offsetY: 0 });
+    });
+
+    it('系统要求减少动态效果时不平移', async () => {
+      // 纯装饰动画，关掉它一个信息都不少 —— 而前庭功能障碍的用户会被它影响
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        matches: query.includes('prefers-reduced-motion'),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {}
+      })) as unknown as typeof window.matchMedia;
+
+      try {
+        await renderSized(FULL, null);
+        await panAway();
+        expect(screenXOf(1)).toBeGreaterThan(400);
+
+        await render({ activeFilePath: '/vault/a.md' });
+        await settle();
+
+        // 还在视口外 —— 没有动画可看，也就不该动
+        expect(screenXOf(1)).toBeGreaterThan(400);
+      } finally {
+        window.matchMedia = original;
+      }
+    });
   });
 
   it('三个视图开关，切到清单时画布让位', async () => {

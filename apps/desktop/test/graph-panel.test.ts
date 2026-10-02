@@ -316,6 +316,18 @@ describe('图谱面板', () => {
       `document.querySelector('.nexus-filename')?.textContent ?? ''`
     );
     expect(fileName).toBe('a.md');
+
+    /*
+      打开的那篇要在图上被标成活动节点。
+
+      这条守的是一个从图谱落地起就存在的 bug：判据拿节点的**相对路径**去比 App 传下来的
+      **绝对路径**，永远不相等。这里用的是主进程给的真实绝对路径，所以能抓到它。
+    */
+    const activeId = await app.evaluate<string>(
+      `document.querySelector('.nexus-graph-hitmap')?.dataset.activeNode ?? ''`
+    );
+    expect(activeId).not.toBe('');
+    expect(activeId).toBe(String(byName(fitted, 'a.md').id));
   }, INDEXED_TEST_TIMEOUT_MS);
 
   it('切到「当前文档」后只剩中心与两跳之内', async () => {

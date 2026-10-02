@@ -91,6 +91,71 @@ function nodeRadius(node: { degree: number }): number {
 }
 
 /**
+ * 这个节点是不是当前活动的那篇文档。
+ *
+ * ## 比的是**绝对路径**，不是相对路径
+ *
+ * `activeFilePath` 是 App 传下来的绝对路径，而 `relativePath` 是工作区相对的 ——
+ * 拿后者去比**永远不相等**。这个 bug 从图谱第一次落地起就在：活跃文档从来没被高亮过，
+ * 而没有任何用例守着它（画布上的颜色从外面看不见）。
+ *
+ * 两侧都先把反斜杠归一成正斜杠：主进程给的是平台原生分隔符，App 那边可能是另一种写法。
+ */
+function isActiveGraphNode(node: GraphNode, normalizedActivePath: string | undefined): boolean {
+  return (
+    node.kind === 'document' &&
+    normalizedActivePath !== undefined &&
+    node.path.replace(/\\/g, '/') === normalizedActivePath
+  );
+}
+
+/**
+ * 出生动画：单个节点/边淡入的时长，以及相邻条目的错峰间隔。
+ *
+ * `MAX_BIRTH_STEPS` 是错峰的上限 —— 100 个节点逐个错开 45ms 的话，最后一个要等
+ * 4.5 秒才出现，那就不是动画而是加载了。封顶之后整批最迟 540ms 全部到位。
+ */
+const BIRTH_MS = 420;
+const BIRTH_STAGGER_MS = 45;
+const MAX_BIRTH_STEPS = 12;
+
+/** 节点淡入到这个程度才画名字。名字先于圆点出现会看着像闪了一下。 */
+const LABEL_MIN_BIRTH = 0.65;
+
+/** 聚焦当前文档时的平移时长。 */
+const FOCUS_MS = 320;
+
+/**
+ * 聚焦的判据：当前文档**已经在视口里**（四周留这么多比例的边距）就不动。
+ *
+ * 用「在不在视口里」而不是「离中心够不够近」：后者的阈值只能拍，而且含义会随画布尺寸
+ * 漂 —— 画布一大，「够近」就变成了「离得很远」，于是每换一篇文档都平移一下。
+ *
+ * 这是「把某项带进视野」的通用判据，与大纲「已经在视野里就一动不动」是同一条。
+ */
+const FOCUS_VIEWPORT_MARGIN = 0.12;
+
+/**
+ * 系统是否要求减少动态效果。
+ *
+ * 图谱的动画（出生淡入、聚焦平移）都是**纯装饰** —— 关掉它一个信息都不少。
+ * 而前庭功能障碍的用户会被这类平移动画影响，所以这条判据不是可选项。
+ */
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** 出生进度按「节点 id / 边的两端」记账，与图数据的身份一致。 */
+function nodeBirthKey(id: number): string {
+  return `n:${id}`;
+}
+
+function edgeBirthKey(edge: { source: number; target: number }): string {
+  return `e:${edge.source}:${edge.target}`;
+}
+
+/**
  * 箭头大小随缩放走，但夹在 3–8 屏幕像素之间。
  *
  * 不夹的话：缩到 0.3 倍时箭头只有 2px，看不出是个箭头；放到 4 倍时箭头比节点还大，
@@ -204,6 +269,11 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   const [panning, setPanning] = useState(false);
 
   const dragRef = useRef<DragState | null>(null);
+  /**
+   * 每个节点/边的出生时刻。用 ref 而不是 state：它只被绘制路径读，进 state 会让
+   * 每帧都触发一次 React 重渲染，而动画本来就该在画布上完成。
+   */
+  const bornAtRef = useRef(new Map<string, number>());
   /**
    * 事件处理器要读**当前**的视图（把屏幕坐标反投影成图坐标）。
    *
@@ -365,6 +435,12 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   }, [graph.nodes]);
 
   const clusterSlots = useMemo(() => assignClusterSlots(clusterCounts), [clusterCounts]);
+
+  /** 当前活动文档在图上的节点 id。只用来**暴露给测试** —— 画布上的描边从外面看不见。 */
+  const activeNodeId = useMemo(() => {
+    const normalized = activeFilePath?.replace(/\\/g, '/');
+    return graph.nodes.find((node) => isActiveGraphNode(node, normalized))?.id ?? null;
+  }, [graph.nodes, activeFilePath]);
 
   /*
     图例。**列的是「屏幕上真的有颜色」的那些分区** —— 图例与画面对不上比没有图例更糟。
@@ -583,7 +659,43 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
 
     // 按设备像素比缩放，否则高分屏上线条发虚
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.clearRect(0, 0, size.width, size.height);
+
+    /*
+      出生动画的记账。
+
+      `bornAt` 存的是**绝对时间戳**，所以每帧算进度都不需要额外状态，也不必在 effect
+      之间传递「动画进行到哪了」。图里消失的条目要清掉，否则反复增删文档会让这张表
+      无限长大。
+    */
+    const reducedMotion = prefersReducedMotion();
+    const births = bornAtRef.current;
+    const liveKeys = new Set<string>();
+    for (const node of graph.nodes) liveKeys.add(nodeBirthKey(node.id));
+    for (const edge of graph.edges) liveKeys.add(edgeBirthKey(edge));
+    for (const key of [...births.keys()]) {
+      if (!liveKeys.has(key)) births.delete(key);
+    }
+
+    const appeared = [...liveKeys].filter((key) => !births.has(key));
+    appeared.forEach((key, index) => {
+      // 错峰有上限：100 个节点逐个错开的话最后一个要等 4.5 秒才出现
+      const step = Math.min(index, MAX_BIRTH_STEPS);
+      births.set(key, reducedMotion ? 0 : Date.now() + step * BIRTH_STAGGER_MS);
+    });
+
+    /** 0 = 刚出现，1 = 完全就位。关掉动画时恒为 1。 */
+    const birthProgressOf = (key: string): number => {
+      if (reducedMotion) return 1;
+      const born = births.get(key);
+      if (born === undefined) return 1;
+
+      const raw = (Date.now() - born) / BIRTH_MS;
+      if (raw <= 0) return 0;
+      if (raw >= 1) return 1;
+      // ease-out：开头快、收尾慢，比线性更像「浮现」
+      const remaining = 1 - raw;
+      return 1 - remaining * remaining * remaining;
+    };
 
     // 节点高亮是图形元素，走图形类阈值（3:1）的 accent-indicator，不是文字类的 accent-text
     const edgeColor = readColor(canvas, '--nexus-border-default');
@@ -607,10 +719,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     };
 
     const normalizedActive = activeFilePath?.replace(/\\/g, '/');
-    const isActiveNode = (node: GraphNode) =>
-      node.kind === 'document' &&
-      normalizedActive !== undefined &&
-      node.relativePath.replace(/\\/g, '/') === normalizedActive;
+    const isActiveNode = (node: GraphNode) => isActiveGraphNode(node, normalizedActive);
 
     const toScreen = (id: number) => {
       const position = positionById.get(id);
@@ -627,91 +736,9 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     const radiusById = new Map<number, number>();
     for (const node of graph.nodes) radiusById.set(node.id, nodeRadius(node) * view.scale);
 
-    context.strokeStyle = edgeColor;
-    context.lineWidth = 1;
-    context.beginPath();
-    for (const edge of graph.edges) {
-      const source = toScreen(edge.source);
-      const target = toScreen(edge.target);
-      if (!source || !target) continue;
-      context.globalAlpha = litIds !== null && !(litIds.has(edge.source) && litIds.has(edge.target)) ? DIM_ALPHA : 1;
-      context.moveTo(source.x, source.y);
-      context.lineTo(target.x, target.y);
-    }
-    context.stroke();
-    context.globalAlpha = 1;
-
     /*
-      箭头单独走一遍，画在**节点之前** —— 节点是后画的，箭头留在圆心就会被圆盖住。
-      所以尖端要沿连线退到目标节点的边缘外一点点。
-    */
-    context.fillStyle = edgeColor;
-    const arrowSize = clampArrowSize(view.scale);
-    for (const edge of graph.edges) {
-      const source = toScreen(edge.source);
-      const target = toScreen(edge.target);
-      if (!source || !target) continue;
-
-      context.globalAlpha =
-        litIds !== null && !(litIds.has(edge.source) && litIds.has(edge.target)) ? DIM_ALPHA : 1;
-      drawArrowhead(context, source, target, radiusById.get(edge.target) ?? 0, arrowSize);
-      // 互相引用画双箭头：一条线就说清了「两边都写了」，不必拆成两条重合的线
-      if (edge.mutual) {
-        drawArrowhead(context, target, source, radiusById.get(edge.source) ?? 0, arrowSize);
-      }
-    }
-    context.globalAlpha = 1;
-
-    for (const node of graph.nodes) {
-      const screen = toScreen(node.id);
-      if (!screen) continue;
-
-      const radius = nodeRadius(node) * view.scale;
-      context.globalAlpha = litIds !== null && !litIds.has(node.id) ? DIM_ALPHA : 1;
-
-      if (node.kind === 'missing') {
-        /*
-          断链画成**空心 + 虚线环**，不是实心点。
-          只靠颜色区分不行：色觉障碍用户读不出「这个点还没建」，而虚线轮廓与填充是
-          形状差异，任何配色下都成立。
-        */
-        context.beginPath();
-        context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-        context.strokeStyle = missingColor;
-        context.lineWidth = 1.5;
-        context.setLineDash([3, 2]);
-        context.stroke();
-        context.setLineDash([]);
-      } else {
-        context.beginPath();
-        context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-        context.fillStyle = colorForNode(node);
-        context.fill();
-      }
-
-      // 活跃文档：填充表示分区，所以它改用描边 —— 密处一眼能认出来
-      if (node.kind === 'document' && isActiveNode(node)) {
-        context.strokeStyle = activeRingColor;
-        context.lineWidth = 2;
-        context.beginPath();
-        context.arc(screen.x, screen.y, radius + 3, 0, Math.PI * 2);
-        context.stroke();
-      }
-
-      // 悬停的那个点加一圈描边 —— 只靠不透明度区分，密处看不出是哪一个
-      if (node.id === hoveredId) {
-        context.strokeStyle = activeColor;
-        context.lineWidth = 2;
-        context.beginPath();
-        context.arc(screen.x, screen.y, radius + 3, 0, Math.PI * 2);
-        context.stroke();
-      }
-    }
-    context.globalAlpha = 1;
-
-    /*
-      标签画在最后，且**不与节点共用颜色**：节点是图形（3:1 就够），标签是文字（要 4.5:1），
-      两者用同一个 token 会让标签在浅色主题下糊在点里。
+      标签**每帧只规划一次**，不在 `draw()` 里 —— 它要量文字宽度，而规划结果每帧都一样。
+      放进去的话每帧都要 `setLabelPlacements`，那会变成每秒 60 次 React 重渲染。
     */
     const labelColor = readColor(canvas, '--nexus-text-secondary');
     const activeLabelColor = readColor(canvas, '--nexus-text-primary');
@@ -746,31 +773,151 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
       measureTextWidth: (text) => context.measureText(text).width
     });
 
-    for (const placement of placements) {
-      context.globalAlpha = litIds !== null && !litIds.has(placement.id) ? DIM_ALPHA : 1;
-      context.fillStyle = placement.isActive ? activeLabelColor : labelColor;
-      context.fillText(placement.text, placement.textX, placement.textY);
-    }
-    context.globalAlpha = 1;
-
-    /*
-      悬停信息条。标签只给名字，所以这里补上「名字之外还需要知道的那一点」：
-      普通节点是度数，断链是「它指向的文档还没建」—— 后者才是用户此刻的疑问。
-    */
+    const arrowSize = clampArrowSize(view.scale);
     const hovered = hoveredId === null ? null : graph.nodes.find((node) => node.id === hoveredId);
-    if (hovered) {
-      const screen = toScreen(hovered.id);
-      if (screen) {
-        const text =
-          hovered.kind === 'missing'
-            ? `${hovered.name} · ${t('graph.missingHint')}`
-            : `${hovered.name} · ${hovered.degree}`;
-        context.fillStyle = hovered.kind === 'missing' ? missingColor : activeLabelColor;
-        context.fillText(text, screen.x + nodeRadius(hovered) * view.scale + 6, screen.y - 6);
+
+    /** 画一帧。出生动画期间由 rAF 反复调用，静止时只调一次。 */
+    const draw = () => {
+      context.clearRect(0, 0, size.width, size.height);
+
+      context.strokeStyle = edgeColor;
+      context.lineWidth = 1;
+      context.beginPath();
+      for (const edge of graph.edges) {
+        const source = toScreen(edge.source);
+        const target = toScreen(edge.target);
+        if (!source || !target) continue;
+        context.globalAlpha =
+          litIds !== null && !(litIds.has(edge.source) && litIds.has(edge.target))
+            ? DIM_ALPHA
+            : 1;
+        context.moveTo(source.x, source.y);
+        context.lineTo(target.x, target.y);
       }
+      context.stroke();
+      context.globalAlpha = 1;
+
+      /*
+        箭头单独走一遍，画在**节点之前** —— 节点是后画的，箭头留在圆心就会被圆盖住。
+        所以尖端要沿连线退到目标节点的边缘外一点点。
+      */
+      context.fillStyle = edgeColor;
+      for (const edge of graph.edges) {
+        const source = toScreen(edge.source);
+        const target = toScreen(edge.target);
+        if (!source || !target) continue;
+
+        const dimmed = litIds !== null && !(litIds.has(edge.source) && litIds.has(edge.target));
+        // 出生的边也从很淡开始，否则新链接会「啪」地跳出来
+        const birth = 0.25 + 0.75 * birthProgressOf(edgeBirthKey(edge));
+        context.globalAlpha = (dimmed ? DIM_ALPHA : 1) * birth;
+        drawArrowhead(context, source, target, radiusById.get(edge.target) ?? 0, arrowSize);
+        // 互相引用画双箭头：一条线就说清了「两边都写了」，不必拆成两条重合的线
+        if (edge.mutual) {
+          drawArrowhead(context, target, source, radiusById.get(edge.source) ?? 0, arrowSize);
+        }
+      }
+      context.globalAlpha = 1;
+
+      for (const node of graph.nodes) {
+        const screen = toScreen(node.id);
+        if (!screen) continue;
+
+        const birth = birthProgressOf(nodeBirthKey(node.id));
+        // 半径跟着出生进度长起来：从「一个小点」扩到正常大小
+        const radius = nodeRadius(node) * view.scale * (0.4 + 0.6 * birth);
+        const dimmed = litIds !== null && !litIds.has(node.id);
+        context.globalAlpha = (dimmed ? DIM_ALPHA : 1) * birth;
+
+        if (node.kind === 'missing') {
+          /*
+            断链画成**空心 + 虚线环**，不是实心点。
+            只靠颜色区分不行：色觉障碍用户读不出「这个点还没建」，而虚线轮廓与填充是
+            形状差异，任何配色下都成立。
+          */
+          context.beginPath();
+          context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+          context.strokeStyle = missingColor;
+          context.lineWidth = 1.5;
+          context.setLineDash([3, 2]);
+          context.stroke();
+          context.setLineDash([]);
+        } else {
+          context.beginPath();
+          context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+          context.fillStyle = colorForNode(node);
+          context.fill();
+        }
+
+        // 活跃文档：填充表示分区，所以它改用描边 —— 密处一眼能认出来
+        if (node.kind === 'document' && isActiveNode(node)) {
+          context.strokeStyle = activeRingColor;
+          context.lineWidth = 2;
+          context.beginPath();
+          context.arc(screen.x, screen.y, radius + 3, 0, Math.PI * 2);
+          context.stroke();
+        }
+
+        // 悬停的那个点加一圈描边 —— 只靠不透明度区分，密处看不出是哪一个
+        if (node.id === hoveredId) {
+          context.strokeStyle = activeColor;
+          context.lineWidth = 2;
+          context.beginPath();
+          context.arc(screen.x, screen.y, radius + 3, 0, Math.PI * 2);
+          context.stroke();
+        }
+      }
+      context.globalAlpha = 1;
+
+      /*
+        标签画在最后，且**不与节点共用颜色**：节点是图形（3:1 就够），标签是文字（要 4.5:1），
+        两者用同一个 token 会让标签在浅色主题下糊在点里。
+
+        节点还没淡入完就先不画名字 —— 否则名字会先于圆点出现，看着像闪了一下。
+      */
+      for (const placement of placements) {
+        if (birthProgressOf(nodeBirthKey(placement.id)) < LABEL_MIN_BIRTH) continue;
+        context.globalAlpha = litIds !== null && !litIds.has(placement.id) ? DIM_ALPHA : 1;
+        context.fillStyle = placement.isActive ? activeLabelColor : labelColor;
+        context.fillText(placement.text, placement.textX, placement.textY);
+      }
+      context.globalAlpha = 1;
+
+      /*
+        悬停信息条。标签只给名字，所以这里补上「名字之外还需要知道的那一点」：
+        普通节点是度数，断链是「它指向的文档还没建」—— 后者才是用户此刻的疑问。
+      */
+      if (hovered) {
+        const screen = toScreen(hovered.id);
+        if (screen) {
+          const text =
+            hovered.kind === 'missing'
+              ? `${hovered.name} · ${t('graph.missingHint')}`
+              : `${hovered.name} · ${hovered.degree}`;
+          context.fillStyle = hovered.kind === 'missing' ? missingColor : activeLabelColor;
+          context.fillText(text, screen.x + nodeRadius(hovered) * view.scale + 6, screen.y - 6);
+        }
+      }
+    };
+
+    draw();
+    setLabelPlacements(placements);
+
+    // 还有条目没淡完就继续出帧。全淡完了就不排帧 —— 静止的图不该占着一帧一次的重绘。
+    let frame = 0;
+    const stillAnimating = () =>
+      [...births.values()].some((born) => Date.now() < born + BIRTH_MS);
+    if (!reducedMotion && stillAnimating()) {
+      const tick = () => {
+        draw();
+        if (stillAnimating()) frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
     }
 
-    setLabelPlacements(placements);
+    return () => {
+      if (frame !== 0) cancelAnimationFrame(frame);
+    };
   }, [
     graph,
     layout,
@@ -784,6 +931,66 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     // 换主题要重画 —— 画布的颜色是读出来定死在位图里的，不订阅就停在旧配色上
     resolvedTheme?.id
   ]);
+
+
+  /*
+    聚焦当前文档：把它平移到视口中心。
+
+    **已经在中间那块里就不动** —— 每换一篇文档图都平移一下很烦，而绝大多数时候那个点
+    本来就在视野里。判据与大纲「已经在视野里就一动不动」是同一条。
+  */
+  const focusedPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeFilePath === null || prefersReducedMotion()) {
+      focusedPathRef.current = activeFilePath;
+      return;
+    }
+    // 同一篇只聚焦一次：拖动节点会改 `positionById`，不挡住的话每次拖动都会触发平移
+    if (focusedPathRef.current === activeFilePath) return;
+
+    const normalizedActive = activeFilePath.replace(/\\/g, '/');
+    const node = graph.nodes.find((candidate) => isActiveGraphNode(candidate, normalizedActive));
+    if (node === undefined) return;
+
+    const position = positionById.get(node.id);
+    if (position === undefined || size.width <= 0 || size.height <= 0) return;
+
+    const current = viewRef.current;
+    const screen = projectPoint(current, position.x, position.y);
+    const deltaX = size.width / 2 - screen.x;
+    const deltaY = size.height / 2 - screen.y;
+
+    // 已经在视口里 —— 记下「处理过了」然后什么都不做
+    const marginX = size.width * FOCUS_VIEWPORT_MARGIN;
+    const marginY = size.height * FOCUS_VIEWPORT_MARGIN;
+    const alreadyVisible =
+      screen.x >= marginX &&
+      screen.x <= size.width - marginX &&
+      screen.y >= marginY &&
+      screen.y <= size.height - marginY;
+    if (alreadyVisible) {
+      focusedPathRef.current = activeFilePath;
+      return;
+    }
+
+    focusedPathRef.current = activeFilePath;
+
+    const startedAt = Date.now();
+    let frame = 0;
+    const step = () => {
+      const progress = Math.min(1, (Date.now() - startedAt) / FOCUS_MS);
+      const eased = 1 - (1 - progress) * (1 - progress) * (1 - progress);
+      setView({
+        scale: current.scale,
+        offsetX: current.offsetX + deltaX * eased,
+        offsetY: current.offsetY + deltaY * eased
+      });
+      if (progress < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+
+    return () => cancelAnimationFrame(frame);
+  }, [activeFilePath, graph.nodes, positionById, size.width, size.height]);
 
   return (
     <div className="nexus-graph">
@@ -953,6 +1160,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
                 })
               )}
               data-view={JSON.stringify(view)}
+              data-active-node={activeNodeId === null ? '' : String(activeNodeId)}
               data-edges={JSON.stringify(
                 graph.edges.map((edge) => ({
                   source: edge.source,
