@@ -1322,6 +1322,56 @@ button.nexus-outline-toggle:hover {
   display: none;
 }
 
+/*
+  分区图例：压在画布左下角。
+  `pointer-events: none` 是必须的 —— 它盖住的那几个点仍然要能点中，否则图例就成了
+  一块「点了没反应的死区」，而用户完全看不出是图例挡的。
+*/
+.nexus-graph-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: calc(100% - 16px);
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  list-style: none;
+  pointer-events: none;
+}
+
+.nexus-graph-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-graph-legend-swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.nexus-graph-legend-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-graph-legend-count {
+  margin-left: auto;
+  color: var(--nexus-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Canvas 撑满盒子。像素尺寸由 ResizeObserver 驱动，
    这里只负责让它占满 —— 两者都设的话会互相打架。 */
 .nexus-graph-canvas {

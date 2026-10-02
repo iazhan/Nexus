@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQuery, WorkspaceGraph } from '@nexus/core';
 import { GraphPanel } from '../src/workspace/GraphPanel.js';
+import { CLUSTER_TOKENS, UNCLUSTERED_TOKEN } from '../src/workspace/graph-clusters.js';
 import { localeManager } from '../src/platform.js';
 
 /**
@@ -73,6 +74,15 @@ describe('图谱控制条', () => {
     root = createRoot(container);
 
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = StubResizeObserver;
+
+    /*
+      图例的颜色是从 CSS 变量读的。happy-dom 不会加载主题，这里把变量挂到根元素上，
+      否则 `readColor()` 每次都读回空串 —— 断言「色块有颜色」就永远不成立。
+    */
+    for (const token of CLUSTER_TOKENS) {
+      document.documentElement.style.setProperty(token, '#336699');
+    }
+    document.documentElement.style.setProperty(UNCLUSTERED_TOKEN, '#888888');
 
     /*
       桩按**查询**返回不同结果，而不是永远返回同一份 —— 否则「关掉一个类型之后节点变少」
@@ -228,6 +238,44 @@ describe('图谱控制条', () => {
 
     expect(count()).toBe('4');
     expect(container.querySelector('.nexus-graph-reset')).toBeNull();
+  });
+
+  it('图例按分区大小列出，根目录下的文档并入「其他」', async () => {
+    // notes 2 篇、archive 1 篇、根目录 1 篇 —— 排名决定颜色，也决定图例顺序
+    getGraph.mockImplementation(async () => ({
+      nodes: [
+        node(1, 'notes/a.md', 'markdown', 1),
+        node(2, 'notes/b.md', 'markdown', 1),
+        node(3, 'archive/c.md', 'markdown', 1),
+        node(4, 'root.md', 'markdown', 0)
+      ],
+      edges: [
+        { source: 1, target: 2 },
+        { source: 2, target: 3 }
+      ]
+    }));
+    await render();
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.nexus-graph-legend-row'));
+    expect(rows.map((row) => row.dataset.cluster)).toEqual(['notes', 'archive', 'Other']);
+    expect(
+      rows.map((row) => row.querySelector('.nexus-graph-legend-count')?.textContent)
+    ).toEqual(['2', '1', '1']);
+
+    // 色块真的拿到了颜色 —— 只断言「有这一行」对「色块是透明的」同样成立
+    const swatches = Array.from(
+      container.querySelectorAll<HTMLElement>('.nexus-graph-legend-swatch')
+    );
+    expect(swatches.every((swatch) => swatch.style.backgroundColor !== '')).toBe(true);
+  });
+
+  it('没有分区时不画图例（全在根目录的扁平工作区）', async () => {
+    await render();
+
+    // `FULL` 里四篇都在根目录 → 只有「其他」一行，仍然算有图例
+    const rows = container.querySelectorAll('.nexus-graph-legend-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.getAttribute('data-cluster')).toBe('Other');
   });
 
   it('三个视图开关，切到清单时画布让位', async () => {

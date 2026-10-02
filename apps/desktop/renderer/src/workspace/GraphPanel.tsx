@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DocumentType, GraphNode, WorkspaceGraph } from '@nexus/core';
-import { useLocale } from '../hooks.js';
+import { useLocale, useTheme } from '../hooks.js';
+import {
+  CLUSTER_TOKENS,
+  LEGEND_MAX_ROWS,
+  UNCLUSTERED_TOKEN,
+  assignClusterSlots,
+  clusterOf,
+  rankClusters
+} from './graph-clusters.js';
 import { HubsList, OrphansList } from './GraphLists.js';
 import { layoutGraph } from './graph-layout.js';
 import { planGraphLabels, type GraphLabelCandidate, type GraphLabelPlacement } from './graph-labels.js';
@@ -103,6 +111,12 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   revision
 }) => {
   const { t } = useLocale();
+  /*
+    主题进依赖是为了**重画**：画布的颜色是 `readColor()` 读出来的，读一次就定死在
+    位图里 —— 换主题时 CSS 变量变了，但没人叫醒绘制 effect，图谱会停在旧配色上。
+    其它组件用 CSS 变量写样式，天然跟着变，只有 canvas 这一处需要显式订阅。
+  */
+  const { resolvedTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [graph, setGraph] = useState<WorkspaceGraph>({ nodes: [], edges: [] });
@@ -120,6 +134,8 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   const [size, setSize] = useState({ width: 0, height: 0 });
   /** 标签放置结果。绘制时算出来，只为**暴露给测试**而存进 state —— canvas 上的文字从外面看不见。 */
   const [labelPlacements, setLabelPlacements] = useState<GraphLabelPlacement[]>([]);
+  /** 图例行。颜色要在绘制时从 CSS 变量读，所以由绘制 effect 算好交给渲染。 */
+  const [legend, setLegend] = useState<Array<{ label: string; color: string; count: number }>>([]);
   const [view, setView] = useState<GraphView>(IDENTITY_VIEW);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   /** 被拖动过的节点位置（**图坐标**）。只是视图副本：布局一重排就丢弃，见下面的 effect。 */
@@ -249,6 +265,64 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   useEffect(() => {
     setPinned(new Map());
   }, [layout]);
+
+  /** 每个分区有多少篇文档。断链没有目录，不参与。 */
+  const clusterCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of graph.nodes) {
+      if (node.kind !== 'document') continue;
+      const cluster = clusterOf(node.relativePath);
+      if (cluster === null) continue;
+      counts.set(cluster, (counts.get(cluster) ?? 0) + 1);
+    }
+    return counts;
+  }, [graph.nodes]);
+
+  const clusterSlots = useMemo(() => assignClusterSlots(clusterCounts), [clusterCounts]);
+
+  /*
+    图例。**列的是「屏幕上真的有颜色」的那些分区** —— 图例与画面对不上比没有图例更糟。
+    第 7 个及以后的分区共用中性色，所以合并成一行「其他」；根目录下的文档也在那一行里。
+
+    单独一个 effect（不塞进绘制那条）有两个好处：它不需要 canvas 上下文，因此能在
+    renderer 测试里跑；而且图例是 DOM，本来就不该跟着画布的重绘节奏走。
+  */
+  useEffect(() => {
+    /*
+      颜色从 `document.documentElement` 读，不从容器读：主题把变量写在 `:root` 上，
+      而自定义属性**不参与 happy-dom 的继承解析**（只在定义它的那个元素上取得到）——
+      从容器读的话 renderer 测试里永远读回空串，而生产环境两种写法都对。
+    */
+    const root = document.documentElement;
+
+    const ranked = rankClusters(clusterCounts);
+    const rows = ranked.slice(0, LEGEND_MAX_ROWS).map((name) => {
+      const slot = clusterSlots.get(name);
+      return {
+        label: name,
+        color:
+          slot === undefined || slot === null
+            ? readColor(root, UNCLUSTERED_TOKEN)
+            : readColor(root, CLUSTER_TOKENS[slot]!),
+        count: clusterCounts.get(name) ?? 0
+      };
+    });
+
+    const foldedCount =
+      ranked.slice(LEGEND_MAX_ROWS).reduce((sum, name) => sum + (clusterCounts.get(name) ?? 0), 0) +
+      graph.nodes.filter(
+        (node) => node.kind === 'document' && clusterOf(node.relativePath) === null
+      ).length;
+    if (foldedCount > 0) {
+      rows.push({
+        label: t('graph.legend.other'),
+        color: readColor(root, UNCLUSTERED_TOKEN),
+        count: foldedCount
+      });
+    }
+
+    setLegend(rows);
+  }, [clusterCounts, clusterSlots, graph.nodes, t, resolvedTheme?.id]);
 
   /** 有效位置：拖动过的用拖动值，其余用布局值。 */
   const positionById = useMemo(() => {
@@ -427,10 +501,24 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
 
     // 节点高亮是图形元素，走图形类阈值（3:1）的 accent-indicator，不是文字类的 accent-text
     const edgeColor = readColor(canvas, '--nexus-border-default');
-    const nodeColor = readColor(canvas, '--nexus-text-muted');
     const activeColor = readColor(canvas, '--nexus-accent-indicator');
+    // 活跃文档改用**描边**区分：填充已经被分区色占了，两个都用填充就分不出谁是谁
+    const activeRingColor = readColor(canvas, '--nexus-text-primary');
     // 断链走警告色：它不是「另一类文档」，是「这里缺了东西」
     const missingColor = readColor(canvas, '--nexus-status-warning-text');
+
+    // 分区着色。调色板借的是主题的 `syntax-*` token（理由见 graph-clusters.ts），
+    // 所以这里**不需要判断明暗** —— 读到的已经是当前主题的值。
+    const paletteColors = CLUSTER_TOKENS.map((token) => readColor(canvas, token));
+    const unclusteredColor = readColor(canvas, UNCLUSTERED_TOKEN);
+
+    const colorForNode = (node: GraphNode): string => {
+      if (node.kind !== 'document') return missingColor;
+      const cluster = clusterOf(node.relativePath);
+      if (cluster === null) return unclusteredColor;
+      const slot = clusterSlots.get(cluster);
+      return slot === undefined || slot === null ? unclusteredColor : paletteColors[slot]!;
+    };
 
     const normalizedActive = activeFilePath?.replace(/\\/g, '/');
     const isActiveNode = (node: GraphNode) =>
@@ -486,8 +574,17 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
       } else {
         context.beginPath();
         context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-        context.fillStyle = isActiveNode(node) ? activeColor : nodeColor;
+        context.fillStyle = colorForNode(node);
         context.fill();
+      }
+
+      // 活跃文档：填充表示分区，所以它改用描边 —— 密处一眼能认出来
+      if (node.kind === 'document' && isActiveNode(node)) {
+        context.strokeStyle = activeRingColor;
+        context.lineWidth = 2;
+        context.beginPath();
+        context.arc(screen.x, screen.y, radius + 3, 0, Math.PI * 2);
+        context.stroke();
       }
 
       // 悬停的那个点加一圈描边 —— 只靠不透明度区分，密处看不出是哪一个
@@ -572,7 +669,9 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     size,
     activeFilePath,
     hoveredId,
-    t
+    t,
+    // 换主题要重画 —— 画布的颜色是读出来定死在位图里的，不订阅就停在旧配色上
+    resolvedTheme?.id
   ]);
 
   return (
@@ -758,6 +857,25 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
                 }))
               )}
             />
+
+            {/*
+              图例是 **DOM 而不是画在 canvas 上**：它是可以选中、可以读屏的东西，
+              而 canvas 里画出来的文字两样都做不到。颜色值由绘制 effect 读出来传进来。
+            */}
+            {legend.length > 0 && (
+              <ul className="nexus-graph-legend" aria-label={t('graph.legend.title')}>
+                {legend.map((row) => (
+                  <li key={row.label} className="nexus-graph-legend-row" data-cluster={row.label}>
+                    <span
+                      className="nexus-graph-legend-swatch"
+                      style={{ backgroundColor: row.color }}
+                    />
+                    <span className="nexus-graph-legend-label">{row.label}</span>
+                    <span className="nexus-graph-legend-count">{row.count}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </>
         )}
       </div>
