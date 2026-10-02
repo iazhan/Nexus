@@ -684,25 +684,33 @@ export const RESTORE_LAST_WORKSPACE_FIELD: FieldDef = {
 };
 
 /**
- * 当前版本。**只读值，不是设置项** —— 它没有默认值、没有「改回去」，所以没有 `accessor`。
+ * 当前版本 + 检查更新。**只读值 + 一个动作**，两半说的是同一件事：「你装的是什么、
+ * 有没有更新的」。排在 `general` 组最后：前面几项都是「你可以改什么」，这一项是
+ * 「你现在装的是什么」。
  *
- * 排在 `general` 组最后：前面几项都是「你可以改什么」，这一项是「你现在装的是什么」。
+ * 版本号走主进程的 `app.getVersion()` 而不是渲染进程自己拼：渲染包里没有 `package.json`，
+ * 那是唯一能拿到真实版本号的地方，也因此不会出现「界面显示的版本与安装包不一致」。
  *
- * 调研表里这一行写的是「当前版本 / 检查更新 | 只读 + 按钮」，**只落只读那半**：另一半要一个
- * 更新检查通道（往哪问、问什么、失败怎么办、要不要自动检查），而 Nexus 现在没有发布通道。
- * 摆一个点了只会说「暂时无法检查更新」的按钮，比没有这个按钮更糟 —— 用户会以为网络坏了。
+ * `probe` 挡的是**未打包的构建**（`electron-vite dev`）：那种包里没有 `app-update.yml`，
+ * 更新通道根本不存在。按钮禁用 + 一行原因，比「点得动、点了说无法检查」好。
  *
- * 值走主进程的 `app.getVersion()` 而不是渲染进程自己拼：渲染包里没有 `package.json`，
- * 唯一能拿到真实版本号的地方就是那里。
+ * 检查结果的详细反馈（发现新版本 / 已是最新 / 出错）由**主进程弹窗**给出，不在这里 ——
+ * 「有没有新版本」是带数据的结果，而这个控件的回执行只有「已完成 / 失败」两档。
  */
 export const APP_VERSION_FIELD: FieldDef = {
   id: 'general.version',
   section: 'general',
   labelKey: 'settings.general.version',
   descriptionKey: 'settings.general.versionDescription',
-  keywords: ['版本号', '关于', '更新', 'version', 'about', 'build', 'update'],
-  control: 'readonly',
+  keywords: ['版本号', '关于', '更新', '升级', '检查更新', 'version', 'about', 'build', 'update', 'upgrade'],
+  control: 'action',
+  actionLabelKey: 'settings.general.checkUpdateAction',
+  probe: async () =>
+    (await window.nexus?.canCheckUpdates()) ? null : 'settings.general.updateUnavailable',
   readonlyValue: async () => (await window.nexus?.getAppVersion()) ?? null,
+  run: async () => {
+    await window.nexus?.checkForUpdates();
+  },
   menu: false
 };
 

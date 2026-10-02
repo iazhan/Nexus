@@ -1,0 +1,79 @@
+# electron-builder 打包配置。发布通道见 .github/workflows/release.yml。
+#
+# 三条判据（改之前先读）：
+#
+# 1. **`buildResources` 指向 `resources/` 而不是默认的 `build/`。**
+#    本仓的 .gitignore 把 `build/` 当构建产物忽略掉了（那是 vite / tsc 的惯例），
+#    而图标是**源文件** —— 放进 `build/` 会让它进不了版本库，换台机器打包就没了图标。
+#
+# 2. **`dependencies` 里只放打包后仍要从 node_modules 加载的四个包**，`files` 不列 node_modules。
+#    electron-builder 自己按 `dependencies` 收集生产依赖（devDependencies 一律不进包），
+#    再写一遍 `node_modules/**` 只会把 pnpm 的内部存储 `.pnpm` 一起卷进来。
+#
+#    `@nexus/*`、`react`、`react-dom`、`@fontsource-variable/*` 都在 **devDependencies**，
+#    这是有意的：它们连同整条依赖树（mermaid、katex、d3、codemirror…）已被 electron-vite
+#    打进 `out/`，运行时不需要。把它们挪回 `dependencies` 的后果**是静默的** ——
+#    electron-builder 会顺着依赖树再收一遍，asar 从 34.8MB 涨到 113MB，功能一切正常。
+#    `files` 里那条 `!node_modules/@nexus/**` 是第二道闸：即使有人挪错了，
+#    至少 workspace 包本身不会再进一份源码。
+#
+# 3. **`publish` 只是「发到哪」的定义，不等于「要不要发」。**
+#    它会写进包内的 app-update.yml，electron-updater 运行时读的就是它。
+#    真正发布与否由命令行决定：本地 `--publish never`，CI `--publish always`。
+appId: com.iazhan.nexus
+productName: Nexus
+copyright: Copyright © 2026 iazhan
+
+directories:
+  buildResources: resources
+  output: dist
+
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+  - '!node_modules/@nexus/**'
+  # `@napi-rs/canvas` 是 pdfjs-dist 的 optionalDependency，只有 Node 侧**渲染**才用它。
+  # Nexus 的 PDF 渲染在渲染进程（DOM canvas），主进程只用 pdfjs 抽文本 —— 实测剔掉后
+  # 抽文本的结果与剔掉前逐字节相同，pdfjs 只多打三条「rendering may be broken」的 warning。
+  # 代价是它带进来 27.3MB 的 skia 原生库 + 10.5MB 的 icudtl.dat（asar 之外还有 38MB）。
+  - '!node_modules/@napi-rs/**'
+
+# wasm 必须是磁盘上的真文件：node-sqlite3-wasm 加载它时不走 asar 的 fs 补丁。
+asarUnpack:
+  - '**/*.wasm'
+
+# 只留中英文的 Electron 界面资源（默认带几十种语言，几十 MB 里有一半是永远用不到的）。
+electronLanguages:
+  - zh-CN
+  - en-US
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.ico
+  # 默认名 `Nexus Setup 0.63.1.exe` 里有空格，下载到本地后不好在命令行里用。
+  artifactName: ${productName}-${version}-Setup.${ext}
+
+nsis:
+  # 非一键安装：给用户一个能选安装目录的机会。一键安装装到 %LOCALAPPDATA%，
+  # 用户既看不到也改不了，卸载时才想起来去找。
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Nexus
+  # 卸载时**保留**用户数据（设置、索引、最近工作区都在 userData 下）。
+  # 卸载重装是常见动作，顺手删掉用户攒下的偏好是这条通道唯一不可逆的失败方式。
+  deleteAppDataOnUninstall: false
+
+publish:
+  provider: github
+  owner: iazhan
+  repo: Nexus
+  # **不能改成 draft。** electron-updater 走 `releases/latest/download/latest.yml` 取最新版本，
+  # 而 draft release 不算 `latest` —— 症状是「发布明明成功了，所有客户端却都说已是最新」。
+  releaseType: release

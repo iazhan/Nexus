@@ -299,7 +299,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       'When the app starts with no folder, open the one you used last. Takes effect the next time the app starts.',
     'settings.general.version': 'Version',
     'settings.general.versionDescription':
-      'The build that is running right now. Read from the app itself — there is nothing to set here.',
+      'The build that is running right now, read from the app itself.',
+    'settings.general.checkUpdateAction': 'Check for updates',
+    'settings.general.updateUnavailable': 'Only packaged builds have an update channel.',
     'settings.editor.fontFamily': 'Font',
     'settings.editor.fontFamilyDescription':
       'Typeface for document text. Pick one of the presets, or type the name of any font installed on this computer.',
@@ -912,8 +914,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.general.restoreLastWorkspaceDescription':
       '应用不带目录启动时，直接打开上次用过的那个工作区。下次启动生效。',
     'settings.general.version': '当前版本',
-    'settings.general.versionDescription':
-      '此刻正在运行的版本号。由应用自己报出，这里没有可改的东西。',
+    'settings.general.versionDescription': '此刻正在运行的版本号，由应用自己报出。',
+    'settings.general.checkUpdateAction': '检查更新',
+    'settings.general.updateUnavailable': '开发模式下没有更新通道，请使用打包后的版本。',
     'settings.editor.fontFamily': '字体',
     'settings.editor.fontFamilyDescription':
       '正文的字体。可以选下面几档预设，也可以直接输入这台电脑上装了的字体名。',

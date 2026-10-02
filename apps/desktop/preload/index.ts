@@ -208,6 +208,14 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.getAppVersion);
   },
 
+  canCheckUpdates: (): Promise<boolean> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.canCheckUpdates);
+  },
+
+  checkForUpdates: (): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates);
+  },
+
   getDiagnostics: (): Promise<DiagnosticsReport> => {
     return ipcRenderer.invoke(IPC_CHANNELS.getDiagnostics);
   },

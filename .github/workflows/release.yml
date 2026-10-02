@@ -1,0 +1,77 @@
+# 发布流水线：推一个 `v*` tag，远端编译出 Windows 安装包并发到 Releases。
+#
+# ## 为什么是 tag 触发而不是 push 到 master
+#
+# 版本号在 Nexus 是**单一事实源**（VERSIONING.md）：`pnpm version:bump` 推进十个清单，
+# 提交跟着走，tag 是「这个提交就是那个版本」的落款。挂在分支上编译等于把「哪次提交
+# 对应哪个安装包」这件事交给时间顺序，而 tag 是唯一能回答它的东西。
+#
+# ## 三条判据
+#
+# 1. **tag 必须与 `package.json` 的版本号相等。** 不等就退出 —— 否则会产出一个
+#    文件名写着 A、`app.getVersion()` 报 B 的安装包，而自动更新正是靠这两个值比较的。
+#
+# 2. **`contents: write` 是必需的。** 仓库默认的 `GITHUB_TOKEN` 可能只读，
+#    少了这一句的表现是「打包全成功、上传资产 403」。
+#
+# 3. **`releaseType: release`（在 electron-builder.yml 里）不能改成 draft。**
+#    electron-updater 走 `releases/latest/download/latest.yml` 取最新版本，
+#    而 draft release 不在 `latest` 里 —— 症状是「发布成功了，但所有客户端都说已是最新」。
+#
+# ## 刻意不做的事
+#
+# **不跑测试。** 这里的职责是「把已提交的代码打成包」，而 desktop 那批真机用例要驱动
+# 真实 Electron 进程（本地全量 131–137s，且对机器状态敏感）。让发布卡在一个与本次
+# 改动无关的环境问题上，比少跑一轮更糟。测试是提交前的闸门，由本地负责。
+#
+# **只出 Windows。** 加 macOS 要另起一个 `macos-latest` job（签名与公证是另一摊事），
+# 加 Linux 要 `AppImage` target。三个平台各自的 updater 元文件名不同
+# （`latest.yml` / `latest-mac.yml` / `latest-linux.yml`），加的时候要一起考虑。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 校验 tag 与版本号一致
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} 与 package.json 的 ${pkg} 不一致 —— 先 pnpm version:bump 再打 tag"
+            exit 1
+          fi
+          echo "版本 ${pkg} 与 tag 一致"
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        run: pnpm build
+
+      - name: 打包并发布到 Releases
+        run: pnpm --filter @nexus/desktop exec electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

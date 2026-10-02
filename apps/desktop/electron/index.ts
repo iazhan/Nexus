@@ -34,6 +34,8 @@ import { deriveTitle, indexSingleFile, indexWorkspace } from './indexer.js';
 import { rewriteReferencesInSource } from './link-rewrite.js';
 import { findMentionsOfDocument } from './mentions.js';
 import { createProcessorRegistry } from './processor/index.js';
+import { checkForUpdatesManually, setupAutoUpdater, updatesSupported } from './updater.js';
+import { forgetWindow, isWindowDirty, markWindowDirty } from './window-dirty.js';
 import {
   DELETE_MODES,
   IPC_CHANNELS,
@@ -330,7 +332,7 @@ function createWindow(): BrowserWindowType {
   broadcastWindowState(mainWindow);
 
   mainWindow.on('close', async (event) => {
-    const isDirty = windowDirtyMap.get(mainWindow.id) ?? false;
+    const isDirty = isWindowDirty(mainWindow.id);
     if (isDirty) {
       event.preventDefault();
 
@@ -354,7 +356,7 @@ function createWindow(): BrowserWindowType {
         mainWindow.webContents.send(IPC_CHANNELS.requestSaveAndClose);
       } else if (choice === 1) {
         // 不保存直接退出
-        windowDirtyMap.set(mainWindow.id, false);
+        markWindowDirty(mainWindow.id, false);
         mainWindow.close();
       }
       // choice === 2 取消：已通过 preventDefault 阻止关闭
@@ -377,6 +379,9 @@ function createWindow(): BrowserWindowType {
   // 主窗口没了，设置窗口跟着走。不这么做的话关掉主窗口会留下一个孤立的设置窗口
   // （`window-all-closed` 也就永远不触发，进程不退出）。
   mainWindow.once('closed', () => {
+    // 忘掉这个窗口的脏标记。窗口 id 不复用，但残留的 `true` 会让「有没有未保存的更改」
+    // 永远为真 —— 那正是更新安装判定「能不能立即重启」的依据。
+    forgetWindow(mainWindow.id);
     closeSettingsWindow();
     closeThemeWindow();
   });
@@ -497,8 +502,6 @@ function closeThemeWindow(): void {
   if (themeWindow && !themeWindow.isDestroyed()) themeWindow.close();
   themeWindow = null;
 }
-
-const windowDirtyMap = new Map<number, boolean>();
 
 interface WebContentsSession {
   service: FileService;
@@ -1089,6 +1092,20 @@ ipcMain.handle(IPC_CHANNELS.openHistoryDirectory, async (event, rootPath: unknow
 ipcMain.handle(IPC_CHANNELS.getAppVersion, () => app.getVersion());
 
 /**
+ * 这个构建有没有更新通道。设置页的「检查更新」按钮据此禁用并说明原因 ——
+ * 未打包时（`electron-vite dev`）包里没有 `app-update.yml`，点下去只会失败。
+ */
+ipcMain.handle(IPC_CHANNELS.canCheckUpdates, () => updatesSupported());
+
+/**
+ * 手动检查更新。走 `handle` 而不是 `on`：设置页的按钮要在等待期间禁用（防连点），
+ * 而它需要能等到这次检查真的开始。
+ *
+ * 反馈不从这里返回 —— 主进程会直接弹窗（发现新版本 / 已是最新 / 失败）。
+ */
+ipcMain.handle(IPC_CHANNELS.checkForUpdates, () => checkForUpdatesManually());
+
+/**
  * 诊断信息。用户报问题时贴出来的一段事实。
  *
  * **不接受参数**（与 `getAppVersion` 同理，但理由不同）：工作区根由主进程从自己的会话里取，
@@ -1540,14 +1557,14 @@ ipcMain.handle(IPC_CHANNELS.getGraphHubs, (event, limit: unknown) => {
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {
-    windowDirtyMap.set(win.id, Boolean(isDirty));
+    markWindowDirty(win.id, Boolean(isDirty));
   }
 });
 
 ipcMain.on(IPC_CHANNELS.readyToClose, (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {
-    windowDirtyMap.set(win.id, false);
+    markWindowDirty(win.id, false);
     win.close();
   }
 });
@@ -1632,6 +1649,10 @@ ipcMain.handle(IPC_CHANNELS.syncHostSettings, async (_event, payload: unknown) =
 // App lifecycle
 app.whenReady().then(() => {
   createWindow();
+
+  // 更新通道在窗口之后接：它 8 秒后才发第一次请求，但弹窗需要一个已存在的窗口做父级。
+  // 未打包时 `setupAutoUpdater` 是空操作。
+  setupAutoUpdater();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

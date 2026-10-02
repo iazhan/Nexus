@@ -9,8 +9,8 @@ Nexus 的所有包与桌面应用**共用同一个版本号**，落在各自 `pa
 为什么不是每包独立：10 个包全部 `private: true`、彼此以 `workspace:*` 互链、不单独发布到 npm。
 独立版本号只会制造 10 个互相漂移的机会，换不来任何收益。
 
-**当前版本：`0.13.0`**（2026-09-27）。查实时值用 `pnpm version:show` —— 这行是快照，
-不是事实源，**别信它、别手改它**，要改就改清单文件（或直接 `pnpm version:bump`）。
+**当前版本查实时值：`pnpm version:show`。** 这里刻意不写快照 —— 写下来就会过期，
+而过期的版本号比没有更糟（会被当成事实源引用）。
 
 ## 推进规则
 
@@ -40,10 +40,28 @@ git commit -m "fix(editor): stop click hit area drifting below tables"
 
 # 5. 打 tag
 git tag v0.1.1
+
+# 6. 推 tag —— 远端编译出安装包并发到 Releases
+git push origin v0.1.1
 ```
 
 **版本号的调整必须与提交内容在同一个提交里** —— 单独一个 `chore: bump version` 提交会让
 「哪个版本对应哪份代码」这件事断链。
+
+## 发布
+
+推一个 `v*` tag 会触发 `.github/workflows/release.yml`：校验 tag 与清单版本相等 → 构建 →
+electron-builder 打出 Windows 安装包 → 发到 GitHub Releases（含 `latest.yml`）。
+
+两件事由流水线自己保证，不需要人记：
+
+- **tag 必须与版本号相等**，否则流水线直接失败。产出一个文件名写着 A、`app.getVersion()`
+  报 B 的包，自动更新就永远比不出新旧。
+- **Release 不是 draft**（`electron-builder.yml` 的 `releaseType: release`）。
+  electron-updater 走 `releases/latest/download/latest.yml` 取最新版本，draft 不算 `latest`。
+
+**推 tag 之前先跑一遍本地验证**（typecheck + 相关测试）：流水线刻意不跑测试，
+它的职责是「把已提交的代码打成包」。判据与命令见 `.workbuddy-ai/memory/build-and-test.md`。
 
 ## 命令
 

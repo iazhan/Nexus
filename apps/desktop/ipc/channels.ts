@@ -97,6 +97,20 @@ export const IPC_CHANNELS = {
    */
   getAppVersion: 'nexus:get-app-version',
   /**
+   * 这个构建**有没有**更新通道 —— 即是否打包过。
+   *
+   * 单独一条而不是让渲染进程看 `getDiagnostics` 里的某个字段：设置页的「检查更新」按钮
+   * 要据此决定禁不禁用（`FieldDef.probe` 返回的是「为什么不能」的字典键，不是数据）。
+   * 未打包时 `app-update.yml` 不存在，整条通道是死的 —— 让按钮点得动、点了弹一句
+   * 「无法检查更新」，比直接禁用并说明原因更差。
+   */
+  canCheckUpdates: 'nexus:can-check-updates',
+  /**
+   * 手动检查更新。**反馈（有新版本 / 已是最新 / 出错）由主进程弹窗承担**，
+   * 这条通道只负责「触发」—— 返回值里没有结果，因为没有第二个消费者。
+   */
+  checkForUpdates: 'nexus:check-for-updates',
+  /**
    * 诊断信息：版本、平台、运行时版本、工作区与索引库的文件系统事实。
    *
    * **没有参数、不查授权**（与 `getAppVersion` 同理）：工作区根由主进程从自己的会话里取，

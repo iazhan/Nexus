@@ -2,6 +2,21 @@ import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 
+/**
+ * ## 打包相关的一条判据（动依赖时必读）
+ *
+ * `apps/desktop/package.json` 的 `dependencies` 里**只放打包后仍要从 node_modules 加载的包**：
+ * mammoth / node-sqlite3-wasm / pdfjs-dist / electron-updater。
+ *
+ * `@nexus/*`、`react`、`react-dom`、`@fontsource-variable/*` 都是**构建期**依赖 ——
+ * 它们连同整条依赖树（mermaid、katex、d3、codemirror…）在这里被打进 `out/`，
+ * 所以放在 `devDependencies`。下面那份 `exclude` 列表是「谁必须被 bundle」的显式答案，
+ * 与「谁不在 dependencies 里」目前重合，保留它是为了让这件事有一处写着的地方。
+ *
+ * 把那些包挪回 `dependencies` 的后果是**静默的**：electron-builder 会顺着依赖树把它们
+ * 再收一遍进 asar（实测 34.8MB → 113MB），功能一切正常，只有安装包白白胖三倍。
+ * 判据见 `apps/desktop/electron-builder.yml` 的头注释。
+ */
 export default defineConfig(({ command }) => {
   const isDev = command === 'serve';
   const resolveConfig = isDev

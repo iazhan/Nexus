@@ -348,6 +348,18 @@ describe('设置窗口', () => {
       await app.evaluate<number>(`document.querySelectorAll('[data-field-readonly]').length`)
     ).toBe(1);
 
+    // ④c⁗″ 「检查更新」。上面那个只读值是这一行的前半截（装的是什么），这里是后半截
+    //      （有没有新的）。测试进程**没有打包**，主进程的 `canCheckUpdates()` 因此答 false ——
+    //      按钮应当是「禁用 + 一行原因」，这正是「未打包的构建没有更新通道」在界面上的样子。
+    //      钉的是那条 preload 通道真的接上了：renderer 用例里 `window.nexus` 是打桩的。
+    await app.waitForSelector('[data-field-action="general.version"]', 10000);
+    await app.waitForSelector('[data-field-blocked="general.version"]', 10000);
+    expect(
+      await app.evaluate<boolean>(
+        `document.querySelector('[data-field-action="general.version"]').disabled`
+      )
+    ).toBe(true);
+
     // ④d 数据分组在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
     //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」
     //     这两件事只有真机验证得到，renderer 用例里那个 `window.nexus` 是打桩的。
