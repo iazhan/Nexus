@@ -15,7 +15,7 @@ import {
   rankClusters
 } from './graph-clusters.js';
 import { HubsList, OrphansList } from './GraphLists.js';
-import { layoutGraph } from './graph-layout.js';
+import { iterationsForNodeCount, layoutGraph } from './graph-layout.js';
 import { planGraphLabels, type GraphLabelCandidate, type GraphLabelPlacement } from './graph-labels.js';
 import {
   IDENTITY_VIEW,
@@ -63,6 +63,18 @@ const FIT_PADDING_PX = 28;
 const CLICK_SLOP_PX = 4;
 /** 悬停时非邻域节点的不透明度。太低会看不清「图还在那儿」。 */
 const DIM_ALPHA = 0.25;
+
+/**
+ * 画布尺寸变化后等多久才重算布局。
+ *
+ * 拖侧栏时 `ResizeObserver` **每个像素都报一次**，而一次布局是 300 次迭代的 O(n²) ——
+ * 不防抖的话拖动全程都在重算（100 篇实测 8ms/次、400 篇 136ms/次，后者直接卡成幻灯片）。
+ * 等尺寸停下来再算：拖动过程中图保持旧形状，松手后 150ms 内收敛。
+ *
+ * 150ms 是「看不出停顿」与「不白算」之间的取：再短会在一帧内算好几遍，
+ * 再长用户会觉得松手之后图愣一下。
+ */
+const LAYOUT_SETTLE_MS = 150;
 
 
 /*
@@ -247,10 +259,35 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  /*
+    布局用的是**稳定之后**的尺寸，绘制用的是当前尺寸。
+
+    首次拿到非零尺寸时立即算一次（否则打开面板要空等 150ms）；之后的每次变化都等它停下来。
+  */
+  const [layoutSize, setLayoutSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    if (size.width <= 0 || size.height <= 0) return;
+    if (layoutSize.width === 0) {
+      setLayoutSize({ width: size.width, height: size.height });
+      return;
+    }
+
+    const timer = setTimeout(
+      () => setLayoutSize({ width: size.width, height: size.height }),
+      LAYOUT_SETTLE_MS
+    );
+    return () => clearTimeout(timer);
+  }, [size.width, size.height, layoutSize.width]);
+
   const layout = useMemo(() => {
-    if (size.width <= 0 || size.height <= 0) return [];
-    return layoutGraph(graph, { width: size.width, height: size.height });
-  }, [graph, size.width, size.height]);
+    if (layoutSize.width <= 0 || layoutSize.height <= 0) return [];
+    return layoutGraph(graph, {
+      width: layoutSize.width,
+      height: layoutSize.height,
+      // 节点一多就把迭代次数压下来，代价与推导见 iterationsForNodeCount
+      iterations: iterationsForNodeCount(graph.nodes.length)
+    });
+  }, [graph, layoutSize.width, layoutSize.height]);
 
   /*
     布局重排就丢弃拖动结果。

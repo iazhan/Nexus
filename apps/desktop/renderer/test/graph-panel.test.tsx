@@ -23,11 +23,27 @@ import { GRAPH_MODE_DEFAULT, GRAPH_SCOPE_DEFAULT } from '../src/settings/prefere
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** happy-dom 没有 ResizeObserver；组件靠它量画布。给一个永远不触发的桩就够。 */
+/**
+ * happy-dom 没有 ResizeObserver；组件靠它量画布。
+ *
+ * 记下每个实例的回调，让「尺寸变了」这件事在用例里**可控** —— 否则
+ * 「拖侧栏时等尺寸停下来再重算布局」这条判据根本没法验。
+ */
 class StubResizeObserver {
+  static instances: StubResizeObserver[] = [];
+
+  constructor(private readonly callback: () => void) {
+    StubResizeObserver.instances.push(this);
+  }
+
   observe(): void {}
   disconnect(): void {}
   unobserve(): void {}
+
+  /** 模拟一次尺寸变化。 */
+  fire(): void {
+    this.callback();
+  }
 }
 
 const node = (id: number, name: string, type: string, degree: number) => ({
@@ -74,6 +90,7 @@ describe('图谱控制条', () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
+    StubResizeObserver.instances = [];
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = StubResizeObserver;
 
     /*
@@ -123,6 +140,7 @@ describe('图谱控制条', () => {
     settings.set('graph.mode', GRAPH_MODE_DEFAULT);
     settings.set('graph.scope', GRAPH_SCOPE_DEFAULT);
     settings.set('graph.hiddenTypes', []);
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -282,6 +300,46 @@ describe('图谱控制条', () => {
     const rows = container.querySelectorAll('.nexus-graph-legend-row');
     expect(rows).toHaveLength(1);
     expect(rows[0]!.getAttribute('data-cluster')).toBe('Other');
+  });
+
+  it('拖侧栏时等尺寸停下来再重算布局', async () => {
+    /*
+      拖侧栏时 `ResizeObserver` 每个像素报一次，而一次布局是 300 次迭代的 O(n²)。
+      不防抖的话拖动全程都在重算 —— 400 篇实测 136ms/次，直接卡成幻灯片。
+    */
+    vi.useFakeTimers();
+    await render();
+
+    const body = container.querySelector<HTMLElement>('.nexus-graph-body')!;
+    const size = (width: number, height: number) => {
+      Object.defineProperty(body, 'clientWidth', { value: width, configurable: true });
+      Object.defineProperty(body, 'clientHeight', { value: height, configurable: true });
+    };
+    const positions = () =>
+      container.querySelector('.nexus-graph-hitmap')!.getAttribute('data-nodes');
+
+    const observer = StubResizeObserver.instances.at(-1)!;
+
+    // 第一次拿到非零尺寸：立即算，不能等 150ms
+    size(400, 300);
+    await act(async () => {
+      observer.fire();
+    });
+    const at400 = positions();
+    expect(JSON.parse(at400!)).toHaveLength(4);
+
+    // 尺寸再变：**不**立刻重算
+    size(520, 300);
+    await act(async () => {
+      observer.fire();
+    });
+    expect(positions()).toBe(at400);
+
+    // 等过防抖窗口之后才算，而且坐标确实变了（说明真的按新尺寸重算过）
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(positions()).not.toBe(at400);
   });
 
   it('三个视图开关，切到清单时画布让位', async () => {

@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { WorkspaceGraph } from '@nexus/core';
-import { GRAPH_EDGE_PADDING, layoutGraph } from '../src/workspace/graph-layout.js';
+import {
+  DEFAULT_ITERATIONS,
+  GRAPH_EDGE_PADDING,
+  iterationsForNodeCount,
+  layoutGraph
+} from '../src/workspace/graph-layout.js';
 
 const SIZE = { width: 400, height: 300 };
 
@@ -16,6 +21,51 @@ function makeGraph(nodeIds: number[], edges: Array<[number, number]>): Workspace
     edges: edges.map(([source, target]) => ({ source, target }))
   };
 }
+
+/**
+ * 迭代次数按节点数收缩。
+ *
+ * 斥力是 O(n²)，800 个节点跑满 300 次迭代实测 451ms —— 肉眼可见的卡死。
+ * 真实工作区（~100 篇）只有 8ms，所以这个收缩平时不生效，它是给大库兜底的。
+ */
+describe('布局迭代预算', () => {
+  it('小图跑满上限', () => {
+    expect(iterationsForNodeCount(10)).toBe(DEFAULT_ITERATIONS);
+    expect(iterationsForNodeCount(100)).toBe(DEFAULT_ITERATIONS);
+    expect(iterationsForNodeCount(200)).toBe(DEFAULT_ITERATIONS);
+  });
+
+  it('节点一多就往下压', () => {
+    // 与实测对齐：n=800 压到两位数（451ms → 约 130ms）
+    const at800 = iterationsForNodeCount(800);
+    expect(at800).toBeLessThan(DEFAULT_ITERATIONS);
+    expect(at800).toBeGreaterThanOrEqual(40);
+    // 单调：节点越多，迭代越少
+    expect(iterationsForNodeCount(1600)).toBeLessThan(at800);
+  });
+
+  it('有下限，不会退化成只画个圆环', () => {
+    // 只跑几次迭代的图基本还是初始圆环的形状，没有可读性
+    expect(iterationsForNodeCount(1_000_000)).toBeGreaterThanOrEqual(40);
+  });
+
+  it('空图与非法输入回到默认值', () => {
+    expect(iterationsForNodeCount(0)).toBe(DEFAULT_ITERATIONS);
+    expect(iterationsForNodeCount(-5)).toBe(DEFAULT_ITERATIONS);
+    expect(iterationsForNodeCount(Number.NaN)).toBe(DEFAULT_ITERATIONS);
+  });
+
+  it('按节点数传进去时结果与不传一致 —— 小图上不该有任何差别', () => {
+    const graph = makeGraph([1, 2, 3, 4], [[1, 2], [2, 3]]);
+    const implicit = layoutGraph(graph, SIZE);
+    const explicit = layoutGraph(graph, {
+      ...SIZE,
+      iterations: iterationsForNodeCount(graph.nodes.length)
+    });
+
+    expect(explicit).toEqual(implicit);
+  });
+});
 
 describe('图谱布局', () => {
   it('空图返回空数组', () => {
