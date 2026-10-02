@@ -10,8 +10,11 @@ import {
  * 活动栏布局状态（VSCode 式侧栏）。
  *
  * 这个 reducer 只有两条规则，但两条都有容易做错的地方：
- *   - 「再点同一个图标收起」要保留 activeId（图标仍高亮）
+ *   - 「再点同一个图标收起」要保留 activeId（**不是**为了高亮 —— 高亮是
+ *     `activeId && panelOpen` 派生的，收起时会消失；保留它是为了「下次展开还是这一屏」）
  *   - 「切换图标」不能经过「关→开」（否则宽度动画会闪）
+ *
+ * 高亮本身的判据在组件层，用例在 `activity-bar.test.tsx`。
  */
 describe('活动栏状态', () => {
   it('初始状态自洽：图标选中的同时面板就是打开的', () => {
@@ -30,7 +33,8 @@ describe('活动栏状态', () => {
     const closed = toggleActivity(opened, 'workspace');
 
     expect(closed.panelOpen).toBe(false);
-    // 关键：收起后图标仍然高亮，表示「上次看的是这个」
+    // 关键：activeId 留着 —— 下次展开还是这一屏，面板槽也还挂在它上面。
+    // 但**图标不再高亮**，那由组件按 `activeId && panelOpen` 派生。
     expect(closed.activeId).toBe('workspace');
   });
 

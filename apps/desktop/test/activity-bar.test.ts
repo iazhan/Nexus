@@ -24,8 +24,9 @@ const activeIcon = (app: ElectronAppInstance) =>
 /**
  * 活动栏（VSCode 式侧栏）的交互。
  *
- * 状态层自己的 8 条用例在 `renderer/test/activity-bar-state.test.ts`，这里验证它
- * 接进 App 之后的行为：展开、再点收起、点别的切换，以及「收起后图标仍高亮」。
+ * 状态层自己的用例在 `renderer/test/activity-bar-state.test.ts`，高亮的类名与
+ * `aria-pressed` 是否一致在 `renderer/test/activity-bar.test.tsx`。
+ * 这里验证它接进 App 之后的行为：展开、再点收起（**高亮一起消失**）、点别的切换。
  */
 describe('活动栏与侧栏面板', () => {
   let tempDir: string;
@@ -53,7 +54,7 @@ describe('活动栏与侧栏面板', () => {
 
   // 超时放宽到 45s：这个用例跑完整交互链（4 次图标点击 + Ctrl+N + 几何测量），
   // 再加上 Electron 冷启动，30s 的默认上限不够。
-  it('展开、再点收起、点别的切换，且收起后图标仍高亮', async () => {
+  it('展开、再点收起（高亮一起消失）、点别的切换', async () => {
     activeApp = await launchElectronApp({ filePath: workspace });
     const app = activeApp;
     await app.waitForSelector('.nexus-activity-bar', 20000);
@@ -85,15 +86,20 @@ describe('活动栏与侧栏面板', () => {
       `Math.round(document.querySelector('.nexus-activity-panel').getBoundingClientRect().width) <= 1`,
       5000
     );
-    // 收起后图标仍高亮，表示「上次看的是这个」
-    expect(await activeIcon(app)).toBe('workspace');
+    /*
+      收起后**不该**还有高亮。高亮表达的是「现在看的这一屏就是它」，
+      面板都收起来了这句话就不成立 —— 而且留着它会让「一个图标亮着、什么都没有」
+      成为默认状态。
+    */
+    expect(await activeIcon(app)).toBe('(无)');
 
-    // 再点一次 → 重新展开
+    // 再点一次 → 重新展开，高亮回来
     await app.click('.nexus-activity-icon[data-activity="workspace"]');
     await app.waitForFunction(
       `Math.round(document.querySelector('.nexus-activity-panel').getBoundingClientRect().width) === 240`,
       5000
     );
+    expect(await activeIcon(app)).toBe('workspace');
 
     // 点搜索 → 切换过去（面板重新展开，高亮换人）
     await app.click('.nexus-activity-icon[data-activity="search"]');
