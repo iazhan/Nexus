@@ -23,6 +23,16 @@
  *    系统语言 —— 这是刻意接受的：为一年响不了几次的弹窗新增一条「把 locale 送给主进程」
  *    的宿主设置通道不划算。真要改，改法是把它加进 `HostSettings`（见 `ipc/channels.ts`
  *    里那份「加一项的条件」）。
+ *
+ * 5. **「有没有新版本」只认 `checkForUpdates()` 返回值上的 `isUpdateAvailable`。**
+ *    它在**没有更新时也返回对象**（只有未打包才返回 `null`），而那个对象的
+ *    `updateInfo.version` 是**远端那个** —— 本地版本高于远端时它照样是个合法版本号。
+ *    拿它跟 `app.getVersion()` 比字符串，会把「远端更低」误判成「有新版本」：
+ *    弹一句「正在后台下载」，而 `isUpdateAvailable` 为 false 的那一支**压根不建
+ *    `downloadPromise`**，于是什么都不会下、`update-downloaded` 永不触发 ——
+ *    用户等的是一个永远不来的第二次提示。而「本地领先于远端」恰好是**开发机常态**
+ *    （本地版本总比已发布的那个新）。`isUpdateAvailable` 内部是 semver 比较，
+ *    且 `allowDowngrade` 默认为 false，等 / 低 / 高三种组合由它一处判对。
  */
 
 import { app, BrowserWindow, dialog } from 'electron';
@@ -204,9 +214,10 @@ export async function checkForUpdatesManually(): Promise<void> {
 
   try {
     const result = await autoUpdater.checkForUpdates();
-    const latest = result?.updateInfo.version;
 
-    if (!latest || latest === app.getVersion()) {
+    // 判据是 `isUpdateAvailable`（semver + 不许降级），不是 `updateInfo.version`
+    // 跟 `app.getVersion()` 比字符串 —— 理由见文件头第 5 条。
+    if (!result?.isUpdateAvailable) {
       await showMessage({
         type: 'info',
         title: m.upToDateTitle,
@@ -220,7 +231,7 @@ export async function checkForUpdatesManually(): Promise<void> {
     await showMessage({
       type: 'info',
       title: m.startedTitle,
-      message: m.startedMessage(latest)
+      message: m.startedMessage(result.updateInfo.version)
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
