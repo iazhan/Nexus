@@ -180,7 +180,8 @@ function consumesNextArgAsValue(
  *    - Otherwise the optional `classifyPath` callback decides:
  *        'directory' → mode 'workspace' with workspaceRoot set;
  *        'file' / 'unknown' / callback absent → mode 'lightweight' with unsupportedPath set.
- * 6. If no candidate argument is found, returns default empty lightweight context.
+ * 6. If no candidate argument is found, returns `DEFAULT_LAUNCH_CONTEXT` —— 裸启动，
+ *    也就是工作区模式（目录由启动回落补，见 `applyRecentWorkspace`）。
  *
  * @param argv - The argument vector (e.g. process.argv or slice thereof)
  * @param options - Optional configuration including explicit execPath and additional value flags
@@ -284,6 +285,9 @@ export function parseLaunchArgs(
     };
   }
 
+  // 打不开的路径**不能**跟着默认值变成 workspace：那会让「双击一个 .xyz 文件」
+  // 表现成「打开了一个工作区」，而用户需要看到的是那句「不支持的文件」。
+  // 所以这一支显式写 `lightweight`，与「什么都没给」区分开。
   return {
     mode: 'lightweight',
     filePath: null,

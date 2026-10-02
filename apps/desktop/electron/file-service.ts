@@ -1292,6 +1292,32 @@ export class FileService {
   }
 
   /**
+   * 打开一个工作区：给了路径就用它，没给就弹目录选择框。返回规范化后的绝对路径。
+   *
+   * 与 `openFile` 同形（`filePath` 缺省时弹框），差别在**后果**：这一条会把整个目录
+   * 授权成可读写，而 `openFile` 只放行一个文件。所以「选目录」和「授权」合成一步 ——
+   * 对话框返回的路径在授权之前不是可用的工作区，调用方拿到它之后唯一该做的事就是授权，
+   * 拆开只会多出「忘了授权」这一种错误状态，而它的症状（文件树全空、读写全
+   * `OUT_OF_BOUNDS`）离原因很远。
+   *
+   * 取消**返回 `null`**，不抛 `CANCELLED`：`openFile` / `saveAs` 抛错是因为它们承诺
+   * 返回一个可用路径，这条没有这个承诺 —— 「用户改主意了」在这里是正常结局，
+   * 调用方除了什么都不做没有别的反应。
+   */
+  async openWorkspace(rootPath?: string | null): Promise<string | null> {
+    let target = rootPath;
+    if (!target) {
+      if (!this.dialog) {
+        throw new FileServiceError('IO_ERROR', '未注入 FileDialog，无法打开目录选择对话框');
+      }
+      target = await this.dialog.openDirectory();
+      if (!target) return null;
+    }
+
+    return await this.authorizeWorkspace(target);
+  }
+
+  /**
    * 授权一个**资源读取**根目录：该目录下的白名单文件可经 `nexus-asset://` 读取。
    *
    * 与 `authorizeWorkspace` 的唯一区别是**登记到 `assetRoots` 而不是 `allowedRoots`**，

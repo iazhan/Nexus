@@ -74,13 +74,16 @@ describe('主进程宿主设置', () => {
   });
 
   describe('updateHostSettings · 补丁合并', () => {
-    it('初始值等于「加这条通道之前的行为」', () => {
-      // `historyRetention: null` 就是那个「之前的行为」：没听到设置之前不删任何历史。
+    it('初始值：删历史那一项保守，恢复工作区那一项跟设置默认值', () => {
+      // `historyRetention: null` 是那个「更保守」的取值：没听到设置之前不删任何历史。
       // 它**不等于**设置项的默认档位（100）—— 前者是「还没听到」，后者是「用户没选过」。
+      //
+      // `restoreLastWorkspace: true` 则相反，与设置项的默认值一致：关掉它只是让人看到
+      // 欢迎态，不涉及任何不可逆动作，所以这里没有「保守」可言。
       expect(hostSettings()).toEqual({
         ignoreRules: [],
         historyRetention: null,
-        restoreLastWorkspace: false
+        restoreLastWorkspace: true
       });
     });
 
@@ -105,7 +108,7 @@ describe('主进程宿主设置', () => {
       expect(hostSettings()).toEqual({
         ignoreRules: ['drafts'],
         historyRetention: 50,
-        restoreLastWorkspace: false
+        restoreLastWorkspace: true
       });
     });
 
@@ -116,7 +119,7 @@ describe('主进程宿主设置', () => {
       expect(hostSettings()).toEqual({
         ignoreRules: [],
         historyRetention: null,
-        restoreLastWorkspace: false
+        restoreLastWorkspace: true
       });
     });
   });

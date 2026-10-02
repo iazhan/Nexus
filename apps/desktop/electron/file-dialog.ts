@@ -14,6 +14,15 @@ export interface FileDialogOptions {
 export interface FileDialog {
   openFile: (options?: FileDialogOptions) => Promise<string | null>;
   saveFile: (options?: FileDialogOptions) => Promise<string | null>;
+  /**
+   * 选一个**目录**（工作区根）。
+   *
+   * 与 `openFile` 分开而不是加个 `kind` 参数：两者返回的都是路径字符串，但
+   * `properties: ['openDirectory']` 与 `['openFile']` 在系统对话框里的行为差别很大
+   * （能不能选目录、能不能多选、过滤器是否生效），合并成一个函数只会让调用方
+   * 传一个自己也不确定该传什么的枚举。
+   */
+  openDirectory: (options?: FileDialogOptions) => Promise<string | null>;
 }
 
 /**
@@ -54,6 +63,24 @@ export function createElectronFileDialog(browserWindow?: BrowserWindow): FileDia
         return null;
       }
       return result.filePath;
+    },
+    async openDirectory(options?: FileDialogOptions): Promise<string | null> {
+      const electron = await import('electron');
+      const dialog = electron.dialog;
+      // 不带 `filters`：目录选择器上的过滤器在三个平台上行为不一致，而工作区根
+      // 本来就不该按扩展名筛 —— 用户要选的是一个文件夹，不是文件夹里的某类文件。
+      const opts = {
+        title: options?.title ?? '打开工作区文件夹',
+        defaultPath: options?.defaultPath,
+        properties: ['openDirectory' as const, 'createDirectory' as const]
+      };
+      const result = browserWindow
+        ? await dialog.showOpenDialog(browserWindow, opts)
+        : await dialog.showOpenDialog(opts);
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+      return result.filePaths[0] ?? null;
     }
   };
 }

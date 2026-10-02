@@ -19,7 +19,7 @@ describe('宿主设置同步', () => {
     // 必须走 `settings.set` 才能把上一轮用例的改动还原。
     settings.set('files.ignoreRules', '');
     settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
-    settings.set('general.restoreLastWorkspace', false);
+    settings.set('general.restoreLastWorkspace', true);
     syncSpy = vi.fn().mockResolvedValue(undefined);
     (window as unknown as { nexus?: unknown }).nexus = { syncHostSettings: syncSpy };
   });
@@ -30,7 +30,7 @@ describe('宿主设置同步', () => {
     delete (window as unknown as { nexus?: unknown }).nexus;
     settings.set('files.ignoreRules', '');
     settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
-    settings.set('general.restoreLastWorkspace', false);
+    settings.set('general.restoreLastWorkspace', true);
   });
 
   it('启动时立刻推一次，值已经归一化', async () => {
@@ -42,7 +42,7 @@ describe('宿主设置同步', () => {
     expect(syncSpy).toHaveBeenCalledWith({
       ignoreRules: ['Drafts', 'notes/private'],
       historyRetention: 100,
-      restoreLastWorkspace: false
+      restoreLastWorkspace: true
     });
   });
 
@@ -53,7 +53,7 @@ describe('宿主设置同步', () => {
     expect(syncSpy).toHaveBeenCalledWith({
       ignoreRules: [],
       historyRetention: 100,
-      restoreLastWorkspace: false
+      restoreLastWorkspace: true
     });
   });
 
@@ -69,7 +69,7 @@ describe('宿主设置同步', () => {
     expect(syncSpy).toHaveBeenLastCalledWith({
       ignoreRules: ['drafts'],
       historyRetention: 100,
-      restoreLastWorkspace: false
+      restoreLastWorkspace: true
     });
   });
 
@@ -123,7 +123,7 @@ describe('宿主设置同步', () => {
     expect(syncSpy).toHaveBeenLastCalledWith({
       ignoreRules: ['drafts'],
       historyRetention: 100,
-      restoreLastWorkspace: false
+      restoreLastWorkspace: true
     });
     consoleError.mockRestore();
   });
@@ -187,7 +187,18 @@ describe('宿主设置同步', () => {
    * 真机用例各测一半。
    */
   describe('启动时恢复上次工作区', () => {
-    it('默认送 false —— 没打开这一项时，空启动还是空启动', async () => {
+    it('默认送 true —— 双击图标回到上次那个库', async () => {
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ restoreLastWorkspace: true })
+      );
+    });
+
+    it('关掉这一项送 false —— 下次启动先给欢迎态，不自动接手', async () => {
+      settings.set('general.restoreLastWorkspace', false);
+
       stop = startHostSettingsSync();
       await hostSettingsSynced();
 
@@ -207,17 +218,18 @@ describe('宿主设置同步', () => {
       );
     });
 
-    it('**改这一项本身就会触发推送** —— 漏订阅的症状是「打开了设置，下次启动却没恢复」', async () => {
+    it('**改这一项本身就会触发推送** —— 漏订阅的症状是「改了开关，下次启动却没生效」', async () => {
       stop = startHostSettingsSync();
       await hostSettingsSynced();
       expect(syncSpy).toHaveBeenCalledTimes(1);
 
-      settings.set('general.restoreLastWorkspace', true);
+      // 默认是开的，所以这里往**反方向**改一次才算「改了」。
+      settings.set('general.restoreLastWorkspace', false);
       await hostSettingsSynced();
 
       expect(syncSpy).toHaveBeenCalledTimes(2);
       expect(syncSpy).toHaveBeenLastCalledWith(
-        expect.objectContaining({ restoreLastWorkspace: true })
+        expect.objectContaining({ restoreLastWorkspace: false })
       );
     });
 

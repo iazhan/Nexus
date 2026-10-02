@@ -1234,7 +1234,7 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改 / 启动恢
   beforeEach(() => {
     settings.set('general.autoSaveDelay', 800);
     settings.set('general.externalChange', 'smart');
-    settings.set('general.restoreLastWorkspace', false);
+    settings.set('general.restoreLastWorkspace', true);
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -1245,7 +1245,7 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改 / 启动恢
     container.remove();
     settings.set('general.autoSaveDelay', 800);
     settings.set('general.externalChange', 'smart');
-    settings.set('general.restoreLastWorkspace', false);
+    settings.set('general.restoreLastWorkspace', true);
   });
 
   it('通用分组渲染自动保存延迟与外部修改两项', () => {
@@ -1309,11 +1309,11 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改 / 启动恢
       return container.querySelector<HTMLElement>('[data-field-input="general.restoreLastWorkspace"]');
     }
 
-    it('默认关 —— 与加这一项之前一致（空启动就是一个空窗口）', () => {
+    it('默认开 —— 双击图标回到上次那个库', () => {
       renderSettings('general');
 
-      expect(toggle()?.getAttribute('aria-checked')).toBe('false');
-      expect(settings.get('general.restoreLastWorkspace')).toBe(false);
+      expect(toggle()?.getAttribute('aria-checked')).toBe('true');
+      expect(settings.get('general.restoreLastWorkspace')).toBe(true);
     });
 
     it('点一下写进存档，开关跟着变', () => {
@@ -1321,29 +1321,31 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改 / 启动恢
 
       act(() => toggle()?.click());
 
-      expect(settings.get('general.restoreLastWorkspace')).toBe(true);
-      expect(toggle()?.getAttribute('aria-checked')).toBe('true');
+      expect(settings.get('general.restoreLastWorkspace')).toBe(false);
+      expect(toggle()?.getAttribute('aria-checked')).toBe('false');
     });
 
-    it('再点一下关回去', () => {
-      settings.set('general.restoreLastWorkspace', true);
+    it('再点一下开回来', () => {
+      settings.set('general.restoreLastWorkspace', false);
       renderSettings('general');
 
       act(() => toggle()?.click());
 
-      expect(settings.get('general.restoreLastWorkspace')).toBe(false);
+      expect(settings.get('general.restoreLastWorkspace')).toBe(true);
     });
 
     /**
-     * 与 `general.autoSave` 那组默认开的开关**方向相反**：那组「只有显式 false 算关」，
-     * 这一项「只有显式 true 算开」。存档里一个写坏的字符不该让应用下次启动
-     * 直接进入某个工作区（那是给一个目录发写权限）。
+     * 与 `general.autoSave` 那组默认开的开关**同一条判据**：只有显式 `false` 算关。
+     *
+     * 这一项单独为真没有不可逆后果 —— 没记过任何目录时它什么都不做（回落不到东西），
+     * 所以「认不出就当关」在这里没有保护作用，只会让一个手改坏的字符
+     * 表现成「功能静默失效」。
      */
-    it('存档里是认不出的值时回落「关」', () => {
+    it('存档里是认不出的值时回落「开」', () => {
       localStorage.setItem('nexus-restore-last-workspace', 'garbage');
       settings.reload();
 
-      expect(settings.get('general.restoreLastWorkspace')).toBe(false);
+      expect(settings.get('general.restoreLastWorkspace')).toBe(true);
       localStorage.removeItem('nexus-restore-last-workspace');
     });
 

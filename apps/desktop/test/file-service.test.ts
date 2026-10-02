@@ -271,7 +271,8 @@ describe('FileService & atomicWriteFile', () => {
     it('用户取消 openFile 对话框时应当抛出 CANCELLED 错误码', async () => {
       const mockDialog: FileDialog = {
         openFile: vi.fn().mockResolvedValue(null),
-        saveFile: vi.fn().mockResolvedValue(null)
+        saveFile: vi.fn().mockResolvedValue(null),
+        openDirectory: vi.fn().mockResolvedValue(null)
       };
       const service = new FileService({ dialog: mockDialog });
 
@@ -283,7 +284,8 @@ describe('FileService & atomicWriteFile', () => {
     it('用户取消 saveAs 对话框时应当抛出 CANCELLED 错误码', async () => {
       const mockDialog: FileDialog = {
         openFile: vi.fn().mockResolvedValue(null),
-        saveFile: vi.fn().mockResolvedValue(null)
+        saveFile: vi.fn().mockResolvedValue(null),
+        openDirectory: vi.fn().mockResolvedValue(null)
       };
       const service = new FileService({ dialog: mockDialog });
 
@@ -300,12 +302,80 @@ describe('FileService & atomicWriteFile', () => {
     });
   });
 
+  /**
+   * `openWorkspace` = 「打开工作区」这一动作在服务层的全部：给了路径就用它，没给就弹目录选择框。
+   *
+   * 它与 `authorizeWorkspace` 的分界是**返回值**：后者只授权，前者还要把「用户到底选了哪个目录」
+   * 交回调用方（主进程据此记下 `recent-workspace.json` 的回落目标）。所以这里断言的重点不是
+   * 「授权成功」（那一条 `authorizeWorkspace` 已经盖了），而是三件事：
+   *
+   *   1. 返回值就是被授权的那个目录（返回值对、边界没建，用户点进工作区后每个文件都打不开）；
+   *   2. 只授权选中的那一个目录（把写权限发给用户没选的兄弟目录是这一条最坏的失效方向）；
+   *   3. 取消**返回 `null` 而不是抛 `CANCELLED`** —— 「用户改主意了」在这里是正常结局。
+   */
+  describe('openWorkspace：给路径直接授权 / 不给路径走目录选择器', () => {
+    it('带路径时不弹框，返回规范化路径并真的建立读写边界', async () => {
+      const mockDialog: FileDialog = {
+        openFile: vi.fn().mockResolvedValue(null),
+        saveFile: vi.fn().mockResolvedValue(null),
+        openDirectory: vi.fn().mockResolvedValue(null)
+      };
+      const service = new FileService({ dialog: mockDialog });
+
+      const root = await service.openWorkspace(tempDir);
+
+      expect(root).toBe(path.resolve(tempDir));
+      expect(mockDialog.openDirectory).not.toHaveBeenCalled();
+
+      const note = path.join(tempDir, 'open-workspace-note.md');
+      await fsPromises.writeFile(note, '# 笔记', 'utf-8');
+      await expect(service.readFile(note)).resolves.toBe('# 笔记');
+    });
+
+    it('不带路径时弹目录选择器，选中哪个就授权哪个，兄弟目录不跟着放行', async () => {
+      const picked = path.join(tempDir, 'picked');
+      await fsPromises.mkdir(picked, { recursive: true });
+      const mockDialog: FileDialog = {
+        openFile: vi.fn().mockResolvedValue(null),
+        saveFile: vi.fn().mockResolvedValue(null),
+        openDirectory: vi.fn().mockResolvedValue(picked)
+      };
+      const service = new FileService({ dialog: mockDialog });
+
+      await expect(service.openWorkspace()).resolves.toBe(path.resolve(picked));
+      expect(mockDialog.openDirectory).toHaveBeenCalledOnce();
+
+      const sibling = path.join(tempDir, 'open-workspace-sibling.md');
+      await fsPromises.writeFile(sibling, '# 别的', 'utf-8');
+      await expectFileServiceError(service.readFile(sibling), 'OUT_OF_BOUNDS');
+    });
+
+    it('用户取消目录选择器时返回 null，不抛错', async () => {
+      const mockDialog: FileDialog = {
+        openFile: vi.fn().mockResolvedValue(null),
+        saveFile: vi.fn().mockResolvedValue(null),
+        openDirectory: vi.fn().mockResolvedValue(null)
+      };
+      const service = new FileService({ dialog: mockDialog });
+
+      await expect(service.openWorkspace()).resolves.toBeNull();
+      expect(mockDialog.openDirectory).toHaveBeenCalledOnce();
+    });
+
+    it('未注入 FileDialog 又不给路径时抛 IO_ERROR', async () => {
+      const service = new FileService();
+
+      await expectFileServiceError(service.openWorkspace(), 'IO_ERROR');
+    });
+  });
+
   describe('saveAs 成功返回规范化路径并建立边界', () => {
     it('另存为成功后返回规范化绝对路径，自动纳入 allowed boundary 并可后续正常读写', async () => {
       const saveTarget = path.join(tempDir, '新另存文件 2026.md');
       const mockDialog: FileDialog = {
         openFile: vi.fn().mockResolvedValue(null),
-        saveFile: vi.fn().mockResolvedValue(saveTarget)
+        saveFile: vi.fn().mockResolvedValue(saveTarget),
+        openDirectory: vi.fn().mockResolvedValue(null)
       };
       const service = new FileService({ dialog: mockDialog });
 
@@ -331,7 +401,8 @@ describe('FileService & atomicWriteFile', () => {
       const invalidTarget = path.join(tempDir, 'note.txt');
       const mockDialog: FileDialog = {
         openFile: vi.fn().mockResolvedValue(null),
-        saveFile: vi.fn().mockResolvedValue(invalidTarget)
+        saveFile: vi.fn().mockResolvedValue(invalidTarget),
+        openDirectory: vi.fn().mockResolvedValue(null)
       };
       const service = new FileService({ dialog: mockDialog });
 
@@ -350,7 +421,8 @@ describe('FileService & atomicWriteFile', () => {
       const saveTarget = path.join(tempDir, 'draft.md');
       const mockDialog: FileDialog = {
         openFile: vi.fn().mockResolvedValue(null),
-        saveFile: vi.fn().mockResolvedValue(saveTarget)
+        saveFile: vi.fn().mockResolvedValue(saveTarget),
+        openDirectory: vi.fn().mockResolvedValue(null)
       };
       const service = new FileService({ dialog: mockDialog });
 
@@ -363,7 +435,8 @@ describe('FileService & atomicWriteFile', () => {
       const saveTarget = path.join(tempDir, 'draft.md');
       const mockDialog: FileDialog = {
         openFile: vi.fn().mockResolvedValue(null),
-        saveFile: vi.fn().mockResolvedValue(saveTarget)
+        saveFile: vi.fn().mockResolvedValue(saveTarget),
+        openDirectory: vi.fn().mockResolvedValue(null)
       };
       const service = new FileService({ dialog: mockDialog });
 
@@ -839,7 +912,7 @@ describe('FileService & atomicWriteFile', () => {
       await expectFileServiceError(service.deleteFile(target, 'trash'), 'IO_ERROR');
 
       expect(unlink).not.toHaveBeenCalled();
-      expect(fsPromises.stat(target)).resolves.toBeTruthy();
+      await expect(fsPromises.stat(target)).resolves.toBeTruthy();
     });
 
     it('目录不能被删 —— 抛 IO_ERROR，而不是把整棵树递归删掉', async () => {
@@ -860,7 +933,7 @@ describe('FileService & atomicWriteFile', () => {
 
       expect(unlink).not.toHaveBeenCalled();
       expect(trashItem).not.toHaveBeenCalled();
-      expect(fsPromises.stat(inside)).resolves.toBeTruthy();
+      await expect(fsPromises.stat(inside)).resolves.toBeTruthy();
     });
 
     it('未授权路径抛 OUT_OF_BOUNDS，且文件没被动过', async () => {
@@ -881,7 +954,7 @@ describe('FileService & atomicWriteFile', () => {
       expect(err.path).toBe(path.resolve(target));
       expect(unlink).not.toHaveBeenCalled();
       expect(trashItem).not.toHaveBeenCalled();
-      expect(fsPromises.stat(target)).resolves.toBeTruthy();
+      await expect(fsPromises.stat(target)).resolves.toBeTruthy();
     });
 
     it('工作区里指向区外的符号链接也删不掉（realpath 逃逸）', async () => {

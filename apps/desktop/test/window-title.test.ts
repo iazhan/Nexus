@@ -67,4 +67,24 @@ describe('窗口标题', () => {
       await app.evaluate<string>(`document.querySelector('.nexus-app-title')?.textContent ?? ''`)
     ).toBe('Nexus Lite');
   }, 45000);
+
+  /**
+   * 裸启动（双击图标）＝ 工作区模式、**还没有目录**。
+   *
+   * 这一格的工作区根是 `null`，所以「带不带 Lite」不能从它反推 —— 那会让欢迎态
+   * 顶着「Nexus Lite」的标题，正好把用户期待看到的完全版说成轻量版。
+   */
+  it('裸启动（工作区模式、还没定目录）标题也不带 Lite', async () => {
+    activeApp = await launchElectronApp();
+    const app = activeApp;
+    await app.waitForSelector('[data-workspace-open-folder]', 20000);
+
+    const title = await app.evaluate<string>(`document.title`);
+    expect(title).not.toContain('Lite');
+    expect(title).toContain('Nexus');
+
+    expect(
+      await app.evaluate<string>(`document.querySelector('.nexus-app-title')?.textContent ?? ''`)
+    ).toBe('Nexus');
+  }, 45000);
 });

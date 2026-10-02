@@ -32,6 +32,13 @@ export interface NexusBridge {
   getLaunchContext: () => Promise<LaunchContext>;
   openFile: (filePath?: string) => Promise<FileDocument>;
   /**
+   * 打开一个工作区：给了路径就用它，没给就弹目录选择框。
+   *
+   * 返回规范化后的绝对路径，**用户取消返回 `null`**（不是抛错）。拿到非空值时目录
+   * 已经可读写，调用方直接把它当成工作区根即可 —— 主进程同时记下了它，供下次启动回落。
+   */
+  openWorkspace: (rootPath?: string) => Promise<string | null>;
+  /**
    * 用系统默认程序打开外部链接（http/https/mailto）。
    * 返回 `false` 表示协议不在白名单内、URL 非法，或系统调用失败。
    */

@@ -78,10 +78,10 @@ describe('最近工作区 · 落盘', () => {
   });
 
   /**
-   * 这一组盯的是「写坏的存档」这个方向。注意与 `toggleSetting` 相反：那组默认开，
-   * 所以判据是「只有显式 false 算关」；这一项默认关，**只有显式 true 算开**。
+   * 这一组盯的是「写坏的存档」这个方向。开关与目录的判据**不同**：
+   * 开关回落到这一项的默认值（开），目录则一律当作「没记过」—— 后者才是那张写权限。
    */
-  it('字段类型不对时按「不恢复」处理', () => {
+  it('目录字段类型不对时按「没记过目录」处理 —— 不恢复那个目录', () => {
     fs.writeFileSync(
       recentWorkspacePath(directory),
       JSON.stringify({ restoreLastWorkspace: 'true', workspaceRoot: 42 }),
@@ -89,6 +89,15 @@ describe('最近工作区 · 落盘', () => {
     );
 
     expect(readRecentWorkspace(directory)).toEqual(EMPTY_RECENT_WORKSPACE);
+  });
+
+  it('恢复开关是坏值时按默认（开）走，不静默失效', () => {
+    expect(
+      parseRecentWorkspace({ restoreLastWorkspace: 'yes', workspaceRoot: workspace })
+    ).toEqual({
+      restoreLastWorkspace: true,
+      workspaceRoot: workspace
+    });
   });
 
   it('空串的工作区路径按「没记过」处理，不是一个路径', () => {
@@ -99,10 +108,12 @@ describe('最近工作区 · 落盘', () => {
     });
   });
 
-  it('只有显式 true 才算开着', () => {
-    expect(parseRecentWorkspace({ restoreLastWorkspace: 1 }).restoreLastWorkspace).toBe(false);
-    expect(parseRecentWorkspace({ restoreLastWorkspace: null }).restoreLastWorkspace).toBe(false);
+  it('只有显式 false 才算关着', () => {
+    expect(parseRecentWorkspace({ restoreLastWorkspace: 1 }).restoreLastWorkspace).toBe(true);
+    expect(parseRecentWorkspace({ restoreLastWorkspace: null }).restoreLastWorkspace).toBe(true);
+    expect(parseRecentWorkspace({}).restoreLastWorkspace).toBe(true);
     expect(parseRecentWorkspace({ restoreLastWorkspace: true }).restoreLastWorkspace).toBe(true);
+    expect(parseRecentWorkspace({ restoreLastWorkspace: false }).restoreLastWorkspace).toBe(false);
   });
 });
 
@@ -120,7 +131,7 @@ describe('最近工作区 · 启动回落', () => {
     expect(result.filePath).toBeNull();
   });
 
-  it('设置关着 → 一动不动（默认值 ＝ 加这一项之前的行为）', () => {
+  it('设置关着 → 一动不动（不自动接手，由欢迎态让用户自己选）', () => {
     const result = applyRecentWorkspace(
       context(),
       { restoreLastWorkspace: false, workspaceRoot: workspace },

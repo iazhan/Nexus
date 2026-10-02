@@ -5,39 +5,35 @@ import {
   type LaunchContext
 } from '../src/index.js';
 
+/**
+ * 没有任何可用参数时的期望上下文。
+ *
+ * 裸启动（双击图标）走的就是这一条，所以它**不是**空编辑器：模式是工作区，
+ * 只是还没定目录 —— 目录由启动回落补，补不上就由欢迎态接管。
+ * 下面重复出现七次，抽出来是为了让「这就是裸启动的形状」一眼可见。
+ */
+const BARE_LAUNCH = {
+  mode: 'workspace',
+  filePath: null,
+  documentType: null,
+  workspaceRoot: null,
+  unsupportedPath: null
+};
+
 describe('Launch Arguments Parser and Context', () => {
-  it('1. should parse empty arguments as lightweight empty state', () => {
-    const empty1 = parseLaunchArgs([]);
-    expect(empty1).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+  it('1. should parse empty arguments as a bare workspace launch', () => {
+    expect(parseLaunchArgs([])).toEqual(BARE_LAUNCH);
 
-    const empty2 = parseLaunchArgs(['electron', '.']);
-    expect(empty2).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+    expect(parseLaunchArgs(['electron', '.'])).toEqual(BARE_LAUNCH);
 
-    const empty3 = parseLaunchArgs([
-      'C:\\tools\\electron.exe',
-      'apps/desktop',
-      '--no-sandbox',
-      '--inspect=9229'
-    ]);
-    expect(empty3).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+    expect(
+      parseLaunchArgs([
+        'C:\\tools\\electron.exe',
+        'apps/desktop',
+        '--no-sandbox',
+        '--inspect=9229'
+      ])
+    ).toEqual(BARE_LAUNCH);
   });
 
   it('2. should parse .md and .markdown file paths as lightweight mode and preserve original path', () => {
@@ -124,13 +120,7 @@ describe('Launch Arguments Parser and Context', () => {
   });
 
   it('4. should ensure LaunchContext default value is stable and JSON-serializable', () => {
-    expect(DEFAULT_LAUNCH_CONTEXT).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+    expect(DEFAULT_LAUNCH_CONTEXT).toEqual(BARE_LAUNCH);
 
     // Object is frozen to prevent accidental mutation
     expect(Object.isFrozen(DEFAULT_LAUNCH_CONTEXT)).toBe(true);
@@ -140,7 +130,7 @@ describe('Launch Arguments Parser and Context', () => {
     const parsed: LaunchContext = JSON.parse(serialized);
 
     expect(parsed).toEqual(DEFAULT_LAUNCH_CONTEXT);
-    expect(parsed.mode).toBe('lightweight');
+    expect(parsed.mode).toBe('workspace');
     expect(parsed.filePath).toBeNull();
     expect(parsed.workspaceRoot).toBeNull();
     expect(parsed.unsupportedPath).toBeNull();
@@ -148,17 +138,11 @@ describe('Launch Arguments Parser and Context', () => {
   });
 
   it('5. should correctly handle production packaged executables without mistaking them for files', () => {
-    // 5.1 Packaged app launch without files
+    // 5.1 Packaged app launch without files —— 双击桌面图标就是这一条
     const prodEmpty = parseLaunchArgs([
       'C:\\Program Files\\Nexus\\Nexus.exe'
     ]);
-    expect(prodEmpty).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+    expect(prodEmpty).toEqual(BARE_LAUNCH);
 
     // 5.2 Packaged app opening Markdown document
     const prodMd = parseLaunchArgs([
@@ -204,24 +188,12 @@ describe('Launch Arguments Parser and Context', () => {
     // 6.1 ignores separate-value inspect flags
     expect(
       parseLaunchArgs(['electron.exe', '--inspect', '9229'])
-    ).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+    ).toEqual(BARE_LAUNCH);
 
     // 6.2 inspect with host:port
     expect(
       parseLaunchArgs(['electron.exe', '--inspect', '127.0.0.1:9229'])
-    ).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+    ).toEqual(BARE_LAUNCH);
 
     // 6.3 inspect followed by markdown file (not a port)
     expect(
@@ -241,13 +213,7 @@ describe('Launch Arguments Parser and Context', () => {
         '--user-data-dir',
         'C:\\Temp\\Nexus'
       ])
-    ).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+    ).toEqual(BARE_LAUNCH);
 
     // 6.5 preserves a markdown path after runtime flags with values
     expect(
@@ -419,12 +385,6 @@ describe('Launch Arguments Parser and Context', () => {
         ['Nexus.exe', '--user-data-dir', 'C:\\Temp\\Nexus'],
         { classifyPath: () => 'directory' }
       )
-    ).toEqual({
-      mode: 'lightweight',
-      filePath: null,
-      documentType: null,
-      workspaceRoot: null,
-      unsupportedPath: null
-    });
+    ).toEqual(BARE_LAUNCH);
   });
 });

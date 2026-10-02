@@ -6,7 +6,7 @@ import React, {
   useRef,
   useSyncExternalStore
 } from 'react';
-import type { FileDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
+import type { AppMode, FileDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
 import {
   attachmentExtension,
   buildDocumentLink,
@@ -58,6 +58,7 @@ import type { RenameFileResult } from '../../ipc/channels.js';
 import { WorkspaceStore, hasUnsavedChanges } from './workspace/store.js';
 import { TabBar } from './workspace/TabBar.js';
 import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
+import { WorkspaceEmpty } from './workspace/WorkspaceEmpty.js';
 import { RenamePreview } from './workspace/RenamePreview.js';
 import { describeSkips, unsavedPaths } from './workspace/rename.js';
 import { copyLinkFailureKey } from './workspace/copy-link.js';
@@ -188,6 +189,16 @@ export const App: React.FC = () => {
    * 文件树与索引在后续切片接入。
    */
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+
+  /**
+   * 这次启动进来的模式。**只用于「还没定工作区根时该显示什么」这一个判断**，
+   * 定下来之后就由 `workspaceRoot` / `activeDocument` 说了算。
+   *
+   * 为什么非要它：`workspaceRoot === null` 同时是「轻量模式打开一个文件」与
+   * 「工作区模式还没选目录」的形状。只看 `workspaceRoot` 会把后者当成前者 ——
+   * 而后者正是裸启动，退回一个空编辑器就是这次要修掉的行为。
+   */
+  const [launchMode, setLaunchMode] = useState<AppMode | null>(null);
 
   /**
    * 活动栏（最左图标列）的布局状态。纯会话内状态，不持久化 ——
@@ -960,6 +971,34 @@ export const App: React.FC = () => {
     }
   }, [applyOpenedDocument]);
 
+  /**
+   * 防重入。原生目录对话框是窗口级模态的，但它从 `invoke` 到弹出来之间有一小段
+   * 异步间隙 —— 那段时间里再点一次（或按到菜单项）会开出两个对话框。
+   */
+  const openingWorkspaceRef = useRef(false);
+
+  /**
+   * 打开一个工作区。不给路径就弹目录选择框（与「打开文件」同形）。
+   *
+   * 与 `handleOpenFile` 的两点不同：
+   * - **取消是正常结局**，不弹提示、不进错误态 —— 主进程返回 `null`，这里直接返回。
+   * - 选中的目录已经由主进程授权（可读写）并记成了下次启动的回落目标，这里只负责换掉
+   *   `workspaceRoot`；文件树与索引跟着这个值自己重建（侧栏的 effect 依赖 `rootPath`）。
+   */
+  const handleOpenWorkspace = useCallback(async (rootPath?: string) => {
+    if (openingWorkspaceRef.current) return;
+    openingWorkspaceRef.current = true;
+    try {
+      const root = await window.nexus?.openWorkspace?.(rootPath);
+      if (!root) return;
+      setWorkspaceRoot(root);
+    } catch (err: unknown) {
+      console.error('Open workspace failed:', err);
+    } finally {
+      openingWorkspaceRef.current = false;
+    }
+  }, []);
+
   // Watch file for external modifications
   useEffect(() => {
     if (unwatchRef.current) {
@@ -1074,6 +1113,8 @@ export const App: React.FC = () => {
         throw new Error('Invalid launch context received from shell bridge.');
       }
 
+      setLaunchMode(ctx.mode);
+
       // Handle unsupported file paths
       if (ctx.unsupportedPath) {
         setStatus('error');
@@ -1083,11 +1124,12 @@ export const App: React.FC = () => {
         return;
       }
 
-      // workspace 模式：目录已在 main 进程确认存在。文件树与索引尚未接入，
-      // 所以这里不伪造一个空编辑器，而是如实显示「工作区已打开」。
-      if (ctx.mode === 'workspace' && ctx.workspaceRoot) {
+      // workspace 模式有两种形态：**已经定了目录**（来自启动参数或上次回落），
+      // 和**还没有目录**（裸启动且没记过任何工作区）。两种都不开文档 ——
+      // 工作区里的文档从文件树里挑，而「还没有目录」由欢迎态接管（那里有选目录的入口）。
+      // 目录已在 main 进程确认存在，这里不重复判。
+      if (ctx.mode === 'workspace') {
         setWorkspaceRoot(ctx.workspaceRoot);
-        // workspace 模式下没有可编辑的文档，标签页保持为空
         initialContentRef.current = '';
         setStatus('ready');
         return;
@@ -2220,8 +2262,15 @@ export const App: React.FC = () => {
           { label: '', separator: true },
           {
             label: t('cmd.openInWorkspace'),
+            // 「在工作区中打开」＝把当前文档**所在的目录**作为工作区打开。
+            //
+            // 两个条件：要有文档路径（没有路径就没有「所在目录」），且当前**不在**工作区里。
+            // 后者是必须的 —— 工作区里的文档可能来自子目录，照着它所在目录重开工作区
+            // 会把工作区**收窄**到那个子目录（`D:\Notes\sub\a.md` → 根变成 `D:\Notes\sub`）。
+            disabled: !filePath || workspaceRoot !== null,
             onSelect: () => {
-              // Placeholder for opening in workspace
+              const directory = getDocumentDirectory(filePath);
+              if (directory) void handleOpenWorkspace(directory);
             }
           },
           {
@@ -2310,8 +2359,11 @@ export const App: React.FC = () => {
     [
       t,
       activeEditor,
+      filePath,
+      workspaceRoot,
       handleNewFile,
       handleOpenFile,
+      handleOpenWorkspace,
       saveFile,
       saveAs,
       handleUndo,
@@ -2333,9 +2385,27 @@ export const App: React.FC = () => {
     ]
   );
 
-  /** 当前上下文里「正在看的东西」：lightweight 是文件，workspace 是目录。 */
+  /**
+   * 这次会话是不是工作区模式。
+   *
+   * **不能拿 `workspaceRoot` 代替它。** 裸启动就是「工作区模式、还没有目录」——
+   * 那一格的工作区根是 `null`，用它当判据会让顶栏与窗口标题在欢迎态显示
+   * 「Nexus Lite / Untitled.md」，正好把用户期待看到的「完全版」说成轻量版。
+   */
+  const inWorkspace = launchMode === 'workspace';
+
+  /**
+   * 当前上下文里「正在看的东西」：lightweight 是文件，workspace 是目录。
+   *
+   * 欢迎态（工作区模式、还没定目录）两者都是 `null` —— 那时顶栏显示工作区名而不是
+   * 一个假的 `Untitled.md`：后者会让人以为有个未保存的文档挂在那儿。
+   */
   const activePath = filePath ?? workspaceRoot;
-  const fileName = activePath ? activePath.replace(/^.*[\\/]/, '') : 'Untitled.md';
+  const fileName = activePath
+    ? activePath.replace(/^.*[\\/]/, '')
+    : inWorkspace
+      ? t('workspace.title')
+      : 'Untitled.md';
 
   /**
    * 状态栏右侧的模式标签。
@@ -2344,7 +2414,7 @@ export const App: React.FC = () => {
    * 骗人，而且用户会据此判断「这个文件到底被正确识别了没有」。
    * `Workspace` / `Markdown` 两个专有名词保持不翻译（既有行为）。
    */
-  const formatLabel = workspaceRoot
+  const formatLabel = inWorkspace
     ? 'Workspace'
     : activeDocument && activeDocument.type !== 'markdown'
       ? t(`document.type.${activeDocument.type}`)
@@ -2373,9 +2443,9 @@ export const App: React.FC = () => {
    * （`BrowserWindow` 的 title 会被页面的 `<title>` 覆盖，改主进程没用）。
    */
   useEffect(() => {
-    const appName = workspaceRoot ? t('app.name.workspace') : t('app.name.lite');
+    const appName = inWorkspace ? t('app.name.workspace') : t('app.name.lite');
     document.title = `${fileName || t('tab.untitled')} — ${appName}`;
-  }, [fileName, workspaceRoot, t]);
+  }, [fileName, inWorkspace, t]);
 
   return (
     <div className="nexus-app-root">
@@ -2383,12 +2453,12 @@ export const App: React.FC = () => {
       <header className="nexus-header-bar" onDoubleClick={handleHeaderDoubleClick}>
         <div className="nexus-header-left">
           <span className="nexus-app-title">
-            {workspaceRoot ? t('app.name.workspace') : t('app.name.lite')}
+            {inWorkspace ? t('app.name.workspace') : t('app.name.lite')}
           </span>
           <MenuBar menus={menus} />
         </div>
 
-        <div className="nexus-header-center" title={activePath ?? 'Untitled'}>
+        <div className="nexus-header-center" title={activePath ?? fileName}>
           <span className="nexus-filename">{fileName}</span>
           {activePath && <span className="nexus-filepath-subtitle">{activePath}</span>}
         </div>
@@ -2719,18 +2789,13 @@ export const App: React.FC = () => {
           registry={viewerRegistryRef.current}
         />
       )}
-      {/* 没有活动文档时的空态。workspace 模式下这是正常起点（从左侧挑一个文件），
-          lightweight 模式下只会在启动的一瞬间出现。 */}
+      {/* 没有活动文档时的空态。三种形态由 `WorkspaceEmpty` 自己派生（判据在那边）。 */}
       {status === 'ready' && !activeDocument && (
-        <div className="nexus-workspace-empty">
-          <span className="nexus-workspace-empty-title">{t('workspace.title')}</span>
-          {workspaceRoot && (
-            <code className="nexus-workspace-empty-path">{workspaceRoot}</code>
-          )}
-          <p className="nexus-workspace-empty-note">
-            {workspaceRoot ? t('workspace.pickFile') : t('workspace.pending')}
-          </p>
-        </div>
+        <WorkspaceEmpty
+          mode={launchMode}
+          rootPath={workspaceRoot}
+          onOpenFolder={() => void handleOpenWorkspace()}
+        />
       )}
       {status === 'ready' && activeDocument?.kind === 'editor' && (
         // 只包编辑区：投影抛错时保留顶栏、菜单栏和状态栏，

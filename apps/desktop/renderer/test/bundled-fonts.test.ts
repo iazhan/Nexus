@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
  * 打包字体这条链有四环，**断在任何一环都不报错** —— 只是观感悄悄退回系统字体，
  * 而「退回系统字体」在开发机上往往看不出来（开发者大概率自己装了 JetBrains Mono）。
  *
- *   1. `package.json` 声明字体包
+ *   1. `package.json` 的 `devDependencies` 声明字体包（**不是** `dependencies`，理由见下面那条用例）
  *   2. 入口模块 import 它们（家族名由这一步注册到文档上）
  *   3. `App.css` 的字体栈把家族名排在**第一个**
  *   4. 代码块的等宽栈引用 `--font-mono`，而不是自己再抄一份栈
@@ -54,13 +54,26 @@ function firstCandidate(css: string, prop: string): string {
 }
 
 describe('打包字体', () => {
-  it('两个字体包都声明在依赖里', () => {
+  it('两个字体包都声明为构建期依赖，且没有落进 dependencies', () => {
     const pkg = JSON.parse(fs.readFileSync(PKG, 'utf-8')) as {
       dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
     };
 
-    const missing = BUNDLED.map((entry) => entry.pkg).filter((name) => !pkg.dependencies?.[name]);
-    expect(missing, `package.json 里没有这些依赖：${missing.join(', ')}`).toEqual([]);
+    const missing = BUNDLED.map((entry) => entry.pkg).filter(
+      (name) => !pkg.devDependencies?.[name]
+    );
+    expect(missing, `devDependencies 里没有这些字体包：${missing.join(', ')}`).toEqual([]);
+
+    // 落进 `dependencies` 的后果是**静默的**：electron-builder 会顺着依赖树把它们再收一遍进
+    // asar（实测 34.8MB → 113MB），功能一切正常，只有安装包白白胖三倍。渲染进程由 Vite 打包，
+    // 字体连 woff2 一起进 `out/renderer/assets`，运行期不读 node_modules —— 所以这一条与
+    // 「声明了没有」同等重要，不能只写前一半。判据的完整论述见 `electron.vite.config.ts` 头注释。
+    const leaked = BUNDLED.map((entry) => entry.pkg).filter((name) => pkg.dependencies?.[name]);
+    expect(
+      leaked,
+      `这些字体包不该出现在 dependencies（安装包会胖三倍）：${leaked.join(', ')}`
+    ).toEqual([]);
   });
 
   it('入口模块 import 了两个字体包（家族名由这一步注册）', () => {

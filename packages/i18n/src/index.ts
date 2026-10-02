@@ -39,9 +39,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'document.type.docx': 'DOCX',
     'document.type.image': 'Image',
     'workspace.title': 'Workspace',
-    'workspace.pending':
-      'The file tree and index are not connected yet — only the workspace root was recognised.',
+    'workspace.pending': 'No document is open.',
     'workspace.pickFile': 'Pick a file from the sidebar to start editing.',
+    // 裸启动的欢迎态：工作区模式、还没定目录。这是「双击图标」看到的第一屏。
+    'workspace.welcomeNote': 'Choose a folder to open as your workspace.',
+    'workspace.openFolder': 'Open Folder…',
     'workspace.indexing': 'Indexing workspace…',
     'workspace.indexFailed': 'Failed to build the index',
     // P3-09 起「有没有文档」与「有没有 Markdown」是两件事：侧栏分成两段后，
@@ -678,8 +680,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'document.type.docx': 'DOCX',
     'document.type.image': '图片',
     'workspace.title': '工作区',
-    'workspace.pending': '文件树与索引尚未接入，当前仅识别到工作区根目录。',
+    'workspace.pending': '当前没有打开的文档。',
     'workspace.pickFile': '从左侧列表选择一个文件开始编辑。',
+    // 裸启动的欢迎态：工作区模式、还没定目录。这是「双击图标」看到的第一屏。
+    'workspace.welcomeNote': '选一个文件夹作为工作区。',
+    'workspace.openFolder': '打开文件夹…',
     'workspace.indexing': '正在建立索引…',
     'workspace.indexFailed': '建立索引失败',
     // P3-09 起「有没有文档」与「有没有 Markdown」是两件事：侧栏分成两段后，

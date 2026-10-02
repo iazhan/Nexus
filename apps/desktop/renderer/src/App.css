@@ -2247,7 +2247,8 @@ button.nexus-outline-toggle:hover {
   background-color: var(--nexus-bg-surface-active);
 }
 
-/* workspace 模式空态：文件树与索引接入前，如实显示已识别的工作区根目录 */
+/* 内容区里的居中纵向堆叠：工作区空态、裸启动欢迎态、以及 `ViewerPlaceholder`
+   的只读占位都用这一套（那个额外带 `nexus-viewer-placeholder`）。 */
 .nexus-workspace-empty {
   display: flex;
   flex-direction: column;
@@ -2283,6 +2284,29 @@ button.nexus-outline-toggle:hover {
   line-height: 1.6;
   color: var(--nexus-text-muted);
   text-align: center;
+}
+
+/* 裸启动欢迎态的主行动。用强调色实底：这一屏只有这一个可点的东西，
+   它不是「补充说明」而是「下一步」。焦点环与同页其它控件同一个 token。 */
+.nexus-workspace-open-folder {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nexus-accent-contrast);
+  background-color: var(--nexus-accent-solid);
+  border: 1px solid var(--nexus-accent-solid);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.nexus-workspace-open-folder:hover {
+  background-color: var(--nexus-accent-solid-hover);
+}
+
+.nexus-workspace-open-folder:focus-visible {
+  outline: 2px solid var(--nexus-accent-indicator);
+  outline-offset: 1px;
 }
 
 .nexus-state-container {

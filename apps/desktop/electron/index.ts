@@ -1290,6 +1290,35 @@ ipcMain.handle(IPC_CHANNELS.openFile, async (event, filePath?: string) => {
   return await session.service.openFile(filePath);
 });
 
+/**
+ * 打开一个工作区：给了路径就用它，没给就弹目录选择框。取消返回 `null`。
+ *
+ * 授权在 `FileService.openWorkspace` 里做；这里补上它做不到的那一半 —— 把结果记成
+ * 「下次启动的回落目标」。**重读**文件再写，而不是用模块加载时那份 `startupState`：
+ * 后者是启动那一刻的快照，而「用户刚刚打开了哪个目录」发生在之后，两者之间渲染进程
+ * 已经同步过一次设置 —— 拿旧快照覆盖会把那次同步抹掉。
+ */
+ipcMain.handle(IPC_CHANNELS.openWorkspace, async (event, rootPath: unknown) => {
+  if (rootPath !== undefined && rootPath !== null && typeof rootPath !== 'string') {
+    throw new Error('openWorkspace: rootPath 必须是非空字符串或省略');
+  }
+
+  const session = getOrCreateSession(event.sender);
+  const root = await session.service.openWorkspace(
+    typeof rootPath === 'string' && rootPath.length > 0 ? rootPath : null
+  );
+  if (!root) return null;
+
+  session.workspaceRoot = root;
+  if (recentWorkspaceDir) {
+    writeRecentWorkspace(recentWorkspaceDir, {
+      ...readRecentWorkspace(recentWorkspaceDir),
+      workspaceRoot: root
+    });
+  }
+  return root;
+});
+
 ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, url: unknown) => {
   const allowed = toAllowedExternalUrl(url);
   if (!allowed) return false;

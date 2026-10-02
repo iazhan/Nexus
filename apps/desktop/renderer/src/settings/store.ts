@@ -156,10 +156,8 @@ function toggleSetting(storageKey: string) {
  * 两条判据其实同一条 —— **回落到这项的默认值**。默认开的那几个（自动保存、行号）
  * 回落到开，因为静默关掉一项已有能力比留着它更糟；默认关的回落到关才自洽。
  *
- * 后果最重的一个消费方是「启动时恢复上次工作区」：打开它意味着**下一次启动会对一个目录做
- * 授权**（写权限），存档里一个写坏的字符不该把用户送进某个工作区。编辑器手感那三项
- * （拼写检查 / 打字机模式 / Vim 键位）没这么重，但判据一致 —— 它们加进来之前本来就没有
- * 这些行为，读不懂就当关等于回到那个状态。
+ * 编辑器手感那三项（拼写检查 / 打字机模式 / Vim 键位）是这一档的典型：它们加进来之前
+ * 本来就没有这些行为，读不懂就当关，等于回到那个状态。
  */
 function toggleSettingOff(storageKey: string) {
   return defineSetting<boolean>({
@@ -335,12 +333,16 @@ export const SETTING_DEFS = {
   ),
 
   /**
-   * 启动时恢复上次打开的工作区。**默认关** ＝ 与加这一项之前完全一致（空启动就是一个空窗口）。
+   * 启动时恢复上次打开的工作区。**默认开** ＝ 双击图标回到上次那个库。
+   *
+   * 裸启动本身已经进工作区模式（见 `@nexus/core` 的 `DEFAULT_LAUNCH_CONTEXT`），
+   * 这一项决定的是「进去之后直接落到上次那个目录，还是先给一个选目录的欢迎态」。
+   * 没记过任何目录时（第一次装）回落不到东西，两种取值看到的都是欢迎态。
    *
    * 值是这一项的权威，主进程只持有一份给下次启动读的快照 —— 这条链见
    * `electron/recent-workspace.ts` 的头注释。改动这一项要连主进程一起看。
    */
-  'general.restoreLastWorkspace': toggleSettingOff(RESTORE_LAST_WORKSPACE_STORAGE_KEY),
+  'general.restoreLastWorkspace': toggleSettingOn(RESTORE_LAST_WORKSPACE_STORAGE_KEY),
 
   'editor.fontSize': numberSetting(EDITOR_FONT_SIZE),
   'editor.lineHeight': numberSetting(EDITOR_LINE_HEIGHT),

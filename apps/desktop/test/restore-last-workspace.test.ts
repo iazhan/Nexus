@@ -71,7 +71,7 @@ describe('启动时恢复上次工作区', () => {
     throw new Error(`等待 recent-workspace.json 落盘超时，最后一份是 ${JSON.stringify(readState())}`);
   }
 
-  it('工作区启动 → 记下目录；打开设置后 → 空启动把它接回来', async () => {
+  it('工作区启动 → 记下目录；开关关掉再打开 → 空启动把它接回来', async () => {
     // ── 第一次启动：显式给一个目录，进工作区模式 ────────────────────────────────
     activeApp = await launchElectronApp({ filePath: vault, userDataDir });
     const first = activeApp;
@@ -82,12 +82,23 @@ describe('启动时恢复上次工作区', () => {
       workspaceRoot: vault
     });
 
-    // 记下来了 —— 而且**设置还关着**：记录与「要不要恢复」是两件事，
-    // 用户之后再打开那一项，上次的工作区立刻能用。
+    // 记下来了，而且**开关是默认的开**：这一项默认开，所以落盘那份也应该是开的。
     const recorded = await waitForState((state) => state.workspaceRoot === vault);
-    expect(recorded.restoreLastWorkspace).toBe(false);
+    expect(recorded.restoreLastWorkspace).toBe(true);
 
-    // ── 打开设置（走真实的设置 → 订阅 → 推送 → 落盘那条链）──────────────────────
+    // ── 关掉它，确认「记录」与「要不要恢复」是两件事 ─────────────────────────────
+    //
+    // 关着的时候照样记 —— 用户之后再把开关打开，上次的工作区立刻能用。
+    // 若只在开着时才记，用户会看到「打开了设置，但它要等下一次进工作区才有用」。
+    await first.evaluate(`(() => {
+      window.nexusSettings.set('general.restoreLastWorkspace', false);
+      return true;
+    })()`);
+
+    const disabled = await waitForState((state) => state.restoreLastWorkspace === false);
+    expect(disabled.workspaceRoot).toBe(vault);
+
+    // ── 再打开（走真实的设置 → 订阅 → 推送 → 落盘那条链）────────────────────────
     await first.evaluate(`(() => {
       window.nexusSettings.set('general.restoreLastWorkspace', true);
       return true;

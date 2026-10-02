@@ -18,12 +18,16 @@
  * 这样整个模块不依赖 Electron，`recent-workspace.test.ts` 拿一个临时目录就能测全部行为
  * （含坏文件方向），不必启动一个真窗口。主进程那边只负责把 `app.getPath('userData')` 传进来。
  *
- * ## 失败方向：一律**不恢复**
+ * ## 失败方向：目录那一半一律**不恢复**
  *
  * 恢复一个工作区等于对那个目录做 `authorizeWorkspace` —— 那是一张**写权限**。
- * 所以文件缺失、读不动、JSON 坏、字段类型不对、目录已经不在了，五种情形全都回落成
+ * 所以文件缺失、读不动、JSON 坏、目录字段类型不对、目录已经不在了，五种情形全都回落成
  * 「不恢复」，而不是「尽力猜一个」。一个被改坏（或手工编辑错）的文件不该把用户送进
  * 某个任意目录，也不该让应用启动失败。
+ *
+ * 「要不要恢复」那个开关本身则是**回落到这一项的默认值（开）**，与设置存档同一条判据 ——
+ * 它单独为真没有任何后果（目录字段为空时 `applyRecentWorkspace` 直接返回），
+ * 而做成「认不出就当关」会让「文件少了一个字段」表现成「功能静默失效」。
  */
 
 import fs from 'node:fs';
@@ -38,16 +42,24 @@ export interface RecentWorkspaceState {
    * 用户是否要求「启动时恢复上次工作区」。
    *
    * 名字与设置项一致，但**来源不同**：设置项的权威在渲染进程的存档里，这里是它的快照。
-   * 默认 `false` ＝ 与加这一项之前完全一致的启动行为。
+   * 缺文件时的默认值与设置项的默认值一致（都是「恢复」）—— 两种情形问的是同一个问题
+   * 「用户没表达过偏好时该怎么做」，给出两个答案会让启动行为取决于一件偶然的事
+   * （快照文件在不在）。
    */
   restoreLastWorkspace: boolean;
   /** 上一次进入工作区模式时的根目录。`null` ＝ 还没打开过任何工作区。 */
   workspaceRoot: string | null;
 }
 
-/** 「什么都没记过」。缺文件、读坏了、类型不对，都回落到它。 */
+/**
+ * 「什么都没记过」。缺文件、`JSON` 读不动时回落到它。
+ *
+ * 这里 `restoreLastWorkspace` 取 `true` 是安全的：上面两种情形下 `workspaceRoot`
+ * 必定是 `null`，而 `applyRecentWorkspace` 在根目录为空时直接返回 —— 所以它不会
+ * 因为「默认要恢复」而被送进某个目录。
+ */
 export const EMPTY_RECENT_WORKSPACE: Readonly<RecentWorkspaceState> = Object.freeze({
-  restoreLastWorkspace: false,
+  restoreLastWorkspace: true,
   workspaceRoot: null
 });
 
@@ -94,7 +106,10 @@ export function parseRecentWorkspace(raw: unknown): RecentWorkspaceState {
   const root = candidate.workspaceRoot;
 
   return {
-    restoreLastWorkspace: restore === true,
+    // 认不出的值回落到**这一项的默认值**（开），与设置存档那边同一条判据：
+    // 一个手改出来的 `'yes'` 不该把用户从「恢复」变成「不恢复」。开关单独为真
+    // 没有任何后果 —— 目录字段为空时 `applyRecentWorkspace` 直接返回。
+    restoreLastWorkspace: restore !== false,
     workspaceRoot: typeof root === 'string' && root.trim() !== '' ? root : null
   };
 }
@@ -137,9 +152,12 @@ export function applyRecentWorkspace(
   state: RecentWorkspaceState,
   isDirectory: (targetPath: string) => boolean
 ): LaunchContext {
+  // 裸启动的判据是**三个字段一起**：工作区模式、还没定目录、也没有一个打不开的路径。
+  // 只看 `mode` 不够 —— `workspace` 模式本来就允许 `workspaceRoot` 为空（欢迎态），
+  // 那正是本函数要处理的情形，不是要排除的情形。
   const empty =
-    context.mode === 'lightweight' &&
-    context.filePath === null &&
+    context.mode === 'workspace' &&
+    context.workspaceRoot === null &&
     context.unsupportedPath === null;
   if (!empty) return context;
   if (!state.restoreLastWorkspace) return context;

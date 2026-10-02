@@ -61,6 +61,14 @@ export const IPC_CHANNELS = {
   watchFile: 'nexus:watch-file',
   unwatchFile: 'nexus:unwatch-file',
   fileWatchEvent: 'nexus:file-watch-event',
+  /**
+   * 打开一个工作区：给了路径就用它，没给就弹目录选择框（与 `openFile` 同形）。
+   *
+   * 单独一条而不是复用 `authorizeWorkspace`：授权只是这条动作的**一半**，另一半是
+   * 把结果记成「下次启动的回落目标」。两者分开写就有中间态 —— 授权了但没记下，
+   * 用户下次启动回到旧目录而不知道发生了什么。
+   */
+  openWorkspace: 'nexus:open-workspace',
   authorizeWorkspace: 'nexus:authorize-workspace',
   scanWorkspace: 'nexus:scan-workspace',
   getWorkspaceRoots: 'nexus:get-workspace-roots',
@@ -397,18 +405,21 @@ export interface HostSettings {
 }
 
 /**
- * 一份「什么都还没同步过」的初始值：行为与加这条通道之前完全一致。
+ * 一份「什么都还没同步过」的初始值。
  *
  * `historyRetention: null` 就是那个「完全一致」—— 没收到设置之前不删任何历史。
  * 注意它**不等于**设置项的默认档位（100）：默认档位是「用户没选过时界面上显示什么」，
  * 这里是「主进程还没听到用户的选择时该怎么做」，后者必须更保守。
  *
- * `restoreLastWorkspace: false` 同理：没听到之前不恢复，空启动还是空启动。
+ * `restoreLastWorkspace: true` 与设置项的默认值一致，而不是「更保守」的 `false`：
+ * 这一项没有「保守」可言 —— 关掉它只是让人看到欢迎态，不会少删或误删任何东西。
+ * 与设置项唱反调反而制造出一个真实的分歧：同一件「用户没表达过偏好」，
+ * 主进程说开、渲染进程说开，唯独这里说关。
  */
 export const DEFAULT_HOST_SETTINGS: HostSettings = {
   ignoreRules: [],
   historyRetention: null,
-  restoreLastWorkspace: false
+  restoreLastWorkspace: true
 };
 
 /**

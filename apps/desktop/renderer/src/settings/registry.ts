@@ -666,7 +666,9 @@ export const EXTERNAL_CHANGE_FIELD: FieldDef = {
  * 只是把值写进存档，真正让它生效的是那条宿主设置通道 —— 主进程收到后落盘一份快照，
  * 下次启动读它。见 `electron/recent-workspace.ts`。
  *
- * 默认**关** ＝ 与加这一项之前完全一致（空启动就是一个空窗口，什么工作区都不进）。
+ * 默认**开**：裸启动进的就是工作区模式，这一项决定「直接落到上次那个目录」还是
+ * 「先给一个选目录的欢迎态」。没记过目录时（第一次装）两者看到的都是欢迎态 ——
+ * 关掉它不会让人打不开工作区。
  */
 export const RESTORE_LAST_WORKSPACE_FIELD: FieldDef = {
   id: 'general.restoreLastWorkspace',
