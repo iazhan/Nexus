@@ -20,7 +20,7 @@ import {
   serializeKeybindingOverrides,
   type KeybindingOverrides
 } from '@nexus/command';
-import { normalizeAttachmentDirectory } from '@nexus/core';
+import { normalizeAttachmentDirectory, type DocumentType } from '@nexus/core';
 import {
   PANEL_DEFAULT_WIDTH,
   PANEL_WIDTH_STORAGE_KEY,
@@ -78,6 +78,15 @@ import {
   OUTLINE_LEVEL_STORAGE_KEY,
   RESTORE_LAST_WORKSPACE_STORAGE_KEY,
   WORKSPACE_SHOW_IMAGES_STORAGE_KEY,
+  GRAPH_HIDDEN_TYPES_STORAGE_KEY,
+  GRAPH_MODE_DEFAULT,
+  GRAPH_MODE_STORAGE_KEY,
+  GRAPH_MODES,
+  GRAPH_SCOPE_DEFAULT,
+  GRAPH_SCOPE_STORAGE_KEY,
+  GRAPH_SCOPES,
+  parseGraphHiddenTypes,
+  serializeGraphHiddenTypes,
   parseEditorFontFamily,
   parseGroupSetting,
   parseNumberSetting,
@@ -281,6 +290,26 @@ export const SETTING_DEFS = {
    * `preference-specs.ts` 的 `WORKSPACE_SHOW_IMAGES_STORAGE_KEY`。
    */
   'workspace.showImages': toggleSettingOn(WORKSPACE_SHOW_IMAGES_STORAGE_KEY),
+
+  /*
+    图谱的三项视图状态。
+
+    与 `workspace.showImages` 同一条判据：**它们不是设置项** —— 设置页与菜单里都看不到，
+    入口只有图谱面板自己那一排开关。走 `SettingsStore` 只是因为那已经是本机偏好的统一
+    入口（读写 + 订阅 + 跨窗口同步 + 值域解析），为三项视图状态另造一套存储没有收益。
+
+    三个都**不持久化缩放与平移**：平移量是画布像素，而画布尺寸在下次启动（乃至切一次
+    面板）就不一样了，恢复它可能把整张图放到视野外。缩放虽然是无量纲的，但单独恢复一个
+    缩放值会让用户回到一个他从没见过的视图 —— 不划算。
+  */
+  'graph.mode': choiceSetting(GRAPH_MODE_STORAGE_KEY, GRAPH_MODE_DEFAULT, GRAPH_MODES),
+  'graph.scope': choiceSetting(GRAPH_SCOPE_STORAGE_KEY, GRAPH_SCOPE_DEFAULT, GRAPH_SCOPES),
+  'graph.hiddenTypes': defineSetting<DocumentType[]>({
+    storageKey: GRAPH_HIDDEN_TYPES_STORAGE_KEY,
+    fallback: [],
+    parse: parseGraphHiddenTypes,
+    serialize: serializeGraphHiddenTypes
+  }),
 
   /**
    * 自动保存。关掉之后**只有显式保存才落盘**，编辑器仍会把状态标成未保存。

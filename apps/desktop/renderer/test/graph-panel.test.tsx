@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQuery, WorkspaceGraph } from '@nexus/core';
 import { GraphPanel } from '../src/workspace/GraphPanel.js';
 import { CLUSTER_TOKENS, UNCLUSTERED_TOKEN } from '../src/workspace/graph-clusters.js';
-import { localeManager } from '../src/platform.js';
+import { localeManager, settings } from '../src/platform.js';
+import { GRAPH_MODE_DEFAULT, GRAPH_SCOPE_DEFAULT } from '../src/settings/preference-specs.js';
 
 /**
  * 图谱控制条：范围（全图 / 当前文档）与类型筛选。
@@ -117,6 +118,11 @@ describe('图谱控制条', () => {
     act(() => {
       localeManager.setLocale('en-US');
     });
+    // 这三项现在是**落盘**的视图状态，不还原会渗到同文件后面的用例 ——
+    // 而单跑又是绿的（与 locale 那条同一个坑）
+    settings.set('graph.mode', GRAPH_MODE_DEFAULT);
+    settings.set('graph.scope', GRAPH_SCOPE_DEFAULT);
+    settings.set('graph.hiddenTypes', []);
     vi.restoreAllMocks();
   });
 
@@ -313,6 +319,35 @@ describe('图谱控制条', () => {
     await act(async () => {});
     expect(chip('.nexus-graph-body')?.hasAttribute('hidden')).toBe(false);
     expect(chip('[data-scope="all"]')).not.toBeNull();
+  });
+
+  it('视图状态落盘：重新挂载之后还在', async () => {
+    // 「切走再切回 / 重启之后还是同一个视图」是这三项落盘的**全部意义**
+    await render();
+
+    // 先关类型（筛选条只在图谱视图里画），再切视图 —— 反过来就点不到筛选条了
+    await act(async () => {
+      chip('[data-type="pdf"]')!.click();
+    });
+    await act(async () => {});
+    await act(async () => {
+      chip('[data-mode="orphans"]')!.click();
+    });
+    await act(async () => {});
+
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    await render();
+
+    expect(chip('[data-mode="orphans"]')!.getAttribute('aria-pressed')).toBe('true');
+    // 切回图谱视图才能看到筛选条 —— 顺便验证关掉的那一项也一起回来了
+    await act(async () => {
+      chip('[data-mode="explore"]')!.click();
+    });
+    await act(async () => {});
+    expect(chip('[data-type="pdf"]')!.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('工作区本来就空时不给出路按钮（那不是筛出来的）', async () => {

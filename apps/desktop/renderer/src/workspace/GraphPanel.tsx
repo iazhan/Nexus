@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DocumentType, GraphNode, WorkspaceGraph } from '@nexus/core';
-import { useLocale, useTheme } from '../hooks.js';
+import { useLocale, useSetting, useTheme } from '../hooks.js';
+import {
+  GRAPH_MODES,
+  GRAPH_SCOPE_DEGREES,
+  type GraphMode
+} from '../settings/preference-specs.js';
 import {
   CLUSTER_TOKENS,
   LEGEND_MAX_ROWS,
@@ -59,19 +64,11 @@ const CLICK_SLOP_PX = 4;
 /** 悬停时非邻域节点的不透明度。太低会看不清「图还在那儿」。 */
 const DIM_ALPHA = 0.25;
 
-/** 图谱范围的两种取值。`current` 需要一篇活动文档才有意义。 */
-type GraphScope = 'all' | 'current';
 
-/**
- * 面板的三个视图。
- *
- * 孤儿与枢纽**不是画布上的两种滤镜**，而是两张清单（理由见 `GraphLists.tsx`）。
- * 所以这里是「换一屏」而不是「给画布加参数」。
- */
-const GRAPH_MODES = ['explore', 'orphans', 'hubs'] as const;
-type GraphMode = (typeof GRAPH_MODES)[number];
-/** 邻域层数。2 层已经能看到「邻居的邻居」，再多图就回到一坨了。 */
-const SCOPE_DEGREES = 2;
+/*
+  三个视图、两种范围、被关掉的类型 —— 这三项都是**视图状态**（跨会话成立的阅读习惯），
+  落盘但不进 `FIELDS`。理由与值域见 `preference-specs.ts`。
+*/;
 
 /** 节点的屏幕半径：基础值 + degree 加成。绘制、命中、标签避让三处必须用同一个值。 */
 function nodeRadius(node: { degree: number }): number {
@@ -127,10 +124,10 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
    * 用它渲染筛选条的话，用户一关掉某个类型、那个类型的开关就消失了 —— 再也打不开。
    */
   const [typeCounts, setTypeCounts] = useState<Array<{ type: DocumentType; count: number }>>([]);
-  const [mode, setMode] = useState<GraphMode>('explore');
-  const [scope, setScope] = useState<GraphScope>('all');
+  const [mode, setMode] = useSetting('graph.mode');
+  const [scope, setScope] = useSetting('graph.scope');
   /** 被**关掉**的类型（而不是「打开的类型」）：默认空 = 全部显示，与旧行为一致。 */
-  const [hiddenTypes, setHiddenTypes] = useState<DocumentType[]>([]);
+  const [hiddenTypes, setHiddenTypes] = useSetting('graph.hiddenTypes');
   const [size, setSize] = useState({ width: 0, height: 0 });
   /** 标签放置结果。绘制时算出来，只为**暴露给测试**而存进 state —— canvas 上的文字从外面看不见。 */
   const [labelPlacements, setLabelPlacements] = useState<GraphLabelPlacement[]>([]);
@@ -168,7 +165,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   const query = useMemo(
     () => ({
       centerPath: scope === 'current' ? (activeFilePath ?? undefined) : undefined,
-      degrees: scope === 'current' ? SCOPE_DEGREES : undefined,
+      degrees: scope === 'current' ? GRAPH_SCOPE_DEGREES : undefined,
       types: hasTypeFilter ? visibleTypes : undefined
     }),
     [scope, activeFilePath, hasTypeFilter, visibleTypes]
@@ -691,7 +688,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
       */}
       <div className="nexus-graph-controls">
         <div className="nexus-graph-modes" role="group" aria-label={t('graph.mode')}>
-          {GRAPH_MODES.map((value) => (
+          {GRAPH_MODES.map((value: GraphMode) => (
             <button
               key={value}
               type="button"
@@ -742,8 +739,10 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
                   data-type={type}
                   aria-pressed={visible}
                   onClick={() =>
-                    setHiddenTypes((prev) =>
-                      prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type]
+                    setHiddenTypes(
+                      hiddenTypes.includes(type)
+                        ? hiddenTypes.filter((item) => item !== type)
+                        : [...hiddenTypes, type]
                     )
                   }
                 >

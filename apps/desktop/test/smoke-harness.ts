@@ -787,6 +787,34 @@ export class ElectronAppInstance {
     await new Promise((resolve) => setTimeout(resolve, 600));
   }
 
+  /**
+   * **优雅**关闭：先让渲染进程 `window.close()`，等它退干净，再走 `close()` 兜底。
+   *
+   * ## 什么时候必须用它
+   *
+   * 当用例要验的是「**磁盘上留下了什么**」，而那份状态由 Chromium 自己刷盘时 ——
+   * 典型是 `localStorage`。`close()` 发的是 SIGTERM，在 Windows 上等于直接终止进程，
+   * Chromium 的关闭清理（把 Local Storage 的 leveldb 提交掉）根本不会跑。
+   *
+   * 症状很隐蔽：**同一个进程内读得回来**（走的是内存），下一次启动读回来是空的 ——
+   * 于是「跨启动持久化」这类用例会失败，而失败原因看起来像产品 bug。
+   * 实测（2026-10-02）：`localStorage.setItem` 之后 SIGTERM，下次启动 `getItem` 返回 null；
+   * 换成 `window.close()` + 等一拍之后，值正常读回，userData 里也多出
+   * `Local State` / `Preferences` / `Session Storage` 这些只有优雅退出才会写的文件。
+   *
+   * 代价是慢一点（多等一拍），所以**默认的 `close()` 不改成这个** ——
+   * 绝大多数用例不关心磁盘状态。
+   */
+  public async closeGracefully(settleMs = 1500): Promise<void> {
+    try {
+      await this.evaluate(`window.close()`);
+    } catch {
+      // 窗口已经关了，evaluate 会失败 —— 那正是我们要的结果
+    }
+    await new Promise((resolve) => setTimeout(resolve, settleMs));
+    await this.close();
+  }
+
   public async close(): Promise<void> {    try {
       try {
         this.ws.close();

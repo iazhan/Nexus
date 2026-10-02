@@ -24,6 +24,7 @@
  * 归审计脚本管），而这些是用户偏好 —— 换主题不该把字号或行号重置回去。见 `App.css` 头部。
  */
 
+import { DOCUMENT_TYPES, type DocumentType } from '@nexus/core';
 import {
   DEFAULT_ATTACHMENT_DIRECTORY,
   DEFAULT_ATTACHMENT_NAME_TEMPLATE,
@@ -716,3 +717,67 @@ export const EDITOR_CSS_VARS = {
   codeLineNumbers: '--nx-editor-code-line-numbers',
   tableLayout: '--nx-editor-table-layout'
 } as const;
+
+/* -------------------------------------------------------------------------- *
+ * 图谱的视图状态
+ * -------------------------------------------------------------------------- */
+
+/**
+ * 图谱面板的三个视图。
+ *
+ * 与 `OUTLINE_LEVEL` 同一条判据：**跨文档跨会话都成立的阅读习惯**才进这里。
+ * 「我打开图谱主要看孤儿」是习惯，每次都要重设一遍就不叫偏好 —— 所以它落盘。
+ *
+ * 但**不进 `FIELDS`**：设置页与菜单里都看不到它，入口只有图谱面板自己那一排开关
+ * （先例：`WORKSPACE_SHOW_IMAGES_STORAGE_KEY`）。
+ */
+export const GRAPH_MODES = ['explore', 'orphans', 'hubs'] as const;
+export type GraphMode = (typeof GRAPH_MODES)[number];
+export const GRAPH_MODE_STORAGE_KEY = 'nexus-graph-mode';
+export const GRAPH_MODE_DEFAULT: GraphMode = 'explore';
+
+/**
+ * 图谱的范围：整个工作区，还是当前文档的两跳邻域。
+ *
+ * 默认**全图**（＝与加这个开关之前的观感一致）。计划里曾建议默认局部，没采纳：
+ * 改默认会静默改变老用户打开图谱看到的东西，而这条收益不明确。
+ */
+export const GRAPH_SCOPES = ['all', 'current'] as const;
+export type GraphScope = (typeof GRAPH_SCOPES)[number];
+export const GRAPH_SCOPE_STORAGE_KEY = 'nexus-graph-scope';
+export const GRAPH_SCOPE_DEFAULT: GraphScope = 'all';
+
+/** 当前文档邻域取几跳。2 层已经能看到「邻居的邻居」，再多图就回到一坨了。 */
+export const GRAPH_SCOPE_DEGREES = 2;
+
+export const GRAPH_HIDDEN_TYPES_STORAGE_KEY = 'nexus-graph-hidden-types';
+
+/**
+ * 被关掉的文档类型，存成逗号分隔。
+ *
+ * **存「关掉的」而不是「打开的」**：这样默认值是空串（＝全部显示），与加这个开关之前的
+ * 观感一致。存「打开的」的话，一个坏存档会让图谱空掉一半 —— 那是回落到另一个值，
+ * 不是回落到默认。
+ *
+ * 认不出的类型名一律丢掉（用户能改 localStorage，也能从旧版本升上来）；全丢掉就是空数组，
+ * 也就是「不过滤」。
+ */
+export function parseGraphHiddenTypes(raw: string | null | undefined): DocumentType[] {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return [];
+
+  const seen = new Set<string>();
+  const hidden: DocumentType[] = [];
+  for (const part of raw.split(',')) {
+    const value = part.trim();
+    if (!(DOCUMENT_TYPES as readonly string[]).includes(value)) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    hidden.push(value as DocumentType);
+  }
+  // 按类型清单的顺序存，存档才稳定（否则同一个集合会有多种写法，去重比较会失效）
+  return DOCUMENT_TYPES.filter((type) => seen.has(type));
+}
+
+export function serializeGraphHiddenTypes(hidden: readonly DocumentType[]): string {
+  return DOCUMENT_TYPES.filter((type) => hidden.includes(type)).join(',');
+}

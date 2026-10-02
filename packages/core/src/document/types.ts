@@ -11,6 +11,14 @@
 export type DocumentType = 'markdown' | 'pdf' | 'docx' | 'image';
 
 /**
+ * 全部文档类型。**顺序即界面上的展示顺序** —— 图谱的类型筛选条按它排。
+ *
+ * 定义成数组而不是手写联合，理由与 `VIEWER_DOCUMENT_TYPES` 相同：让「有哪些类型」
+ * 只有一处判据。索引层用它校验库里的脏值，渲染层用它校验存档里的脏值。
+ */
+export const DOCUMENT_TYPES = ['markdown', 'pdf', 'docx', 'image'] as const;
+
+/**
  * 全部 viewer 类型。**顺序就是 UI 里的分组顺序** —— 附件区的分组直接照这个数组排。
  *
  * 定义成数组而不是手写联合，是为了让「有哪些 viewer 类型」只有**一处**判据：

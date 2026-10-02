@@ -7,6 +7,7 @@ import {
   ASSET_SCHEME,
   parseLaunchArgs,
   type LaunchContext,
+  DOCUMENT_TYPES,
   type DocumentType,
   type FileWatchEvent,
   type GraphQuery,
@@ -28,7 +29,7 @@ import {
   readRecentWorkspace,
   writeRecentWorkspace
 } from './recent-workspace.js';
-import { DOCUMENT_TYPES, IndexStore } from './index-store.js';
+import { IndexStore } from './index-store.js';
 import { deriveTitle, indexSingleFile, indexWorkspace } from './indexer.js';
 import { rewriteReferencesInSource } from './link-rewrite.js';
 import { createProcessorRegistry } from './processor/index.js';

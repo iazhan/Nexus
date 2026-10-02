@@ -1,5 +1,6 @@
 import { Database } from 'node-sqlite3-wasm';
 import fs from 'node:fs';
+import { DOCUMENT_TYPES } from '@nexus/core';
 import type {
   BacklinkEntry,
   DocumentType,
@@ -963,14 +964,6 @@ export class IndexStore {
     return Boolean(row);
   }
 }
-
-/**
- * 允许出现在 `documents.type` 列里的值，用于把库里的字符串收敛回类型。
- *
- * 导出是给主进程的 IPC 入参校验用的（`readGraphQuery`）—— 白名单只留一份，
- * 加了新类型时两处不会漂。
- */
-export const DOCUMENT_TYPES: readonly DocumentType[] = ['markdown', 'pdf', 'docx', 'image'];
 
 /** 允许出现在 `documents.extraction_status` 列里的值。 */
 const EXTRACTION_STATUSES: readonly ExtractionStatus[] = [

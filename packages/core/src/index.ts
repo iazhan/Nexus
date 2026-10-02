@@ -7,6 +7,7 @@ export {
 export {
   type DocumentType,
   type ViewerDocumentType,
+  DOCUMENT_TYPES,
   VIEWER_DOCUMENT_TYPES,
   isViewerDocumentType
 } from './document/types.js';
