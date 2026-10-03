@@ -78,12 +78,14 @@ describe('工作区侧栏：单树 + 工具栏', () => {
     onCreateFolder: ReturnType<typeof vi.fn>;
     onDeleteFile: ReturnType<typeof vi.fn>;
     onRefresh: ReturnType<typeof vi.fn>;
+    onRevealHandled: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
+    currentReveal = null;
     props = {
       onOpenFile: vi.fn(),
       onNodeContextMenu: vi.fn(),
@@ -91,7 +93,11 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       onCreateFile: vi.fn(async () => '/vault/b.md'),
       onCreateFolder: vi.fn(async () => '/vault/素材'),
       onDeleteFile: vi.fn(),
-      onRefresh: vi.fn(async () => undefined)
+      onRefresh: vi.fn(async () => undefined),
+      // 与 `App` 里那一个同形：把请求清掉，下次渲染组件看到的才是「没有请求」。
+      onRevealHandled: vi.fn(() => {
+        currentReveal = null;
+      })
     };
   });
 
@@ -120,6 +126,13 @@ describe('工作区侧栏：单树 + 工具栏', () => {
    */
   let currentOptions: RenderOptions = {};
   let currentRevision = 0;
+  /**
+   * 当前的「定位请求」。
+   *
+   * 组件只负责**兑现并回调**，清空是 `App` 的事（它拿 state 装着）—— 所以这里也照做：
+   * 回调把它置 `null`，下一次重渲染时组件看到的才是「没有请求」。
+   */
+  let currentReveal: { path: string } | null = null;
 
   const renderElement = () => (
     <WorkspaceSidebar
@@ -127,6 +140,7 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       activeFilePath={null}
       showImages={currentOptions.showImages ?? true}
       revision={currentRevision}
+      revealRequest={currentReveal}
       {...props}
     />
   );
@@ -236,6 +250,71 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       container
         .querySelector<HTMLElement>(selector)
         ?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 20 }));
+    });
+  };
+
+  /**
+   * 给「定位」用的那一对几何：树容器与目标行。
+   *
+   * happy-dom 不做布局 —— 所有 `getBoundingClientRect` 都是零矩形，`scrollTop` 也会被
+   * 夹进 `[0, scrollHeight - clientHeight]` ＝ `[0, 0]`。不铺这一层，
+   * 手算滚动那几行永远算出「没越界」，用例会绿得毫无意义。
+   *
+   * **前提是目标行已经在 DOM 里**（调用方先手动展开），否则拿不到那个元素。
+   * 返回读当前 `scrollTop` 的函数 —— 断言要的是「滚了多少」，不是「滚过没有」。
+   */
+  const stubRevealGeometry = (
+    targetRelativePath: string,
+    geometry: { viewTop: number; viewBottom: number; rowTop: number; rowBottom: number },
+    initialScrollTop = 0
+  ): (() => number) => {
+    const scroller = container.querySelector<HTMLElement>('.nexus-tree-scroll')!;
+    const row = container.querySelector<HTMLElement>(
+      `[data-relative-path="${targetRelativePath}"]`
+    )!;
+
+    const box = (top: number, bottom: number): DOMRect =>
+      ({
+        top,
+        bottom,
+        height: bottom - top,
+        left: 0,
+        right: 0,
+        width: 0,
+        x: 0,
+        y: top,
+        toJSON: () => ({})
+      }) as DOMRect;
+
+    Object.defineProperty(scroller, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => box(geometry.viewTop, geometry.viewBottom)
+    });
+    Object.defineProperty(row, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => box(geometry.rowTop, geometry.rowBottom)
+    });
+
+    let scrollTop = initialScrollTop;
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      }
+    });
+
+    return () => scrollTop;
+  };
+
+  /** 发一次定位请求并等滚动落地（滚动在 `requestAnimationFrame` 里）。 */
+  const reveal = async (path: string) => {
+    currentReveal = { path };
+    await act(async () => {
+      root.render(renderElement());
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
     });
   };
 
@@ -635,6 +714,98 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       await rightClick('[data-relative-path="notes"]');
 
       expect(props.onNodeContextMenu.mock.calls[0]![0].type).toBe('directory');
+    });
+  });
+
+  describe('定位到文件', () => {
+    const nested = {
+      documents: [doc('a/b/c.md'), doc('top.md')],
+      directories: [dir('a'), dir('a/b')]
+    };
+
+    it('展开**每一层**祖先 —— 只展开直接父目录的话那一行仍然不在 DOM 里', async () => {
+      await renderSidebar(nested);
+      // 默认只展开顶层：`a` 开着、`a/b` 收着，所以目标行还不存在
+      expect(rows().map((row) => row.relativePath)).toEqual(['a', 'a/b', 'top.md']);
+
+      await reveal('/vault/a/b/c.md');
+
+      expect(rows().map((row) => row.relativePath)).toContain('a/b/c.md');
+      expect(container.querySelector('[data-relative-path="a"]')?.getAttribute('aria-expanded')).toBe(
+        'true'
+      );
+      expect(
+        container.querySelector('[data-relative-path="a/b"]')?.getAttribute('aria-expanded')
+      ).toBe('true');
+    });
+
+    it('把目标行设为**选中**，并回调清掉请求', async () => {
+      await renderSidebar(nested);
+
+      await reveal('/vault/a/b/c.md');
+
+      // 选中而不是只高亮：定位的下一步常常是「在这个文件上做点什么」（删除、重命名）
+      expect(rows().find((row) => row.relativePath === 'a/b/c.md')?.selected).toBe(true);
+      // 清掉才不会在下次树刷新时又跳一次
+      expect(props.onRevealHandled).toHaveBeenCalledTimes(1);
+    });
+
+    it('在视野**下方**时按最小距离上滚（只对齐到边界，不顶到正中）', async () => {
+      await renderSidebar(nested);
+      await click('[data-relative-path="a/b"]');
+      // 容器可视区是 0..200，目标行在 500..520 ⇒ 差 320
+      const readScrollTop = stubRevealGeometry('a/b/c.md', {
+        viewTop: 0,
+        viewBottom: 200,
+        rowTop: 500,
+        rowBottom: 520
+      });
+
+      await reveal('/vault/a/b/c.md');
+
+      expect(readScrollTop()).toBe(320);
+    });
+
+    it('在视野**上方**时往回滚', async () => {
+      await renderSidebar(nested);
+      await click('[data-relative-path="a/b"]');
+      // 树已经滚到 500，目标行落在可视区**上边界之外**（负的 top 就是「在视野上方」）
+      // ⇒ 往回 100
+      const readScrollTop = stubRevealGeometry(
+        'a/b/c.md',
+        { viewTop: 0, viewBottom: 200, rowTop: -100, rowBottom: -80 },
+        500
+      );
+
+      await reveal('/vault/a/b/c.md');
+
+      expect(readScrollTop()).toBe(400);
+    });
+
+    it('**已经在视野里时一动不动** —— 否则每次定位都会把树莫名挪一下', async () => {
+      await renderSidebar(nested);
+      await click('[data-relative-path="a/b"]');
+      const readScrollTop = stubRevealGeometry('a/b/c.md', {
+        viewTop: 0,
+        viewBottom: 200,
+        rowTop: 50,
+        rowBottom: 70
+      });
+
+      await reveal('/vault/a/b/c.md');
+
+      expect(readScrollTop()).toBe(0);
+    });
+
+    it('找不到目标时**保持挂起**、不报错 —— 索引还没跑完就会这样', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await reveal('/vault/nowhere.md');
+
+      // 不清请求：树每更新一次就重试一次，索引跑完自然会成功。
+      // 反过来（当场放弃）会让「刚开完工作区就定位」永远差一拍。
+      expect(props.onRevealHandled).not.toHaveBeenCalled();
+      expect(rows().map((row) => row.relativePath)).toEqual(['a.md']);
     });
   });
 });

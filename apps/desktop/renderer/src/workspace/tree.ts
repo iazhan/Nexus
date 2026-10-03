@@ -286,3 +286,22 @@ export function findParentDirectory(
   const parent = findTreeNode(nodes, parentPath);
   return parent?.type === 'directory' ? parent : null;
 }
+
+/**
+ * 某个相对路径的**全部祖先目录**，由外到内（`a/b/c.md` → `['a', 'a/b']`）。
+ *
+ * 顶层文件的祖先为空数组 —— 它已经在默认展开的那一层里，不用额外展开什么。
+ *
+ * 用途是「定位到某个文件」：树只渲染已展开目录的子节点，所以要让某一行的 DOM 真的存在，
+ * 必须先把它**每一层**祖先都放进 `expanded`。只展开直接父目录是不够的 ——
+ * 父目录自己还在一个收着的目录里，DOM 里照样什么都没有。
+ */
+export function ancestorDirectoryPaths(relativePath: string): string[] {
+  const ancestors: string[] = [];
+  let current = parentPathOf(relativePath);
+  while (current !== null) {
+    ancestors.unshift(current);
+    current = parentPathOf(current);
+  }
+  return ancestors;
+}

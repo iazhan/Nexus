@@ -17,6 +17,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'viewer.loading': 'Loading {type} preview…',
     'viewer.image.loadError':
       'This image could not be loaded. It may have been moved, renamed, or deleted.',
+    'viewer.image.zoomIn': 'Zoom in',
+    'viewer.image.zoomOut': 'Zoom out',
+    'viewer.image.fitWindow': 'Fit to window',
+    'viewer.image.actualSize': 'Actual size',
+    'viewer.image.zoomLevelLabel': 'Zoom level',
     'viewer.pdf.loading': 'Loading PDF…',
     'viewer.pdf.loadError':
       'This PDF could not be loaded. It may have been moved, renamed, or deleted.',
@@ -685,6 +690,11 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'viewer.pending': '{type} 预览尚未接入 —— 文档已识别，查看器将在后续切片提供。',
     'viewer.loading': '正在加载 {type} 预览…',
     'viewer.image.loadError': '图片加载失败。文件可能已被移动、重命名或删除。',
+    'viewer.image.zoomIn': '放大',
+    'viewer.image.zoomOut': '缩小',
+    'viewer.image.fitWindow': '适合窗口',
+    'viewer.image.actualSize': '实际大小',
+    'viewer.image.zoomLevelLabel': '缩放比例',
     'viewer.pdf.loading': '正在加载 PDF…',
     'viewer.pdf.loadError': 'PDF 加载失败。文件可能已被移动、重命名或删除。',
     'viewer.pdf.previousPage': '上一页',

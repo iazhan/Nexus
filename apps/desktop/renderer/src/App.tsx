@@ -83,6 +83,7 @@ import {
 import { ActivityBar } from './shell/ActivityBar.js';
 import {
   INITIAL_ACTIVITY_STATE,
+  showActivity,
   toggleActivity,
   type ActivityId
 } from './shell/activity-bar-state.js';
@@ -225,6 +226,17 @@ export const App: React.FC = () => {
     tag: string;
     filePath: string;
   } | null>(null);
+
+  /**
+   * 待兑现的「在工作区文件树里定位到某个文件」。
+   *
+   * 与 `pendingTagReveal` 同形，理由也一样：定位要等**树**先把那个节点渲染出来，
+   * 而树的数据要等索引跑完。所以这里只排队，由侧栏在拿到节点之后自己兑现并回调清空。
+   *
+   * 存对象而不是裸路径：连着对同一个文件发两次请求，裸字符串第二次与前一次值相同，
+   * React 的依赖比较看不出区别，第二次就不会生效。
+   */
+  const [workspaceReveal, setWorkspaceReveal] = useState<{ path: string } | null>(null);
 
   /**
    * 文档内容版本号。唯一用途是让插件面板在编辑后重新读一次扩展状态 ——
@@ -984,20 +996,82 @@ export const App: React.FC = () => {
    * - **取消是正常结局**，不弹提示、不进错误态 —— 主进程返回 `null`，这里直接返回。
    * - 选中的目录已经由主进程授权（可读写）并记成了下次启动的回落目标，这里只负责换掉
    *   `workspaceRoot`；文件树与索引跟着这个值自己重建（侧栏的 effect 依赖 `rootPath`）。
+   *
+   * 返回根路径（失败/取消为 `null`）而不是 `void`：调用方要据此决定**后续那一步还做不做**。
+   * 「在工作区中打开」开完工作区还要定位文件 —— 工作区没开成却去定位，会定位到
+   * 上一个工作区里去。
    */
-  const handleOpenWorkspace = useCallback(async (rootPath?: string) => {
-    if (openingWorkspaceRef.current) return;
+  const handleOpenWorkspace = useCallback(async (rootPath?: string): Promise<string | null> => {
+    if (openingWorkspaceRef.current) return null;
     openingWorkspaceRef.current = true;
     try {
       const root = await window.nexus?.openWorkspace?.(rootPath);
-      if (!root) return;
+      if (!root) return null;
       setWorkspaceRoot(root);
+      return root;
     } catch (err: unknown) {
       console.error('Open workspace failed:', err);
+      return null;
     } finally {
       openingWorkspaceRef.current = false;
     }
   }, []);
+
+  /**
+   * 「在工作区中打开」——菜单与命令面板共用的那一个动作。
+   *
+   * ## 两种状态，一个动作
+   *
+   * - **还没有工作区**：把当前文档**所在的目录**开成工作区，再定位到它。
+   *   取「所在目录」而不是往上找库根，是因为渲染进程无从知道哪一层才是库根 ——
+   *   猜一个更外层的目录只会开出一棵与用户预期无关的树。
+   * - **已经在工作区里**：工作区已经开着，再按文档所在目录开一次会把根**收窄**到那个
+   *   子目录（`D:\Notes\sub\a.md` → 根变成 `D:\Notes\sub`）。所以这时退化成
+   *   **「在树里定位到它」** —— 这也正是用户此刻想要的：这个文件在工作区里哪儿？
+   *
+   * 两种状态都收在「定位到该文件」上，所以调用方拿到的结果是一致的：
+   * 按下去之后，那个文件在树里被展开、选中、滚进视野。
+   *
+   * ## 为什么命令面板这条不能是空壳
+   *
+   * 面板不支持「点不动」的项，所以每个状态都必须有合理行为。没有文档路径时是真的无事可做
+   * （没有「所在目录」可言），那一条靠命令自己的 `isEnabled` 灰显 —— 见注册处。
+   */
+  const openInWorkspace = useCallback(async () => {
+    if (!filePath) return;
+    const target = filePath;
+
+    if (workspaceRoot === null) {
+      const directory = getDocumentDirectory(target);
+      if (!directory) return;
+      const root = await handleOpenWorkspace(directory);
+      // 开工作区失败（或用户在主进程侧取消了目录授权）就到此为止：定位到哪儿都不对。
+      if (!root) return;
+    }
+
+    setWorkspaceReveal({ path: target });
+    // 定位落在文件树上，所以那一屏必须真的看得见 —— 用户可能刚把面板收起来、
+    // 或者正停在别的面板上。程序发起的定位用 `showActivity`（不是 `toggleActivity`：
+    // 那个会「点已展开的就收起」，在这里等于把要显示的东西关掉）。
+    setActivity((previous) => showActivity(previous, 'workspace'));
+  }, [filePath, workspaceRoot, handleOpenWorkspace]);
+
+  const clearWorkspaceReveal = useCallback(() => setWorkspaceReveal(null), []);
+
+  /**
+   * 给命令用的「最新动作」。
+   *
+   * 命令的 `execute` / `isEnabled` 在注册那一刻就把闭包固定下来了，而 `filePath` 与
+   * `workspaceRoot` 每次打开文件都会变。把这两个值塞进注册 effect 的依赖数组，
+   * 会让每次切文档都重注册一遍全部命令；用 ref 递最新值则只多两次赋值。
+   *
+   * 渲染期直接赋值是刻意的：注册表在事件里读它，那时渲染早已提交，读到的必然是本轮的。
+   */
+  const openInWorkspaceRef = useRef({ run: () => {}, enabled: false });
+  openInWorkspaceRef.current = {
+    run: () => void openInWorkspace(),
+    enabled: filePath !== null
+  };
 
   // Watch file for external modifications
   useEffect(() => {
@@ -1948,9 +2022,12 @@ export const App: React.FC = () => {
       commandRegistry.registerCommand({
         id: 'open-in-workspace',
         titleKey: 'cmd.openInWorkspace',
-        execute: () => {
-          // Placeholder for opening current file in workspace
-        }
+        // 没有文档就没有「所在目录」，这条命令此刻无事可做。声明出来让面板灰显 ——
+        // 面板里一条搜得到、按下去没反应的命令，用户只会以为自己按错了。
+        // 菜单侧用**同一个判据**（`filePath === null`），两处各写一份必然漂。
+        isEnabled: () => openInWorkspaceRef.current.enabled,
+        // 走 ref 而不是直接闭包 `openInWorkspace`：见 `openInWorkspaceRef` 的注释。
+        execute: () => openInWorkspaceRef.current.run()
       }),
       /**
        * 下面三条原本是 `handleKeyDown` 里的硬编码分支。提升成命令是为了让它们**可重映射** ——
@@ -2262,16 +2339,14 @@ export const App: React.FC = () => {
           { label: '', separator: true },
           {
             label: t('cmd.openInWorkspace'),
-            // 「在工作区中打开」＝把当前文档**所在的目录**作为工作区打开。
+            // 「在工作区中打开」＝把当前文档放进工作区上下文，并**在树里定位到它**。
+            // 两种状态都收在这个结果上，所以菜单这一项只在「没有文档」时禁用 ——
+            // 与命令面板的 `isEnabled` 是同一个判据，改一处必须改另一处。
             //
-            // 两个条件：要有文档路径（没有路径就没有「所在目录」），且当前**不在**工作区里。
-            // 后者是必须的 —— 工作区里的文档可能来自子目录，照着它所在目录重开工作区
-            // 会把工作区**收窄**到那个子目录（`D:\Notes\sub\a.md` → 根变成 `D:\Notes\sub`）。
-            disabled: !filePath || workspaceRoot !== null,
-            onSelect: () => {
-              const directory = getDocumentDirectory(filePath);
-              if (directory) void handleOpenWorkspace(directory);
-            }
+            // 工作区模式下不再禁用（原先禁用了）：那时它是「这个文件在树里哪儿？」，
+            // 而这个问题在工作区里同样成立、且用户问得更多。
+            disabled: filePath === null,
+            onSelect: () => void openInWorkspace()
           },
           {
             label: t('cmd.openContainingFolder'),
@@ -2363,7 +2438,9 @@ export const App: React.FC = () => {
       workspaceRoot,
       handleNewFile,
       handleOpenFile,
-      handleOpenWorkspace,
+      // 「在工作区中打开」不再直接调 `handleOpenWorkspace`：它现在是一个
+      // 「开工作区 + 定位」的复合动作，菜单与命令面板共用，依赖换成那一个。
+      openInWorkspace,
       saveFile,
       saveAs,
       handleUndo,
@@ -2653,6 +2730,8 @@ export const App: React.FC = () => {
               onRefresh={handleRefreshWorkspace}
               createRequest={pendingCreate}
               onCreateRequestHandled={clearPendingCreate}
+              revealRequest={workspaceReveal}
+              onRevealHandled={clearWorkspaceReveal}
             />
           </div>
           <div

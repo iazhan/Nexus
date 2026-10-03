@@ -1,28 +1,37 @@
 /**
- * PDF 阅读器的纯逻辑：缩放档位、滚轮缩放与锚点、适合宽度、可见页判定、大纲模型。
+ * PDF 阅读器的纯逻辑：基准换算、适合宽度、可见页判定、分页几何、大纲模型。
  *
  * 抽出来是因为这几件事都是**算出来的**，而它们的错法在画面上看不出来：
- * 缩放夹不住只会「按钮点了没反应」、可见页算错只会「页码停在上一页」、
- * 大纲层级算错只会「缩进少一层」、锚点算错只会「放大之后想看的那个地方跑掉了」。
- * 放在组件里它们只能靠真机截图去猜，放在这里每一条都能用一组数字钉死。
+ * 可见页算错只会「页码停在上一页」、大纲层级算错只会「缩进少一层」、
+ * 锚点算错只会「放大之后想看的那个地方跑掉了」。放在组件里它们只能靠真机截图去猜，
+ * 放在这里每一条都能用一组数字钉死。
+ *
+ * **通用的缩放件不在这里** —— 上下限、步进、百分比、滚轮因子都住在 `../zoom.js`，
+ * 图片查看器用的是同一份（「口径只有一份」）。转出下面那几个名字，是为了 PDF 侧的
+ * import 不必改道。留在本文件的是 PDF 专属：`BASE_SCALE` 换算、分页几何、大纲。
  */
+import { ZOOM_DEFAULT, clampZoom } from '../zoom.js';
+
+export {
+  ZOOM_DEFAULT,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+  WHEEL_ZOOM_SENSITIVITY,
+  clampZoom,
+  stepZoom,
+  wheelZoomFactor,
+  zoomPercent
+} from '../zoom.js';
 
 /**
  * PDF 单位是 1/72 英寸，直接按 scale 1 渲染会明显偏小。
  *
- * **它不是「缩放」** —— 这是用户看到的 100% 对应的基准换算，用户可调的倍率乘在它上面。
- * 它同时是文本层的 `--scale-factor` 基准：两者必须是同一个数，否则选中的文字与画面上的
- * 字对不上（能选，但选偏）。
+ * **它不是「缩放」** —— 这是用户看到的 100%（`ZOOM_DEFAULT`）对应的基准换算，
+ * 用户可调的倍率乘在它上面。它同时是文本层的 `--scale-factor` 基准：两者必须是同一个数，
+ * 否则选中的文字与画面上的字对不上（能选，但选偏）。
  */
 export const BASE_SCALE = 1.5;
-
-/** 缩放区间。下限留到 50% 是「看一眼整页版式」，上限 300% 是「看清一个小字号注释」。 */
-export const ZOOM_MIN = 0.5;
-export const ZOOM_MAX = 3;
-export const ZOOM_STEP = 0.25;
-
-/** 100% ＝ `BASE_SCALE`。存的是**倍率**不是最终 scale，`BASE_SCALE` 改了不影响这个值。 */
-export const ZOOM_DEFAULT = 1;
 
 /**
  * 还没读到任何一页时用的占位尺寸（A4，单位是 PDF 的 1/72 英寸）。
@@ -31,40 +40,6 @@ export const ZOOM_DEFAULT = 1;
  * 首页的 `getPage` 可能失败，加密 PDF 更是要等口令。占位偏一点比抖一下好。
  */
 export const A4_FALLBACK_SIZE = { width: 595, height: 842 } as const;
-
-/**
- * 把任意数字夹进缩放区间。
- *
- * **非有限数回落 100%**：`NaN` / `Infinity` 都是算错了的产物（除零、没量到尺寸），
- * 而 `canvas.width = NaN` 不抛错、只是把画布设成 0 —— 症状是「缩放之后整页变白」。
- * 有限的越界值则**夹紧**而不是回落：`0.1` 是「想再小一点」的合理意图，夹到下限比
- * 跳回 100% 更贴近用户按下去时想要的东西。
- */
-export function clampZoom(value: number): number {
-  if (!Number.isFinite(value)) return ZOOM_DEFAULT;
-  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
-}
-
-/**
- * 走一档。取两位小数是因为 `0.5 + 0.25 × 3` 在二进制里是 `1.2499999999999998` ——
- * 它会被原样显示成「125%」，而判定「到顶了没有」用的等号也会跟着失灵。
- */
-export function stepZoom(current: number, direction: 1 | -1): number {
-  const next = clampZoom(current) + direction * ZOOM_STEP;
-  return clampZoom(Number(next.toFixed(2)));
-}
-
-/**
- * 缩放的百分比**数字部分**（不带 `%`）。
- *
- * 输入框用它而不是「带后缀的字符串」：把 `100%` 塞进 `value`，用户每次改数字都得先删掉
- * 那个 `%`。后缀由渲染层单独画一个 `<span>`，与输入框本身无关。
- *
- * 四舍五入到整数 —— 显示 `99.99999` 只会让人怀疑自己点错了。
- */
-export function zoomPercent(scale: number): string {
-  return String(Math.round(clampZoom(scale) * 100));
-}
 
 /**
  * 「适合宽度」对应的倍率。
@@ -116,27 +91,6 @@ export function pageAtScrollOffset(
  */
 export function scrollOffsetForPage(offsetTop: number, inset = 8): number {
   return Math.max(0, offsetTop - inset);
-}
-
-/**
- * 滚轮一格大约 100，乘这个系数后每格约 1.1 倍 —— 再快就调不准。
- *
- * 与图谱面板**同值**：同一个应用里两处滚轮缩放的手感必须一致，各调各的迟早会漂。
- */
-export const WHEEL_ZOOM_SENSITIVITY = 0.001;
-
-/**
- * 滚轮增量 → 缩放因子。向上滚（`deltaY < 0`）放大。
- *
- * 用指数而不是加法：连续滚 N 格的因子等于一格因子的 N 次方，于是「滚回去」必然回到
- * 原处。加法做不到这一点（每格加 0.1，滚到顶被夹住之后再滚回来就回不到原值）。
- *
- * 非有限数返回 1（不动）—— `deltaY` 是 `NaN` 的话因子会变成 `NaN`，而 `NaN` 一旦进了
- * `canvas.width` 就是把画布设成 0，症状是「缩放之后整页变白」。
- */
-export function wheelZoomFactor(deltaY: number): number {
-  if (!Number.isFinite(deltaY)) return 1;
-  return Math.exp(-deltaY * WHEEL_ZOOM_SENSITIVITY);
 }
 
 /** 一页在滚动容器里的实测几何（`offsetTop` / `offsetHeight`，与内容坐标同原点）。 */

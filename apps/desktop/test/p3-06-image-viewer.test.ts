@@ -134,5 +134,54 @@ describe('P3-06 图片 Viewer', () => {
     expect(registry.registered).toEqual(['image', 'pdf', 'docx']);
     expect(registry.requested).toEqual(['image']);
     expect(registry.loaded).toEqual(['image']);
+
+    // ---- 浏览能力：缩放 / 棋盘格底 / 文件大小 ----
+    //
+    // 平移（放大后能不能滚到溢出部分）在这里**验不了** —— fixture 是 3×2 的图，
+    // 放到 300% 也只有 9×6 像素，永远不溢出。它靠下面那两条 `getComputedStyle`
+    // 断言守着：`safe center` 是「溢出时从左上角开始、能滚到」的全部要点，
+    // 而光秃秃的 `center` 会把左半边推到滚动区外且滚不回去。
+
+    // 打开即「适合窗口」—— 3×2 的图在任何窗口里都放得下，所以 fit 会被上限夹到 300%。
+    // 这一条同时钉住「默认不是 100%」：若默认值是 100%，这里会读到 '100'。
+    expect(
+      await app.evaluate<string>(`document.querySelector('.nexus-image-zoom-level').value`)
+    ).toBe('300');
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('.nexus-image-viewer').getAttribute('data-zoom')`
+      )
+    ).toBe('300');
+
+    // 「实际大小」是一个显式动作，不是默认态
+    await app.evaluate<void>(`document.querySelector('[data-zoom-action="actual"]').click()`);
+    expect(
+      await app.evaluate<string>(`document.querySelector('.nexus-image-zoom-level').value`)
+    ).toBe('100');
+
+    // 棋盘格底：`background-image` 上是渐变，而不是一块随主题变的单色
+    expect(
+      await app.evaluate<string>(
+        `getComputedStyle(document.querySelector('.nexus-image-stage')).backgroundImage`
+      )
+    ).toContain('linear-gradient');
+
+    // 溢出时能滚到 —— 见上面那段说明
+    expect(
+      await app.evaluate<string>(
+        `getComputedStyle(document.querySelector('.nexus-image-stage')).justifyContent`
+      )
+    ).toBe('safe center');
+
+    // 文件大小走资源通道的 HEAD（`content-length`）。取不到就不显示，
+    // 所以这一条同时证明「通道通」与「面板真的把它渲染出来了」。
+    await app.waitForSelector('.nexus-image-bytes', 10000);
+    expect(await app.getText('.nexus-image-bytes')).toMatch(/\d/);
+
+    // 相对路径相对工作区根显示。轻量模式（裸启动打开一个文件）下 `citationBase` 是
+    // 文档所在目录，算出来与文件名相同 → 那一项**不该**出现。
+    expect(
+      await app.evaluate<boolean>(`document.querySelector('.nexus-image-path') === null`)
+    ).toBe(true);
   });
 });

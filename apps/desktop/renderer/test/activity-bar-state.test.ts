@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   INITIAL_ACTIVITY_STATE,
   collapseActivity,
+  showActivity,
   toggleActivity,
   type ActivityState
 } from '../src/shell/activity-bar-state.js';
@@ -76,5 +77,27 @@ describe('活动栏状态', () => {
     const alreadyClosed: ActivityState = { activeId: 'workspace', panelOpen: false };
     // 同一引用 → 不会触发无谓的重渲染
     expect(collapseActivity(alreadyClosed)).toBe(alreadyClosed);
+  });
+
+  describe('showActivity（程序要求某一屏必须可见）', () => {
+    it('面板收着时展开它 —— 与 `toggleActivity` 的语义正好相反', () => {
+      // 「在工作区中打开」这类动作要的是「让用户看见」，不是「切换」。
+      // 用 `toggleActivity` 会在「已经是这一屏且开着」时把它**关掉**。
+      const closed: ActivityState = { activeId: 'workspace', panelOpen: false };
+      expect(showActivity(closed, 'workspace')).toEqual({ activeId: 'workspace', panelOpen: true });
+    });
+
+    it('停在别的面板上时切过去', () => {
+      const onSearch: ActivityState = { activeId: 'search', panelOpen: true };
+      expect(showActivity(onSearch, 'workspace')).toEqual({
+        activeId: 'workspace',
+        panelOpen: true
+      });
+    });
+
+    it('**已经就是这样时返回同一个引用** —— 否则每次定位都多一次无谓的重渲染', () => {
+      const already: ActivityState = { activeId: 'workspace', panelOpen: true };
+      expect(showActivity(already, 'workspace')).toBe(already);
+    });
   });
 });

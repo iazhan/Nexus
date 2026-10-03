@@ -20,7 +20,7 @@ import {
 describe('PDF 缩放', () => {
   it('夹在区间内，非有限数回落到 100%', () => {
     expect(clampZoom(1)).toBe(1);
-    expect(clampZoom(0.1)).toBe(ZOOM_MIN);
+    expect(clampZoom(0.05)).toBe(ZOOM_MIN);
     expect(clampZoom(99)).toBe(ZOOM_MAX);
     // NaN / Infinity 是算错了的产物，会让 canvas 的宽高变成 0 —— 不抛错，只是整页变白
     expect(clampZoom(Number.NaN)).toBe(ZOOM_DEFAULT);
@@ -37,7 +37,9 @@ describe('PDF 缩放', () => {
   });
 
   it('连走三档不攒浮点误差 —— 攒了会让「到顶了没有」的等号失灵', () => {
-    let scale = ZOOM_MIN;
+    // 起点用字面量 0.5 而不是 ZOOM_MIN：`0.5 + 0.25 × 3` 在二进制里会算成
+    // 1.2499999999999998，正是这条要抓的错。它与缩放下限取多少无关。
+    let scale = 0.5;
     for (let i = 0; i < 3; i += 1) scale = stepZoom(scale, 1);
     expect(scale).toBe(1.25);
     expect(String(scale)).not.toContain('999');
@@ -51,7 +53,7 @@ describe('PDF 缩放', () => {
     expect(zoomPercent(9)).toBe('300');
   });
 
-  it('适合宽度：按 100% 的像素宽比，并夹进区间', () => {
+  it('适合宽度：按 100% 的像素宽比', () => {
     // 页宽 400pt × 1.5 = 600px；容器 300px → 0.5
     expect(fitWidthZoom(400, 300)).toBe(0.5);
     // 容器很宽时不能超过上限

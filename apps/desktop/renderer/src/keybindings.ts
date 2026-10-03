@@ -30,8 +30,8 @@ export interface RemappableAction {
 /**
  * 可重映射的动作。**顺序即设置页的显示顺序**，按使用频率排（保存 / 新建 / 打开在前）。
  *
- * 不在这里的命令就是没有快捷键的命令（`toggle-theme` / `toggle-locale` /
- * `open-in-workspace`）—— 它们进不了这张表，因为表里每一项都要能按下去生效。
+ * 不在这里的命令就是**没有默认快捷键**的命令（`toggle-theme` / `toggle-locale` /
+ * `open-in-workspace`）—— 它们能正常执行，只是初始没有绑定任何组合键。
  */
 export const REMAPPABLE_ACTIONS: readonly RemappableAction[] = [
   { id: 'save', labelKey: 'cmd.save', defaultSpec: 'Mod-S' },

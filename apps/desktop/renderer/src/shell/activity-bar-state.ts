@@ -65,3 +65,15 @@ export function collapseActivity(state: ActivityState): ActivityState {
   if (!state.panelOpen) return state;
   return { ...state, panelOpen: false };
 }
+
+/**
+ * 强制展开到某一屏。已经就是这样时返回同一个引用，避免无谓的重渲染。
+ *
+ * 与 `toggleActivity` 的区别在**语义**：那个是「用户点了图标」（点已展开的就收起），
+ * 这个是「程序要求这一屏必须可见」。由动作发起的定位、跳转用它 ——
+ * 用户按了「在工作区中打开」，结果面板是收着的、什么都没看见，等于动作没生效。
+ */
+export function showActivity(state: ActivityState, id: ActivityId): ActivityState {
+  if (state.activeId === id && state.panelOpen) return state;
+  return { activeId: id, panelOpen: true };
+}

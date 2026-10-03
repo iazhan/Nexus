@@ -568,21 +568,29 @@ body {
   flex: 1;
   min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* `safe` 是这里的关键字：图片放大到超出容器时，光秃秃的 `center` 会把左半边推到
+     滚动区之外、而且**滚不回去**（flex 的已知行为）。`safe center` 在「居中会导致
+     溢出」时退回 `start`，于是溢出的部分从左上角开始、能滚到。 */
+  align-items: safe center;
+  justify-content: safe center;
   overflow: auto;
   padding: 16px;
-  /* 透明 PNG 需要一块底色才能看清边界 —— 白底上看白图等于什么都没有。 */
-  background-color: var(--nexus-bg-canvas);
+  /* 单色底做不到「让人看出哪里是透明的」：深色主题下深色透明图放上去，边界与内容
+     一起消失，看起来像加载失败。棋盘格与图片内容无关，任何颜色都能显出边界。
+     两个色值固定不随主题变 —— 画布是中性参考面，与 PDF 纸面恒白同一条理由。 */
+  background-color: #ffffff; /* @constant 图片画布底，与主题无关 */
+  background-image:
+    linear-gradient(45deg, #d9d9d9 25%, transparent 25%, transparent 75%, #d9d9d9 75%), /* @constant 棋盘格格线，与主题无关 */
+    linear-gradient(45deg, #d9d9d9 25%, transparent 25%, transparent 75%, #d9d9d9 75%); /* @constant 同上 */
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
 }
 
-/* max-width / max-height 两件一起做三件事：不裁剪、不变形、**不放大**。
-   替换元素同时受这两个约束时会等比缩到刚好装下；比窗口小的图保持原始尺寸，
-   因为 max-* 只封顶、不拉伸。所以这里不需要 object-fit —— 它是给
-   「显式设了 width/height 的盒子」用的，对 auto 尺寸的替换元素是空操作。 */
+/* 尺寸由渲染器显式给（原始像素 × 缩放），所以这里**不能**再写 `max-width` / `max-height`：
+   它们是「只封顶、不拉伸」，留着的话放大到 100% 以上会被夹回容器宽 —— 缩放看着有效、
+   实际无效。`flex: none` 同理：flex 子项默认可收缩，不加它放大后会被压回容器宽度。 */
 .nexus-image-content {
-  max-width: 100%;
-  max-height: 100%;
+  flex: none;
   display: block;
 }
 
@@ -600,12 +608,41 @@ body {
 }
 
 .nexus-image-name {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 右半边：相对路径 / 像素尺寸 / 文件大小。
+   三者都是元信息，字号与颜色一致，但**只有路径可压缩** —— 一条深目录里的相对路径
+   能长过整个窗口，而尺寸与大小是定长的，让它们跟着缩会把数字挤成省略号。 */
+.nexus-image-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nexus-image-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--nexus-text-muted);
+}
+
 .nexus-image-size {
+  flex: none;
+  font-family: var(--font-mono);
+  color: var(--nexus-text-muted);
+}
+
+.nexus-image-bytes {
   flex: none;
   font-family: var(--font-mono);
   color: var(--nexus-text-muted);
@@ -628,7 +665,10 @@ body {
   flex-direction: column;
 }
 
-.nexus-pdf-toolbar {
+/* 工具栏外观 PDF 与图片**共用**：两边做的是同一件事（缩放 + 视图动作），
+   各写一遍边框与 hover 迟早会漂。下面这些并列的选择器都是这个意思。 */
+.nexus-pdf-toolbar,
+.nexus-image-toolbar {
   flex: none;
   display: flex;
   align-items: center;
@@ -675,7 +715,8 @@ body {
    `content-box` 是必需的：`border-box` 下这 4ch 会被 padding 与边框吃掉近 10px，
    内容只剩两个半数字，显示 `300` 就会裁掉最后一位。 */
 .nexus-pdf-page-input,
-.nexus-pdf-zoom-level {
+.nexus-pdf-zoom-level,
+.nexus-image-zoom-level {
   flex: none;
   box-sizing: content-box;
   width: 4ch;
@@ -691,7 +732,8 @@ body {
 
 /* 焦点环要看得见，但不用默认的 outline —— 它在 12px 的小框上会把相邻按钮压住。 */
 .nexus-pdf-page-input:focus,
-.nexus-pdf-zoom-level:focus {
+.nexus-pdf-zoom-level:focus,
+.nexus-image-zoom-level:focus {
   outline: none;
   border-color: var(--nexus-accent-solid);
 }
@@ -701,7 +743,8 @@ body {
   cursor: default;
 }
 
-.nexus-pdf-zoom-suffix {
+.nexus-pdf-zoom-suffix,
+.nexus-image-zoom-suffix {
   flex: none;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -710,7 +753,8 @@ body {
 
 /* 工具栏的分隔线与四个「次要按钮」共用一个外观 —— 它们做的是同一层级的事
    （切换视图），各自写一遍边框颜色迟早会漂。 */
-.nexus-pdf-toolbar-divider {
+.nexus-pdf-toolbar-divider,
+.nexus-image-toolbar-divider {
   flex: none;
   width: 1px;
   height: 16px;
@@ -720,7 +764,9 @@ body {
 .nexus-pdf-sidebar-button,
 .nexus-pdf-zoom-button,
 .nexus-pdf-fit-button,
-.nexus-pdf-layout-button {
+.nexus-pdf-layout-button,
+.nexus-image-zoom-button,
+.nexus-image-fit-button {
   flex: none;
   padding: 2px 10px;
   border: 1px solid var(--nexus-border-default);
@@ -734,11 +780,15 @@ body {
 .nexus-pdf-sidebar-button:hover,
 .nexus-pdf-zoom-button:hover:not(:disabled),
 .nexus-pdf-fit-button:hover,
-.nexus-pdf-layout-button:hover {
+.nexus-pdf-layout-button:hover,
+.nexus-image-zoom-button:hover:not(:disabled),
+.nexus-image-fit-button:hover:not(:disabled) {
   background-color: var(--nexus-bg-surface-hover);
 }
 
-.nexus-pdf-zoom-button:disabled {
+.nexus-pdf-zoom-button:disabled,
+.nexus-image-zoom-button:disabled,
+.nexus-image-fit-button:disabled {
   opacity: 0.45;
   cursor: default;
 }
@@ -2755,6 +2805,17 @@ button.nexus-outline-toggle:hover {
   background-color: var(--nexus-selection-bg);
   /* 文字不用 accent-text —— 理由见 `.nexus-settings-nav-item-active`。 */
   color: var(--nexus-text-primary);
+}
+
+/* 当前不可用的命令。**留在列表里**（藏掉会让人以为命令不存在），但不高亮、不给手型、
+   hover 也不变色 —— 变色会许下一个「点下去有事发生」的承诺，而它什么都不会做。
+   外观沿用工具栏禁用按钮那一套（muted + 半透明），让「不可用」在全应用是一个样子。 */
+.nexus-command-palette-item-disabled,
+.nexus-command-palette-item-disabled:hover {
+  background-color: transparent;
+  color: var(--nexus-text-muted);
+  opacity: 0.5;
+  cursor: default;
 }
 
 .nexus-command-title {

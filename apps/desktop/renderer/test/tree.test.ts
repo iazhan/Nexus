@@ -5,6 +5,7 @@ import {
   type WorkspaceDirectoryEntry
 } from '@nexus/core';
 import {
+  ancestorDirectoryPaths,
   buildFileTree,
   collectDirectoryPaths,
   defaultExpandedDirectories,
@@ -207,5 +208,28 @@ describe('查找与判定', () => {
     expect(isImageNode(findTreeNode(withPdf, '手册.pdf')!)).toBe(false);
     expect(isImageNode(findTreeNode(withPdf, '规格.docx')!)).toBe(false);
     expect(isImageNode(findTreeNode(withPdf, 'assets')!)).toBe(false);
+  });
+});
+
+describe('ancestorDirectoryPaths', () => {
+  it('给出**每一层**祖先，由外到内', () => {
+    // 定位要用它把整条路径上的目录都展开。只展开直接父目录是不够的 ——
+    // 父目录自己还在一个收着的目录里，那一行照样不渲染。
+    expect(ancestorDirectoryPaths('a/b/c.md')).toEqual(['a', 'a/b']);
+    expect(ancestorDirectoryPaths('a/b/c/d.md')).toEqual(['a', 'a/b', 'a/b/c']);
+  });
+
+  it('顶层文件没有祖先 —— 它已经在默认展开的那一层里', () => {
+    expect(ancestorDirectoryPaths('root.md')).toEqual([]);
+  });
+
+  it('目录自己也算：定位到 `a/b` 要展开 `a`', () => {
+    expect(ancestorDirectoryPaths('a/b')).toEqual(['a']);
+  });
+
+  it('结果与树的形状无关 —— 它只切路径，磁盘上有没有那几层不归它管', () => {
+    // 补出来的目录节点（`path: null`）也在树里，它们同样要能展开，
+    // 所以这个函数不能去查树。纯字符串切分是刻意的。
+    expect(ancestorDirectoryPaths('x/y/z.md')).toEqual(['x', 'x/y']);
   });
 });

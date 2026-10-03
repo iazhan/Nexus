@@ -15,6 +15,7 @@ import { extractionNoteOf } from './attachments.js';
 import { formatFileSize } from './file-size.js';
 import { formatTimestamp } from './time-format.js';
 import {
+  ancestorDirectoryPaths,
   buildFileTree,
   collectDirectoryPaths,
   defaultExpandedDirectories,
@@ -88,9 +89,59 @@ export interface WorkspaceSidebarProps {
    */
   createRequest?: { kind: 'file' | 'folder'; parentRelativePath: string } | null;
   onCreateRequestHandled?: () => void;
+
+  /**
+   * 要求「在树里定位到某个文件」：展开它的**每一层**祖先、选中它、并滚进视野。
+   *
+   * 为什么不能靠 `activeFilePath` 顺带做到：那个只决定「哪一行加高亮类」，而
+   * 收着的目录根本不渲染子节点 —— 目标行在 DOM 里不存在，高亮类挂不到任何东西上。
+   * 定位必须先改 `expanded`。
+   *
+   * 传对象而不是裸路径，与 `createRequest` 同一个理由：连续两次请求同一个文件，
+   * 裸字符串第二次与前一次**值相同**，React 的依赖比较看不出区别，就不会重跑。
+   * 处理完必须调 `onRevealHandled` 清掉，否则会被一直当成「新的请求」。
+   *
+   * 找不到目标（列表还没读回来、或它被「显示图片」滤掉了）时**保持挂起**：
+   * 树更新一次就重试一次，索引跑完自然会成功。真找不到就一直没有动作，这是对的 ——
+   * 比起乱跳，什么都不做更不容易让人困惑。
+   */
+  revealRequest?: { path: string } | null;
+  onRevealHandled?: () => void;
 }
 
 type IndexPhase = 'indexing' | 'ready' | 'error';
+
+/**
+ * 把树里的某一行滚进视野。
+ *
+ * ## 为什么不用 `scrollIntoView`
+ *
+ * 它滚的是**所有可滚祖先**，不只这一个容器 —— 侧栏外面还有整页的滚动容器，
+ * 一次定位会把整页也挪一下。这里手算 `scrollTop`，只动这一个盒子。
+ *
+ * ## 判据：已经在视野里时一动不动
+ *
+ * 只有真的越界才写 `scrollTop`。无条件写的话，每次定位都会把树挪一点点
+ * （哪怕目标就在眼前），用户看到的是「明明看得见却动了」。
+ * 同理，只做**最小**移动（对齐到边界），不把目标顶到容器正中。
+ */
+function scrollRowIntoView(container: HTMLElement | null, path: string | null): void {
+  if (container === null || !path) return;
+  // 按 `data-path`（绝对路径）找，不按相对路径 —— 调用方手上只有绝对路径。
+  // 用属性选择器拼字符串会被路径里的引号/反斜杠打坏，所以遍历比。
+  const row = Array.from(container.querySelectorAll<HTMLElement>('.nexus-tree-item')).find(
+    (element) => element.dataset.path === path
+  );
+  if (!row) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  if (rowRect.top < containerRect.top) {
+    container.scrollTop -= containerRect.top - rowRect.top;
+  } else if (rowRect.bottom > containerRect.bottom) {
+    container.scrollTop += rowRect.bottom - containerRect.bottom;
+  }
+}
 
 /** 正在新建的东西：落在哪个目录（相对路径 `null` ＝ 工作区根）与它的绝对路径。 */
 interface CreatingState {
@@ -140,7 +191,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   onDeleteFile,
   onRefresh,
   createRequest,
-  onCreateRequestHandled
+  onCreateRequestHandled,
+  revealRequest,
+  onRevealHandled
 }) => {
   const { t } = useLocale();
   const [documents, setDocuments] = useState<IndexedDocument[]>([]);
@@ -285,6 +338,36 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
       return next;
     });
   }, []);
+
+  /** 树的滚动容器。定位要靠它手算 `scrollTop`，见 `scrollRowIntoView`。 */
+  const treeScrollRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * 兑现「定位到某个文件」。
+   *
+   * 三件事的顺序不能反：**先展开祖先**（收着的目录不渲染子节点，DOM 里根本没有那一行）
+   * → 再选中 → 最后滚动。展开是 `setState`，这一帧 DOM 还是旧的，所以滚动必须等下一帧；
+   * 当场滚会查到一个不存在的元素，静默什么都不做，表现成「命令执行了但什么都没发生」。
+   */
+  useEffect(() => {
+    if (!revealRequest) return;
+    const node = findTreeNodeByPath(visibleTree, revealRequest.path);
+    if (!node) return;
+
+    // 先清请求再动作：动作中途抛错也不会把这一项永远挂在队列里。
+    onRevealHandled?.();
+    setSelected(node);
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      for (const ancestor of ancestorDirectoryPaths(node.relativePath)) next.add(ancestor);
+      return next;
+    });
+
+    const frame = requestAnimationFrame(() => {
+      scrollRowIntoView(treeScrollRef.current, node.path);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [revealRequest, visibleTree, onRevealHandled]);
 
   /**
    * 树里所有目录。「全部展开 / 收起」的判据与动作都从它算 —— 同源，见 `collectDirectoryPaths`。
@@ -699,7 +782,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
       )}
 
       {phase === 'ready' && !isEmptyWorkspace && !isFilteredToEmpty && (
-        <div className="nexus-tree-scroll">{renderNodes(visibleTree, 0, null)}</div>
+        <div className="nexus-tree-scroll" ref={treeScrollRef}>
+          {renderNodes(visibleTree, 0, null)}
+        </div>
       )}
     </aside>
   );
