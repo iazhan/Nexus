@@ -7,7 +7,23 @@
  *
  * **颜色一律走 `currentColor`**：由调用方按「默认 / 悬停 / 选中 / 禁用」给色，
  * 图标自己持色就得多写几条覆盖规则，还会漏掉禁用那一态。
+ *
+ * ## 文件行为什么按类型分成五枚（2026-10-03 改）
+ *
+ * 原来只有两枚：笔记一枚，其余附件**共用**一枚相框。结果是图片和 PDF 长得一模一样，
+ * 而这两类恰恰是树上最需要分开的 —— 一个是素材，一个是成品。
+ *
+ * **区分靠外形轮廓，不靠内部细节。** 树行图标是 13px，24 视箱缩下去之后 1 个单位只剩
+ * 0.54px：靠「纸里画两条横线还是三条」这种差别根本分不出来，会糊成一团。所以外形先拉开
+ * —— 竖长的纸（Markdown / PDF / DOCX / 通用文件）与横宽的相框（图片）—— 同外形的三枚
+ * 再各带**一个**形状不同的记号：下箭头 / 两条横线 / 方框。
+ *
+ * 下箭头取的是 Markdown 记号 `M↓` 里可线稿化的那一半 —— 用户在其他编辑器里已经认过它，
+ * 不必再学一个新符号。
  */
+
+import type { DocumentType } from '@nexus/core';
+import type { ReactNode } from 'react';
 
 const TOOLBAR_PROPS = {
   width: 14,
@@ -130,28 +146,75 @@ export const FolderRowIcon = (
   </svg>
 );
 
-/** Markdown 笔记：一页纸。 */
-export const NoteRowIcon = (
+/**
+ * Markdown 笔记：一页纸 + 折角 + 下箭头。
+ *
+ * **记号为什么是下箭头而不是 M**（试过）：Markdown 的官方记号是 `M↓`，直觉上该画 M，
+ * 但 M 要 4 段线，13px 下全挤在 4px 宽里会糊成一团 —— 要 16px 才认得出，而树行就是 13px。
+ * 下箭头只有 2 段线，13px 下依然清楚。**13px 的记号最多容纳 2 段线**，这条判据对以后
+ * 往纸里加记号同样成立。
+ */
+export const MarkdownRowIcon = (
+  <svg {...ROW_PROPS}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 3v5h5" />
+    <path d="M12 11v6.5" />
+    <path d="M9 14l3 3 3-3" />
+  </svg>
+);
+
+/** 图片：**横宽**的相框 + 太阳 + 山。 */
+export const ImageRowIcon = (
+  <svg {...ROW_PROPS}>
+    <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+    <circle cx="8" cy="9.5" r="1.5" />
+    <path d="M4.5 17.5l4-4 3 3 3.5-3.5 4.5 4.5" />
+  </svg>
+);
+
+/** PDF：一页纸 + 折角 + 两条文本行（排版好的页面）。 */
+export const PdfRowIcon = (
+  <svg {...ROW_PROPS}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 3v5h5" />
+    <path d="M8.5 12.5h7" />
+    <path d="M8.5 16.5h7" />
+  </svg>
+);
+
+/** DOCX：一页纸 + 折角 + 一个版心框（可编辑的版式，与 PDF 的成品页面区分）。 */
+export const DocxRowIcon = (
+  <svg {...ROW_PROPS}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 3v5h5" />
+    <rect x="8" y="11.5" width="8" height="7" rx="1.5" />
+  </svg>
+);
+
+/** 通用文件：一页纸 + 折角。索引里没有它的类型时用它（白名单外的扩展名）。 */
+export const FileRowIcon = (
   <svg {...ROW_PROPS}>
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
     <path d="M14 3v5h5" />
   </svg>
 );
 
+const ROW_ICONS: Record<DocumentType, ReactNode> = {
+  markdown: MarkdownRowIcon,
+  image: ImageRowIcon,
+  pdf: PdfRowIcon,
+  docx: DocxRowIcon
+};
+
 /**
- * 附件。
+ * 文件行该画哪一枚。`null`（索引里没有这个文件）落到通用文件。
  *
- * 三种附件类型**共用一枚图标**是刻意的：侧栏很窄，一列 13px 的图标里再区分
- * 「图片 / PDF / DOCX」只会变成三个几乎一样的方框，谁也认不出。要区分就靠扩展名
- * 本身 —— 它就在名字里，而且比图标准确。等真的需要在树上按类型筛，再谈专用图标。
+ * 收在这里而不是让调用方 `switch`：`DocumentType` 多一种格式时只改这一处，
+ * 而 `Record<DocumentType, …>` 的穷尽性会让「加了类型忘了配图标」当场变成类型错误。
  */
-export const AttachmentRowIcon = (
-  <svg {...ROW_PROPS}>
-    <rect x="3" y="4" width="18" height="16" rx="2" />
-    <circle cx="8.5" cy="9.5" r="1.6" />
-    <path d="M4 17l4.5-4.5L13 17l3-3 4 4" />
-  </svg>
-);
+export function fileRowIcon(type: DocumentType | null | undefined): ReactNode {
+  return type === null || type === undefined ? FileRowIcon : ROW_ICONS[type];
+}
 
 export const RetryIcon = (
   <svg {...TOOLBAR_PROPS} width={13} height={13}>

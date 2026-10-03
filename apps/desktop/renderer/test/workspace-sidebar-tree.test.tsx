@@ -8,6 +8,7 @@ import {
   type WorkspaceDirectoryEntry
 } from '@nexus/core';
 import { WorkspaceSidebar } from '../src/workspace/WorkspaceSidebar.js';
+import { FileRowIcon, fileRowIcon } from '../src/components/workspace-icons.js';
 import { localeManager } from '../src/platform.js';
 
 /**
@@ -236,6 +237,20 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
   const toolbarButton = (action: string) =>
     container.querySelector<HTMLButtonElement>(`.nexus-toolbar-button[data-action="${action}"]`);
+
+  /**
+   * 文件行图标的两个判据：类型（`data-file-kind`）与图形本身。
+   *
+   * 图形取 SVG 的 `innerHTML` 而不是让每枚图标自报一个 `data-icon` —— 要断言的是
+   * **四类的图形真的不一样**，而自报的名字是答案的一部分：两枚图标画成同一个样子
+   * 却各报各的名字，那样测照样绿。
+   */
+  const rowFileKind = (relativePath: string) =>
+    container.querySelector(`[data-relative-path="${relativePath}"]`)?.getAttribute('data-file-kind');
+
+  const rowIconMarkup = (relativePath: string) =>
+    container.querySelector(`[data-relative-path="${relativePath}"] .nexus-tree-row-icon svg`)
+      ?.innerHTML ?? null;
 
   const click = async (selector: string) => {
     await act(async () => {
@@ -653,6 +668,46 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       expect(props.onDeleteFile).toHaveBeenCalledWith('/vault/b.md');
     });
 
+    it('树**先**更新、选中请求后到时，选中也要挪过去', async () => {
+      // 上一条走的是「请求先到、树后更新」；这一条走**反过来的那一半**，而它才是真实顺序：
+      // `createEntry` 是「先 bump 版本号让列表重读 → 再 await 打开文件 → 最后才返回路径」，
+      // 所以新路径常常在树已经更新完之后才交回来。
+      //
+      // 用挂起的 promise 把这个顺序钉死：请求不 resolve，树先更新；再放行请求。
+      const gate: { release: ((path: string | null) => void) | null } = { release: null };
+      props.onCreateFile = vi.fn(
+        () =>
+          new Promise<string | null>((resolve) => {
+            gate.release = resolve;
+          })
+      );
+
+      const documents = [doc('a.md')];
+      await renderSidebar({ documents, directories: [] });
+
+      await click('[data-relative-path="a.md"]');
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+      await typeInto(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!, 'b.md');
+      await pressEnter(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!);
+
+      // 树先更新：新文件已经进列表，而 `onCreateFile` 还挂着没 resolve。
+      documents.push(doc('b.md'));
+      await bumpRevision();
+
+      await act(async () => {
+        gate.release?.('/vault/b.md');
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(rows().find((row) => row.relativePath === 'b.md')?.selected).toBe(true);
+      expect(rows().find((row) => row.relativePath === 'a.md')?.selected).toBe(false);
+
+      // 后果与上一条相同：此时点删除，删的必须是 b.md
+      await click('.nexus-toolbar-button[data-action="delete"]');
+      expect(props.onDeleteFile).toHaveBeenCalledWith('/vault/b.md');
+    });
+
     it('Escape 取消，什么都不提交', async () => {
       await renderSidebar({ documents: [doc('a.md')], directories: [] });
 
@@ -714,6 +769,29 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       await rightClick('[data-relative-path="notes"]');
 
       expect(props.onNodeContextMenu.mock.calls[0]![0].type).toBe('directory');
+    });
+  });
+
+  describe('文件行的图标', () => {
+    const ICON_FILES = ['a.md', 'b.pdf', 'c.docx', 'd.png'] as const;
+
+    it('按类型各画一枚，且四枚互不相同', async () => {
+      await renderSidebar({ documents: ICON_FILES.map((path) => doc(path)) });
+
+      expect(ICON_FILES.map(rowFileKind)).toEqual(['markdown', 'pdf', 'docx', 'image']);
+
+      const markups = ICON_FILES.map(rowIconMarkup);
+      for (const markup of markups) expect(markup).toBeTruthy();
+      // 这一条守的正是「图片和 PDF 长得一样」那个问题：四类共用一枚图标时这里只有 1 个。
+      expect(new Set(markups).size).toBe(ICON_FILES.length);
+    });
+
+    it('索引里没有它的类型时落到通用图标', () => {
+      // `FileTreeNode.document` 的类型允许 `null`（目录节点就是），所以这档兜底要留着；
+      // 但它**造不出来** —— 树里的文件节点一定有文档（`buildFileTree` 从索引建），
+      // 所以只能在函数这一层验。
+      expect(fileRowIcon(null)).toBe(FileRowIcon);
+      expect(fileRowIcon(undefined)).toBe(FileRowIcon);
     });
   });
 

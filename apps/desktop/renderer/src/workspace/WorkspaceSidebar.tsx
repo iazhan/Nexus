@@ -2,13 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { IndexedDocument, WorkspaceDirectoryEntry } from '@nexus/core';
 import { useLocale } from '../hooks.js';
 import { hostSettingsSynced } from '../host-settings.js';
-import {
-  AttachmentRowIcon,
-  ChevronIcon,
-  FolderRowIcon,
-  NoteRowIcon,
-  RetryIcon
-} from '../components/workspace-icons.js';
+import { ChevronIcon, FolderRowIcon, RetryIcon, fileRowIcon } from '../components/workspace-icons.js';
 import { InlineRename } from './InlineRename.js';
 import { NewEntryInput } from './NewEntryInput.js';
 import { extractionNoteOf } from './attachments.js';
@@ -403,18 +397,28 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
    * 刚建好的东西的绝对路径 —— 等它出现在树里之后选中它。
    *
    * 为什么不能建完直接选中：那时树还是旧的（列表要重读一次），新节点根本不在里面。
-   * 用 ref 而不是 state：它不参与渲染，只是一个「等下一次 tree 更新时用一次」的记号。
+   *
+   * ## 为什么是 state 而不是 ref（2026-10-03 改）
+   *
+   * 调用方 `createEntry` 的顺序是「先 bump 版本号让列表重读 → 再 `await` 打开文件 →
+   * 最后才返回路径」。所以这个值有可能在**树已经更新之后**才写进来，而 effect 的依赖里
+   * 只有 `tree` —— 那次更新已经过去了，effect 不会再跑，**选中永远不会挪**。
+   *
+   * 后果不是「慢一拍」而是**删错文件**：工具栏的删除打在**选中项**上，用户新建完文件、
+   * 以为选中的是它，接着按删除，删掉的是上一个选中的那个。
+   *
+   * 用 state 就是为了让「写入」本身触发一次渲染、把 effect 重新叫起来。ref 不参与渲染，
+   * 这条路径是断的 —— 这也正是它偶发的原因：树更新与写入谁先到，取决于 IPC 与 React 调度。
    */
-  const pendingSelectRef = useRef<string | null>(null);
+  const [pendingSelect, setPendingSelect] = useState<string | null>(null);
 
   useEffect(() => {
-    const target = pendingSelectRef.current;
-    if (target === null) return;
-    const node = findTreeNodeByPath(tree, target);
+    if (pendingSelect === null) return;
+    const node = findTreeNodeByPath(tree, pendingSelect);
     if (!node) return;
-    pendingSelectRef.current = null;
+    setPendingSelect(null);
     setSelected(node);
-  }, [tree]);
+  }, [tree, pendingSelect]);
 
   // 选中项从树里消失时自动清掉：删掉文件、外部改动、切工作区都会走到这里。
   // 自愈而不是在每条删除路径上手工清 —— 手工清总会漏一条（比如外部删的）。
@@ -560,7 +564,8 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                   // 失败时留着输入行：用户刚敲的名字还在，改一下就能重试
                   if (createdPath === null) return;
                   // 建好的东西还没进树（列表要重读一次），先记着，等它出现再选中。
-                  pendingSelectRef.current = createdPath;
+                  // 也可能反过来 —— 树已经更新完了才走到这里，见 `pendingSelect` 的注释。
+                  setPendingSelect(createdPath);
                   setCreating(null);
                 });
               }}
@@ -656,6 +661,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
               data-relative-path={node.relativePath}
               data-path={node.path ?? ''}
               data-attachment={attachment ? 'true' : 'false'}
+              // 图标按 `document.type` 选（`null` = 索引里没有它，如白名单外的扩展名）。
+              // 判据给测试用：四类的图标必须互不相同，光看名字认不出这件事。
+              data-file-kind={node.document?.type ?? 'unknown'}
               data-selected={isSelected ? 'true' : undefined}
               title={tooltipLines.join('\n')}
               onClick={() => {
@@ -672,7 +680,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
               }}
             >
               <span className="nexus-tree-row-icon" aria-hidden="true">
-                {attachment ? AttachmentRowIcon : NoteRowIcon}
+                {fileRowIcon(node.document?.type)}
               </span>
               <span className="nexus-tree-name">{node.name}</span>
               {/* 大小与提取状态只给附件看：笔记行上放一个「2.1 KB」是纯噪声，

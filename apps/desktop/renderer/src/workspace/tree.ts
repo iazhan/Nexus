@@ -217,7 +217,9 @@ export function defaultExpandedDirectories(tree: readonly FileTreeNode[]): Set<s
  * 白名单之外的文件（索引里不会有）返回 `false`，也就是**照常显示**：
  * 看不见的东西比看得见的东西难排查。
  *
- * **它只决定画哪枚图标，不决定谁会被藏起来** —— 藏起来的是图片，见 `isImageNode`。
+ * **它决定的是「这一行按附件渲染」**（体积、提取提示、`data-attachment`），
+ * **不是画哪枚图标** —— 图标直接由 `document.type` 选（见 `fileRowIcon`），
+ * 走这条路才分得出图片与 PDF。它也**不决定谁会被藏起来** —— 藏起来的是图片，见 `isImageNode`。
  */
 export function isAttachmentNode(node: FileTreeNode): boolean {
   return node.document !== null && node.document.type !== 'markdown';
