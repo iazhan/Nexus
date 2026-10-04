@@ -30,6 +30,20 @@
 # 所以发布这段自己写：资产清单是显式的、draft→正式 的次序是显式的，
 # 而且顺序本身就把上面那个竞态消掉了（release 先存在，就不存在「两个并发创建」）。
 #
+# ## Release 的变更日志
+#
+# notes 由「**上一个 release tag → 当前 tag**」的提交自动生成：`git tag -l 'v*' --sort=-v:refname`
+# 取最近一个（排除当前 tag），`git log prev..cur --no-merges` 列 subject。提交信息本身
+# 就是 `type(scope): subject`（COMMIT_CONVENTION.md），直接当 changelog 条目，不再解析分类。
+#
+# 三个判据：
+#
+# - **checkout 必须 `fetch-depth: 0` + `fetch-tags: true`**（见 job 里的注释）。浅克隆下
+#   这段会静默产出空列表，而流水线照样绿 —— 最难察觉的一种失败。
+# - **取「最近一个 tag」而不是「上一个版本号」**：没打 tag 的版本（如 0.69.0 / 0.69.1）
+#   会自然并入下一次发布的日志，这正是我们要的 —— 日志描述的是「相对上一次发布多了什么」。
+# - **首次发布没有上一个 tag** 时退化成「该 tag 可达的全部提交」，不留空。
+#
 # ## 刻意不做的事
 #
 # **不跑测试。** 这里的职责是「把已提交的代码打成包」，而 desktop 那批真机用例要驱动
@@ -55,7 +69,13 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # 变更日志要读「上一个 release tag → 当前 tag」的提交。默认是浅克隆（depth 1），
+      # 里面既没有历史、也没有 tag —— `git log prev..cur` 会**静默**给出空结果，
+      # 于是 Release notes 变成一条空列表，且流水线照样报绿。必须全量拉。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: pnpm/action-setup@v4
         with:
@@ -118,10 +138,39 @@ jobs:
             exit 1
           fi
 
+          # 变更日志：上一个 release tag（按版本排序取最近一个，排除当前 tag）→ 当前 tag。
+          # 首次发布没有上一个 tag 时，退化成「该 tag 可达的全部提交」。
+          prev_tag="$(git tag -l 'v*' --sort=-v:refname | grep -vx "$tag" | head -n1 || true)"
+          if [ -n "$prev_tag" ]; then
+            range="${prev_tag}..${tag}"
+            heading="## 变更（${prev_tag} → ${tag}）"
+          else
+            range="${tag}"
+            heading="## 变更（首个发布）"
+          fi
+          echo "变更范围：${range}"
+
+          body="$(git log "$range" --no-merges --pretty=format:'- %s')"
+          if [ -z "$body" ]; then
+            body="- （本次发布没有新增提交）"
+          fi
+
+          notes="${RUNNER_TEMP}/release-notes.md"
+          {
+            printf '%s\n\n' "$heading"
+            printf '%s\n\n' "$body"
+            if [ -n "$prev_tag" ]; then
+              printf '**Full Changelog**: https://github.com/%s/compare/%s...%s\n\n' \
+                "${GITHUB_REPOSITORY}" "${prev_tag}" "${tag}"
+            fi
+            printf 'Windows x64 installer, built from tag %s.\n' "${tag}"
+          } > "$notes"
+          cat "$notes"
+
           gh release create "$tag" \
             --draft \
             --title "$tag" \
-            --notes "Windows x64 installer, built from tag ${tag}." \
+            --notes-file "$notes" \
             --verify-tag
 
           gh release upload "$tag" \
