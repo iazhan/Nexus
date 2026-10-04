@@ -6,7 +6,7 @@ import React, {
   useRef,
   useSyncExternalStore
 } from 'react';
-import type { AppMode, FileDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
+import type { AppMode, FileDocument, IndexedDocument, Unsubscribe, ViewerDocumentType } from '@nexus/core';
 import {
   attachmentExtension,
   buildDocumentLink,
@@ -25,6 +25,12 @@ import {
 import {
   MarkdownDocumentSession,
   openSearchPanel,
+  handleVisualModB,
+  handleVisualModI,
+  handleVisualModStrike,
+  handleVisualInlineCode,
+  handleVisualClearFormatting,
+  handleVisualBlockFormat,
   resolveRelativePath,
   revealHeadingAnchor,
   revealHeadingAt,
@@ -33,6 +39,11 @@ import {
   MERMAID_EXTENSION_ID,
   isMathMarker,
   isMermaidMarker,
+  createFormattingAnalyzer,
+  createBlockFormatAnalyzer,
+  createInsertDocumentLinkTransaction,
+  EMPTY_FORMATTING_STATE,
+  EMPTY_BLOCK_FORMAT_STATE,
   type EditorView,
   type EditorSurfaceKind,
   type EditorSaveState,
@@ -42,10 +53,18 @@ import {
   type WorkspaceAssetEntry
 } from '@nexus/editor';
 import { EditorSurface } from './editor/SourceEditor.js';
+import { EditorToolbar } from './editor/EditorToolbar.js';
+import {
+  SELECTION_ACTION_SPECS,
+  SelectionToolbar,
+  useSelectionAnchor,
+  type SelectionAction
+} from './editor/SelectionToolbar.js';
+import { BLOCK_FORMAT_SPECS, blockFormatMenuItems } from './editor/block-format-specs.js';
+import { createSlashCommandHost } from './editor/slash-commands.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { MenuBar, type MenuBarMenu } from './MenuBar.js';
 import { WindowControls } from './WindowControls.js';
-import { DarkIcon, LightIcon } from './components/theme-icons.js';
 import { formatShortcut, matchesShortcut } from '@nexus/command';
 import { DEFAULT_SHORTCUTS, REDO_SHORTCUT, resolveShortcut } from './keybindings.js';
 import { commandRegistry, mermaidPreviewPreference, settings } from './platform.js';
@@ -61,7 +80,7 @@ import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
 import { WorkspaceEmpty } from './workspace/WorkspaceEmpty.js';
 import { RenamePreview } from './workspace/RenamePreview.js';
 import { describeSkips, unsavedPaths } from './workspace/rename.js';
-import { copyLinkFailureKey } from './workspace/copy-link.js';
+import { linkFailureKey } from './workspace/link-failure.js';
 import { buildWorkspaceImageOptions } from './workspace/image-picker.js';
 import { buildWorkspaceAssetEntries } from './workspace/workspace-assets.js';
 import { OutlinePanel } from './workspace/OutlinePanel.js';
@@ -71,6 +90,7 @@ import { TagsPanel } from './workspace/TagsPanel.js';
 import { GraphPanel } from './workspace/GraphPanel.js';
 import { HistoryPanel } from './workspace/HistoryPanel.js';
 import { QuickOpen } from './workspace/QuickOpen.js';
+import { InsertLinkPalette } from './workspace/InsertLinkPalette.js';
 import { classifyOpenTarget } from './workspace/open-target.js';
 import { ViewerRendererRegistry } from './viewer/registry.js';
 import { ViewerSurface } from './viewer/ViewerSurface.js';
@@ -92,23 +112,9 @@ import { getDocumentDirectory, getFileName, newDocumentDirectory } from './paths
 
 export type ShellStatus = 'loading' | 'ready' | 'error';
 
-/** Source surface 图标：代码尖括号。 */
-const CodeIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="16 18 22 12 16 6" />
-    <polyline points="8 6 2 12 8 18" />
-  </svg>
-);
-
-/** Visual surface 图标：预览小眼睛。 */
-const EyeIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
-
-/** 太阳 / 月亮在 `components/theme-icons.tsx` —— 设置页的模式卡片也要画它们。 */
+/** 太阳 / 月亮在 `components/theme-icons.tsx` —— 设置页的模式卡片也要画它们。
+ *  `CodeIcon` / `EyeIcon` 搬到了 `components/editor-icons.tsx`：编辑器工具栏的
+ *  surface 切换按钮也要画它们，两处各留一份迟早漂成两个样子。 */
 
 /**
  * 保存状态到文案键的唯一映射。
@@ -246,6 +252,15 @@ export const App: React.FC = () => {
 
   /** 快速打开（Ctrl+P）是否可见。 */
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
+
+  /**
+   * 「插入链接」的选目标面板是否可见。
+   *
+   * 与快速打开分开两个 state 而不是共用一个「哪个面板开着」的枚举：两者语义不同
+   * （一个是「打开这篇」，一个是「把链接插到光标处」），共用一个 state 只会让
+   * 两边都要判「现在开的是哪一个」。
+   */
+  const [insertLinkOpen, setInsertLinkOpen] = useState(false);
 
   /**
    * 工作区树上的右键菜单。`null` ＝ 没开着。
@@ -453,12 +468,33 @@ export const App: React.FC = () => {
   });
 
   /**
+   * 「点条外部把它关掉」这条抑制。**只在选区没变时有效** ——
+   * 一旦选区变了（`handleSelectionChange`）就复位，否则用户选了新的一段却看不到条。
+   * 不把它做成视图状态：它不跨会话，也不该跨会话（判据 31 的边界在「跨会话是否成立」）。
+   */
+  const [selectionToolbarDismissed, setSelectionToolbarDismissed] = useState(false);
+
+  /**
    * 当前编辑器视图。只给**需要几何计算**的宿主用（大纲判「当前在第几节」）。
    *
    * 不从 `window.nexusActiveView` 现读：那个全局没有变化通知，而切 surface
    * （Source ↔ Visual）会重建 view —— 拿不到「换了一个」这个事件，就只能在旧 view 上算。
    */
   const [activeView, setActiveView] = useState<EditorView | null>(null);
+
+  /**
+   * `activeView` 的 ref 镜像，给**命令的 `execute`** 用。
+   *
+   * `execute` 注册在 effect 闭包里，直接读 `activeView` 拿到的是注册那一刻的值
+   * （stale closure）—— 切了 surface 之后命令还打在旧 view 上。ref 读的是当下值。
+   * 与 `window.nexusActiveView` 的区别：那个全局没有变化通知、也没有类型；
+   * 这个在 `onViewReady` 里同步写，是同一时机的正规入口。
+   */
+  const activeViewRef = useRef<EditorView | null>(null);
+  const handleViewReady = useCallback((view: EditorView | null) => {
+    activeViewRef.current = view;
+    setActiveView(view);
+  }, []);
 
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
@@ -598,6 +634,7 @@ export const App: React.FC = () => {
   const hiddenChrome = disabledMembers(CHROME_VISIBILITY.options, chromeVisibility);
   const showStatusBar = !hiddenChrome.includes('statusBar');
   const showTabBar = !hiddenChrome.includes('tabBar');
+  const showEditorToolbar = !hiddenChrome.includes('editorToolbar');
 
   const statusBarMetrics = useSettingValue('appearance.statusBarMetrics');
   const hiddenMetrics = disabledMembers(STATUS_BAR_METRICS.options, statusBarMetrics);
@@ -1295,6 +1332,8 @@ export const App: React.FC = () => {
 
   const handleSelectionChange = useCallback((newSelection: EditorSelectionInfo) => {
     setSelection(newSelection);
+    // 选区一变，之前「点外部关掉」那条抑制就作废了 —— 用户选了新的一段，条该重新浮出来。
+    setSelectionToolbarDismissed(false);
   }, []);
 
   // Window close & unsaved changes coordination
@@ -1745,7 +1784,7 @@ export const App: React.FC = () => {
       const relativePath =
         workspaceRoot === null ? null : relativePathFrom(workspaceRoot, targetPath);
       if (relativePath === null) {
-        window.alert(t(copyLinkFailureKey('not-in-workspace')));
+        window.alert(t(linkFailureKey('not-in-workspace', 'copy')));
         return;
       }
 
@@ -1755,7 +1794,7 @@ export const App: React.FC = () => {
         filePath
       );
       if (!result.ok) {
-        window.alert(t(copyLinkFailureKey(result.reason)));
+        window.alert(t(linkFailureKey(result.reason, 'copy')));
         return;
       }
 
@@ -1776,6 +1815,48 @@ export const App: React.FC = () => {
     // `workspaceRoot` 与 `filePath` 都是这一项要用的：前者算工作区根相对路径，
     // 后者是 Markdown 档的基准。漏进依赖数组会让菜单项用上一次的基准拼路径。
     [workspaceRoot, filePath, t]
+  );
+
+  /**
+   * 插入链接：在面板里挑了一篇工作区文档 → 在**光标处**写出一条指向它的链接。
+   *
+   * 四条纪律，与「复制链接」同源但各有一处不同：
+   *
+   * - **写法由设置决定，不由这里决定。** 与 `handleCopyLink` 逐字相同：只把
+   *   「目标文档 + 当前文档」交给 `buildDocumentLink`，三档语义全在 `@nexus/core`。
+   * - **选中文字就是链接文字。** 这一段由 `createInsertDocumentLinkTransaction` 从
+   *   `selection` 里取（`buildDocumentLink` 的 `label` 参数）—— 用户选中一段文字再点
+   *   链接，心里想的是「把这段文字变成链接」，不是「把它删掉换成别的」。
+   * - **落点是 `session.dispatch` 而不是直接派发到 `view`。** 与剪切/粘贴同一条路：
+   *   session 是 source 的唯一持有者，派发到它之后 `registerSurface()` 会把新内容
+   *   同步进编辑器。直接派发到 view 的话，session 里那份 source 就落后了一步。
+   * - **插完把焦点还给编辑器**（面板拿走了焦点）。不然用户接下来打字会打到一个
+   *   已经关掉的面板曾经待过的地方 —— 什么都不发生。
+   *
+   * 失败时用 `'insert'` 那一套话：`no-current-document` 在这里的含义是「这篇还没保存、
+   * 没有路径」，与复制链接那边的「你还没打开文档」不是一件事（见 `link-failure.ts`）。
+   */
+  const handleInsertLink = useCallback(
+    (target: IndexedDocument) => {
+      setInsertLinkOpen(false);
+      const view = activeViewRef.current;
+      if (!view) return;
+
+      const snapshot = session.getSnapshot();
+      const result = createInsertDocumentLinkTransaction(snapshot.source, snapshot.selection, {
+        target: { path: target.path, relativePath: target.relativePath },
+        format: parseLinkFormat(settings.get('files.linkFormat')),
+        currentDocumentPath: filePath
+      });
+      if (!result.ok) {
+        window.alert(t(linkFailureKey(result.reason, 'insert')));
+        return;
+      }
+
+      session.dispatch(result.transaction);
+      view.focus();
+    },
+    [session, filePath, t]
   );
 
   /**
@@ -2005,20 +2086,115 @@ export const App: React.FC = () => {
         id: 'find',
         titleKey: 'cmd.find',
         shortcut: DEFAULT_SHORTCUTS['find'],
+        isEnabled: () => Boolean(activeViewRef.current),
         execute: () => {
-          const activeView = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
-          if (activeView) openSearchPanel(activeView);
+          const view = activeViewRef.current;
+          if (view) openSearchPanel(view);
         }
       }),
       commandRegistry.registerCommand({
         id: 'replace',
         titleKey: 'cmd.replace',
         shortcut: DEFAULT_SHORTCUTS['replace'],
+        isEnabled: () => Boolean(activeViewRef.current),
         execute: () => {
-          const activeView = (window as unknown as { nexusActiveView?: EditorView }).nexusActiveView;
-          if (activeView) openSearchPanel(activeView);
+          const view = activeViewRef.current;
+          if (view) openSearchPanel(view);
         }
       }),
+      /**
+       * 行内格式。**同一个函数引用**被快捷键（本 effect 的分发循环）、工具栏按钮与
+       * 将来的右键菜单共用 —— 蓝图要求三者「同一组命令定义」，各写一遍必然漂。
+       *
+       * `isEnabled` 判的是「有没有活动编辑器」：没有文档时按钮该灰、面板该跳过，
+       * 否则又是一个「搜得到、按下去没反应」的项。
+       */
+      commandRegistry.registerCommand({
+        id: 'format.bold',
+        titleKey: 'cmd.bold',
+        shortcut: DEFAULT_SHORTCUTS['format.bold'],
+        isEnabled: () => Boolean(activeViewRef.current),
+        execute: () => {
+          const view = activeViewRef.current;
+          if (view) handleVisualModB(view);
+        }
+      }),
+      commandRegistry.registerCommand({
+        id: 'format.italic',
+        titleKey: 'cmd.italic',
+        shortcut: DEFAULT_SHORTCUTS['format.italic'],
+        isEnabled: () => Boolean(activeViewRef.current),
+        execute: () => {
+          const view = activeViewRef.current;
+          if (view) handleVisualModI(view);
+        }
+      }),
+      commandRegistry.registerCommand({
+        id: 'format.strike',
+        titleKey: 'cmd.strike',
+        shortcut: DEFAULT_SHORTCUTS['format.strike'],
+        isEnabled: () => Boolean(activeViewRef.current),
+        execute: () => {
+          const view = activeViewRef.current;
+          if (view) handleVisualModStrike(view);
+        }
+      }),
+      commandRegistry.registerCommand({
+        id: 'format.inline-code',
+        titleKey: 'cmd.inlineCode',
+        shortcut: DEFAULT_SHORTCUTS['format.inline-code'],
+        isEnabled: () => Boolean(activeViewRef.current),
+        execute: () => {
+          const view = activeViewRef.current;
+          if (view) handleVisualInlineCode(view);
+        }
+      }),
+      /**
+       * 插入链接。**命令只负责开面板**，真正的插入在 `handleInsertLink` 里 ——
+       * 面板的 `onPick` 每次渲染现取，所以拿到的永远是当前文档的 session 与路径。
+       * 命令若闭包住那个回调，就会用到注册那一刻的旧路径（换文档之后写出来的
+       * Markdown 链接会相对上一篇算）。
+       */
+      commandRegistry.registerCommand({
+        id: 'format.insert-link',
+        titleKey: 'cmd.insertLink',
+        shortcut: DEFAULT_SHORTCUTS['format.insert-link'],
+        isEnabled: () => Boolean(activeViewRef.current),
+        execute: () => setInsertLinkOpen(true)
+      }),
+      /**
+       * 「清除格式」**不带 `shortcut`**：它没有公认的组合键，入口是选区上下文条。
+       * 不带默认键不影响它在面板 / 菜单里的可用性（`isEnabled` 与其它格式命令同源），
+       * 只是不参与 `resolveShortcut` 的匹配。
+       */
+      commandRegistry.registerCommand({
+        id: 'format.clear-formatting',
+        titleKey: 'cmd.clearFormatting',
+        isEnabled: () => Boolean(activeViewRef.current),
+        execute: () => {
+          const view = activeViewRef.current;
+          if (view) handleVisualClearFormatting(view);
+        }
+      }),
+      /**
+       * 块级改型。十五条命令从 `BLOCK_FORMAT_SPECS` **展开注册**，不是手写十五遍 ——
+       * 动作表是「格式」菜单与命令注册的共同出处，加一项只改一处。
+       *
+       * 共用 `handleVisualBlockFormat(view, kind)` 一个函数引用（「命令同源」在结构上成立）。
+       * **不给默认快捷键**：参考实现那套 `Mod-Alt-1..6` / `Mod-Shift-7/8` 与「按序号切标签页」
+       * 是同一个键位族，先不占；入口是菜单，命令面板里也搜得到。
+       */
+      ...BLOCK_FORMAT_SPECS.map((spec) =>
+        commandRegistry.registerCommand({
+          id: spec.id,
+          titleKey: spec.labelKey,
+          isEnabled: () => Boolean(activeViewRef.current),
+          execute: () => {
+            const view = activeViewRef.current;
+            if (view) handleVisualBlockFormat(view, spec.kind);
+          }
+        })
+      ),
       commandRegistry.registerCommand({
         id: 'open-in-workspace',
         titleKey: 'cmd.openInWorkspace',
@@ -2069,6 +2245,10 @@ export const App: React.FC = () => {
       for (const cmd of commandRegistry.getCommands()) {
         const spec = resolveShortcut(cmd.id);
         if (spec && matchesShortcut(e, spec)) {
+          // 不可用的命令**不拦事件**：拦了就等于把键吞掉，而它什么都不做
+          // （`continue` 而不是 `return`，让别的命令还有机会匹配同一个组合键）。
+          // 判据与命令面板、菜单同源（`Command.isEnabled`），三处不再各判一次。
+          if (cmd.isEnabled && !cmd.isEnabled()) continue;
           e.preventDefault();
           commandRegistry.executeCommand(cmd.id);
           return;
@@ -2118,6 +2298,141 @@ export const App: React.FC = () => {
   const handleRedo = useCallback(() => {
     session.redo();
   }, [session]);
+
+  /**
+   * 把按钮接到**宿主命令**上。
+   *
+   * 工具栏与顶栏都不直接调 `setSurfaceKind` / `openSearchPanel` —— 那样按钮与快捷键
+   * 就成了两份实现，而蓝图 `:394` 要求「右键 / 快捷键 / 上下文 toolbar 用**同一组命令**」。
+   * 走这里之后，同一个动作无论从哪个入口来，都是同一条命令的同一个 `execute`。
+   *
+   * `getCommand` 先探一次：命令在挂载时的 effect 里注册，按钮画出来时它一定在；
+   * 真拿不到时宁可什么都不做 —— 一次点击把整个渲染进程抛挂，用户连报错都看不到。
+   */
+  const runCommand = useCallback((id: string) => {
+    if (commandRegistry.getCommand(id)) commandRegistry.executeCommand(id);
+  }, []);
+
+  /**
+   * 活动栏那枚与命令面板 / 菜单里的 `toggle-theme` 是**同一条命令** —— 按钮不自己算
+   * 「切到哪边」，那条命令里已经挡了「切不动」（用户主题 / 单变体预设）的情况。
+   */
+  const handleToggleTheme = useCallback(() => runCommand('toggle-theme'), [runCommand]);
+
+  /** 编辑器工具栏那枚（顶栏那枚已删）。同一个动作不能两处各写一遍。 */
+  const handleToggleSurface = useCallback(() => runCommand('toggle-surface'), [runCommand]);
+
+  /**
+   * 选区格式状态的查询器。**跨渲染持有**：它内部按 `Text` 对象标识缓存扫描结果，
+   * 每次渲染新建一个的话缓存永远命中不了，等于每次选区变化都全篇重解析一次（§2.5 的性能账）。
+   */
+  const formattingAnalyzer = useRef(createFormattingAnalyzer());
+
+  /**
+   * 选区当前落在哪些标记里、是不是在原子节点里。
+   *
+   * 依赖里的 `selection` 是**重算信号**而不是数据源 —— 真实位置现读 `view.state.selection`：
+   * CodeMirror 改了 state 不会让 React 重渲染，只有宿主的选区回调会。
+   * 空选区时直接短路：`selectedTextLength === 0` 时这条链一次扫描都不该跑（§2.5）。
+   */
+  const formattingState = useMemo(() => {
+    if (!activeView || selection.selectedTextLength === 0) return EMPTY_FORMATTING_STATE;
+    const main = activeView.state.selection.main;
+    return formattingAnalyzer.current(activeView.state.doc, {
+      anchor: main.anchor,
+      head: main.head
+    });
+  }, [activeView, selection]);
+
+  /**
+   * 选区上下文条的动作表。**id 就是宿主命令 id** —— 按钮与快捷键因此走同一条命令的
+   * 同一个 `execute`（蓝图 `:394`）。图标与文案键来自 `SELECTION_ACTION_SPECS`
+   * （那张表是 §3.1 的唯一出处，测试直接钉它），这里只补上运行时才知道的两件事。
+   *
+   * `disabled` 取 `atomic`：选区切在代码块 / 行内代码 / 公式里时，行内标记无处可施 ——
+   * 判据与事务层的守卫**同一个表达式**（`formatting-query.ts`），否则会出现
+   * 「按钮亮着、按下去没反应」。
+   */
+  const selectionActions = useMemo<SelectionAction[]>(() => {
+    const disabled = formattingState.atomic;
+    const active = formattingState.active;
+    return SELECTION_ACTION_SPECS.map((spec) => ({
+      id: spec.id,
+      label: t(spec.labelKey),
+      icon: spec.icon,
+      disabled,
+      // 没有 `format` 的动作（清除格式）不参与激活态 —— 见 spec 的说明。
+      pressed: spec.format ? active.includes(spec.format) : undefined
+    }));
+  }, [formattingState, t]);
+
+  /** 量出选区在视口里的位置。量不到（没有非空选区 / 没有排版）时是 `null`。 */
+  const selectionAnchor = useSelectionAnchor(activeView, selection);
+
+  /**
+   * 块级状态的查询器。与 `formattingAnalyzer` 同一条约定：**跨渲染持有**，
+   * 它按 `Text` 对象标识缓存解析结果 —— 每次渲染新建一个的话缓存永远命中不了，
+   * 而块级判定要一次全篇解析，光标每动一格就重来一遍。
+   */
+  const blockFormatAnalyzer = useRef(createBlockFormatAnalyzer());
+
+  /**
+   * 光标所在块的类型 / 是不是引用 / 能不能改型。依赖里的 `selection` 同样是**重算信号**，
+   * 真实位置现读 `view.state.selection`（CM 改了 state 不会让 React 重渲染）。
+   */
+  const blockFormatState = useMemo(() => {
+    if (!activeView) return EMPTY_BLOCK_FORMAT_STATE;
+    const main = activeView.state.selection.main;
+    return blockFormatAnalyzer.current(activeView.state.doc, {
+      anchor: main.anchor,
+      head: main.head
+    });
+  }, [activeView, selection]);
+
+  /**
+   * 「格式」菜单的条目。**动作表 → 菜单**的投影在 `block-format-specs.ts` 里，
+   * 这里只补上运行时才知道的 `t` 与 `runCommand`。
+   */
+  const blockFormatItems = useMemo(
+    () => blockFormatMenuItems(blockFormatState, t, runCommand),
+    [blockFormatState, t, runCommand]
+  );
+
+  /**
+   * `/` 面板里的命令级动作。**与「格式」菜单同一张表、同一批命令 id** ——
+   * 投影本身在 `slash-commands.ts` 里，这里只补上 `t` 与 `runCommand`。
+   *
+   * 换语言时重建这一份是必要的：编辑器建视图时只取一次宿主对象，之后靠
+   * `SourceEditor` 的 ref 转发拿到最新的一份，标签才不会停在旧语言上。
+   */
+  const slashCommandHost = useMemo(() => createSlashCommandHost(t, runCommand), [t, runCommand]);
+
+  /** 稳定引用 —— 内联箭头会让 `SelectionToolbar` 的「点外部」监听每次渲染都重新订阅。 */
+  const dismissSelectionToolbar = useCallback(() => setSelectionToolbarDismissed(true), []);
+
+  /**
+   * 编辑器工具栏「更多」下拉里的条目。**只放已有能力里没进常驻栏的那些** ——
+   * 「替换」与「插入链接」。后者在这里是**唯一不带选区也能用的入口**：
+   * 选区上下文条要有非空选区才浮出来，而「光标停在一行上插一条链接」是常见写法，
+   * 那时标签文字退回目标文档的标题。
+   *
+   * 块级动作（改型）由后续批次追加：它们要等块级事务先补齐。
+   */
+  const editorMoreItems = useMemo<ContextMenuItem[]>(
+    () => [
+      {
+        id: 'insert-link',
+        label: t('cmd.insertLink'),
+        onSelect: () => runCommand('format.insert-link')
+      },
+      {
+        id: 'replace',
+        label: t('cmd.replace'),
+        onSelect: () => runCommand('replace')
+      }
+    ],
+    [runCommand, t]
+  );
 
   /** 复制/剪切/粘贴依赖编辑器 DOM 选区，执行前把焦点交还给编辑器。 */
   const focusActiveEditor = useCallback(() => {
@@ -2423,6 +2738,14 @@ export const App: React.FC = () => {
         ]
       },
       {
+        id: 'format',
+        label: t('menu.format'),
+        // 块级改型。**不放进常驻栏**：十五项排成一条栏就是蓝图 `:357` 说的
+        // 「常驻工具栏不堆叠完整编辑器按钮」；下拉菜单里带 ✓ 正好能表达「这一块现在是什么」。
+        // 附件（PDF / 图片）走 Viewer，没有块可言 —— 整组禁用而不是藏起来。
+        items: activeEditor ? blockFormatItems : blockFormatItems.map((item) => ({ ...item, disabled: true }))
+      },
+      {
         id: 'appearance',
         label: t('menu.preferences'),
         // 菜单由注册表投影，装的是**所有** `menu: true` 的字段（跨 Appearance / General /
@@ -2458,7 +2781,9 @@ export const App: React.FC = () => {
       mermaidClickToReveal,
       openSettingsWindow,
       // 改过快捷键之后菜单上的标签要跟着换。`keybindings` 的身份只在覆盖项真变了时才变。
-      keybindings
+      keybindings,
+      // 光标一动，「格式」菜单里的 ✓ 与禁用就要跟着换。
+      blockFormatItems
     ]
   );
 
@@ -2541,29 +2866,6 @@ export const App: React.FC = () => {
         </div>
 
         <div className="nexus-header-right">
-          <button
-            type="button"
-            className="nexus-header-button nexus-theme-toggle"
-            onClick={() => setTheme(resolvedTheme.type === 'light' ? 'dark' : 'light')}
-            // 用户主题与单变体预设没有另一边可切 —— 禁用比按下去没反应清楚。
-            disabled={!modeSwitchable}
-            aria-label={t('cmd.toggleTheme')}
-            title={t('cmd.toggleTheme')}
-          >
-            <span aria-hidden="true">{resolvedTheme.type === 'light' ? DarkIcon : LightIcon}</span>
-          </button>
-
-          <button
-            type="button"
-            className="nexus-header-button nexus-surface-toggle"
-            onClick={() => setSurfaceKind(surfaceKind === 'source' ? 'visual' : 'source')}
-            aria-pressed={surfaceKind === 'visual'}
-            aria-label={surfaceKind === 'source' ? t('surface.toVisual') : t('surface.toSource')}
-            title={surfaceKind === 'source' ? t('surface.toVisual') : t('surface.toSource')}
-          >
-            {surfaceKind === 'source' ? CodeIcon : EyeIcon}
-          </button>
-
           <WindowControls
             labels={{
               minimize: t('window.minimize'),
@@ -2680,6 +2982,9 @@ export const App: React.FC = () => {
           panelOpen={activity.panelOpen}
           onSelect={handleActivitySelect}
           onOpenSettings={openSettingsWindow}
+          themeType={resolvedTheme.type}
+          themeSwitchable={modeSwitchable}
+          onToggleTheme={handleToggleTheme}
         />
       )}
 
@@ -2813,6 +3118,46 @@ export const App: React.FC = () => {
       )}
 
       <main className="nexus-main-content">
+      {/* 编辑器工具栏挂在**标签栏上方**：它是「编辑器」的属性，而标签栏是「哪些文档开着」，
+          后者比前者更靠外一层（蓝图 §9.2 把 Tab Bar 单列一节也是这个次序）。
+
+          只对**可编辑文档**渲染：PDF / 图片那些走 Viewer，撤销栈、surface 切换对它们
+          没有意义 —— 画出来只会是一排点了没反应的按钮。 */}
+      {status === 'ready' && activeDocument?.kind === 'editor' && (
+        <>
+          {/* 藏起来时**只是不画这一栏**，不卸载任何能力：栏上每个动作都还有第二条路
+              （系统键 / 顶栏 / `Mod-M` / `Mod-F` / 菜单栏的「格式」菜单）。所以
+              「藏了工具栏」不会少一个动作，只是少一条捷径 —— 这正是它进得了
+              `appearance.chromeVisibility` 的原因。 */}
+          {showEditorToolbar && (
+            <EditorToolbar
+              surfaceKind={surfaceKind}
+              readOnly={saveState === 'readonly'}
+              // 块级按钮的按下态 / 禁用与「格式」菜单的 ✓ / 灰出自同一个 `blockFormatState`，
+              // 动作也走同一个 `runCommand` —— 两个入口是同一条命令，不是两份实现。
+              formatState={blockFormatState}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              onToggleSurface={handleToggleSurface}
+              onFind={() => runCommand('find')}
+              onBlockFormat={runCommand}
+              moreItems={editorMoreItems}
+            />
+          )}
+          {/* 选区上下文条（浮层，`position: fixed`，所以放哪儿都行，跟着这一栏放便于阅读）。
+              **只读时不画**：它上面只有写动作，全禁用等于浮一排死按钮 —— P0-5 的
+              「降级而非隐藏」说的是那条同时带视图 / 读动作的常驻栏，不是这一条。 */}
+          {saveState !== 'readonly' && (
+            <SelectionToolbar
+              anchor={selectionToolbarDismissed ? null : selectionAnchor}
+              actions={selectionActions}
+              label={t('editor.selectionToolbar.label')}
+              onAction={runCommand}
+              onDismiss={dismissSelectionToolbar}
+            />
+          )}
+        </>
+      )}
       {/* 标签栏挂在编辑区容器**内部**：它只该横跨编辑区，不该延伸到活动栏和侧栏上方。
           放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。
 
@@ -2894,11 +3239,12 @@ export const App: React.FC = () => {
             workspaceImages={workspaceImages}
             workspaceAssets={workspaceAssets}
             extensionHost={extensionHostRef.current ?? undefined}
+            slashCommands={slashCommandHost}
             theme={resolvedTheme.type}
             locale={locale}
             onChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
-            onViewReady={setActiveView}
+            onViewReady={handleViewReady}
             className="nexus-editor-full"
           />
         </ErrorBoundary>
@@ -2967,6 +3313,11 @@ export const App: React.FC = () => {
           }}
           onClose={() => setQuickOpenOpen(false)}
         />
+      )}
+      {/* 插入链接的选目标面板。**不跟快速打开一样加 `workspaceRoot` 门槛** ——
+          没有工作区时它自己画「索引为空」那一句，比按了没反应好；快速打开那边是历史写法。 */}
+      {insertLinkOpen && (
+        <InsertLinkPalette onPick={handleInsertLink} onClose={() => setInsertLinkOpen(false)} />
       )}
       {/* 挂在最外层而不是树里：树容器是 `overflow-y: auto`，菜单在那边会被裁掉。
           菜单自己用 `position: fixed` 定位到鼠标处。 */}

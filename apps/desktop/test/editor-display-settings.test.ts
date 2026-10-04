@@ -100,7 +100,7 @@ describe('编辑器显示设置', () => {
     await app.evaluate(RESET_SETTINGS);
 
     // 表格只在可视化投影里有节点。
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 20000);
     await app.waitForSelector('.cm-visual-table', 20000);
 
@@ -197,7 +197,7 @@ describe('编辑器显示设置', () => {
 
     // 代码块只在可视化投影里有节点；表格那条用例已经切过一次，所以先判再切。
     if (!(await app.evaluate<boolean>(`Boolean(document.querySelector('.cm-visual-code-line'))`))) {
-      await app.click('.nexus-surface-toggle');
+      await app.click('[data-action="toggle-surface"]');
     }
     await app.waitForSelector('.cm-visual-code-line', 20000);
 

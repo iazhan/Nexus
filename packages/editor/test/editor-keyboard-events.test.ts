@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { EditorSelection } from '@codemirror/state';
 import {
   MarkdownDocumentSession,
-  createSessionEditorView
+  createSessionEditorView,
+  handleVisualModB
 } from '../src/index.js';
 
 describe('Real CodeMirror KeyboardEvent & DOM Widget Integration', () => {
@@ -164,7 +165,7 @@ describe('Real CodeMirror KeyboardEvent & DOM Widget Integration', () => {
     handle.destroy();
   });
 
-  it('dispatches Mod-B and Mod-I keyboard events to format selection and supports undo', () => {
+  it('yields Mod-B and Mod-I to the host, and formats through the exported handler with undo', () => {
     const parent = document.createElement('div');
     const source = 'Hello formatting target world';
     const session = new MarkdownDocumentSession(source);
@@ -179,17 +180,26 @@ describe('Real CodeMirror KeyboardEvent & DOM Widget Integration', () => {
     const targetStart = source.indexOf('target');
     handle.view.dispatch({ selection: EditorSelection.range(targetStart, targetStart + 6) });
 
-    // Mod-B (Ctrl+b)
-    const modBEvent = new KeyboardEvent('keydown', {
-      key: 'b',
-      code: 'KeyB',
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true
-    });
-    handle.view.contentDOM.dispatchEvent(modBEvent);
+    // 行内格式键已搬到宿主的 `format.*` 命令（`visualKeybindings` 头注释记了原因）——
+    // 编辑器**不能再消费**它们，否则 CM 会先 `preventDefault()`，宿主的 window 监听器收不到。
+    // **两条都要断言**：`Mod-i` 在 `defaultKeymap` 里本来有绑定（`selectParentSyntax`），
+    // 只测 `Mod-b` 的话，「没摘干净」这条链坏了也照样绿。
+    for (const [key, code] of [['b', 'KeyB'], ['i', 'KeyI']] as const) {
+      const event = new KeyboardEvent('keydown', {
+        key,
+        code,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      });
+      handle.view.contentDOM.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(session.getSnapshot().source).toBe(source);
+    expect(session.getSnapshot().revision).toBe(0);
 
-    expect(modBEvent.defaultPrevented).toBe(true);
+    // 宿主命令 `format.bold` 实际调用的就是这个函数 —— 直接调它覆盖格式化与撤销。
+    expect(handleVisualModB(handle.view)).toBe(true);
     expect(session.getSnapshot().source).toBe('Hello formatting **target** world');
     expect(session.getSnapshot().revision).toBe(1);
 

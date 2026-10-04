@@ -162,7 +162,7 @@ describe('复制链接（工作区树右键）', () => {
       `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
     );
     if (current === 'visual') return;
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 20000);
   }
 

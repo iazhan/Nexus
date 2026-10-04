@@ -106,11 +106,23 @@ export type LinkBuildResult =
  * - **Markdown 侧有转义**：文字里的 `[` `]` 加反斜杠（照 `formatDocumentCitation`），
  *   路径含空格或括号时用 `<...>` 包裹（CommonMark 允许，`marked` 解析时会剥掉）。
  *   所以这一档的失败面小得多，只有「不在同一卷」那一种。
+ *
+ * ## `label`：拿选中文字当链接文字
+ *
+ * 缺省时文字取目标文档的标题（Markdown 档）或干脆不写（wikilink 档，`[[名]]`）。
+ * 传了 `label` 就写 `[label](路径)` / `[[目标|label]]` —— 编辑器的「插入链接」是这么用的：
+ * 选中一段文字再插链接，那段文字就是链接文字，不该被吞掉。
+ *
+ * 两种语法对 `label` 的容忍度**不一样**，这是调用方必须知道的：
+ * Markdown 侧转义掉 `[` `]` 就完事；wikilink 侧**表达不了就整个拒绝**
+ * （`unescapable-name`），因为它连转义都没有。判据与目标名那条完全相同。
+ * 别名里**允许** `#`（解析器按**第一个** `|` 切，别名不再参与锚点切分）。
  */
 export function buildDocumentLink(
   target: LinkTargetDocument,
   format: LinkFormat,
-  currentDocumentPath: string | null
+  currentDocumentPath: string | null,
+  label?: string
 ): LinkBuildResult {
   const relativePath = normalizeSlashes(target.relativePath);
   const markdown = isMarkdownPath(target.path);
@@ -122,7 +134,7 @@ export function buildDocumentLink(
     const relative = relativePathFrom(baseDirectory, target.path);
     if (relative === null) return { ok: false, reason: 'not-in-workspace' };
 
-    const text = linkTextOf(target.path).replace(/[[\]]/g, '\\$&');
+    const text = collapseWhitespace(label ?? linkTextOf(target.path)).replace(/[[\]]/g, '\\$&');
     return { ok: true, text: `[${text}](${needsAngleBrackets(relative) ? `<${relative}>` : relative})` };
   }
 
@@ -131,7 +143,11 @@ export function buildDocumentLink(
     format === LINK_FORMAT_WIKILINK_PATH ? wikilinkTargetOf(relativePath, markdown) : wikilinkNameOf(target.path, markdown);
   if (!isExpressibleAsWikilink(written)) return { ok: false, reason: 'unescapable-name' };
 
-  return { ok: true, text: `[[${written}]]` };
+  if (label === undefined) return { ok: true, text: `[[${written}]]` };
+
+  const alias = collapseWhitespace(label);
+  if (!isExpressibleAsAlias(alias)) return { ok: false, reason: 'unescapable-name' };
+  return { ok: true, text: `[[${written}|${alias}]]` };
 }
 
 /**
@@ -191,6 +207,26 @@ function isExpressibleAsWikilink(target: string): boolean {
     if (char.charCodeAt(0) <= 0x1f) return false;
   }
   return true;
+}
+
+/**
+ * 别名能放什么。**比目标名宽一档**：`#` 在别名里是普通字符 ——
+ * 解析器按**第一个** `|` 切开，`#` 只对 `target` 那一半做锚点切分（`parser/inline.ts`）。
+ * 真正会让别名坏掉的是 `|`（会把它切成两半）、`[` `]`（链接会提前结束）与换行。
+ */
+const ALIAS_FORBIDDEN = /[[\]|]/;
+
+function isExpressibleAsAlias(alias: string): boolean {
+  if (ALIAS_FORBIDDEN.test(alias)) return false;
+  for (const char of alias) {
+    if (char.charCodeAt(0) <= 0x1f) return false;
+  }
+  return true;
+}
+
+/** 链接文字里的换行会当场把两种语法都弄坏，统一压成单个空格。 */
+function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 /**

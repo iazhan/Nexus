@@ -92,7 +92,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     );
     if (current === target) return;
 
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
   }
 
@@ -186,7 +186,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.waitForSelector('.cm-visual-inline-math', 15000);
 
     // Switch back to Source mode
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
     const sourceText = await activeApp.getText('.cm-content');
     expect(sourceText).toContain('\\sum_{i=1}^n x_i = X');
@@ -209,7 +209,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     );
 
     // Visual edit: edit the code-block line in visual mode via native document line
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
     await activeApp.waitForSelector('.cm-visual-code-content-line', 15000);
     await activeApp.evaluate(`(() => {
@@ -227,7 +227,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     );
 
     // Switch back to Source and verify both edits survive in canonical Markdown.
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
     const sourceText = await activeApp.evaluate<string>(
       `window.nexusSession.getSnapshot().source`
@@ -513,11 +513,11 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     })()`);
 
     // Switch to Visual mode
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
 
     // Switch back to Source mode
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="source"]', 15000);
 
     const updatedSource = await activeApp.evaluate(`window.nexusSession.getSnapshot().source`);
@@ -571,7 +571,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     // Source surface 不挂 widget，此时不该有任何加载
     expect((await extensionState(activeApp)).requested).toEqual([]);
 
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
     // 等投影真的跑完再断言，否则「还没投影」会被误判成「没有触发语法」
     await activeApp.waitForFunction(
@@ -591,7 +591,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     activeApp = await launchElectronApp({ filePath: mathDoc });
     await activeApp.waitForSelector('.cm-content', 15000);
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
     // 真的渲染出公式（而不是退化成源码文本），才说明扩展加载成功
     await activeApp.waitForSelector('.cm-visual-block-math', 15000);
@@ -610,7 +610,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     activeApp = await launchElectronApp({ filePath: mermaidDoc });
     await activeApp.waitForSelector('.cm-content', 15000);
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
     await activeApp.waitForSelector('.cm-mermaid-preview svg', 15000);
 
@@ -677,7 +677,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.setSource(content);
 
     // Switch to Visual mode
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
 
     // Wait for code block content lines and async syntax highlighting tokens
@@ -720,7 +720,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     await activeApp.setSource(content);
 
     // Switch to Visual mode
-    await activeApp.click('.nexus-surface-toggle');
+    await activeApp.click('[data-action="toggle-surface"]');
     await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
     await activeApp.waitForSelector('.cm-visual-table-container', 15000);
 

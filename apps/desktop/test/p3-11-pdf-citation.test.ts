@@ -39,7 +39,7 @@ describe('P3-11 PDF citation loop', () => {
     })`);
     await app.evaluate(`window.nexus.writeFile(${JSON.stringify(notePath)},
       window.nexusSession.getSnapshot().source)`);
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 15000);
     await app.mouseClick('.cm-visual-link', CTRL);
 
@@ -102,9 +102,9 @@ describe('P3-11 PDF citation loop', () => {
         insert: ${JSON.stringify(markdownWithCitation)} }] });
       return window.nexus.writeFile(${JSON.stringify(notePath)}, session.getSnapshot().source);
     })()`);
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="source"]', 10000);
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 10000);
     await app.waitForSelector('.cm-visual-link', 10000);
     await app.waitForFunction(

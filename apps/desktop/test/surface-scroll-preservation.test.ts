@@ -55,7 +55,7 @@ describe('Surface 切换保持滚动位置与光标', () => {
     );
     if (current === target) return;
 
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
   }
 
@@ -105,7 +105,7 @@ describe('Surface 切换保持滚动位置与光标', () => {
   }
 
   async function switchSurface(app: ElectronAppInstance, target: string): Promise<void> {
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
     await new Promise((resolve) => setTimeout(resolve, 800));
   }

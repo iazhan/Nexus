@@ -2,6 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 
 export interface MenuBarItem {
   label: string;
+  /**
+   * 测试 / 自动化的锚点。**不参与渲染**，也不参与 React key ——
+   * 菜单项的文案会跟着语言变，拿文字当锚点的用例在切语言时会集体失联。
+   */
+  id?: string;
   shortcut?: string;
   disabled?: boolean;
   /** 当前生效项，用于菜单内标记选中状态。 */
@@ -56,7 +61,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({ menus }) => {
       {menus.map((menu) => {
         const isOpen = openMenuId === menu.id;
         return (
-          <div className="nexus-menu" key={menu.id}>
+          <div className="nexus-menu" key={menu.id} data-menu={menu.id}>
             <button
               type="button"
               className={`nexus-menu-bar-button${isOpen ? ' active' : ''}`}
@@ -85,6 +90,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({ menus }) => {
                       type="button"
                       role="menuitem"
                       className={`nexus-menu-item${item.active ? ' active' : ''}`}
+                      data-menu-item={item.id}
                       disabled={item.disabled}
                       onClick={() => {
                         setOpenMenuId(null);

@@ -89,6 +89,13 @@ export interface CreateSessionEditorStateOptions {
    * 建 state 的那一刻就位。
    */
   spellCheck?: boolean;
+  /**
+   * `/` 面板里的命令级动作，由宿主从命令注册表投影。缺省表示面板只剩内容级模板。
+   *
+   * 只在建 state 时读一次：注册表在 App 启动时填好，之后不再变。将来若它变成动态的，
+   * 这里要改成 Compartment —— 而不是让调用方重建视图。
+   */
+  slashCommands?: import('./completions.js').SlashCommandHost;
 }
 
 /**
@@ -408,7 +415,8 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
     extensionHost: options.extensionHost,
     theme: options.theme,
     lineNumbers: options.lineNumbers,
-    spellCheck: options.spellCheck
+    spellCheck: options.spellCheck,
+    slashCommands: options.slashCommands
   });
   const inlineEditOptions = {
     surfaceId: options.surfaceId,

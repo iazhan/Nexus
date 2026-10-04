@@ -58,7 +58,7 @@ describe('视觉模式公式就地编辑', () => {
     );
     if (current === 'visual') return;
 
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 20000);
   }
 

@@ -7,10 +7,13 @@ import {
   createListIndentTransaction,
   createListOutdentTransaction,
   createInlineFormatTransaction,
+  createBlockFormatTransaction,
   createSelectBlockAtPositionTransaction,
   createReorderBlockAtPositionTransaction,
   findContainingBlock,
-  isFenceClosed
+  isFenceClosed,
+  type BlockFormatKind,
+  type InlineFormatKind
 } from './edit-transactions.js';
 import { parseMarkdown } from '@nexus/markdown';
 import { isMermaidLanguage } from './extension-triggers.js';
@@ -233,58 +236,70 @@ export function handleVisualShiftTab(view: EditorView): boolean {
 }
 
 /**
- * Visual Mode 粗体格式化处理（Mod-B 键）：
- * 切换选区的加粗样式，支持解包现有 ** 与 __ 分隔符。
+ * 行内格式命令的公共实现。
+ *
+ * 名字里的 `Visual` 是历史包袱：实现只读 `view.state` 与事务，**不依赖 visual 投影**，
+ * 所以 source 面同样能用 —— 也正因如此，格式键只需归宿主的命令，不必给 source 面
+ * 另配一套键（见 `visualKeybindings` 的说明）。
  */
-export function handleVisualModB(view: EditorView): boolean {
-  if (!isEditable(view)) return false;
-  const source = view.state.doc.toString();
-  const selection = selectionFromState(view.state);
-  const tx = createInlineFormatTransaction(source, selection, 'strong');
-  if (!tx) return false;
+function inlineFormatHandler(
+  kind: InlineFormatKind,
+  fallbackUserEvent: string
+): (view: EditorView) => boolean {
+  return (view) => {
+    if (!isEditable(view)) return false;
+    const source = view.state.doc.toString();
+    const selection = selectionFromState(view.state);
+    const tx = createInlineFormatTransaction(source, selection, kind);
+    if (!tx) return false;
 
-  view.dispatch({
-    changes: tx.changes,
-    selection: tx.selection ? toEditorSelection(tx.selection) : undefined,
-    userEvent: tx.userEvent ?? 'format.bold'
-  });
-  return true;
+    view.dispatch({
+      changes: tx.changes,
+      selection: tx.selection ? toEditorSelection(tx.selection) : undefined,
+      userEvent: tx.userEvent ?? fallbackUserEvent
+    });
+    return true;
+  };
 }
 
+/** 切换选区的加粗样式，解包现有 `**` 与 `__` 分隔符。由宿主的 `format.bold` 命令调用。 */
+export const handleVisualModB = inlineFormatHandler('strong', 'format.bold');
+
+/** 切换选区的斜体样式，解包现有 `*` 与 `_` 分隔符。由宿主的 `format.italic` 命令调用。 */
+export const handleVisualModI = inlineFormatHandler('emphasis', 'format.italic');
+
+/** 切换选区的删除线样式，解包现有 `~~` 分隔符。由宿主的 `format.strike` 命令调用。 */
+export const handleVisualModStrike = inlineFormatHandler('strike', 'format.strike');
+
+/** 切换选区的行内代码。整段或「围栏内的内容」都认，后者是包完再按一次的形状。 */
+export const handleVisualInlineCode = inlineFormatHandler('inline-code', 'format.inlineCode');
+
+/** 清除选区内所有行内标记的分隔符。选区上没有标记时返回 `false`，不产生空事务。 */
+export const handleVisualClearFormatting = inlineFormatHandler('clear', 'format.clear');
+
 /**
- * Visual Mode 斜体格式化处理（Mod-I 键）：
- * 切换选区的斜体样式，高保真解包现有 * 与 _ 分隔符。
+ * 块级改型（段落 / 标题 1–6 / 引用 / 三种列表 / 代码块 / 表格 / 分割线）。
+ *
+ * 与行内那五个不同，这一条**带参数**而不是给每种类型各导出一个常量 —— 十五个
+ * `handleVisualHeading1` 式的名字只会让调用方多写十四行没信息量的转发。
+ * 参数化之后宿主的十五条命令共用同一个函数引用，「命令同源」是结构上成立的，不靠自觉。
+ *
+ * `source` 与选区都取 `view.state`，**不取 session 快照**：CRLF 文档里快照带 `\r`、
+ * 而视图是 LF 的，两边偏移量对不上（`inlineFormatHandler` 同一条）。
  */
-export function handleVisualModI(view: EditorView): boolean {
+export function handleVisualBlockFormat(view: EditorView, kind: BlockFormatKind): boolean {
   if (!isEditable(view)) return false;
-  const source = view.state.doc.toString();
-  const selection = selectionFromState(view.state);
-  const tx = createInlineFormatTransaction(source, selection, 'emphasis');
+  const tx = createBlockFormatTransaction(
+    view.state.doc.toString(),
+    selectionFromState(view.state),
+    kind
+  );
   if (!tx) return false;
 
   view.dispatch({
     changes: tx.changes,
     selection: tx.selection ? toEditorSelection(tx.selection) : undefined,
-    userEvent: tx.userEvent ?? 'format.italic'
-  });
-  return true;
-}
-
-/**
- * Visual Mode 删除线格式化处理（Mod-Shift-x 键）：
- * 切换选区的删除线样式，高保真解包现有 ~~ 分隔符。
- */
-export function handleVisualModStrike(view: EditorView): boolean {
-  if (!isEditable(view)) return false;
-  const source = view.state.doc.toString();
-  const selection = selectionFromState(view.state);
-  const tx = createInlineFormatTransaction(source, selection, 'strike');
-  if (!tx) return false;
-
-  view.dispatch({
-    changes: tx.changes,
-    selection: tx.selection ? toEditorSelection(tx.selection) : undefined,
-    userEvent: tx.userEvent ?? 'format.strike'
+    userEvent: tx.userEvent ?? 'format.block'
   });
   return true;
 }
@@ -370,14 +385,22 @@ export function handleVisualModA(view: EditorView): boolean {
   return true;
 }
 
+/**
+ * Visual surface 专属的键位。
+ *
+ * **不含行内格式键**（`Mod-b` / `Mod-i` / `Mod-Shift-x` / 行内代码 / 清除格式）——
+ * 那几条归宿主的命令（`format.*`），这样快捷键、工具栏按钮与将来的右键菜单才指向
+ * 同一份定义，也才能被用户重映射（`resolveShortcut`）。
+ * 上面几个 `handleVisual*` 格式命令仍然导出，宿主命令直接调用它们。
+ *
+ * 留在编辑器里的这几条都依赖 visual 语义：`Enter` / `Backspace` 是分块与合并、
+ * `Tab` 是列表缩进 —— 装到 source 面会改变那边的原生行为（`Tab` 归 `defaultKeymap`）。
+ */
 export const visualKeybindings: KeyBinding[] = [
   { key: 'Enter', run: handleVisualEnter },
   { key: 'Backspace', run: handleVisualBackspace },
   { key: 'Tab', run: handleVisualTab, shift: handleVisualShiftTab },
   { key: 'Mod-a', run: handleVisualModA },
-  { key: 'Mod-b', run: handleVisualModB },
-  { key: 'Mod-i', run: handleVisualModI },
-  { key: 'Mod-Shift-x', run: handleVisualModStrike },
   { key: 'Mod-Shift-Space', run: (view) => handleVisualSelectBlock(view) },
   { key: 'Alt-ArrowUp', run: handleVisualMoveBlockUp },
   { key: 'Alt-ArrowDown', run: handleVisualMoveBlockDown }

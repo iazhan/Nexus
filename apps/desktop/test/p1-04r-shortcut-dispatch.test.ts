@@ -97,7 +97,7 @@ describe('Desktop Shortcut Dispatch & Conflict Resolution (P1-04R / R3)', () => 
     expect(session.getSnapshot().source).toBe('Hello world');
 
     // 1. Switch to Visual mode
-    const visualBtn = container.querySelector('.nexus-surface-toggle') as HTMLButtonElement;
+    const visualBtn = container.querySelector('[data-action="toggle-surface"]') as HTMLButtonElement;
     visualBtn.click();
     await new Promise((r) => setTimeout(r, 100));
 
@@ -180,7 +180,7 @@ describe('Desktop Shortcut Dispatch & Conflict Resolution (P1-04R / R3)', () => 
     await waitForAppReady();
 
     const session = testWindow.nexusSession!;
-    const visualBtn = container.querySelector('.nexus-surface-toggle') as HTMLButtonElement;
+    const visualBtn = container.querySelector('[data-action="toggle-surface"]') as HTMLButtonElement;
     visualBtn.click();
     await new Promise((r) => setTimeout(r, 100));
 
@@ -206,5 +206,43 @@ describe('Desktop Shortcut Dispatch & Conflict Resolution (P1-04R / R3)', () => 
     expect(session.getSnapshot()).toEqual(before);
     expect(writeFileSpy).toHaveBeenCalledTimes(0);
     expect(saveAsSpy).toHaveBeenCalledTimes(0);
+  });
+
+  /**
+   * 行内格式键走宿主命令分发（不再绑在 CodeMirror 的 keymap 上）。
+   *
+   * **两条都必须测**：`Mod-b` 在 `defaultKeymap` 里没有，而 `Mod-i` **有**
+   * （`selectParentSyntax`）。只测 `Mod-b` 的话，「CM 先 `preventDefault()`、
+   * 宿主根本收不到」这条链坏掉了也照样绿。
+   *
+   * 默认 surface 是 source，所以这同时覆盖了「source 面也有格式能力」。
+   */
+  it.each([
+    { label: 'bold', key: 'b', code: 'KeyB', expected: 'Hello **world**' },
+    { label: 'italic', key: 'i', code: 'KeyI', expected: 'Hello *world*' },
+    // `Mod-e` 对着参考实现定的（OpenKnowledge 的 `format-inline-code` 就是 Ctrl E）。
+    // 加进来还有一层作用：它证明新增的格式键确实走的是宿主分发 —— 组合键换了、链路没换。
+    { label: 'inline code', key: 'e', code: 'KeyE', expected: 'Hello `world`' }
+  ])('dispatches $label from the source surface through the host command', async ({ key, code, expected }) => {
+    root.render(React.createElement(App));
+    await waitForAppReady();
+
+    const session = testWindow.nexusSession!;
+    const view = testWindow.nexusActiveView!;
+    view.focus();
+    view.dispatch({ selection: { anchor: 6, head: 11 } }); // 'world'
+
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key,
+        code,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    expect(session.getSnapshot().source).toBe(expected);
+    expect(writeFileSpy).toHaveBeenCalledTimes(0);
   });
 });

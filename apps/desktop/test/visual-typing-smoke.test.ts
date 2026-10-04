@@ -128,12 +128,16 @@ const CASES: TypingCase[] = [
     dom: '.cm-visual-table'
   },
   {
-    // slash 模板补全：/table + Enter 插入表格模板
+    // `/table` 走的是**块级命令**，不是旧的那条模板片段：面板与「格式」菜单同源之后
+    // （见 `docs/editor-toolbar-plan.md` §4 P2-2），`/table` 与「格式 → 表格」走同一条命令，
+    // 插出来的是**空骨架** `|  |  |`，不是 `Header 1 / Header 2` 那种占位文字。
+    // 断言取 `expectedExact`：`|  |  |` 在骨架里出现两次，只 `toContain` 等于没断言。
     id: 'table-snippet',
-    name: 'slash 模板 /table',
+    name: 'slash 命令 /table',
     typed: '/table',
     acceptCompletion: true,
-    expected: ['| Header 1 | Header 2 |', '| -------- | -------- |'],
+    expected: ['|  |  |', '| --- | --- |'],
+    expectedExact: '|  |  |\n| --- | --- |\n|  |  |',
     dom: '.cm-visual-table',
     commitWithEnter: true
   }
@@ -181,7 +185,7 @@ describe('Visual surface per-character typing', () => {
       await app.waitForSelector('.cm-content', 15000);
 
       // 切到 Visual 并聚焦编辑器
-      await app.click('.nexus-surface-toggle');
+      await app.click('[data-action="toggle-surface"]');
       await app.waitForSelector('[data-surface-kind="visual"]', 15000);
       await app.evaluate(`(() => {
         const view = window.nexusActiveView;
@@ -238,7 +242,7 @@ describe('Visual surface per-character typing', () => {
       }
 
       // 切回 Source，双 surface 与 session 必须一致
-      await app.click('.nexus-surface-toggle');
+      await app.click('[data-action="toggle-surface"]');
       await app.waitForSelector('[data-surface-kind="source"]', 15000);
       const viewText = await app.evaluate<string>(`window.nexusActiveView.state.doc.toString()`);
       expect(viewText).toBe(sessionSource);

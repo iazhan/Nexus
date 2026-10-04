@@ -108,7 +108,7 @@ describe('Source 面图片：渲染 + 就地改地址', () => {
       `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
     );
     if (current === 'source') return;
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="source"]', 20000);
   }
 

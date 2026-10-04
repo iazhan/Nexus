@@ -6,6 +6,7 @@ import {
   createSessionEditorView,
   setEditorReadOnly,
   handleVisualModStrike,
+  visualKeybindings,
   setDocumentDirectory,
   walkBlockNodes,
   tableTargetField,
@@ -676,54 +677,25 @@ describe('P1-04R Visual semantic closure', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // R3: Strikethrough shortcut Mod-Shift-x vs Mod-Shift-s
+  // R3: 行内格式键归宿主命令，不再绑在编辑器 keymap 上
   // ---------------------------------------------------------------------------
-  it('binds strikethrough to Mod-Shift-x and ensures Mod-Shift-s does not trigger strike', () => {
-    const source = 'Hello world';
-    const mounted = mountVisual(source, 'p1-04r-r3-keymap');
+  it('keeps inline format keys out of the editor keymap, and visual-only keys in', () => {
+    const keys = visualKeybindings.map((binding) => binding.key);
 
-    try {
-      mounted.handle.view.focus();
-      mounted.handle.view.dispatch({ selection: EditorSelection.single(6, 11) });
+    // 行内格式键已搬去宿主的 `format.*` 命令。留在 keymap 里的话 CM 会先
+    // `preventDefault()`，宿主的 window 监听器根本收不到 —— 快捷键也就无法被重映射。
+    expect(keys).not.toContain('Mod-b');
+    expect(keys).not.toContain('Mod-i');
+    expect(keys).not.toContain('Mod-Shift-x');
 
-      // 1. Send Mod-Shift-s keydown -> should NOT format strikethrough
-      const modShiftSEvent = new KeyboardEvent('keydown', {
-        key: 's',
-        code: 'KeyS',
-        ctrlKey: true,
-        shiftKey: true,
-        bubbles: true,
-        cancelable: true
-      });
-      mounted.handle.view.contentDOM.dispatchEvent(modShiftSEvent);
-      expect(mounted.session.getSnapshot().source).toBe(source);
-
-      // 2. Send Mod-Shift-x keydown -> should format strikethrough
-      const modShiftXEvent = new KeyboardEvent('keydown', {
-        key: 'x',
-        code: 'KeyX',
-        ctrlKey: true,
-        shiftKey: true,
-        bubbles: true,
-        cancelable: true
-      });
-      mounted.handle.view.contentDOM.dispatchEvent(modShiftXEvent);
-      expect(mounted.session.getSnapshot().source).toBe('Hello ~~world~~');
-
-      // 3. Send Mod-Shift-x again -> should unwrap strikethrough
-      const modShiftXEvent2 = new KeyboardEvent('keydown', {
-        key: 'x',
-        code: 'KeyX',
-        ctrlKey: true,
-        shiftKey: true,
-        bubbles: true,
-        cancelable: true
-      });
-      mounted.handle.view.contentDOM.dispatchEvent(modShiftXEvent2);
-      expect(mounted.session.getSnapshot().source).toBe(source);
-    } finally {
-      mounted.cleanup();
-    }
+    // 反面：visual 专属交互键必须还在 —— 只断言「摘掉了什么」对「把整组都删了」同样成立。
+    expect(keys).toContain('Enter');
+    expect(keys).toContain('Backspace');
+    expect(keys).toContain('Tab');
+    expect(keys).toContain('Mod-a');
+    expect(keys).toContain('Mod-Shift-Space');
+    expect(keys).toContain('Alt-ArrowUp');
+    expect(keys).toContain('Alt-ArrowDown');
   });
 
   // ---------------------------------------------------------------------------

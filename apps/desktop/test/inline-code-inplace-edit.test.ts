@@ -44,7 +44,7 @@ describe('Inline code in-place editing', () => {
     await app.waitForSelector('.cm-content', 15000);
 
     // 应用默认挂在 Source surface，先切到 Visual
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 15000);
     await app.waitForSelector('.cm-visual-inline-code', 15000);
 

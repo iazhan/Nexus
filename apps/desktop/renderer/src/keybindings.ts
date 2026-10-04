@@ -43,6 +43,22 @@ export const REMAPPABLE_ACTIONS: readonly RemappableAction[] = [
   { id: 'find', labelKey: 'cmd.find', defaultSpec: 'Mod-F' },
   { id: 'replace', labelKey: 'cmd.replace', defaultSpec: 'Mod-H' },
   { id: 'toggle-surface', labelKey: 'cmd.toggleSurface', defaultSpec: 'Mod-M' },
+  // 行内格式。**不留在 CodeMirror 的 keymap 里**（`visualKeybindings` 已把它们摘掉）——
+  // 走宿主命令才能让快捷键、工具栏按钮、右键菜单指向同一份定义，也才能在这里被重映射。
+  // 代价是 `defaultKeymap` 的 `Mod-i`（`selectParentSyntax`）要一并摘掉，见 `packages/editor/src/keymaps.ts`。
+  { id: 'format.bold', labelKey: 'cmd.bold', defaultSpec: 'Mod-B' },
+  { id: 'format.italic', labelKey: 'cmd.italic', defaultSpec: 'Mod-I' },
+  { id: 'format.strike', labelKey: 'cmd.strike', defaultSpec: 'Mod-Shift-X' },
+  // `Mod-E` 对着参考实现定的（OpenKnowledge 的 `format-inline-code` 就是 ⌘E / Ctrl E）。
+  // 「清除格式」刻意**不在这里**：它没有公认的组合键，硬塞一个不如让工具栏按钮独占入口 ——
+  // 没有默认键的命令仍是正常命令（`format.clear-formatting` 照常注册、工具栏照常调用），
+  // 只是不出现在这张可重映射表里，与 `toggle-theme` / `open-in-workspace` 同类。
+  { id: 'format.inline-code', labelKey: 'cmd.inlineCode', defaultSpec: 'Mod-E' },
+  // `Mod-Alt-K` 对着参考实现定（Markra 的 `insertLink` 就是 `CmdOrCtrl+Alt+K`，
+  // `apps/desktop/src/runtime/tauri/menu.ts`）。**不能取 `Mod-K`** —— 那是命令面板
+  // （`palette.open`）；`Mod-Shift-K` 也不行，`defaultKeymap` 里它是 `deleteLine`，
+  // CM 的 keymap 挂在 `contentDOM` 上先跑，宿主根本收不到（`keymaps.ts` 记着这条）。
+  { id: 'format.insert-link', labelKey: 'cmd.insertLink', defaultSpec: 'Mod-Alt-K' },
   { id: 'settings.open', labelKey: 'cmd.openSettings', defaultSpec: 'Mod-,' },
   { id: 'window.close', labelKey: 'cmd.closeFile', defaultSpec: 'Mod-W' }
 ];

@@ -151,8 +151,10 @@ const ShellPreview: React.FC = () => {
               {icon}
             </span>
           ))}
-          <span className="nexus-activity-icon nexus-activity-icon-bottom">
-            {railIcon('settings', 18)}
+          {/* 与真外壳同构：底部一组（主题 / 设置）。这里只画设置那一枚 ——
+              主题图标本身随明暗翻转，预览的配色已经由整套 token 表达了。 */}
+          <span className="nexus-activity-bottom">
+            <span className="nexus-activity-icon">{railIcon('settings', 18)}</span>
           </span>
         </nav>
 

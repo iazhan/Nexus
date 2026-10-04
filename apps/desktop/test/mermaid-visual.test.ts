@@ -50,7 +50,7 @@ describe('视觉模式 Mermaid 块', () => {
     activeApp = await launchElectronApp({ filePath: docPath });
     const app = activeApp;
     await app.waitForSelector('.cm-content', 20000);
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 20000);
     await app.waitForSelector('.cm-mermaid-preview svg', 20000);
     // 显式设定偏好，避免上一个用例持久化到 localStorage 的值泄漏进来

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { EditorState } from '@codemirror/state';
 import { parseMarkdown } from '@nexus/markdown';
 import {
   MarkdownDocumentSession,
@@ -19,6 +20,10 @@ import {
   findListItemAtPos,
   findAtomicRanges,
   findFormattingSpans,
+  scanFormatting,
+  createFormattingAnalyzer,
+  readInlineCodeFence,
+  inlineCodeFenceFor,
   type MarkdownSelection
 } from '../src/index.js';
 
@@ -1308,6 +1313,245 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
       const snap = session.dispatch(tx!);
       expect(snap.source).toBe('段落二🚀\r\n\r\n\r\n段落一🌟  \r\n');
       expect(snap.selection.head).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('Edit Transactions: Inline Code and Clear Formatting (P0-7)', () => {
+  type Kind = 'inline-code' | 'clear';
+
+  const apply = (source: string, selection: MarkdownSelection, kind: Kind) => {
+    const transaction = createInlineFormatTransaction(source, selection, kind);
+    if (!transaction) return null;
+    const session = new MarkdownDocumentSession(source, selection);
+    return session.dispatch(transaction);
+  };
+
+  const around = (source: string, needle: string): MarkdownSelection => {
+    const from = source.indexOf(needle);
+    if (from < 0) throw new Error(`needle not found: ${needle}`);
+    return { anchor: from, head: from + needle.length };
+  };
+
+  describe('inline-code: wrapping', () => {
+    it('wraps a plain selection in a single backtick fence', () => {
+      const source = 'Hello world here';
+      const snapshot = apply(source, around(source, 'world'), 'inline-code');
+
+      expect(snapshot?.source).toBe('Hello `world` here');
+      expect(snapshot?.selection).toEqual({ anchor: 7, head: 12 });
+    });
+
+    it('lengthens the fence past the longest backtick run in the content', () => {
+      const source = 'code a`b end';
+      const snapshot = apply(source, around(source, 'a`b'), 'inline-code');
+
+      expect(snapshot?.source).toBe('code ``a`b`` end');
+    });
+
+    it('pads with a space when the content starts or ends with a backtick', () => {
+      const source = 'v `a w';
+      const snapshot = apply(source, { anchor: 2, head: 4 }, 'inline-code');
+
+      expect(snapshot?.source).toBe('v `` `a `` w');
+    });
+
+    it('rejects a selection whose boundary cuts into an atomic node', () => {
+      // 从 `` `val` `` 的中间开始，会把行内代码切一半
+      expect(
+        createInlineFormatTransaction('See `val` here', { anchor: 5, head: 12 }, 'inline-code')
+      ).toBeNull();
+    });
+
+    it('rejects a selection that swallows a link', () => {
+      const source = 'go [a](b) now';
+      expect(
+        createInlineFormatTransaction(source, { anchor: 0, head: source.length }, 'inline-code')
+      ).toBeNull();
+    });
+
+    it('rejects a collapsed selection', () => {
+      expect(createInlineFormatTransaction('Hello', { anchor: 2, head: 2 }, 'inline-code')).toBeNull();
+    });
+  });
+
+  describe('inline-code: unwrapping', () => {
+    it('unwraps when the selection is exactly the whole inline code', () => {
+      const source = 'See `val` here';
+      const snapshot = apply(source, { anchor: 4, head: 9 }, 'inline-code');
+
+      expect(snapshot?.source).toBe('See val here');
+      expect(snapshot?.selection).toEqual({ anchor: 4, head: 7 });
+    });
+
+    it('unwraps when the selection is only the content inside the fence', () => {
+      // 「包完再按一次」就是选区落在内容上的形状 —— 不认它等于包上去解不开
+      const source = 'See `val` here';
+      const snapshot = apply(source, { anchor: 5, head: 8 }, 'inline-code');
+
+      expect(snapshot?.source).toBe('See val here');
+      expect(snapshot?.selection).toEqual({ anchor: 4, head: 7 });
+    });
+
+    it('drops the padding together with the fence', () => {
+      const source = 'x `` a `` y';
+      const snapshot = apply(source, { anchor: 2, head: 9 }, 'inline-code');
+
+      expect(snapshot?.source).toBe('x a y');
+    });
+
+    it('round-trips: wrap then unwrap restores the original source', () => {
+      const source = 'Hello world here';
+      const wrapped = apply(source, around(source, 'world'), 'inline-code');
+      expect(wrapped?.source).toBe('Hello `world` here');
+
+      const unwrapped = apply(wrapped!.source, wrapped!.selection, 'inline-code');
+      expect(unwrapped?.source).toBe(source);
+    });
+  });
+
+  describe('inline-code: line endings', () => {
+    it('keeps CRLF offsets intact', () => {
+      const source = 'one\r\ntwo three\r\n';
+      const snapshot = apply(source, around(source, 'two'), 'inline-code');
+
+      expect(snapshot?.source).toBe('one\r\n`two` three\r\n');
+    });
+  });
+
+  describe('clear formatting', () => {
+    it('strips every marker in the selection while leaving the text untouched', () => {
+      const source = '**bold** and _italic_ and ~~gone~~';
+      const snapshot = apply(source, { anchor: 0, head: source.length }, 'clear');
+
+      expect(snapshot?.source).toBe('bold and italic and gone');
+    });
+
+    it('clears a marker when the selection sits inside it', () => {
+      const source = 'Hello **world** here';
+      const snapshot = apply(source, around(source, 'world'), 'clear');
+
+      expect(snapshot?.source).toBe('Hello world here');
+      expect(snapshot?.selection).toEqual({ anchor: 6, head: 11 });
+    });
+
+    it('strips nested markers on both levels', () => {
+      const source = 'Some ***both*** here';
+      const snapshot = apply(source, around(source, 'both'), 'clear');
+
+      expect(snapshot?.source).toBe('Some both here');
+    });
+
+    it('strips inline-code fences together with their padding', () => {
+      const source = 'a `x` b `` `y` `` c';
+      const snapshot = apply(source, { anchor: 0, head: source.length }, 'clear');
+
+      expect(snapshot?.source).toBe('a x b `y` c');
+    });
+
+    it('clears formatting inside a link without touching the link itself', () => {
+      const source = 'see [**a**](url) now';
+      const snapshot = apply(source, around(source, 'a'), 'clear');
+
+      expect(snapshot?.source).toBe('see [a](url) now');
+    });
+
+    it('returns null when there is nothing to clear (no empty transaction in the undo stack)', () => {
+      const source = 'plain text here';
+      expect(
+        createInlineFormatTransaction(source, { anchor: 0, head: source.length }, 'clear')
+      ).toBeNull();
+    });
+
+    it('returns null inside a fenced code block', () => {
+      const source = '```\n**not bold**\n```';
+      expect(
+        createInlineFormatTransaction(source, { anchor: 4, head: 16 }, 'clear')
+      ).toBeNull();
+    });
+
+    it('returns null for a collapsed selection', () => {
+      expect(createInlineFormatTransaction('**bold**', { anchor: 3, head: 3 }, 'clear')).toBeNull();
+    });
+
+    it('keeps CJK and emoji byte-for-byte', () => {
+      const source = '**段落🌟** 与 _斜体🚀_';
+      const snapshot = apply(source, { anchor: 0, head: source.length }, 'clear');
+
+      expect(snapshot?.source).toBe('段落🌟 与 斜体🚀');
+    });
+  });
+
+  describe('fence helpers', () => {
+    it('readInlineCodeFence reports content bounds that already exclude the padding', () => {
+      const source = 'x `` a `` y';
+      const fence = readInlineCodeFence(source, 2, 9);
+
+      expect(fence.open).toBe('`` ');
+      expect(fence.close).toBe(' ``');
+      expect(source.slice(fence.contentFrom, fence.contentTo)).toBe('a');
+    });
+
+    it('inlineCodeFenceFor always beats the longest backtick run in the content', () => {
+      expect(inlineCodeFenceFor('plain')).toBe('`');
+      expect(inlineCodeFenceFor('a`b')).toBe('``');
+      expect(inlineCodeFenceFor('a``b')).toBe('```');
+    });
+  });
+
+  describe('formatting query', () => {
+    it('reports the markers the selection sits inside', () => {
+      const source = 'a **b** c `d`';
+      const doc = EditorState.create({ doc: source }).doc;
+      const analyze = createFormattingAnalyzer();
+
+      expect(analyze(doc, around(source, 'b')).active).toEqual(['strong']);
+      expect(analyze(doc, around(source, 'd')).active).toEqual(['inline-code']);
+      expect(analyze(doc, { anchor: 0, head: 1 }).active).toEqual([]);
+    });
+
+    it('flags selections inside atomic nodes with the same expression the transaction guards on', () => {
+      const source = 'See `val` here';
+      const doc = EditorState.create({ doc: source }).doc;
+      const analyze = createFormattingAnalyzer();
+      const selection = { anchor: 5, head: 12 };
+
+      expect(analyze(doc, selection).atomic).toBe(true);
+      expect(createInlineFormatTransaction(source, selection, 'strong')).toBeNull();
+
+      expect(analyze(doc, { anchor: 0, head: 3 }).atomic).toBe(false);
+    });
+
+    it('scans once per document version, no matter how often the selection moves', () => {
+      const source = '**bold** plain text here';
+      const doc = EditorState.create({ doc: source }).doc;
+      let calls = 0;
+      const analyze = createFormattingAnalyzer((text) => {
+        calls += 1;
+        return scanFormatting(text);
+      });
+
+      for (let i = 0; i < 50; i += 1) {
+        const at = i % (source.length - 1);
+        analyze(doc, { anchor: at, head: at + 1 });
+      }
+
+      expect(calls).toBe(1);
+    });
+
+    it('re-scans when the document version changes', () => {
+      const docA = EditorState.create({ doc: 'plain' }).doc;
+      const docB = EditorState.create({ doc: '**bold**' }).doc;
+      let calls = 0;
+      const analyze = createFormattingAnalyzer((text) => {
+        calls += 1;
+        return scanFormatting(text);
+      });
+
+      analyze(docA, { anchor: 0, head: 1 });
+      analyze(docB, { anchor: 2, head: 4 });
+
+      expect(calls).toBe(2);
     });
   });
 });

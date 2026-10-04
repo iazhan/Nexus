@@ -120,18 +120,9 @@ describe('Desktop UI & Standards Review Fixes', () => {
     expect(container.querySelector('.nexus-command-palette')).not.toBeNull();
   });
 
-  it('verifies theme toggle button uses SVG icons instead of emoji', async () => {
-    root.render(React.createElement(App));
-    await waitForAppReady();
-
-    const themeToggle = container.querySelector('.nexus-theme-toggle') as HTMLButtonElement;
-    expect(themeToggle).not.toBeNull();
-    // Must NOT contain emoji literals 🌙 or ☀️
-    expect(themeToggle.textContent).not.toContain('🌙');
-    expect(themeToggle.textContent).not.toContain('☀️');
-    // Must contain SVG element
-    expect(themeToggle.querySelector('svg')).not.toBeNull();
-  });
+  // 「主题按钮用 SVG 不用 emoji」那条已移走：按钮从标题栏搬到了活动栏，而活动栏只在
+  // 工作区模式渲染，这里的 App 是轻量模式启动的。判据现在由 `renderer/test/activity-bar.test.tsx`
+  // 直接渲染活动栏组件来守（顺带守住了「切不动时禁用」与「不混进活动入口清单」两件事）。
 
   it('verifies MenuBar File menu includes workspace and folder actions', async () => {
     root.render(React.createElement(App));

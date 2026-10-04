@@ -5,10 +5,11 @@ import { CompletionContext } from '@codemirror/autocomplete';
 
 import {
   createSourceEditorState,
+  createMarkdownCompletionSource,
   getSelectionInfo,
-  markdownCompletionSource,
   markdownSnippets,
-  editorKeybindings
+  editorKeybindings,
+  type EditorView
 } from '../src/index.js';
 
 describe('CodeMirror 6 Source Editor Core Logic', () => {
@@ -141,54 +142,105 @@ describe('CodeMirror 6 Source Editor Core Logic', () => {
   });
 
   describe('Markdown Autocompletion Source', () => {
-    it('provides predefined markdown snippet structures', () => {
-      expect(markdownSnippets.length).toBeGreaterThan(5);
+    /**
+     * 一个假宿主。真清单由 renderer 从 `BLOCK_FORMAT_SPECS` 投影 ——
+     * 编辑器这一层只认「宿主给了哪几条、`run` 收到什么」。
+     */
+    const hostEntries = [
+      { commandId: 'format.heading-2', tokens: ['h2', 'heading 2'], label: '标题 2' },
+      { commandId: 'format.code-block', tokens: ['code', 'fence'], label: '代码块' }
+    ];
+
+    function source(entries = hostEntries, run = () => {}) {
+      return createMarkdownCompletionSource({ entries: () => entries, run });
+    }
+
+    it('片段表里只剩内容级模板 —— 块级结构由宿主注入，不再抄第二份', () => {
       const labels = markdownSnippets.map((s) => s.label);
 
-      expect(labels).toContain('# Heading 1');
-      expect(labels).toContain('``` Code Block');
-      expect(labels).toContain('$$ Block Math');
-      expect(labels).toContain('[[ Wikilink');
-      expect(labels).toContain('| Table');
+      // 正面：五条没有命令对应的模板还在（两条链接模板是刻意留的）。
+      expect(labels).toEqual([
+        '$$ Block Math',
+        '$ Inline Math',
+        '[[ Wikilink',
+        '[] Markdown Link',
+        '![] Image'
+      ]);
+      // 反面：块级结构**不在**模板表里 —— 它们住在注册表里，抄一份就是两条会各自漂的清单。
+      for (const gone of ['# Heading 1', '``` Code Block', '| Table', '- Bullet List']) {
+        expect(labels).not.toContain(gone);
+      }
     });
 
     it('returns completion options on explicit invocation', () => {
       const state = createSourceEditorState({ doc: '' });
       const context = new CompletionContext(state, 0, true);
-      const result = markdownCompletionSource(context);
+      const result = createMarkdownCompletionSource()(context);
 
       expect(result).not.toBeNull();
       expect(result!.options.length).toBeGreaterThan(0);
     });
 
-    it('matches headings after the slash command prefix /head', () => {
+    it('命令级动作排在模板前面 —— 块级改型才是 `/` 面板的主要用途', () => {
+      const state = createSourceEditorState({ doc: '/' });
+      const context = new CompletionContext(state, 1, false);
+      const result = source()(context);
+
+      const labels = result!.options.map((o) => o.label);
+      expect(labels.slice(0, 2)).toEqual(['标题 2', '代码块']);
+      expect(labels).toContain('[[ Wikilink');
+    });
+
+    it('触发词是英文，与界面语言无关 —— 中文标签一个字也匹配不上 `/h2`', () => {
+      const state = createSourceEditorState({ doc: '/h2' });
+      const context = new CompletionContext(state, 3, false);
+      const result = source()(context);
+
+      expect(result!.options.map((o) => o.label)).toEqual(['标题 2']);
+    });
+
+    it('一个动作可以带多个触发词：`/code` 与 `/fence` 都命中代码块', () => {
+      for (const doc of ['/code', '/fence']) {
+        const state = createSourceEditorState({ doc });
+        const context = new CompletionContext(state, doc.length, false);
+        expect(source()(context)!.options.map((o) => o.label)).toEqual(['代码块']);
+      }
+    });
+
+    it('标签也参与匹配 —— 英文界面下 `/head` 命中「Heading 2」', () => {
+      // 触发词是 `h2`，`/head` 只可能靠标签命中。中文标签（「标题 2」）走不到这一支：
+      // `matchBefore` 的字符组不含 CJK，`/标题` 连查询串都取不出来 —— 这也是触发词必须
+      // 单独给一份的理由。
+      const latin = [{ commandId: 'format.heading-2', tokens: ['h2'], label: 'Heading 2' }];
       const state = createSourceEditorState({ doc: '/head' });
       const context = new CompletionContext(state, 5, false);
-      const result = markdownCompletionSource(context);
-
-      expect(result).not.toBeNull();
-      const labels = result!.options.map((o) => o.label);
-      expect(labels.some((l) => l.includes('Heading'))).toBe(true);
+      expect(source(latin)(context)!.options.map((o) => o.label)).toEqual(['Heading 2']);
     });
 
-    it('matches code block after the slash command prefix /code', () => {
-      const state = createSourceEditorState({ doc: '/code' });
-      const context = new CompletionContext(state, 5, false);
-      const result = markdownCompletionSource(context);
-
-      expect(result).not.toBeNull();
-      const labels = result!.options.map((o) => o.label);
-      expect(labels.some((l) => l.includes('Code Block'))).toBe(true);
-    });
-
-    it('matches wikilink snippets after the slash command prefix /wiki', () => {
+    it('宿主缺省时只剩模板 —— 面板不会因为没注入就整个空掉', () => {
       const state = createSourceEditorState({ doc: '/wiki' });
       const context = new CompletionContext(state, 5, false);
-      const result = markdownCompletionSource(context);
+      const result = createMarkdownCompletionSource()(context);
 
-      expect(result).not.toBeNull();
-      const labels = result!.options.map((o) => o.label);
-      expect(labels.some((l) => l.includes('Wikilink'))).toBe(true);
+      expect(result!.options.map((o) => o.label)).toEqual(['[[ Wikilink']);
+    });
+
+    it('选中一项 → 把命令 id 与 `/查询` 的范围原样交给宿主，编辑器自己不碰正文', () => {
+      const calls: unknown[][] = [];
+      const state = createSourceEditorState({ doc: '/h2' });
+      const context = new CompletionContext(state, 3, false);
+      const option = source(hostEntries, (...args: unknown[]) => calls.push(args))(context)!
+        .options[0]!;
+
+      const view = {} as unknown as EditorView;
+      (option.apply as (v: unknown, c: unknown, from: number, to: number) => void)(
+        view,
+        option,
+        0,
+        3
+      );
+
+      expect(calls).toEqual([[view, 'format.heading-2', 0, 3]]);
     });
 
     it('stays closed for plain words and markdown symbols so Enter keeps its meaning', () => {
@@ -197,14 +249,14 @@ describe('CodeMirror 6 Source Editor Core Logic', () => {
       for (const doc of ['table', 'code', '|', '#', '>', '[[']) {
         const state = createSourceEditorState({ doc });
         const context = new CompletionContext(state, doc.length, false);
-        expect(markdownCompletionSource(context)).toBeNull();
+        expect(source()(context)).toBeNull();
       }
     });
 
     it('returns null for non-matching queries without explicit trigger', () => {
       const state = createSourceEditorState({ doc: 'xyz123randomnonexistent' });
       const context = new CompletionContext(state, 23, false);
-      const result = markdownCompletionSource(context);
+      const result = source()(context);
 
       expect(result).toBeNull();
     });

@@ -125,9 +125,12 @@ describe('P3-09 附件管理：单树里的附件与元数据', () => {
       return {
         sectionCount: document.querySelectorAll('.nexus-sidebar-section').length,
         rows,
-        toolbar: Array.from(document.querySelectorAll('.nexus-toolbar-button')).map(
-          (button) => button.getAttribute('data-action') ?? ''
-        ),
+        // **必须限定在侧栏那一栏里**：编辑器工具栏（nexus-editor-toolbar）复用同一套
+        // .nexus-toolbar-button 样式，全窗口选会把它的 undo/redo 一并数进来。
+        // 这条断言问的是「侧栏工具栏有哪几个动作」，不是「窗口里所有按钮」。
+        toolbar: Array.from(
+          document.querySelectorAll('.nexus-workspace-toolbar .nexus-toolbar-button')
+        ).map((button) => button.getAttribute('data-action') ?? ''),
         sidebarText: sidebar?.textContent ?? '',
         inlineEditors: document.querySelectorAll(
           '.nexus-workspace-sidebar input, .nexus-workspace-sidebar textarea, .nexus-workspace-sidebar [contenteditable="true"]'

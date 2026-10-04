@@ -9,7 +9,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { getCodeLanguage } from './code-highlight.js';
 
 import { editorKeybindings } from './keymaps.js';
-import { markdownCompletionSource } from './completions.js';
+import { createMarkdownCompletionSource } from './completions.js';
 import { markdownMarkersField, blockGapField } from './markdown-markers.js';
 import { getEditorTheme } from './theme.js';
 import { getSelectionInfo } from './selection.js';
@@ -75,7 +75,7 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
     themeCompartment.of(getEditorTheme()),
 
     autocompletion({
-      override: [markdownCompletionSource]
+      override: [createMarkdownCompletionSource(config.slashCommands)]
     }),
 
     markdownMarkersField,

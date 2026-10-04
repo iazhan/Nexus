@@ -509,8 +509,8 @@ describe('设置视图 · Appearance', () => {
     expect(kinds.filter((kind) => kind === 'paste')).toHaveLength(1);
     // 这一份用户主题是从两变体预设 fork 出来的，没有「同名互补」的另一套可合并。
     expect(kinds.filter((kind) => kind === 'merge')).toHaveLength(0);
-    // 开关组的每个成员一枚开关：界面元素两项（状态栏 / 标签页）+ 状态栏读数三项。
-    expect(kinds.filter((kind) => kind === 'group')).toHaveLength(5);
+    // 开关组的每个成员一枚开关：界面元素三项（状态栏 / 标签页 / 编辑器工具栏）+ 状态栏读数三项。
+    expect(kinds.filter((kind) => kind === 'group')).toHaveLength(6);
     // 外观这一页的值控件全是枚举（模式 / 预设 / 缩放）与开关组，一个重置键都不该有。
     expect(kinds.filter((kind) => kind === 'reset')).toHaveLength(0);
   });
@@ -656,7 +656,8 @@ describe('设置视图 · 开关组（界面元素显隐 / 状态栏显示项）
 
     expect(members('appearance.chromeVisibility').map((el) => el.dataset.fieldMember)).toEqual([
       'appearance.chromeVisibility:statusBar',
-      'appearance.chromeVisibility:tabBar'
+      'appearance.chromeVisibility:tabBar',
+      'appearance.chromeVisibility:editorToolbar'
     ]);
     expect(members('appearance.statusBarMetrics').map((el) => el.dataset.fieldMember)).toEqual([
       'appearance.statusBarMetrics:lineColumn',

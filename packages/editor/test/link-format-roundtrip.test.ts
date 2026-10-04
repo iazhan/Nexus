@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDocumentLink } from '@nexus/core';
+import { buildDocumentLink, resolveWikiLink, type IndexedDocument } from '@nexus/core';
 import { parseMarkdown, type MarkdownNode } from '@nexus/markdown';
 import { resolveRelativePath } from '../src/link-navigation.js';
 
@@ -95,5 +95,158 @@ describe('Markdown 档链接：写 → 解析 → 读回来', () => {
     expect(firstLinkHref('[dma](../my notes/dma.md)')).toBeNull();
     // 包上就有了
     expect(firstLinkHref('[dma](<../my notes/dma.md>)')).toBe('../my notes/dma.md');
+  });
+
+  it('选了文字当链接文字 —— 文字变了，目标照旧', () => {
+    const result = buildDocumentLink(
+      { path: '/vault/notes/dma.md', relativePath: 'notes/dma.md' },
+      'markdown',
+      '/vault/notes/index.md',
+      'DMA 那篇'
+    );
+    if (!result.ok) throw new Error(`应当能写出来，却失败了：${result.reason}`);
+    expect(result.text).toBe('[DMA 那篇](dma.md)');
+    expect(resolveRelativePath('/vault/notes', firstLinkHref(result.text) as string)).toBe(
+      '/vault/notes/dma.md'
+    );
+  });
+});
+
+/**
+ * wikilink 侧的同一件事。
+ *
+ * 读的那一半是 `resolveWikiLink`，它吃的是**目标名**而不是整条语法 ——
+ * 所以这里必须先过一遍 `parseMarkdown` 把 `target` / `alias` 切出来，
+ * 不能自己按 `|` 切：切法本身（第一个 `|` 之前是目标）正是被测的那一环。
+ */
+function firstWikilink(source: string): { target: string; alias?: string } | null {
+  const { root } = parseMarkdown(source);
+  const queue: MarkdownNode[] = [...root.children];
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (!node) break;
+    if (node.type === 'wikilink') return { target: node.target, alias: node.alias };
+    const children = (node as { children?: MarkdownNode[] }).children;
+    if (children) queue.push(...children);
+  }
+  return null;
+}
+
+/** 索引里的一篇文档。只有 `resolveWikiLink` 会读的三个字段是真的。 */
+function indexed(path: string): IndexedDocument {
+  const relativePath = path.replace('/vault/', '');
+  return {
+    id: 0,
+    path,
+    relativePath,
+    name: relativePath.slice(relativePath.lastIndexOf('/') + 1),
+    title: relativePath,
+    type: 'note',
+    sizeBytes: 0,
+    modifiedAtMs: 0,
+    contentHash: '',
+    extractionStatus: 'none'
+  };
+}
+
+const DOCS: readonly IndexedDocument[] = [
+  indexed('/vault/notes/dma.md'),
+  indexed('/vault/assets/logo.png')
+];
+
+describe('wikilink 档链接：写 → 解析 → 读回来', () => {
+  it('只写名字', () => {
+    const result = buildDocumentLink(
+      { path: '/vault/notes/dma.md', relativePath: 'notes/dma.md' },
+      'wikilink',
+      '/vault/notes/index.md'
+    );
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.text).toBe('[[dma]]');
+
+    const parsed = firstWikilink(result.text);
+    expect(parsed).toEqual({ target: 'dma' });
+    expect(resolveWikiLink(parsed!.target, DOCS).document?.path).toBe('/vault/notes/dma.md');
+  });
+
+  it('写工作区根相对路径 —— 从哪篇文档引用都写出同一串', () => {
+    const fromA = buildDocumentLink(
+      { path: '/vault/notes/dma.md', relativePath: 'notes/dma.md' },
+      'wikilink-path',
+      '/vault/a.md'
+    );
+    const fromB = buildDocumentLink(
+      { path: '/vault/notes/dma.md', relativePath: 'notes/dma.md' },
+      'wikilink-path',
+      '/vault/deep/b.md'
+    );
+    if (!fromA.ok || !fromB.ok) throw new Error('应当能写出来');
+    expect(fromA.text).toBe('[[notes/dma]]');
+    expect(fromB.text).toBe(fromA.text);
+
+    expect(resolveWikiLink(firstWikilink(fromA.text)!.target, DOCS).document?.path).toBe(
+      '/vault/notes/dma.md'
+    );
+  });
+
+  it('别名不参与「指向哪一篇」的判断 —— 解析器切掉它之后照样解析到同一篇', () => {
+    const result = buildDocumentLink(
+      { path: '/vault/notes/dma.md', relativePath: 'notes/dma.md' },
+      'wikilink',
+      '/vault/notes/index.md',
+      'DMA 那篇'
+    );
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.text).toBe('[[dma|DMA 那篇]]');
+
+    const parsed = firstWikilink(result.text);
+    expect(parsed).toEqual({ target: 'dma', alias: 'DMA 那篇' });
+    expect(resolveWikiLink(parsed!.target, DOCS).document?.path).toBe('/vault/notes/dma.md');
+  });
+
+  it('别名里的 `#` 不会被当成锚点 —— 切分只发生在目标那一半', () => {
+    const result = buildDocumentLink(
+      { path: '/vault/notes/dma.md', relativePath: 'notes/dma.md' },
+      'wikilink',
+      '/vault/notes/index.md',
+      'C# 入门'
+    );
+    if (!result.ok) throw new Error(result.reason);
+
+    const parsed = firstWikilink(result.text);
+    expect(parsed).toEqual({ target: 'dma', alias: 'C# 入门' });
+    expect(resolveWikiLink(parsed!.target, DOCS).document?.path).toBe('/vault/notes/dma.md');
+  });
+
+  it('附件保留全名 —— `[[logo]]` 在同名 .md 存在时会归 .md', () => {
+    const result = buildDocumentLink(
+      { path: '/vault/assets/logo.png', relativePath: 'assets/logo.png' },
+      'wikilink',
+      '/vault/notes/index.md'
+    );
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.text).toBe('[[logo.png]]');
+    expect(resolveWikiLink(firstWikilink(result.text)!.target, DOCS).document?.path).toBe(
+      '/vault/assets/logo.png'
+    );
+  });
+
+  it('负对照：目标名含 `]` 时拒绝，而不是写出一条语法坏掉的正文', () => {
+    const result = buildDocumentLink(
+      { path: '/vault/dm]a.md', relativePath: 'dm]a.md' },
+      'wikilink',
+      '/vault/notes/index.md'
+    );
+    expect(result).toEqual({ ok: false, reason: 'unescapable-name' });
+  });
+
+  it('负对照：别名含 `|` 时同样拒绝 —— 写出来的话解析器会把它切成两半', () => {
+    const result = buildDocumentLink(
+      { path: '/vault/notes/dma.md', relativePath: 'notes/dma.md' },
+      'wikilink',
+      '/vault/notes/index.md',
+      'a|b'
+    );
+    expect(result).toEqual({ ok: false, reason: 'unescapable-name' });
   });
 });

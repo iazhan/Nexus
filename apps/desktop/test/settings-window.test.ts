@@ -291,7 +291,11 @@ describe('设置窗口', () => {
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('[data-field-member^="appearance.chromeVisibility:"]')).map((el) => el.dataset.fieldMember)`
       )
-    ).toEqual(['appearance.chromeVisibility:statusBar', 'appearance.chromeVisibility:tabBar']);
+    ).toEqual([
+      'appearance.chromeVisibility:statusBar',
+      'appearance.chromeVisibility:tabBar',
+      'appearance.chromeVisibility:editorToolbar'
+    ]);
     expect(
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('[data-field-member^="appearance.statusBarMetrics:"]')).map((el) => el.dataset.fieldMember)`

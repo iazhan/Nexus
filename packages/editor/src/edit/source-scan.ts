@@ -92,6 +92,43 @@ export interface FormattingSpan {
 }
 
 /**
+ * 读一段行内代码的围栏与内容边界。
+ *
+ * 围栏长度**必须从原文数反引号**：内容里含反引号时围栏会加长（`` ``a`b`` ``），
+ * 按单个反引号去删就会删错、按单个反引号去包会写出坏语法。
+ *
+ * `open` / `close` 把**填充空格**算进去（CommonMark 里内容以反引号开头或结尾时
+ * 要靠两侧空格把围栏与内容隔开，解析时那一对空格会被剥掉），所以
+ * `from + open.length` 恒等于内容起点、`to - close.length` 恒等于内容终点 ——
+ * 调用方不必再各判一次「有没有填充」。
+ */
+export function readInlineCodeFence(
+  source: string,
+  from: number,
+  to: number
+): { open: string; close: string; contentFrom: number; contentTo: number } {
+  const raw = source.slice(from, to);
+  const fence = /^`+/.exec(raw)?.[0] ?? '`';
+  const inner = raw.length >= fence.length * 2 ? raw.slice(fence.length, raw.length - fence.length) : '';
+  const padded =
+    inner.length >= 2 && inner.startsWith(' ') && inner.endsWith(' ') && inner.trim().length > 0;
+  const pad = padded ? ' ' : '';
+  return {
+    open: fence + pad,
+    close: pad + fence,
+    contentFrom: from + fence.length + pad.length,
+    contentTo: to - fence.length - pad.length
+  };
+}
+
+/** 把一个选区内容包成行内代码时要用的围栏：比内容里最长的一段反引号还长一位。 */
+export function inlineCodeFenceFor(content: string): string {
+  const runs = content.match(/`+/g) ?? [];
+  const longest = runs.reduce((max, run) => Math.max(max, run.length), 0);
+  return '`'.repeat(longest + 1);
+}
+
+/**
  * Extracts formatting spans from AST for bold and italic including alternative delimiters and nesting.
  */
 export function findFormattingSpans(source: string): FormattingSpan[] {

@@ -7,8 +7,13 @@ import { ContextMenu, type ContextMenuItem } from '../src/components/ContextMenu
 /**
  * 上下文菜单原语（全仓第一个）。
  *
- * 这一层只管**组件自己的行为**：渲染哪些项、高亮怎么走、四种关闭来源、键盘。
+ * 这一层只管**组件自己的行为**：渲染哪些项、高亮怎么走、四种关闭来源、键盘、焦点进出。
  * 「谁在什么时候打开它」是 `App.tsx` 的事，归接线用例；真机上能不能弹出来归真机用例。
+ *
+ * 末尾那五条覆盖菜单项形状的两处扩展（2026-10-04）：**勾选项**（`active` → ✓ +
+ * `menuitemradio` + `aria-checked`，左侧留固定宽度的勾选槽）与**分隔线**（`role="separator"`，
+ * 不参与键盘导航）。工具栏的标题下拉要的正是这两样 —— 同一份块类型列表在菜单栏里
+ * 有分组线和 ✓，在下拉里没有的话，两处就是两个样子。
  *
  * happy-dom 里 `getBoundingClientRect()` 全是 0，于是「量完再定」退化成「就用 (x, y)」——
  * 这是刻意的：位置夹取的正确性不该依赖排版引擎，而这里只需要钉住
@@ -36,6 +41,49 @@ function renderMenu(x = 100, y = 120): void {
   act(() => {
     root.render(<ContextMenu x={x} y={y} items={items()} onClose={onClose} label="File actions" />);
   });
+}
+
+/** 渲染一份自定义项。勾选项 / 分隔线那几条用例要自己控制菜单里有什么。 */
+function renderItems(list: ContextMenuItem[]): void {
+  act(() => {
+    root.render(<ContextMenu x={10} y={10} items={list} onClose={onClose} label="Block type" />);
+  });
+}
+
+/** 正文 + 分隔线 + 标题 1 —— 工具栏标题下拉的最小复现。 */
+function checkableItems(): ContextMenuItem[] {
+  return [
+    { id: 'paragraph', label: 'Paragraph', active: true, onSelect: onSelectRename },
+    { id: '', label: '', separator: true },
+    { id: 'h1', label: 'Heading 1', active: false, onSelect: onSelectDelete }
+  ];
+}
+
+/**
+ * 受控开关的宿主：菜单自己只调 `onClose`，**真正卸不卸由调用方决定**（同真实用法）。
+ * 「关闭时归还焦点」发生在卸载那一刻，所以必须有个东西真的把它卸掉。
+ */
+function Harness({
+  menuItems,
+  onClose: close
+}: {
+  menuItems: ContextMenuItem[];
+  onClose?: () => void;
+}): React.ReactElement | null {
+  const [open, setOpen] = React.useState(true);
+  if (!open) return null;
+  return (
+    <ContextMenu
+      x={10}
+      y={10}
+      items={menuItems}
+      onClose={() => {
+        setOpen(false);
+        close?.();
+      }}
+      label="File actions"
+    />
+  );
 }
 
 function menu(): HTMLElement | null {
@@ -237,5 +285,127 @@ describe('上下文菜单原语', () => {
     });
 
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  /**
+   * 焦点归还。菜单要拿焦点键盘才走得动，所以打开时把焦点收进来；关掉时得**还回去** ——
+   * 工具栏的「更多」是从编辑器里点出来的，不还的话编辑器就永久失焦，下一次按键没有落点
+   * （症状是「点了没反应」）。`Dialog` 是同一种写法。
+   */
+  it('关闭时把焦点还给打开之前那个元素', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    await act(async () => {
+      root.render(<Harness menuItems={items()} />);
+    });
+    // 打开时焦点进菜单 —— 否则方向键 / Enter / Escape 都没有落点
+    expect(document.activeElement).toBe(menu());
+
+    await act(async () => {
+      menu()?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      );
+    });
+
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(opener);
+
+    opener.remove();
+  });
+
+  /**
+   * 反面：**只在焦点还留在菜单里的时候**才归还。菜单项的动作自己把焦点挪走是存在的
+   * ——「替换」会打开 CM 的搜索面板并聚焦它的输入框 —— 抢回来等于把用户刚打开的输入框
+   * 又踢走，而且这个 bug 只在「从工具栏的更多里点替换」这一条路上出现。
+   */
+  it('反面：动作自己把焦点挪走了就不抢回来', async () => {
+    const opener = document.createElement('button');
+    const elsewhere = document.createElement('input');
+    document.body.appendChild(opener);
+    document.body.appendChild(elsewhere);
+    opener.focus();
+
+    const movingItems: ContextMenuItem[] = [
+      { id: 'replace', label: 'Replace', onSelect: () => elsewhere.focus() }
+    ];
+
+    await act(async () => {
+      root.render(<Harness menuItems={movingItems} />);
+    });
+    expect(document.activeElement).toBe(menu());
+
+    await act(async () => {
+      menuItems()[0]?.click();
+    });
+
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+
+    opener.remove();
+    elsewhere.remove();
+  });
+
+  // ---- 勾选项与分隔线（2026-10-04，工具栏的标题下拉要用） ----
+
+  it('勾选项：✓ 与 aria-checked 同源，role 是 menuitemradio', () => {
+    renderItems([
+      { id: 'paragraph', label: 'Paragraph', active: true, onSelect: onSelectRename },
+      { id: 'h1', label: 'Heading 1', active: false, onSelect: onSelectDelete }
+    ]);
+
+    const [paragraph, h1] = menuItems();
+    for (const item of [paragraph!, h1!]) {
+      expect(item.getAttribute('role')).toBe('menuitemradio');
+    }
+    expect(paragraph!.getAttribute('aria-checked')).toBe('true');
+    expect(h1!.getAttribute('aria-checked')).toBe('false');
+
+    // ✓ 与 `aria-checked` 出自同一个 `active`（判据 36）—— 两处各判一次就会漂
+    expect(paragraph!.textContent).toContain('✓');
+    expect(h1!.textContent).not.toContain('✓');
+
+    // 勾选槽**恒占位**：未选中的那项也有一个空 span，否则整组文字左沿参差不齐
+    expect(h1!.querySelector('.nexus-context-menu-check')).not.toBeNull();
+    expect(h1!.querySelector('.nexus-context-menu-check')!.textContent).toBe('');
+  });
+
+  it('反面：没有 active 的项不占勾选槽，role 仍是 menuitem', () => {
+    renderItems([{ id: 'replace', label: 'Replace', onSelect: onSelectRename }]);
+
+    const item = menuItems()[0]!;
+    expect(item.getAttribute('role')).toBe('menuitem');
+    expect(item.getAttribute('aria-checked')).toBeNull();
+    expect(item.querySelector('.nexus-context-menu-check')).toBeNull();
+    expect(item.textContent).toBe('Replace');
+  });
+
+  it('分隔线：role=separator，不是菜单项', () => {
+    renderItems(checkableItems());
+
+    expect(menuItems().map((el) => el.dataset.contextMenuItem)).toEqual(['paragraph', 'h1']);
+    const separators = container.querySelectorAll('.nexus-context-menu-separator');
+    expect(separators).toHaveLength(1);
+    expect(separators[0]!.getAttribute('role')).toBe('separator');
+  });
+
+  it('分隔线：上下键跳过它 —— 否则按一下看起来像「没动」', () => {
+    renderItems(checkableItems());
+
+    expect(activeItem()?.dataset.contextMenuItem).toBe('paragraph');
+    pressKey('ArrowDown');
+    expect(activeItem()?.dataset.contextMenuItem).toBe('h1');
+    pressKey('ArrowUp');
+    expect(activeItem()?.dataset.contextMenuItem).toBe('paragraph');
+  });
+
+  it('分隔线：回车只触发当前高亮项，不会落到线上', () => {
+    renderItems(checkableItems());
+
+    pressKey('Enter');
+    expect(onSelectRename).toHaveBeenCalledOnce();
+    expect(onSelectDelete).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

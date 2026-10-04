@@ -49,7 +49,7 @@ describe('代码块行号开关', () => {
     activeApp = await launchElectronApp({ filePath: docPath });
     const app = activeApp;
     await app.waitForSelector('.cm-content', 20000);
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 20000);
     await app.waitForSelector('.cm-visual-code-content-line[data-code-line-number]', 20000);
 

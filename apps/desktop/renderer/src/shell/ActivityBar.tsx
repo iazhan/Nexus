@@ -2,12 +2,21 @@ import React from 'react';
 import type { ActivityId } from './activity-bar-state.js';
 import { useLocale } from '../hooks.js';
 import { railIcon, type RailIconName } from '../components/rail-icons.js';
+import { DarkIcon, LightIcon } from '../components/theme-icons.js';
 
 export interface ActivityBarProps {
   activeId: ActivityId;
   panelOpen: boolean;
   onSelect: (id: ActivityId) => void;
   onOpenSettings: () => void;
+  /**
+   * 当前**渲染出来的**明暗（`resolvedTheme.type`），不是用户的选择 —— 选择是
+   * `<预设>@<模式>` 的复合量，画不出图标。
+   */
+  themeType: 'light' | 'dark';
+  /** 用户主题与单变体预设没有另一边可切。`false` 时**禁用**而不是隐藏。 */
+  themeSwitchable: boolean;
+  onToggleTheme(): void;
 }
 
 /**
@@ -42,14 +51,28 @@ const ACTIVITY_ITEMS: ReadonlyArray<{ id: ActivityId; labelKey: string; icon: Re
  * `activeId` 本身**不随收起重置** —— 它决定「下次展开时显示哪一屏」，
  * 与「现在有没有高亮」是两件事。见 `activity-bar-state.ts` 的头注释。
  *
- * 设置图标单独放在底部（`margin-top: auto`）：它是应用级入口，与上面那些
- * 文档级入口不属于同一组。
+ * ## 底部那一组：应用级入口
+ *
+ * 主题与设置压到底部（`margin-top: auto` 在容器上）：它们是**应用级**偏好，
+ * 与上面那七个「文档级入口」（打开哪一屏）不属于同一组。
+ *
+ * 主题切换原先在标题栏右侧。挪过来是因为标题栏那一格是**窗口级**的（文件名、窗口按钮），
+ * 而主题和设置一样是应用级偏好 —— 放在一起才有理由。**代价是轻量模式（单文件）没有活动栏，
+ * 也就没有这枚按钮**：那里走菜单栏「首选项」里的模式三项（浅色 / 跟随系统 / 深色，
+ * 由 `appearance.themeMode` 投影）与命令面板的 `toggle-theme` —— 少的是捷径，不是能力。
+ *
+ * 它**不共用 `nexus-activity-icon` 类名**：那个类名是「活动面板入口」的标记，
+ * 有用例按它列出全部入口（`apps/desktop/test/activity-bar.test.ts`），主题不是其中之一。
+ * 两者靠 CSS 里的选择器列表共享视觉规则，不靠共用类名。
  */
 export const ActivityBar: React.FC<ActivityBarProps> = ({
   activeId,
   panelOpen,
   onSelect,
-  onOpenSettings
+  onOpenSettings,
+  themeType,
+  themeSwitchable,
+  onToggleTheme
 }) => {
   const { t } = useLocale();
 
@@ -73,16 +96,31 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
         );
       })}
 
-      <button
-        type="button"
-        className="nexus-activity-icon nexus-activity-icon-bottom"
-        aria-label={t('activity.settings')}
-        title={t('activity.settings')}
-        data-activity="settings"
-        onClick={onOpenSettings}
-      >
-        {icon('settings')}
-      </button>
+      <div className="nexus-activity-bottom">
+        {/* 图标画的是「按下去会到哪儿」：现在浅色就画月亮。 */}
+        <button
+          type="button"
+          className="nexus-activity-theme"
+          data-action="toggle-theme"
+          aria-label={t('cmd.toggleTheme')}
+          title={t('cmd.toggleTheme')}
+          disabled={!themeSwitchable}
+          onClick={onToggleTheme}
+        >
+          {themeType === 'light' ? DarkIcon : LightIcon}
+        </button>
+
+        <button
+          type="button"
+          className="nexus-activity-icon"
+          aria-label={t('activity.settings')}
+          title={t('activity.settings')}
+          data-activity="settings"
+          onClick={onOpenSettings}
+        >
+          {icon('settings')}
+        </button>
+      </div>
     </nav>
   );
 };

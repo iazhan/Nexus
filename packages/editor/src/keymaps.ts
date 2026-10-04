@@ -13,12 +13,19 @@ import { completionKeymap } from '@codemirror/autocomplete';
  * 宿主已经把这个组合键当成自己的命令，这里就把它摘掉，让 Mod-M 在聚焦与否时行为一致。
  * （macOS 上该绑定是 `Shift-Alt-m`，本来就不与 Cmd-M 冲突；一并摘掉不损失可用功能。）
  *
- * 顺带记一笔核对结果：`defaultKeymap` 的其余绑定（`Mod-i`、`Mod-[`、`Shift-Mod-k`、
- * `Mod-/`、`Tab`…）与宿主注册的组合键都不重叠，所以这里是唯一需要摘的一条。
+ * 除 `Ctrl-m` 外还要摘掉 `Mod-i`：它在 `defaultKeymap` 里是 `selectParentSyntax`，
+ * 而 `Mod-i` 现在归宿主的「斜体」命令（同 `Mod-b` / `Mod-Shift-x` 一起搬过去了）。
+ * **不摘的话宿主永远收不到它** —— CM 的 keymap 挂在 `contentDOM` 上先跑，匹配上就
+ * `preventDefault()`，宿主的 `window` 监听器（开头 `if (e.defaultPrevented) return;`）
+ * 根本没机会。症状是「加粗生效、斜体不生效」：`Mod-b` 在 `defaultKeymap` 里没有，
+ * 所以三条格式键里**只有 `Mod-i` 会中招**。
+ *
+ * 顺带记一笔核对结果：`defaultKeymap` 的其余绑定（`Mod-[`、`Shift-Mod-k`、
+ * `Mod-/`、`Tab`…）与宿主注册的组合键都不重叠。
  * 查找 / 替换那三条由下面的 `isHostOwnedFindKey` 处理。
  */
 const defaultKeymapWithoutHostConflicts = defaultKeymap.filter(
-  (binding) => binding.key !== 'Ctrl-m'
+  (binding) => binding.key !== 'Ctrl-m' && binding.key !== 'Mod-i'
 );
 
 /**

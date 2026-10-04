@@ -603,22 +603,30 @@ export const CHROME_VISIBILITY_STORAGE_KEY = 'nexus-chrome-hidden';
 /**
  * 界面元素显隐 —— 值是**被藏起来的那些**。
  *
- * 只有两项，因为 Nexus 真实的 chrome 里「藏了还能用」的就这两个：
+ * 只有三项，因为 Nexus 真实的 chrome 里「藏了还能用」的就这三个：
  *
  * - `statusBar` 底部状态栏
  * - `tabBar` 多标签页栏（只在开了两个以上文档时出现）
+ * - `editorToolbar` 编辑器常驻工具栏（Undo / Redo / 模式切换 / 查找 / 更多）
  *
- * **刻意没有的三项都不是遗漏**：
+ * 「藏了还能用」是这一组的准入判据，不是「好不好看」。工具栏之所以进得来：
+ * 它上面五个动作**每一个都有第二条路** —— 撤销重做与剪贴板有系统键、模式切换有顶栏与
+ * `Mod-M`、查找有 `Mod-F`、块级格式在菜单栏的「格式」菜单里。所以藏掉它是「少一条捷径」，
+ * 不是「少一个能力」。
+ *
+ * **刻意没有的四项都不是遗漏**：
  *
  * - **活动栏**：它是切换右侧面板的唯一入口，藏了就没有地方点回来。顺带记一笔 ——
  *   调研表里写的「活动栏标签」在 Nexus **不存在**：`shell/ActivityBar.tsx` 是纯图标的
  *   （只有 `aria-label` 与 `title`），那一格是从 Markra 的对照表抄过来的空项。
  * - **顶栏**：它是无边框窗口的拖动区，还挂着窗口按钮（最小化 / 最大化 / 关闭）。
  * - **侧栏面板**：它已经能收起（点活动栏图标），再加一个开关是同一件事的第二条路。
+ * - **菜单栏**：它是「格式」菜单的落点，也是无边框窗口的另一条拖动区；藏了之后
+ *   块级动作会只剩命令面板一个入口。
  */
 export const CHROME_VISIBILITY: GroupSettingSpec = {
   storageKey: CHROME_VISIBILITY_STORAGE_KEY,
-  options: ['statusBar', 'tabBar'],
+  options: ['statusBar', 'tabBar', 'editorToolbar'],
   // 全显示 ＝ 加这一项之前的观感。
   fallback: ''
 };

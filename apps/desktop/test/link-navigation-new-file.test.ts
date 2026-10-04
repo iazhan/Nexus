@@ -85,7 +85,7 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
     );
     if (current === target) return;
 
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
   }
 

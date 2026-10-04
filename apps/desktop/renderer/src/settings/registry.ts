@@ -531,7 +531,7 @@ export const UI_ZOOM_FIELD: FieldDef = {
  * 控件因此画成「每个成员一个开关」，**勾上 ＝ 显示**（勾选语义与存储语义相反，是有意的：
  * 用户看到的是「界面元素」，不是「隐藏清单」）。
  *
- * 成员只有两项，因为 Nexus 的 chrome 里「藏了还能用」的就这两个 —— 缺的那几项各自的理由
+ * 成员只有三项，因为 Nexus 的 chrome 里「藏了还能用」的就这三个 —— 缺的那几项各自的理由
  * 写在 `preference-specs.ts` 的 `CHROME_VISIBILITY` 上。
  */
 export const CHROME_VISIBILITY_FIELD: FieldDef = {
@@ -539,11 +539,12 @@ export const CHROME_VISIBILITY_FIELD: FieldDef = {
   section: 'appearance',
   labelKey: 'settings.appearance.chromeVisibility',
   descriptionKey: 'settings.appearance.chromeVisibilityDescription',
-  keywords: ['显示', '隐藏', '状态栏', '标签页', '外壳', 'show', 'hide', 'chrome', 'status bar', 'tab bar'],
+  keywords: ['显示', '隐藏', '状态栏', '标签页', '工具栏', '外壳', 'show', 'hide', 'chrome', 'status bar', 'tab bar', 'toolbar'],
   control: 'group',
   options: [
     { value: 'statusBar', labelKey: 'settings.appearance.chromeVisibility.statusBar' },
-    { value: 'tabBar', labelKey: 'settings.appearance.chromeVisibility.tabBar' }
+    { value: 'tabBar', labelKey: 'settings.appearance.chromeVisibility.tabBar' },
+    { value: 'editorToolbar', labelKey: 'settings.appearance.chromeVisibility.editorToolbar' }
   ],
   accessor: {
     read: () => settings.get('appearance.chromeVisibility'),

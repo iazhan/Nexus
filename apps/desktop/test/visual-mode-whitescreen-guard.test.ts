@@ -100,7 +100,7 @@ describe('Visual mode white-screen guard', () => {
         hasErrorCard: Boolean(document.querySelector('.nexus-error-card')),
         errorText: document.querySelector('.nexus-error-card')?.textContent ?? '',
         hasCmContent: Boolean(document.querySelector('.cm-content')),
-        surfacePressed: document.querySelector('.nexus-surface-toggle')?.getAttribute('aria-pressed') ?? null,
+        surfacePressed: document.querySelector('[data-action="toggle-surface"]')?.getAttribute('aria-pressed') ?? null,
         source: window.nexusSession ? window.nexusSession.getSnapshot().source : ''
       };
     })()`);
@@ -124,7 +124,7 @@ describe('Visual mode white-screen guard', () => {
     const app = activeApp;
 
     await app.waitForSelector('.cm-content', 20000);
-    await app.click('.nexus-surface-toggle');
+    await app.click('[data-action="toggle-surface"]');
     await app.waitForSelector('[data-surface-kind="visual"]', 20000);
 
     await assertNotWhiteScreened(app, trickyDocument);

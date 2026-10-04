@@ -13,8 +13,8 @@ import type { NexusBridge } from '../preload/types.js';
  * 都绿，也证明不了「改了设置界面真的少一块」—— 中间那段是 `App.tsx` 里几个 `&&`，
  * 而把 `showStatusBar` 写成 `!showStatusBar`、或者读错另一个字段，两边都盖不到。
  *
- * 判据取**真实渲染出来的节点**（`.nexus-status-bar` / `[data-status-metric]`），不取设置值 ——
- * 取设置值等于把「我写进去了」当成「它生效了」。
+ * 判据取**真实渲染出来的节点**（`.nexus-status-bar` / `[data-status-metric]` /
+ * `.nexus-editor-toolbar`），不取设置值 —— 取设置值等于把「我写进去了」当成「它生效了」。
  *
  * 覆盖不到的一格：标签页那一格需要开两个文档，而这里的工作区是打桩的。它在本文件里靠
  * 连开两次 `new-file` 造出来；真机上「打开两个文件」那条路在 `settings-window.test.ts` 里。
@@ -186,5 +186,26 @@ describe('界面元素显隐 · 接线', () => {
     // 的实现也能让上面那句通过。
     await setSetting('appearance.chromeVisibility', '');
     expect(document.querySelectorAll('.nexus-tab')).toHaveLength(opened);
+  });
+
+  /**
+   * 工具栏这一格的判据与标签页**方向相反**，这正是它需要单独一条的理由。
+   *
+   * 标签页那条证的是「藏了不关东西」，所以还原之后要数文档还在；工具栏这条证的是
+   * 「藏的是捷径不是能力」，所以还原不是重点 —— 重点是**藏起来的那一刻，动作仍然到得了**。
+   * 只断言 `.nexus-editor-toolbar` 变 null 是不够的：一个「藏工具栏时顺手把块级动作也藏了」
+   * 的实现同样能让那句通过，而那正是这一项准入判据（「藏了还能用」）要排除的情况。
+   */
+  it('藏起编辑器工具栏：那条栏消失，而「格式」菜单仍在', async () => {
+    await launch();
+    await waitFor(() => document.querySelector('.nexus-editor-toolbar') !== null);
+
+    await setSetting('appearance.chromeVisibility', 'editorToolbar');
+    expect(document.querySelector('.nexus-editor-toolbar')).toBeNull();
+    // 栏上五个动作各有第二条路，块级那批走菜单栏的「格式」菜单 —— 它必须还在。
+    expect(document.querySelector('[data-menu="format"]')).not.toBeNull();
+
+    await setSetting('appearance.chromeVisibility', '');
+    expect(document.querySelector('.nexus-editor-toolbar')).not.toBeNull();
   });
 });

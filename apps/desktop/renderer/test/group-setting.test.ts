@@ -130,5 +130,18 @@ describe('两个真实取值域', () => {
     expect(CHROME_VISIBILITY.options).not.toContain('activityBar');
     expect(CHROME_VISIBILITY.options).not.toContain('headerBar');
     expect(CHROME_VISIBILITY.options).not.toContain('sidebar');
+    // 菜单栏也不行：它是「格式」菜单的落点，藏了块级动作就只剩命令面板一个入口。
+    expect(CHROME_VISIBILITY.options).not.toContain('menuBar');
+  });
+
+  /**
+   * 正面那一半：**工具栏在名单里**。
+   *
+   * 准入判据是「藏了还能用」—— 栏上每个动作都有第二条路（系统键 / 顶栏 / `Mod-M` /
+   * `Mod-F` / 「格式」菜单），所以藏它是「少一条捷径」。少了这条正面断言，
+   * 一个「顺手把工具栏从名单里删掉」的改动照样全绿。
+   */
+  it('界面元素里有编辑器工具栏', () => {
+    expect(CHROME_VISIBILITY.options).toContain('editorToolbar');
   });
 });

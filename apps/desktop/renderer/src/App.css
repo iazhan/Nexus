@@ -369,16 +369,6 @@ body {
 
 /* 保存状态是全局唯一入口，窄窗口下不参与压缩 */
 
-/* Surface 切换：单按钮图标（代码 = Source，眼睛 = Visual），点击在两个 surface 间切换 */
-.nexus-surface-toggle {
-  width: 30px;
-  padding: 0;
-}
-
-.nexus-surface-toggle svg {
-  display: block;
-}
-
 
 
 
@@ -1185,7 +1175,10 @@ body {
   background-color: var(--nexus-bg-canvas);
 }
 
-.nexus-activity-icon {
+/* 主题切换与活动图标共用这一套外观 —— 靠选择器列表共享，不靠共用类名：
+   `nexus-activity-icon` 是「活动面板入口」的标记，主题不是其中一个。 */
+.nexus-activity-icon,
+.nexus-activity-theme {
   position: relative;
   display: flex;
   align-items: center;
@@ -1203,7 +1196,8 @@ body {
   font-size: 13px;
 }
 
-.nexus-activity-icon:hover {
+.nexus-activity-icon:hover,
+.nexus-activity-theme:hover {
   color: var(--nexus-text-primary);
 }
 
@@ -1231,9 +1225,30 @@ body {
   transform: scaleY(1);
 }
 
-/* 设置是应用级入口，与上面四个文档级入口分开，压到底部 */
-.nexus-activity-icon-bottom {
+/* 底部两个应用级入口（主题 / 设置）成组压底 —— `margin-top: auto` 放在这一层，
+   两个图标之间才有稳定间距，也不会各自去抢那一份剩余空间。 */
+.nexus-activity-bottom {
   margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* 主题图标在 `components/theme-icons.tsx` 里统一 14×14（设置页的模式卡片用那个尺寸），
+   活动栏的图标是 20×20 —— 这里把 svg 撑到同一档，改的是尺寸不是图形。 */
+.nexus-activity-theme svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* 用户主题与单变体预设没有另一边可切。`not-allowed` 而不是 `default`：
+   光标是这一条唯一还能说话的通道（原生 tooltip 会照旧弹出）。 */
+.nexus-activity-theme:disabled {
+  cursor: not-allowed;
+}
+
+.nexus-activity-theme:disabled:hover {
+  color: var(--nexus-text-muted);
 }
 
 .nexus-activity-panel {
@@ -1993,9 +2008,12 @@ button.nexus-outline-toggle:hover {
   color: var(--nexus-status-error-text);
 }
 
-/* 快速打开（Ctrl+P）。backdrop 用 absolute 而不是 fixed ——
+/* 挑一个文档的两个面板：快速打开（Ctrl+P）与插入链接（Ctrl+Alt+K）。
+   两者是同一个交互形状 —— 输入 → 模糊过滤 → 上下键选 → 回车确认 —— 所以共用一套声明，
+   只在语义类名上分开（测试要能单独数出各自开了几个）。backdrop 用 absolute 而不是 fixed：
    它该盖住应用区域，而不是整个窗口（窗口外没有可点的东西）。 */
-.nexus-quickopen-backdrop {
+.nexus-quickopen-backdrop,
+.nexus-insert-link-backdrop {
   position: absolute;
   inset: 0;
   z-index: 50;
@@ -2005,7 +2023,8 @@ button.nexus-outline-toggle:hover {
   background-color: rgba(0, 0, 0, 0.18); /* @constant quick-open 遮罩，只盖应用区 */
 }
 
-.nexus-quickopen {
+.nexus-quickopen,
+.nexus-insert-link {
   display: flex;
   flex-direction: column;
   width: 520px;
@@ -2018,7 +2037,8 @@ button.nexus-outline-toggle:hover {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); /* @constant 抬升阴影，与主题无关 */
 }
 
-.nexus-quickopen-input {
+.nexus-quickopen-input,
+.nexus-insert-link-input {
   padding: 10px 12px;
   border: none;
   border-bottom: 1px solid var(--nexus-border-subtle);
@@ -2029,7 +2049,8 @@ button.nexus-outline-toggle:hover {
   outline: none;
 }
 
-.nexus-quickopen-list {
+.nexus-quickopen-list,
+.nexus-insert-link-list {
   flex: 1;
   min-height: 0;
   margin: 0;
@@ -2038,7 +2059,8 @@ button.nexus-outline-toggle:hover {
   list-style: none;
 }
 
-.nexus-quickopen-item {
+.nexus-quickopen-item,
+.nexus-insert-link-item {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -2054,17 +2076,20 @@ button.nexus-outline-toggle:hover {
   overflow: hidden;
 }
 
-.nexus-quickopen-item-active {
+.nexus-quickopen-item-active,
+.nexus-insert-link-item-active {
   background-color: var(--nexus-bg-surface-active);
 }
 
 /* 文件名在前、路径在后：搜索时先认出文件名，路径用来消歧 */
-.nexus-quickopen-name {
+.nexus-quickopen-name,
+.nexus-insert-link-name {
   flex: 0 0 auto;
   color: var(--nexus-text-primary);
 }
 
-.nexus-quickopen-path {
+.nexus-quickopen-path,
+.nexus-insert-link-path {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2072,7 +2097,8 @@ button.nexus-outline-toggle:hover {
   color: var(--nexus-text-muted);
 }
 
-.nexus-quickopen-empty {
+.nexus-quickopen-empty,
+.nexus-insert-link-empty {
   margin: 0;
   padding: 12px;
   font-size: 12px;
@@ -2274,6 +2300,58 @@ button.nexus-outline-toggle:hover {
   cursor: default;
 }
 
+/* 编辑器工具栏（2026-10-03）。**与工作区侧栏那一栏共用 `.nexus-toolbar-button`** ——
+   同一个应用里两排图标按钮该长得一样，各留一套样式只会慢慢漂成两种。
+   位置：编辑区容器内的第一行、标签栏之上（见 App.tsx 里插槽处的注释）。
+   高度取 32 而不是标签栏的 34：这一栏是「文档级动作」，视觉上该比「哪些文档开着」轻一点。 */
+.nexus-editor-toolbar {
+  display: flex;
+  align-items: center;
+  /* 不参与伸缩 —— 编辑区用剩下的高度，它自己固定 */
+  flex: 0 0 auto;
+  gap: 2px;
+  height: 32px;
+  padding: 0 8px;
+  background-color: var(--nexus-bg-canvas);
+  border-bottom: 1px solid var(--nexus-border-subtle);
+}
+
+/* 分组之间的竖线。给固定高度而不是 `align-self: stretch` ——
+   拉伸版会顶到上下边框，看着像把这一栏切开了。 */
+.nexus-editor-toolbar-separator {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 16px;
+  margin: 0 5px;
+  background-color: var(--nexus-border-subtle);
+}
+
+/* 「更多」推到最右端：它是溢出入口，挨着别的按钮会被当成「又一个普通动作」。 */
+.nexus-editor-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+/* 选区上下文条（2026-10-03）。**浮层**，与常驻栏是两种形态：常驻栏按正常流占一行
+   （遮挡问题从根上不存在），这一条贴选区浮动，所以必须 `fixed` —— 编辑区的滚动容器是
+   `overflow: auto`，`absolute` 的条会被裁掉。位置由 `SelectionToolbar` 现算后写进内联样式，
+   这里只管外观。
+   z-index 取 850：在常驻栏与菜单栏下拉（500）之上，但**低于** `.nexus-context-menu`（900）
+   —— 右键菜单是在选区之上再叠一层，反过来盖住它就点不动了。
+   按钮直接复用 `.nexus-toolbar-button`（含它的 `-on` 激活态）：同一个应用里两排图标按钮
+   该长得一样，各留一套样式只会慢慢漂成两种。 */
+.nexus-selection-toolbar {
+  position: fixed;
+  z-index: 850;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background-color: var(--nexus-bg-surface);
+  border: 1px solid var(--nexus-border-default);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28); /* @constant 浮层阴影，与主题无关 */
+}
+
 /* 树行的图标位。固定宽度让同一层的名字对齐 —— 目录行有折叠箭头、文件行没有，
    宽度不固定的话两者会错开十几像素。 */
 .nexus-tree-row-icon {
@@ -2444,6 +2522,34 @@ button.nexus-outline-toggle:hover {
    所以不需要单独的 `:hover` 规则 —— 鼠标移入会 `setActiveIndex`，属性跟着变。 */
 .nexus-context-menu-item[data-context-menu-active] {
   background-color: var(--nexus-selection-bg);
+}
+
+/* 分组分隔线。**与 `.nexus-menu-separator` 同一种画法** —— 同一份块类型列表
+   在菜单栏与工具栏下拉里各有一条线，两条长得不一样就得让用户重新认一遍。 */
+.nexus-context-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background-color: var(--nexus-border-subtle);
+}
+
+/* 可勾选的菜单项（`active` 有值的那一批）。留一条固定宽度的勾选槽，
+   未选中的项也占着它 —— 否则整组文字左沿参差不齐，看着像没对齐的表格。 */
+.nexus-context-menu-item[data-context-menu-checkable] {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  align-items: center;
+}
+
+.nexus-context-menu-check {
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* 当前生效项。**与菜单栏下拉同一种表达**（accent 字色 + 加粗）——
+   「这一项现在是生效的」在两处是同一个概念，长得不一样就得让用户重新认一遍。 */
+.nexus-context-menu-item-checked {
+  color: var(--nexus-accent-text);
+  font-weight: 600;
 }
 
 /* 不可逆的动作。只换字色、不换底色 —— 底色是「这一项被选中了」的语义，

@@ -21,6 +21,7 @@ import {
   type EditorScrollAnchor,
   type EditorView,
   type LinkNavigator,
+  type SlashCommandHost,
   type WorkspaceImageProvider,
   type WorkspaceAssetEntry
 } from '@nexus/editor';
@@ -58,6 +59,14 @@ export interface SourceEditorProps {
    */
   workspaceAssets?: readonly WorkspaceAssetEntry[];
   extensionHost?: import('@nexus/editor').ExtensionHost;
+  /**
+   * `/` 面板里的命令级动作。缺省表示面板只剩内容级模板。
+   *
+   * 与 `linkNavigator` / `onPasteFiles` 同类：**策略在宿主，编辑器只递事件**。
+   * 编辑器不知道命令注册表里有什么，也不该知道 —— 它只管把 `/h1` 这一段查询串
+   * 连同「用户选了哪一项」一起递出去。
+   */
+  slashCommands?: SlashCommandHost;
   theme?: 'light' | 'dark';
   locale?: string;
   onChange?: (value: string) => void;
@@ -88,6 +97,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   workspaceImages,
   workspaceAssets,
   extensionHost,
+  slashCommands,
   theme,
   locale,
   onChange,
@@ -137,6 +147,12 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   const onViewReadyRef = useRef(onViewReady);
   onViewReadyRef.current = onViewReady;
 
+  // `/` 面板的宿主同理，而且这里**必须**转发：`entries()` 要现取译文、`run` 要现取命令表，
+  // 两者都随语言与注册表变，而 EditorView 只在 session/surface 变化时重建。
+  // 少了这一层，换一次语言后面板里的标签就停在旧语言上。
+  const slashCommandsRef = useRef(slashCommands);
+  slashCommandsRef.current = slashCommands;
+
   useEffect(() => {
     return session.subscribe((snapshot, transaction) => {
       if (transaction && transaction.changes.length > 0) {
@@ -174,6 +190,11 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       locale,
       lineNumbers: settings.get('editor.lineNumbers'),
       spellCheck: settings.get('editor.spellCheck'),
+      slashCommands: {
+        entries: () => slashCommandsRef.current?.entries() ?? [],
+        run: (view, commandId, from, to) =>
+          slashCommandsRef.current?.run(view, commandId, from, to)
+      },
       scrollTo: pendingScrollRef.current ?? undefined,
       onSelectionChange: () => {
         const view = handleRef.current?.view;

@@ -146,6 +146,14 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       'That document is not on the same drive as the current one, so there is no relative path to write.',
     'workspace.copyLinkUnescapable':
       'The name contains characters a Wiki link cannot express. Switch the link format to Markdown in settings.',
+    // 插入链接的三条失败。与上面三条**同因不同话**：`no-current-document` 在这里不是
+    // 「还没打开文档」（正在往里插，文档当然开着），而是「这篇还没保存、没有路径」。
+    'editor.insertLinkNoDocument':
+      'This document has no path yet — a Markdown link is written relative to it. Save it first, or switch the link format to Wiki link.',
+    'editor.insertLinkNotInWorkspace':
+      'That document is not on the same drive as this one, so there is no relative path to write.',
+    'editor.insertLinkUnescapable':
+      'The name or the selected text contains characters a Wiki link cannot express. Switch the link format to Markdown in settings.',
     'tab.untitled': 'Untitled',
     'tab.close': 'Close {name}',
     'tab.discardConfirm': 'Discard unsaved changes in "{name}"?',
@@ -222,11 +230,21 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'quickopen.placeholder': 'Type a file name',
     'quickopen.noMatch': 'No matching files',
     'quickopen.noIndex': 'The index is empty — open a file in the workspace first.',
+    // 插入链接的选目标面板。与快速打开是同一个交互形状，但文案要区分「打开」与「插入」——
+    // 否则用户按下 Ctrl+Alt+K 之后看到的是一句「快速打开」，会以为按错了。
+    'insertLink.title': 'Insert link to',
+    'insertLink.placeholder': 'Type a file name to link to',
+    'insertLink.noMatch': 'No matching files',
+    'insertLink.noIndex': 'The index is empty — open a file in the workspace first.',
     'link.error.unresolvedWikiLink': 'No file in the workspace matches [[{target}]].',
     'link.error.ambiguousWikiLink':
       '{count} files match [[{target}]] — use a path like [[folder/{target}]].',
     'menu.file': 'File',
     'menu.edit': 'Edit',
+    // 块级改型（段落 / 标题 / 引用 / 列表 / 代码块 / 表格 / 分割线）。
+    // 它**不在常驻栏里**：十五项排成一条栏就是蓝图 `:357` 说的「堆叠完整编辑器按钮」，
+    // 而下拉菜单里带 ✓ 正好能表达「这一块现在是什么」。
+    'menu.format': 'Format',
     // 菜单装的是所有 `menu: true` 的字段，跨 Appearance / General / Editor 三个分组 ——
     // 叫「外观」名不副实。改名「首选项」不是顺手，是「不改名就得把语言与 mermaid 从菜单里砍掉」。
     'menu.preferences': 'Preferences',
@@ -298,9 +316,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       'Scales the whole window — panels, menus and the editor together. To change only the text inside documents, use the editor font size.',
     'settings.appearance.chromeVisibility': 'Interface elements',
     'settings.appearance.chromeVisibilityDescription':
-      'Which parts of the shell to show. Hiding the tab bar does not close anything — documents stay open, and the sidebar tree still switches between them.',
+      'Which parts of the shell to show. Hiding the tab bar does not close anything — documents stay open, and the sidebar tree still switches between them. Hiding the editor toolbar only takes away a shortcut — every action on it is still reachable from the keyboard, the top bar, or the Format menu.',
     'settings.appearance.chromeVisibility.statusBar': 'Status bar',
     'settings.appearance.chromeVisibility.tabBar': 'Tab bar',
+    'settings.appearance.chromeVisibility.editorToolbar': 'Editor toolbar',
     'settings.appearance.statusBarMetrics': 'Status bar items',
     'settings.appearance.statusBarMetricsDescription':
       'Which readings to show on the right of the status bar. The save state on the left is always shown — it is where a failed save is reported.',
@@ -578,6 +597,31 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'cmd.find': 'Find',
     'cmd.replace': 'Replace',
     'cmd.toggleSurface': 'Toggle Source/Visual',
+    'cmd.bold': 'Bold',
+    'cmd.italic': 'Italic',
+    'cmd.strike': 'Strikethrough',
+    'cmd.inlineCode': 'Inline Code',
+    'cmd.insertLink': 'Insert Link',
+    'cmd.clearFormatting': 'Clear Formatting',
+    // 块级改型。`Divider` 不叫 `Horizontal Rule`：菜单里那一格是给用户看的，
+    // 「分割线」是界面上通行的叫法，`Horizontal Rule` 是规范里的名字。
+    'cmd.paragraph': 'Paragraph',
+    // 工具栏上那一枚下拉的标签。它里面装的是「正文 + 标题 1–6」，六个标题是主体，
+    // 所以叫 `Heading` 而不是 `Block type` —— 与 Word / Google Docs 的叫法一致。
+    'cmd.heading': 'Heading',
+    'cmd.heading1': 'Heading 1',
+    'cmd.heading2': 'Heading 2',
+    'cmd.heading3': 'Heading 3',
+    'cmd.heading4': 'Heading 4',
+    'cmd.heading5': 'Heading 5',
+    'cmd.heading6': 'Heading 6',
+    'cmd.quote': 'Quote',
+    'cmd.bulletList': 'Bullet List',
+    'cmd.orderedList': 'Numbered List',
+    'cmd.taskList': 'Task List',
+    'cmd.codeBlock': 'Code Block',
+    'cmd.table': 'Table',
+    'cmd.divider': 'Divider',
     'cmd.openInWorkspace': 'Open in Workspace',
     'cmd.openContainingFolder': 'Open Containing Folder',
     'cmd.revealInFileExplorer': 'Reveal in File Explorer',
@@ -652,6 +696,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'status.selected': '{count} selected',
     'status.characterCount': '{count} chars',
     'editor.dragHandle': 'Drag to reorder block',
+    'editor.toolbar.label': 'Editor toolbar',
+    'editor.toolbar.more': 'More actions',
+    'editor.toolbar.readonly': 'Read-only document — use Save As to edit',
+    'editor.selectionToolbar.label': 'Selection formatting',
     'editor.retry': 'Retry',
     'extensions.unavailable': 'Extension unavailable: {id}',
     'popover.save': 'Save',
@@ -806,6 +854,13 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.copyLinkNotInWorkspace': '这篇文档与当前文档不在同一个盘，写不出相对路径。',
     'workspace.copyLinkUnescapable':
       '文件名里有 WikiLink 表达不了的字符，请在设置里把链接格式换成 Markdown。',
+    // 插入链接的三条失败。与上面三条**同因不同话**：`no-current-document` 在这里不是
+    // 「还没打开文档」（正在往里插，文档当然开着），而是「这篇还没保存、没有路径」。
+    'editor.insertLinkNoDocument':
+      '这篇文档还没保存 —— Markdown 链接要相对它来写。先保存，或把链接格式换成 WikiLink。',
+    'editor.insertLinkNotInWorkspace': '这篇文档与当前文档不在同一个盘，写不出相对路径。',
+    'editor.insertLinkUnescapable':
+      '文件名或选中的文字里有 WikiLink 表达不了的字符，请在设置里把链接格式换成 Markdown。',
     'tab.untitled': '未命名',
     'tab.close': '关闭 {name}',
     'tab.discardConfirm': '「{name}」有未保存的内容，确定丢弃吗？',
@@ -881,10 +936,17 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'quickopen.placeholder': '输入文件名',
     'quickopen.noMatch': '没有匹配的文件',
     'quickopen.noIndex': '索引为空 —— 请先在工作区里打开一个文件。',
+    // 插入链接的选目标面板。与快速打开是同一个交互形状，但文案要区分「打开」与「插入」——
+    // 否则用户按下 Ctrl+Alt+K 之后看到的是一句「快速打开」，会以为按错了。
+    'insertLink.title': '插入链接到',
+    'insertLink.placeholder': '输入要链接的文件名',
+    'insertLink.noMatch': '没有匹配的文件',
+    'insertLink.noIndex': '索引为空 —— 请先在工作区里打开一个文件。',
     'link.error.unresolvedWikiLink': '工作区里没有文件匹配 [[{target}]]。',
     'link.error.ambiguousWikiLink': '有 {count} 个文件匹配 [[{target}]] —— 请带上目录，如 [[folder/{target}]]。',
     'menu.file': '文件',
     'menu.edit': '编辑',
+    'menu.format': '格式',
     'menu.preferences': '首选项',
     'theme.mode.light': '浅色',
     'theme.mode.auto': '自动',
@@ -945,9 +1007,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
       '把整个窗口一起缩放：面板、菜单与编辑器。只想改文档里的正文字号的话，用「编辑器 → 正文字号」。',
     'settings.appearance.chromeVisibility': '界面元素',
     'settings.appearance.chromeVisibilityDescription':
-      '外壳上显示哪几块。藏起标签页不会关掉任何文档 —— 它们照样开着，用侧栏的文件树仍能互相切换。',
+      '外壳上显示哪几块。藏起标签页不会关掉任何文档 —— 它们照样开着，用侧栏的文件树仍能互相切换。藏起编辑器工具栏只是少一条捷径 —— 上面每个动作都还能从快捷键、顶栏或「格式」菜单走到。',
     'settings.appearance.chromeVisibility.statusBar': '底部状态栏',
     'settings.appearance.chromeVisibility.tabBar': '多标签页栏',
+    'settings.appearance.chromeVisibility.editorToolbar': '编辑器工具栏',
     'settings.appearance.statusBarMetrics': '状态栏显示项',
     'settings.appearance.statusBarMetricsDescription':
       '状态栏右侧显示哪几项读数。左侧的保存状态永远显示 —— 保存失败只在那里说。',
@@ -1218,6 +1281,27 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'cmd.find': '查找',
     'cmd.replace': '替换',
     'cmd.toggleSurface': '切换源码/富文本',
+    'cmd.bold': '加粗',
+    'cmd.italic': '斜体',
+    'cmd.strike': '删除线',
+    'cmd.inlineCode': '行内代码',
+    'cmd.insertLink': '插入链接',
+    'cmd.clearFormatting': '清除格式',
+    'cmd.paragraph': '正文',
+    'cmd.heading': '标题',
+    'cmd.heading1': '标题 1',
+    'cmd.heading2': '标题 2',
+    'cmd.heading3': '标题 3',
+    'cmd.heading4': '标题 4',
+    'cmd.heading5': '标题 5',
+    'cmd.heading6': '标题 6',
+    'cmd.quote': '引用',
+    'cmd.bulletList': '无序列表',
+    'cmd.orderedList': '有序列表',
+    'cmd.taskList': '任务列表',
+    'cmd.codeBlock': '代码块',
+    'cmd.table': '表格',
+    'cmd.divider': '分割线',
     'cmd.openInWorkspace': '在工作区中打开',
     'cmd.openContainingFolder': '打开所在文件夹',
     'cmd.revealInFileExplorer': '在文件管理器中显示',
@@ -1291,6 +1375,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'status.selected': '已选 {count} 个字符',
     'status.characterCount': '{count} 字',
     'editor.dragHandle': '拖动以重排块',
+    'editor.toolbar.label': '编辑器工具栏',
+    'editor.toolbar.more': '更多操作',
+    'editor.toolbar.readonly': '只读文档 —— 另存为后可编辑',
+    'editor.selectionToolbar.label': '选区格式',
     'editor.retry': '重试',
     'extensions.unavailable': '扩展不可用：{id}',
     'popover.save': '保存',

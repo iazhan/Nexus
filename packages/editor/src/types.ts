@@ -78,6 +78,13 @@ export interface SourceEditorConfig {
   lineNumbers?: boolean;
   /** 拼写检查。缺省视为关 —— 与 CodeMirror 自己的默认一致。 */
   spellCheck?: boolean;
+  /**
+   * `/` 面板里的命令级动作。缺省表示这个宿主不提供 —— 面板只剩内容级模板。
+   *
+   * 与 `lineNumbers` / `spellCheck` 同类（构造参数，建 state 时就得在），
+   * 但来源不同：那两个读设置，这个由宿主从命令注册表投影出来。
+   */
+  slashCommands?: import('./completions.js').SlashCommandHost;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
 }

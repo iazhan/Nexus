@@ -5,15 +5,24 @@
  *
  * ```text
  * source-scan / lookup   （无内部依赖，只依赖 @nexus/markdown 与 types）
- *   → block-split-merge / list-edit / inline-format / block-select / block-reorder
+ *   → block-split-merge / list-edit / inline-format / insert-text /
+ *     block-select / block-reorder / block-format
+ * formatting-query       （只依赖 source-scan，是查询不是事务）
+ * block-format           （另含两个查询：`readBlockFormatState` / `createBlockFormatAnalyzer`）
  * ```
  *
- * 五个事务模块之间**互不依赖**，都是叶子。本文件只做 re-export，逐名列出，
+ * 这些事务模块之间**互不依赖**，都是叶子。本文件只做 re-export，逐名列出，
  * 保证 `@nexus/editor` 的公共 API 与拆分前完全一致。
  * `getLineAt`、`isBlockNode`、`LineInfo` 是模块内部辅助，刻意不导出。
  */
 
-export { detectEol, findAtomicRanges, findFormattingSpans } from './edit/source-scan.js';
+export {
+  detectEol,
+  findAtomicRanges,
+  findFormattingSpans,
+  readInlineCodeFence,
+  inlineCodeFenceFor
+} from './edit/source-scan.js';
 export type { AtomicNodeRange, FormattingSpan } from './edit/source-scan.js';
 
 export {
@@ -40,6 +49,38 @@ export {
 } from './edit/list-edit.js';
 
 export { createInlineFormatTransaction } from './edit/inline-format.js';
+export type { InlineFormatKind } from './edit/inline-format.js';
+
+export {
+  createInsertTextTransaction,
+  createInsertDocumentLinkTransaction
+} from './edit/insert-text.js';
+export type {
+  InsertDocumentLinkOptions,
+  InsertDocumentLinkResult,
+  InsertLinkFailure
+} from './edit/insert-text.js';
+
+export {
+  createBlockFormatTransaction,
+  readBlockFormatState,
+  createBlockFormatAnalyzer,
+  EMPTY_BLOCK_FORMAT_STATE
+} from './edit/block-format.js';
+export type { BlockFormatKind, BlockFormatState } from './edit/block-format.js';
+
+export {
+  scanFormatting,
+  createFormattingAnalyzer,
+  EMPTY_FORMATTING_STATE
+} from './edit/formatting-query.js';
+export type {
+  InlineFormat,
+  InlineMarkerSpan,
+  SelectionFormattingState,
+  FormattingScan,
+  FormattingScanner
+} from './edit/formatting-query.js';
 
 export {
   createSelectBlockAtPositionTransaction,
