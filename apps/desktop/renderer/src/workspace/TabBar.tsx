@@ -1,5 +1,5 @@
 import React from 'react';
-import type { WorkspaceDocument } from './store.js';
+import { hasUnsavedChanges, type WorkspaceDocument } from './store.js';
 import { useLocale } from '../hooks.js';
 
 export interface TabBarProps {
@@ -8,14 +8,6 @@ export interface TabBarProps {
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
 }
-
-/**
- * 未落盘的状态集合。
- *
- * `saving` 也算 —— 保存还没落地就关掉标签页，等于把这次编辑丢了。
- * 用集合而不是 `!== 'clean'`：`readonly` 是「干净但不可写」，不该显示未保存点。
- */
-const UNSAVED_STATES = new Set(['dirty', 'saving', 'error', 'external-changed']);
 
 /**
  * 多标签页栏。
@@ -27,6 +19,16 @@ const UNSAVED_STATES = new Set(['dirty', 'saving', 'error', 'external-changed'])
  * 它们**必须**在同一个列表里，否则「打开了一个 PDF」在界面上没有任何痕迹 ——
  * 而用户明明刚双击了它。区分信息由文件名自带（`stm32.pdf` vs `stm32.md`），
  * 脏点则天然只出现在可编辑文档上（附件的 saveState 恒为 `readonly`）。
+ *
+ * **只有一个文档时也渲染。** 此前是 `<= 1` 直接 `return null`，理由是「占一行高度但信息量为零」；
+ * 改成常驻之后，编辑区不会因为开了第二个文档、或关到只剩一个而突然多出/少掉一行。
+ * 代价是单文档时白占一行 —— 这是取舍，不是遗漏。
+ *
+ * **零个文档才不渲染**：那时没有可点的东西，而主区本来就在画空态。
+ *
+ * 脏点读 `hasUnsavedChanges()` 而不是在这里再列一遍保存态：那个集合是「缓冲区里有磁盘上
+ * 没有的东西」，与关标签页前要不要先落盘、改名要跳过哪些文档是同一条判据 —— 列两遍，
+ * 将来加一个保存态就会漏掉一处。
  */
 export const TabBar: React.FC<TabBarProps> = ({
   documents,
@@ -36,8 +38,7 @@ export const TabBar: React.FC<TabBarProps> = ({
 }) => {
   const { t } = useLocale();
 
-  // 只有一个标签页时不占那一行高度：信息量为零，却要吃掉编辑区
-  if (documents.length <= 1) return null;
+  if (documents.length === 0) return null;
 
   return (
     <div className="nexus-tab-bar" role="tablist">
@@ -46,7 +47,7 @@ export const TabBar: React.FC<TabBarProps> = ({
           ? document.filePath.replace(/^.*[\\/]/, '')
           : t('tab.untitled');
         const isActive = document.id === activeId;
-        const isUnsaved = UNSAVED_STATES.has(document.saveState);
+        const isUnsaved = hasUnsavedChanges(document);
 
         return (
           <div

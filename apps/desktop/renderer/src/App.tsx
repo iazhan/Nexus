@@ -3118,11 +3118,26 @@ export const App: React.FC = () => {
       )}
 
       <main className="nexus-main-content">
-      {/* 编辑器工具栏挂在**标签栏上方**：它是「编辑器」的属性，而标签栏是「哪些文档开着」，
-          后者比前者更靠外一层（蓝图 §9.2 把 Tab Bar 单列一节也是这个次序）。
+      {/* 标签栏挂在编辑区容器**内部**：它只该横跨编辑区，不该延伸到活动栏和侧栏上方。
+          放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。
 
-          只对**可编辑文档**渲染：PDF / 图片那些走 Viewer，撤销栈、surface 切换对它们
-          没有意义 —— 画出来只会是一排点了没反应的按钮。 */}
+          藏起来时**不卸载 `TabBar` 的调用方状态**：文档仍然开着，只是这条栏不画 ——
+          所以「藏了标签页」不会关掉任何东西，侧栏的文件树照样能切换。 */}
+      {showTabBar && (
+        <TabBar
+          documents={workspaceSnapshot.documents}
+          activeId={workspaceSnapshot.activeId}
+          onActivate={store.activate}
+          onClose={handleCloseTab}
+        />
+      )}
+      {/* 编辑器工具栏挂在**标签栏下方**。标签栏回答的是「哪些文档开着」，工具栏作用于
+          **当前那一份的内容** —— 从属关系是「栏 → 文档」，所以文档这一层的东西排在下面。
+
+          这不只是观感：工具栏**只对可编辑文档渲染**（PDF / 图片走 Viewer，撤销栈与
+          surface 切换对它们没有意义，画出来只是一排点了没反应的按钮）。它若排在标签栏
+          **上方**，从 .md 切到 .png 时整条消失，标签栏就跟着往上跳 32px
+          （2026-10-04 实测：74 → 42）。排在下面，标签栏钉在标题栏正下方不动。 */}
       {status === 'ready' && activeDocument?.kind === 'editor' && (
         <>
           {/* 藏起来时**只是不画这一栏**，不卸载任何能力：栏上每个动作都还有第二条路
@@ -3157,19 +3172,6 @@ export const App: React.FC = () => {
             />
           )}
         </>
-      )}
-      {/* 标签栏挂在编辑区容器**内部**：它只该横跨编辑区，不该延伸到活动栏和侧栏上方。
-          放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。
-
-          藏起来时**不卸载 `TabBar` 的调用方状态**：文档仍然开着，只是这条栏不画 ——
-          所以「藏了标签页」不会关掉任何东西，侧栏的文件树照样能切换。 */}
-      {showTabBar && (
-        <TabBar
-          documents={workspaceSnapshot.documents}
-          activeId={workspaceSnapshot.activeId}
-          onActivate={store.activate}
-          onClose={handleCloseTab}
-        />
       )}
       {status === 'loading' && (
         <div className="nexus-state-container">

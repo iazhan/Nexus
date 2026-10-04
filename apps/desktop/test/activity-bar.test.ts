@@ -124,12 +124,11 @@ describe('活动栏与侧栏面板', () => {
     expect(await activeIcon(app)).toBe('workspace');
 
     // 标签栏的容器范围：只横跨编辑区，不延伸到活动栏和侧栏上方。
-    // 单文档时标签栏不渲染，所以先从侧栏打开第二个文件（比按 Ctrl+N 稳 ——
+    // 标签栏常驻，所以点开**一个**文件就够了（从树点比按 Ctrl+N 稳 ——
     // 快捷键依赖窗口焦点，而点击不依赖）。
     await app.waitForIndexReady();
     await app.click('.nexus-tree-file');
     await app.waitForSelector('.cm-content', 20000);
-    await app.evaluate(`document.querySelectorAll('.nexus-tree-file')[1].click(), true`);
     await app.waitForSelector('.nexus-tab-bar', 15000);
 
     const geometry = await app.evaluate<{

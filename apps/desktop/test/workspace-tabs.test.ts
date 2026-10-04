@@ -43,12 +43,18 @@ describe('工作区多标签页', () => {
     const app = activeApp;
     await app.waitForSelector('.cm-content', 20000);
 
-    // 只有一个文档时不渲染标签页栏：占一行高度但信息量为零
-    expect(await app.evaluate<number>(`document.querySelectorAll('.nexus-tab').length`)).toBe(0);
+    // 标签栏**常驻**：一个文档时就已经在，而且那一条就是当前文档。
+    // （2026-10-04 之前是「只有一个文档就不渲染」，判据在这里反过来。）
+    await app.waitForSelector('.nexus-tab-bar', 10000);
+    expect(await app.evaluate<number>(`document.querySelectorAll('.nexus-tab').length`)).toBe(1);
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('.nexus-tab-active')?.getAttribute('title') ?? ''`
+      )
+    ).toContain('first.md');
 
     await app.pressKey('n', { ctrl: true });
-    await app.waitForSelector('.nexus-tab-bar', 10000);
-    expect(await app.evaluate<number>(`document.querySelectorAll('.nexus-tab').length`)).toBe(2);
+    await app.waitForFunction(`document.querySelectorAll('.nexus-tab').length === 2`, 10000);
 
     // 第二个文档是空白的，且当前活动的就是它
     expect(await app.evaluate<string>(`window.nexusSession.getSnapshot().source`)).toBe('');

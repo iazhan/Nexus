@@ -119,11 +119,11 @@ describe('P3-05 标签栏：附件与可编辑文档并存', () => {
 
     await app.waitForIndexReady();
 
-    // 先打开一份 Markdown：此时只有一个文档，标签栏按既有约定不渲染。
+    // 先打开一份 Markdown：标签栏常驻，所以此时就已经有一条。
     // 按**名字**点，不取第一个 —— 附件也在树里，且 `diagram.png` 排在 `dma.md` 前。
     expect(await clickTreeFile(app, 'dma.md')).toBe(true);
     await app.waitForSelector('.cm-content', 20000);
-    expect(await app.evaluate<number>(`document.querySelectorAll('.nexus-tab').length`)).toBe(0);
+    expect(await app.evaluate<number>(`document.querySelectorAll('.nexus-tab').length`)).toBe(1);
 
     // 再用快速打开取附件。候选来自索引 —— 而索引从 P3-04 起收附件，
     // 所以这一条同时验证了「P3-04 的附件索引」与「P3-05 的打开分流」接得上。
@@ -194,7 +194,7 @@ describe('P3-05 标签栏：附件与可编辑文档并存', () => {
       return true;
     })()`);
     await app.waitForFunction(
-      `document.querySelectorAll('.nexus-tab').length === 0`,
+      `document.querySelectorAll('.nexus-tab').length === 1`,
       10000
     );
     expect(
