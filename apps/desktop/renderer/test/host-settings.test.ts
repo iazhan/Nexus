@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { HISTORY_RETENTION_DEFAULT, HISTORY_RETENTION_UNLIMITED } from '@nexus/core';
+import {
+  HISTORY_RETENTION_DEFAULT,
+  HISTORY_RETENTION_UNLIMITED,
+  LOG_LEVEL_DEFAULT
+} from '@nexus/core';
 import { settings } from '../src/platform.js';
 import { hostSettingsSynced, startHostSettingsSync } from '../src/host-settings.js';
 
@@ -21,6 +25,7 @@ describe('宿主设置同步', () => {
     settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
     settings.set('general.restoreLastWorkspace', true);
     settings.set('plugins.disabled', '');
+    settings.set('data.logLevel', LOG_LEVEL_DEFAULT);
     syncSpy = vi.fn().mockResolvedValue(undefined);
     (window as unknown as { nexus?: unknown }).nexus = { syncHostSettings: syncSpy };
   });
@@ -33,6 +38,7 @@ describe('宿主设置同步', () => {
     settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
     settings.set('general.restoreLastWorkspace', true);
     settings.set('plugins.disabled', '');
+    settings.set('data.logLevel', LOG_LEVEL_DEFAULT);
   });
 
   it('启动时立刻推一次，值已经归一化', async () => {
@@ -45,7 +51,8 @@ describe('宿主设置同步', () => {
       ignoreRules: ['Drafts', 'notes/private'],
       historyRetention: 100,
       restoreLastWorkspace: true,
-      disabledCapabilities: []
+      disabledCapabilities: [],
+      logLevel: 'info'
     });
   });
 
@@ -57,7 +64,8 @@ describe('宿主设置同步', () => {
       ignoreRules: [],
       historyRetention: 100,
       restoreLastWorkspace: true,
-      disabledCapabilities: []
+      disabledCapabilities: [],
+      logLevel: 'info'
     });
   });
 
@@ -74,7 +82,8 @@ describe('宿主设置同步', () => {
       ignoreRules: ['drafts'],
       historyRetention: 100,
       restoreLastWorkspace: true,
-      disabledCapabilities: []
+      disabledCapabilities: [],
+      logLevel: 'info'
     });
   });
 
@@ -129,7 +138,8 @@ describe('宿主设置同步', () => {
       ignoreRules: ['drafts'],
       historyRetention: 100,
       restoreLastWorkspace: true,
-      disabledCapabilities: []
+      disabledCapabilities: [],
+      logLevel: 'info'
     });
     consoleError.mockRestore();
   });
@@ -319,6 +329,48 @@ describe('宿主设置同步', () => {
       expect(syncSpy).toHaveBeenLastCalledWith(
         expect.objectContaining({ disabledCapabilities: ['pdf-text'] })
       );
+    });
+  });
+
+  /**
+   * 日志级别。
+   *
+   * 跨进程的理由与上面几组相同：**写盘的是主进程**，而级别住在渲染进程的存储里。
+   * 这里只测「值送出去了没有」；「主进程拿到之后怎么用」由 `apps/desktop/test/logger.test.ts`
+   * 与 `host-settings.test.ts`（主进程那一份）各测一半。
+   *
+   * 认不出的**值**回落默认档由 `parseLogLevel` 负责，纯逻辑测试在
+   * `packages/core/test/logging-level.test.ts`；主进程侧还会再兜一次
+   * （`sanitizeHostSettings`），那一条在 desktop 的那份用例里。
+   */
+  describe('日志级别', () => {
+    it('默认送 info —— 不是更安静的 error', async () => {
+      // 默认只记 error 的话，用户遇到问题时盘上只剩一条孤零零的报错，前因全被滤掉了。
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(expect.objectContaining({ logLevel: 'info' }));
+    });
+
+    it('送的是级别本身 —— 主进程只该拿到「按哪一档记」这个答案', async () => {
+      settings.set('data.logLevel', 'debug');
+
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(expect.objectContaining({ logLevel: 'debug' }));
+    });
+
+    it('**改这一项本身就会触发推送** —— 漏订阅的症状是「调了级别要重启才生效」', async () => {
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+
+      settings.set('data.logLevel', 'error');
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenCalledTimes(2);
+      expect(syncSpy).toHaveBeenLastCalledWith(expect.objectContaining({ logLevel: 'error' }));
     });
   });
 });

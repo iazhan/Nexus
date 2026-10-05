@@ -33,6 +33,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { LaunchContext } from '@nexus/core';
+import { logWarn } from './logger.js';
 
 /** 文件名。放 `userData` 根下而不是子目录：它只有一个，不值得为它建一层。 */
 export const RECENT_WORKSPACE_FILE = 'recent-workspace.json';
@@ -128,7 +129,7 @@ export function writeRecentWorkspace(directory: string, state: RecentWorkspaceSt
       'utf8'
     );
   } catch (error) {
-    console.warn('[Nexus Shell] 记录最近工作区失败:', error);
+    logWarn('[Nexus Shell] 记录最近工作区失败:', error);
   }
 }
 

@@ -30,6 +30,7 @@ import {
   type HostSettings,
   type RenameFileRequest,
   type RenameFileResult,
+  type RendererLogEntry,
   type SaveAttachmentRequest,
   type ThemeSyncResult,
   type UpdateState,
@@ -38,6 +39,7 @@ import {
 import type { NexusBridge } from './types.js';
 import { installThemeBoot } from './theme-boot.js';
 import { applyStoredUiZoom, uiZoomFactor } from './ui-zoom.js';
+import { logFromPreload } from './log.js';
 
 // 最早执行的一段：首帧之前把主题落到 `<html data-theme>` 上、把用户主题的变量注入 `<head>`。
 // 它同时带回目录的整份快照（主题列表 + 坏文件清单），渲染进程从这里读 —— 主题的**事实源**
@@ -72,7 +74,7 @@ ipcRenderer.on(
       try {
         listener(watchEvent);
       } catch (err) {
-        console.error('[Nexus Preload] Watch listener execution error:', err);
+        logFromPreload('error', 'Watch listener execution error:', err);
       }
     }
   }
@@ -244,7 +246,7 @@ const bridge: NexusBridge = {
       try {
         callback(state);
       } catch (err) {
-        console.error('[Nexus Preload] Update state listener error:', err);
+        logFromPreload('error', 'Update state listener error:', err);
       }
     };
     ipcRenderer.on(IPC_CHANNELS.updateStateChanged, handler);
@@ -277,6 +279,20 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.getDiagnostics);
   },
 
+  getLogPath: (): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getLogPath);
+  },
+
+  openLogsDirectory: (): Promise<boolean> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openLogsDirectory);
+  },
+
+  writeLog: (entry: RendererLogEntry): void => {
+    // `send` 而不是 `invoke`：日志不该让调用方等一次往返，也不该因为主进程忙而堆积
+    // 未决的 promise。写不写得进去由主进程自己决定，失败在那边记账。
+    ipcRenderer.send(IPC_CHANNELS.writeLog, entry);
+  },
+
   watchFile: (filePath: string, listener: FileWatchListener): Unsubscribe => {
     subscriptionCounter += 1;
     const subscriptionId = `sub_${Date.now()}_${subscriptionCounter}_${Math.random().toString(36).slice(2, 9)}`;
@@ -306,7 +322,7 @@ const bridge: NexusBridge = {
       void registration
         .then(() => ipcRenderer.invoke(IPC_CHANNELS.unwatchFile, subscriptionId))
         .catch((err: unknown) => {
-          console.error('[Nexus Preload] Failed to release file watcher:', err);
+          logFromPreload('error', 'Failed to release file watcher:', err);
         });
     };
   },
@@ -320,7 +336,7 @@ const bridge: NexusBridge = {
       try {
         await callback();
       } catch (err) {
-        console.error('[Nexus Preload] Error during onSaveAndCloseRequested:', err);
+        logFromPreload('error', 'Error during onSaveAndCloseRequested:', err);
       }
     };
     ipcRenderer.on(IPC_CHANNELS.requestSaveAndClose, handler);
@@ -354,7 +370,7 @@ const bridge: NexusBridge = {
       try {
         callback(state);
       } catch (err) {
-        console.error('[Nexus Preload] Window state listener error:', err);
+        logFromPreload('error', 'Window state listener error:', err);
       }
     };
     ipcRenderer.on(IPC_CHANNELS.windowStateChanged, handler);
@@ -392,7 +408,7 @@ const bridge: NexusBridge = {
       try {
         callback();
       } catch (err) {
-        console.error('[Nexus Preload] Settings sync listener error:', err);
+        logFromPreload('error', 'Settings sync listener error:', err);
       }
     };
     ipcRenderer.on(IPC_CHANNELS.settingsChanged, handler);

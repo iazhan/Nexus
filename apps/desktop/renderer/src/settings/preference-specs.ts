@@ -32,7 +32,10 @@ import {
   HISTORY_RETENTION_OPTIONS,
   LINK_FORMAT_DEFAULT,
   LINK_FORMATS,
-  type LinkFormat
+  LOG_LEVEL_DEFAULT,
+  LOG_LEVELS,
+  type LinkFormat,
+  type LogLevel
 } from '@nexus/core';
 import {
   UI_ZOOM_DEFAULT,
@@ -598,6 +601,28 @@ export const HISTORY_RETENTION_STORAGE_KEY = 'nexus-history-retention';
  * 存档里出现未知值时回落默认档，而不是像忽略规则那样原样保留。
  */
 export { HISTORY_RETENTION_OPTIONS, HISTORY_RETENTION_DEFAULT };
+
+export const LOG_LEVEL_STORAGE_KEY = 'nexus-log-level';
+
+/**
+ * 日志级别。
+ *
+ * **取值域（级别表、默认档、解析规则、比较）在 `@nexus/core` 的 `logging/level.ts`**，
+ * 这里只转出 —— 真正的消费者是主进程的 logger（它决定哪一条写盘），而它读的是这边送过去的
+ * 值。两处各写一份的症状是**静默的**：设置页显示「仅错误」、主进程按 info 往盘里灌，
+ * 或者反过来 —— 用户以为在收集细节，实际什么都没写。
+ *
+ * 与 `files.historyRetention` 同一条判据（域住在一个渲染进程之外的函数要用的地方），
+ * 但方向相反：那一项认不出的值要往「不清理」倒（会删数据），这一项认不出就按默认记
+ * （级别删不掉任何东西，静默不记才是风险）。
+ *
+ * 选项标签从取值**推**出来，不另抄一份 —— 抄一份的后果是 core 加了第五档、设置页静默
+ * 少一个选项，而少一个选项不会有任何报错（同 `LINK_FORMAT_OPTIONS`）。
+ */
+export const LOG_LEVEL_OPTIONS: ReadonlyArray<{ value: LogLevel; labelKey: string }> =
+  LOG_LEVELS.map((value) => ({ value, labelKey: `settings.data.logLevel.${value}` }));
+
+export { LOG_LEVELS, LOG_LEVEL_DEFAULT };
 
 export const CHROME_VISIBILITY_STORAGE_KEY = 'nexus-chrome-hidden';
 

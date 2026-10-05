@@ -1,4 +1,4 @@
-import type { FileWatchEvent } from '@nexus/core';
+import { LOG_LEVEL_DEFAULT, type FileWatchEvent, type LogLevel } from '@nexus/core';
 import type { UserTheme } from '@nexus/theme';
 
 /**
@@ -234,8 +234,49 @@ export const IPC_CHANNELS = {
    * 目录不存在时**先建出来再开** —— 那正是「第一次进来看看放哪」的路径，返回 `false`
    * 会让用户以为这个功能坏了。
    */
-  openThemeDirectory: 'nexus:open-theme-directory'
+  openThemeDirectory: 'nexus:open-theme-directory',
+  /**
+   * 当前日志**文件**的绝对路径（`<userData>/logs/nexus.log`）。设置页把它当只读值显示。
+   *
+   * 与下面那条是同一件事的两半：那个把文件管理器开到它所在的**目录**，这个把**文件路径**
+   * 交给界面显示。目录里还有轮转出来的历史文件（`nexus.1.log` …），只说「在某个目录下」
+   * 等于没说 —— 用户要能一眼认出哪一份是现在的（同 `getIndexPath` 的取舍）。
+   *
+   * **不接受参数**（与 `getAppVersion` 同理，但理由不同）：日志只有一个文件，是
+   * `userData` 的纯函数，没有「拿一个任意路径来问」的口子 —— 那正是 `getIndexPath`
+   * 需要查授权的原因。文件还不存在（应用第一次运行）时**照样返回路径**：它是纯函数，
+   * 值不依赖文件在不在。
+   */
+  getLogPath: 'nexus:get-log-path',
+  /**
+   * 在系统文件管理器里打开日志目录。
+   *
+   * 与 `openHistoryDirectory` / `openIndexDirectory` / `openThemeDirectory` 同形，
+   * 返回**是否真的打开了**。目录不存在时**先建出来再开** —— 这一项最常见的用法就是
+   * 「去看看有没有东西」，返回 `false` 会让用户以为日志系统坏了。
+   */
+  openLogsDirectory: 'nexus:open-logs-directory',
+  /**
+   * 渲染进程 → 主进程：把一条渲染进程的日志交给主进程写盘。
+   *
+   * 渲染进程没有文件系统，而它的错误（白屏、IPC 失败、面板加载不出来）恰恰是用户报得最多的
+   * 那一类。这条通道是单向的（`send`，不等待回执）：日志不能反过来拖慢它要记录的那件事，
+   * 写不写得进去由主进程自己决定。
+   */
+  writeLog: 'nexus:write-log'
 } as const;
+
+/**
+ * 一条来自渲染进程的日志。
+ *
+ * `detail` 是**已经字符串化**的附加信息，不是任意对象：跨进程传一个 `Error` 会得到 `{}`
+ * （Electron 的结构化克隆不保留原型），最该记下来的堆栈反而没了。所以由渲染进程先转成文本。
+ */
+export interface RendererLogEntry {
+  level: LogLevel;
+  message: string;
+  detail?: string;
+}
 
 /**
  * 这个渲染进程是哪个窗口。
@@ -491,6 +532,15 @@ export interface HostSettings {
    * 「存档格式」是渲染进程的事（`GroupSettingSpec`），主进程只该拿到「哪些被关掉了」。
    */
   disabledCapabilities: readonly string[];
+  /**
+   * 日志级别。主进程的 logger 每次写日志现读它（`electron/logger.ts` 的头注释）。
+   *
+   * 送的是**认得出的级别**而不是存档字符串：存档格式（`nexus-log-level` 里那个值）是
+   * 渲染进程的事，主进程只该拿到「现在按哪一档记」。认不出的值由 `parseLogLevel` 回落默认档 ——
+   * 这里与 `historyRetention` 的方向不同（那一项未知值要当「不清理」），
+   * 理由见 `logging/level.ts`：级别删不掉任何东西，静默不记才是风险。
+   */
+  logLevel: LogLevel;
 }
 
 /**
@@ -513,7 +563,15 @@ export const DEFAULT_HOST_SETTINGS: HostSettings = {
   ignoreRules: [],
   historyRetention: null,
   restoreLastWorkspace: true,
-  disabledCapabilities: []
+  disabledCapabilities: [],
+  /**
+   * `logLevel` 是这份表里**唯一一个与设置项默认值相同**、而且不存在「更保守」替代的字段。
+   *
+   * 其余几项都能往「少做事」那一侧倒（不清理历史、不关任何能力），而日志反过来 ——
+   * 少记才是风险：主进程在收到渲染进程那份设置之前的这段窗口，正是启动出问题时最需要
+   * 现场的那一段。取 `info` 与设置项的默认档一致，两处不会分家。
+   */
+  logLevel: LOG_LEVEL_DEFAULT
 };
 
 /**

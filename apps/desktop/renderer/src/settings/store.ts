@@ -71,6 +71,9 @@ import {
   HISTORY_RETENTION_DEFAULT,
   HISTORY_RETENTION_OPTIONS,
   HISTORY_RETENTION_STORAGE_KEY,
+  LOG_LEVELS,
+  LOG_LEVEL_DEFAULT,
+  LOG_LEVEL_STORAGE_KEY,
   NEW_DOCUMENT_LOCATION_DEFAULT,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   NEW_DOCUMENT_LOCATION_STORAGE_KEY,
@@ -580,6 +583,19 @@ export const SETTING_DEFS = {
     HISTORY_RETENTION_DEFAULT,
     HISTORY_RETENTION_OPTIONS
   ),
+
+  /**
+   * 日志级别。
+   *
+   * `choiceSetting`：取值是**有限枚举**，认不出的值回落默认档 —— 它要拿去查表
+   * （`logLevelAllows`）。与 `data.historyRetention` 的形状相同，但方向**相反**：
+   * 那一项认不出要往「不清理」倒（会删数据），这一项认不出按默认记（级别删不掉东西，
+   * 静默不记才是风险）。两处方向不同是刻意的，别去「统一」它们。
+   *
+   * 这一项**走宿主设置通道**（`HostSettings.logLevel`）：判据是「主进程必须照着做」——
+   * logger 在主进程里决定哪一条写盘，没有这个值它只能一直按默认档记。
+   */
+  'data.logLevel': choiceSetting(LOG_LEVEL_STORAGE_KEY, LOG_LEVEL_DEFAULT, LOG_LEVELS),
 
   /**
    * 界面元素显隐。**值是「被藏起来的那些」**，空串 ＝ 全显示 ——

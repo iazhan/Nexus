@@ -1,6 +1,7 @@
 import { ipcRenderer } from 'electron';
 import { THEME_STORAGE_KEY } from '@nexus/theme';
 import { IPC_CHANNELS, type ThemeBootPayload, type ThemeBootRequest } from '../ipc/channels.js';
+import { logFromPreload } from './log.js';
 
 /**
  * 首帧前的主题引导。
@@ -66,7 +67,7 @@ export function installThemeBoot(doc: Document, win: Window): ThemeBootPayload |
   } catch (error) {
     // 拿不到就什么都不做：静态 CSS 里内置主题仍然对，用户主题会由 renderer 起来后补上
     // （即改动之前的行为）。这里**不抛** —— preload 抛错会把整个 bridge 带下去。
-    console.error('[Nexus Preload] 取首帧主题失败，回落到静态 CSS:', error);
+    logFromPreload('error', '取首帧主题失败，回落到静态 CSS:', error);
     return null;
   }
 

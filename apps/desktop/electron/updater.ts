@@ -52,6 +52,7 @@ import { autoUpdater } from 'electron-updater';
 import { IPC_CHANNELS, UPDATE_REMIND_INTERVAL_MS, type UpdateState } from '../ipc/channels.js';
 import { hasUnsavedWindows } from './window-dirty.js';
 import { readUpdatePreferences, writeUpdatePreferences } from './update-preferences.js';
+import { logWarn } from './logger.js';
 
 /**
  * 启动后多久开始第一次自动检查。
@@ -159,7 +160,7 @@ export function setupAutoUpdater(): void {
   // 只记日志，不弹窗：这条流上的一切（DNS、代理、证书、GitHub 限流）都不是用户的错，
   // 而它绝大多数时候发生在用户没要求检查的时候。状态里留一个 `error` 阶段给界面用。
   autoUpdater.on('error', (error) => {
-    console.warn('[Nexus] 更新通道出错:', error);
+    logWarn('[Nexus] 更新通道出错:', error);
     patch({ phase: 'error', error: error instanceof Error ? error.message : String(error) });
   });
 
@@ -192,7 +193,7 @@ export async function checkNow(): Promise<UpdateState> {
       patch({ phase: 'up-to-date', latest: result?.updateInfo.version ?? null });
     }
   } catch (error) {
-    console.warn('[Nexus] 检查更新失败:', error);
+    logWarn('[Nexus] 检查更新失败:', error);
     patch({ phase: 'error', error: error instanceof Error ? error.message : String(error) });
   }
 

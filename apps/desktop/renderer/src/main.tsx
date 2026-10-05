@@ -14,6 +14,7 @@ import { ThemeWindow } from './settings/ThemeWindow';
 import { UpdateWindow } from './update/UpdateWindow';
 import { readWindowRole, type WindowRole } from './window-role';
 import { startHostSettingsSync } from './host-settings';
+import { installRendererLogging } from './logging';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import './App.css';
@@ -26,6 +27,12 @@ import './App.css';
  * 各自推一份 —— 它们共用同一份存储，值一样。
  */
 startHostSettingsSync();
+
+/**
+ * 装上渲染进程的日志接管与错误兜底。**在渲染之前** —— 挂载阶段抛出的异常（组件初始化、
+ * 主题应用、首个 IPC）恰恰是最需要留下的现场，晚一步装就漏掉那一段。
+ */
+installRendererLogging();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

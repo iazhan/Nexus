@@ -94,6 +94,22 @@ describe('主进程宿主设置', () => {
       expect(() => sanitizeHostSettings({ disabledCapabilities: null })).toThrow(/字符串数组/);
     });
 
+    it('logLevel 收认得的级别，认不出的**值**回落默认档', () => {
+      expect(sanitizeHostSettings({ logLevel: 'debug' })).toEqual({ logLevel: 'debug' });
+      expect(sanitizeHostSettings({ logLevel: 'error' })).toEqual({ logLevel: 'error' });
+      // 认不出的**值**不抛，与 `disabledCapabilities` 的「不比对 id」同一条前向兼容理由：
+      // 它多半来自一个比主进程新的渲染进程，而「按默认档记」是安全的那一侧
+      // （级别删不掉任何东西 —— 与 `historyRetention` 的方向刻意相反）。
+      expect(sanitizeHostSettings({ logLevel: 'trace' })).toEqual({ logLevel: 'info' });
+    });
+
+    it('logLevel 类型不对就抛 —— 一个数字说明载荷本身坏了', () => {
+      // 与「认不出的值」分开：值不认识是版本差，类型不对是载荷坏了，后者要报错。
+      expect(() => sanitizeHostSettings({ logLevel: 2 })).toThrow(/字符串/);
+      expect(() => sanitizeHostSettings({ logLevel: null })).toThrow(/字符串/);
+      expect(() => sanitizeHostSettings({ logLevel: true })).toThrow(/字符串/);
+    });
+
     it('载荷本身不是对象就抛', () => {
       expect(() => sanitizeHostSettings(null)).toThrow(/必须是对象/);
       expect(() => sanitizeHostSettings('drafts')).toThrow(/必须是对象/);
@@ -107,11 +123,15 @@ describe('主进程宿主设置', () => {
       //
       // `restoreLastWorkspace: true` 则相反，与设置项的默认值一致：关掉它只是让人看到
       // 欢迎态，不涉及任何不可逆动作，所以这里没有「保守」可言。
+      //
+      // `logLevel: 'info'` 是第三个方向：这一项**少记才是风险**（主进程在收到设置之前的
+      // 那段窗口正是启动出问题时最需要现场的一段），所以取设置项的默认档而不是更安静的 `error`。
       expect(hostSettings()).toEqual({
         ignoreRules: [],
         historyRetention: null,
         restoreLastWorkspace: true,
-        disabledCapabilities: []
+        disabledCapabilities: [],
+        logLevel: 'info'
       });
     });
 
@@ -137,7 +157,8 @@ describe('主进程宿主设置', () => {
         ignoreRules: ['drafts'],
         historyRetention: 50,
         restoreLastWorkspace: true,
-        disabledCapabilities: []
+        disabledCapabilities: [],
+        logLevel: 'info'
       });
     });
 
@@ -149,7 +170,8 @@ describe('主进程宿主设置', () => {
         ignoreRules: [],
         historyRetention: null,
         restoreLastWorkspace: true,
-        disabledCapabilities: []
+        disabledCapabilities: [],
+        logLevel: 'info'
       });
     });
   });

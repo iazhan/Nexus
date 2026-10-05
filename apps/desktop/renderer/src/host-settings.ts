@@ -21,7 +21,7 @@
  * 都改得动它。
  */
 
-import { parseHistoryRetention, parseIgnoreRules } from '@nexus/core';
+import { parseHistoryRetention, parseIgnoreRules, parseLogLevel } from '@nexus/core';
 import type { HostSettings } from '../../ipc/channels.js';
 import { settings } from './platform.js';
 import { disabledMembers } from './settings/preference-specs.js';
@@ -41,7 +41,11 @@ function currentHostSettings(): HostSettings {
     disabledCapabilities: disabledMembers(
       BUILTIN_CAPABILITY_IDS,
       settings.get('plugins.disabled')
-    )
+    ),
+    // 走 `parseLogLevel` 而不是原样送存档字符串：主进程只该拿到「按哪一档记」这个答案，
+    // 不该懂存档里那个值长什么样（同 `historyRetention` 的理由）。认不出的值回落默认档 ——
+    // 主进程那侧也会再兜一次（`sanitizeHostSettings`），两处方向一致。
+    logLevel: parseLogLevel(settings.get('data.logLevel'))
   };
 }
 
@@ -56,11 +60,13 @@ const WATCHED: ReadonlyArray<
   | 'data.historyRetention'
   | 'general.restoreLastWorkspace'
   | 'plugins.disabled'
+  | 'data.logLevel'
 > = [
   'files.ignoreRules',
   'data.historyRetention',
   'general.restoreLastWorkspace',
-  'plugins.disabled'
+  'plugins.disabled',
+  'data.logLevel'
 ];
 
 /** 最近一次推送。串起来是为了「改得快」时后一次不会先落地。 */

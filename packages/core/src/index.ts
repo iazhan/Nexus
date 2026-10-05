@@ -169,3 +169,14 @@ export {
 export { type ChangeNotifier, createChangeNotifier } from './state/change-notifier.js';
 
 export { type CapabilityEnabled, ALL_CAPABILITIES_ENABLED } from './plugins/enabled.js';
+
+export {
+  LOG_LEVELS,
+  LOG_LEVEL_DEFAULT,
+  type LogLevel,
+  isLogLevel,
+  parseLogLevel,
+  logLevelAllows
+} from './logging/level.js';
+
+export { formatLogDetail } from './logging/detail.js';

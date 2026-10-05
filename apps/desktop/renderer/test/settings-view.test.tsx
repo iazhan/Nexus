@@ -3212,7 +3212,62 @@ describe('设置视图 · 数据', () => {
     expect(container.querySelector('[data-field-reset="data.historyRetention"]')).toBeNull();
   });
 
-  it('同组的四个动作仍在 —— 加一项带值的控件不该把按钮挤掉', () => {
+  function logLevelSelect(): HTMLSelectElement {
+    return container.querySelector<HTMLSelectElement>(
+      '[data-field-input="data.logLevel"]'
+    ) as HTMLSelectElement;
+  }
+
+  it('日志级别渲染成下拉，默认档是 info', () => {
+    renderSettings('data');
+
+    expect(logLevelSelect()).not.toBeNull();
+    expect(logLevelSelect().value).toBe('info');
+    // 界面上的值与存档里的值必须是同一个 —— 错位不会报错，只会按另一档记日志。
+    expect(settings.get('data.logLevel')).toBe('info');
+  });
+
+  it('级别顺序从最严重到最啰嗦 —— 下拉顺序与过滤语义同源', () => {
+    renderSettings('data');
+
+    // 这个顺序就是 `LOG_LEVELS`，而 `logLevelAllows` 靠它比较。界面重排会让「选中项
+    // 看着在中间、实际过滤按另一头」—— 而那种错在界面上完全看不出来。
+    expect(Array.from(logLevelSelect().options).map((option) => option.value)).toEqual([
+      'error',
+      'warn',
+      'info',
+      'debug'
+    ]);
+  });
+
+  it('四档的标签都真的翻译过，没有漏出键名或占位符', () => {
+    renderSettings('data');
+
+    for (const option of Array.from(logLevelSelect().options)) {
+      const text = option.textContent ?? '';
+      expect(text).not.toContain('settings.');
+      expect(text).not.toContain('{');
+      expect(text).not.toBe('');
+    }
+  });
+
+  it('改级别立刻写进存档（没有保存按钮），且不画重置键', () => {
+    renderSettings('data');
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        'value'
+      )?.set;
+      setter?.call(logLevelSelect(), 'debug');
+      logLevelSelect().dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(settings.get('data.logLevel')).toBe('debug');
+    expect(container.querySelector('[data-field-reset="data.logLevel"]')).toBeNull();
+  });
+
+  it('同组的五个动作仍在 —— 加一项带值的控件不该把按钮挤掉', () => {
     renderSettings('data');
 
     expect(
@@ -3223,8 +3278,92 @@ describe('设置视图 · 数据', () => {
       'data.rebuildIndex',
       'data.openHistoryDirectory',
       'data.openIndexDirectory',
-      'data.diagnostics'
+      'data.diagnostics',
+      'data.openLogsDirectory'
     ]);
+  });
+});
+
+/**
+ * 日志目录。
+ *
+ * 与「搜索索引」那一项同形（只读值显示**文件**路径、按钮打开**目录**），但有一处结构性不同：
+ * 它**不需要工作区** —— 日志不按工作区分。所以这一组钉三件事：画的是桥给的路径（不是自己拼的）、
+ * 桥不给时不画那一行、以及按钮在没有工作区时也点得动。
+ */
+describe('设置视图 · 日志目录', () => {
+  const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
+
+  function stubBridge(logsPath: string | null): { opened: number } {
+    const calls = { opened: 0 };
+    (window as unknown as { nexus: unknown }).nexus = {
+      getWorkspaceRoots: () => Promise.resolve([]),
+      getDiagnostics: () => Promise.resolve(null),
+      getLogPath: () => Promise.resolve(logsPath),
+      openLogsDirectory: () => {
+        calls.opened += 1;
+        return Promise.resolve(true);
+      }
+    };
+    return calls;
+  }
+
+  async function settle(): Promise<void> {
+    await act(async () => {
+      for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
+    });
+  }
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    (window as unknown as { nexus?: unknown }).nexus = originalBridge;
+  });
+
+  function readonly(): HTMLElement | null {
+    return container.querySelector<HTMLElement>('[data-field-readonly="data.openLogsDirectory"]');
+  }
+
+  it('只读值画的是桥给的那条**文件**路径 —— 不是渲染进程自己拼的，也不是目录', async () => {
+    // 目录里还有 `nexus.1.log` 之类的历史文件，只说「在某个目录下」用户认不出哪份是现在的。
+    stubBridge('C:\\Users\\tester\\AppData\\Roaming\\Nexus\\logs\\nexus.log');
+    renderSettings('data');
+    await settle();
+
+    const text = readonly()?.textContent ?? '';
+    expect(text).toContain('logs');
+    expect(text).toContain('nexus.log');
+  });
+
+  it('桥不给路径时不画那一行 —— 不是画一个空框', async () => {
+    stubBridge(null);
+    renderSettings('data');
+    await settle();
+
+    expect(readonly()).toBeNull();
+  });
+
+  it('按钮在没有工作区时也点得动 —— 日志不按工作区分', async () => {
+    const calls = stubBridge('C:/logs/nexus.log');
+    renderSettings('data');
+    await settle();
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-field-action="data.openLogsDirectory"]'
+    );
+    expect(button).not.toBeNull();
+    expect(button?.disabled).toBe(false);
+
+    act(() => button?.click());
+    await settle();
+
+    expect(calls.opened).toBe(1);
   });
 });
 

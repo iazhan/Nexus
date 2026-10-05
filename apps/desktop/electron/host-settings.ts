@@ -26,7 +26,7 @@
  * 这里是一份模块级的当前值，谁读都是同一份。
  */
 
-import { type CapabilityEnabled } from '@nexus/core';
+import { parseLogLevel, type CapabilityEnabled } from '@nexus/core';
 import { DEFAULT_HOST_SETTINGS, type HostSettings } from '../ipc/channels.js';
 
 let current: HostSettings = DEFAULT_HOST_SETTINGS;
@@ -84,6 +84,17 @@ export function sanitizeHostSettings(raw: unknown): Partial<HostSettings> {
       throw new Error('syncHostSettings: disabledCapabilities 必须是字符串数组');
     }
     patch.disabledCapabilities = disabled as string[];
+  }
+
+  if ('logLevel' in candidate) {
+    const level = candidate.logLevel;
+    // 类型必须是字符串：**认不出的「值」**回落默认档（`parseLogLevel`），
+    // 但一个数字或对象说明载荷本身坏了 —— 那要报错，而不是猜一个级别。
+    // 这与上面几条「类型不对就抛」是同一条纪律。
+    if (typeof level !== 'string') {
+      throw new Error('syncHostSettings: logLevel 必须是字符串');
+    }
+    patch.logLevel = parseLogLevel(level);
   }
 
   return patch;

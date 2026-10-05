@@ -20,6 +20,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { logWarn } from './logger.js';
 
 /** 文件名。放 `userData` 根下而不是子目录：它只有一个，不值得为它建一层。 */
 export const UPDATE_PREFERENCES_FILE = 'update-preferences.json';
@@ -88,6 +89,6 @@ export function writeUpdatePreferences(dir: string, prefs: UpdatePreferences): v
       'utf8'
     );
   } catch (error) {
-    console.warn('[Nexus] 更新偏好写盘失败:', error);
+    logWarn('[Nexus] 更新偏好写盘失败:', error);
   }
 }

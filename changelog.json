@@ -118,5 +118,16 @@
         "en": "Add an About group in settings and move the version and the update entry point out of General."
       }
     ]
+  },
+  "0.75.0": {
+    "date": "2026-10-05",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "新增日志：应用运行期间发生的事会写进日志文件，报问题时可以把它附上。设置里能调记录的详细程度，也能直接打开日志目录。",
+        "en": "Add logging: what happens while the app runs is written to a log file you can attach to a bug report. Settings can raise or lower how much is recorded, and open the log folder."
+      }
+    ]
   }
 }

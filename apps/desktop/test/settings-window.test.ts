@@ -403,7 +403,8 @@ describe('设置窗口', () => {
       'data.rebuildIndex',
       'data.openHistoryDirectory',
       'data.openIndexDirectory',
-      'data.diagnostics'
+      'data.diagnostics',
+      'data.openLogsDirectory'
     ]);
     // 上限项的档位与默认值 —— 真机里读的是真的 `<option>`，不是打桩的 `settings.get`。
     expect(
@@ -521,11 +522,11 @@ describe('设置窗口', () => {
       ).trim()
     ).not.toBe('');
 
-    // 只读值现在有两处：通用分组的版本、数据分组的索引路径与诊断信息（诊断在数据分组里，
-    // 所以本组是**两处**）。别的动作字段跟着多一行时是接线接错了。
+    // 只读值在本分组里现在有**三处**：索引路径、诊断信息、日志文件路径。
+    // 别的动作字段跟着多一行时是接线接错了（本组每个带值的动作字段都该各自有一行）。
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-field-readonly]').length`)
-    ).toBe(2);
+    ).toBe(3);
 
     // ④e 文件与链接分组：八项都由 `FIELDS` 派生渲染，这里只钉住「注册表里加了一项，
     //     真窗口里就真的多一个控件」—— 少一条 `FieldDef` 时 renderer 用例与真机用例

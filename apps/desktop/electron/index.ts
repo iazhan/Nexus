@@ -15,11 +15,14 @@ import {
   type GraphQuery,
   type HistoryEntry,
   type Unsubscribe,
+  isLogLevel,
   isOrphanMode
 } from '@nexus/core';
 import { FileService } from './file-service.js';
 import { buildDiagnostics } from './diagnostics.js';
 import { indexDirectoryForWorkspace, indexPathForWorkspace } from './index-path.js';
+import { logFilePath, logsDirectoryFor } from './log-file.js';
+import { initLogger, logDebug, logError, logInfo, logWarn } from './logger.js';
 import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js';
 import { createElectronFileDialog } from './file-dialog.js';
 import { createElectronTrash } from './trash.js';
@@ -63,6 +66,7 @@ import {
   type RenameFileRequest,
   type RenameFileResult,
   type RenameFileSkip,
+  type RendererLogEntry,
   type ThemeBootPayload,
   type ThemeBootRequest,
   type ThemeSyncResult,
@@ -141,7 +145,7 @@ function applyWorkspaceEnvOverride(context: LaunchContext): LaunchContext {
   if (!fromEnv) return context;
 
   if (classifyLaunchPath(fromEnv) !== 'directory') {
-    console.warn(`[Nexus Shell] NEXUS_WORKSPACE 不是有效目录，已忽略: ${fromEnv}`);
+    logWarn(`[Nexus Shell] NEXUS_WORKSPACE 不是有效目录，已忽略: ${fromEnv}`);
     return context;
   }
 
@@ -162,10 +166,55 @@ function userDataDirectory(): string | null {
   try {
     return app.getPath('userData');
   } catch (error) {
-    console.warn('[Nexus Shell] 取不到 userData 目录，本次不记录也不恢复工作区:', error);
+    logWarn('[Nexus Shell] 取不到 userData 目录，本次不记录也不恢复工作区:', error);
     return null;
   }
 }
+
+/**
+ * 日志落盘。**必须早于下面 `userDataDirectory()` 的调用** —— 那条 warn 本身就是排障材料，
+ * 晚一步装它就丢了（打包之后 stderr 没有任何人看得到）。所以这里自己取一次 `userData`，
+ * 不复用下面那个「取不到就记一条日志」的包装 —— 那一个自己会写日志，先有鸡还是先有蛋。
+ *
+ * 取不到 `userData` 时不装 sink：日志只走控制台，不再攒着（攒了也没有落点）。
+ *
+ * 级别走 `hostSettings().logLevel` 这个**取值函数**而不是一个值：主进程在渲染进程送出设置
+ * 之前按默认档写，之后每次写日志现读 —— 所以在设置页调到 debug 是立即生效的，不用重启。
+ */
+const logBaseDirectory = ((): string | null => {
+  try {
+    return app.getPath('userData');
+  } catch {
+    return null;
+  }
+})();
+
+if (logBaseDirectory) {
+  initLogger({
+    directory: logsDirectoryFor(logBaseDirectory),
+    level: () => hostSettings().logLevel
+  });
+}
+
+/**
+ * 崩溃兜底。**主进程的未捕获异常必须留下现场**：默认行为是打印到 stderr 然后退出，
+ * 而打包之后 stderr 没有人看得到 —— 用户只看到应用消失，报问题时什么都拿不出来。
+ *
+ * 记完**仍然退出**，这是刻意的：带着一个已经坏掉的状态继续跑，症状会变成
+ * 「应用还开着，但保存不了 / 界面不动了」，那比直接退出难查得多。
+ * 同步写盘保证这一条在 `app.exit` 之前已经落盘（见 `log-file.ts` 的头注释）。
+ *
+ * `unhandledRejection` 只记不退：一次没接住的 Promise 拒绝（多半来自某条 IPC）
+ * 不代表进程状态坏了，退出去反而把可用的会话打断。
+ */
+process.on('uncaughtException', (error) => {
+  logError('[Nexus Shell] 主进程未捕获异常', error);
+  app.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logError('[Nexus Shell] 主进程未处理的 Promise 拒绝', reason);
+});
 
 /**
  * 最近工作区落盘的目录。**模块顶层求值**：`launchContext` 要用它，而后者必须在
@@ -187,7 +236,7 @@ const launchContext: LaunchContext = applyRecentWorkspace(
   startupState,
   (targetPath) => classifyLaunchPath(targetPath) === 'directory'
 );
-console.log('[Nexus Shell] Initialized launch context:', JSON.stringify(launchContext));
+logInfo('[Nexus Shell] Initialized launch context:', launchContext);
 
 /**
  * 记下这次的工作区，供**下一次**启动恢复。
@@ -272,7 +321,7 @@ function resolveThemeBoot(raw: unknown): ThemeBootPayload {
       : null;
 
   if (result && result.failed.length > 0) {
-    console.warn('[Nexus Shell] 用户主题写盘失败，本次仍按存档里的那几套走:', result.failed);
+    logWarn('[Nexus Shell] 用户主题写盘失败，本次仍按存档里的那几套走:', result.failed);
     return {
       ...themeBootPayload(choice, prefersDark, merged),
       themes: merged,
@@ -810,7 +859,7 @@ function recordHistory(session: WebContentsSession, filePath: string, content: s
     // 没收到过就是 `null` ＝ 不清理，方向安全。
     new HistoryStore(root).record(relativePath, previous, hostSettings().historyRetention);
   } catch (err) {
-    console.error('[Nexus Shell] 留历史快照失败（不影响保存）:', err);
+    logError('[Nexus Shell] 留历史快照失败（不影响保存）:', err);
   }
 }
 
@@ -855,7 +904,7 @@ function forgetHistory(event: Electron.IpcMainInvokeEvent, documentPath: unknown
   try {
     new HistoryStore(target.root).forget(target.relativePath);
   } catch (err) {
-    console.error('[Nexus Shell] 清理历史失败（不影响删除）:', err);
+    logError('[Nexus Shell] 清理历史失败（不影响删除）:', err);
   }
 }
 
@@ -1009,7 +1058,7 @@ ipcMain.handle(IPC_CHANNELS.createFile, async (event, value: unknown) => {
         filePath: created
       });
     } catch (err) {
-      console.error('[Nexus] 新建文件已落盘，但写入索引失败:', created, err);
+      logError(`[Nexus] 新建文件已落盘，但写入索引失败: ${created}`, err);
     }
   }
 
@@ -1192,7 +1241,7 @@ ipcMain.handle(IPC_CHANNELS.renameFile, async (event, raw: unknown) => {
     try {
       new HistoryStore(root).rename(fromRelative, toRelative);
     } catch (err) {
-      console.error('[Nexus Shell] 搬历史目录失败（不影响改名）:', err);
+      logError('[Nexus Shell] 搬历史目录失败（不影响改名）:', err);
     }
   }
 
@@ -1226,7 +1275,7 @@ ipcMain.handle(IPC_CHANNELS.renameFile, async (event, raw: unknown) => {
       await session.service.writeFile(target, change.after);
       applied.push(change);
     } catch (err) {
-      console.error('[Nexus Shell] 回写引用失败:', err);
+      logError('[Nexus Shell] 回写引用失败:', err);
       skipped.push({ relativePath: change.relativePath, reason: 'failed' });
     }
   }
@@ -1376,6 +1425,78 @@ ipcMain.handle(IPC_CHANNELS.getDiagnostics, (event) => {
 });
 
 /**
+ * 当前日志**文件**的路径。设置页把它当只读值显示。
+ *
+ * **不接受参数**（同 `getDiagnostics`）：日志只有一个文件，是 `userData` 的纯函数，
+ * 没有「拿一个任意路径来问」的口子。**轻量模式下照样有值** —— 日志不依赖工作区，
+ * 所以这一项没有 `probe`，只读值与按钮在任何模式下都画得出来。
+ *
+ * 文件还不存在（应用第一次运行）时**照样返回路径**：它是纯函数，值不依赖文件在不在。
+ * 取不到 `userData`（见 `userDataDirectory`）时才返回 `null`，界面据此不画那一行 ——
+ * 与 `readonlyValue` 的约定一致：没有值就是没有值，不画一个空框。
+ */
+ipcMain.handle(IPC_CHANNELS.getLogPath, () => {
+  const base = userDataDirectory();
+  return base ? logFilePath(logsDirectoryFor(base)) : null;
+});
+
+/**
+ * 打开日志目录。**先建出来再开** —— 这一项最常见的用法就是「去看看有没有东西」，
+ * 而日志文件要等第一条日志才出现，用户点进来时目录常常还不存在。
+ * 返回 `false` 会让用户以为日志系统坏了（同 `openThemeDirectory` 的取舍）。
+ *
+ * 与 `openHistoryDirectory` / `openIndexDirectory` 不同，这里**不需要工作区**：
+ * 日志不按工作区分，它只有一个。
+ */
+ipcMain.handle(IPC_CHANNELS.openLogsDirectory, async () => {
+  const base = userDataDirectory();
+  if (!base) return false;
+
+  const directory = logsDirectoryFor(base);
+  try {
+    fs.mkdirSync(directory, { recursive: true });
+  } catch (error) {
+    logWarn('[Nexus Shell] 建日志目录失败:', error);
+    return false;
+  }
+
+  // `shell.openPath` 用**返回的字符串**报错（空串才是成功），不抛。
+  const failure = await shell.openPath(directory);
+  return failure === '';
+});
+
+/**
+ * 渲染进程送来的日志。
+ *
+ * **载荷逐字段校验**：`RendererLogEntry` 是编译期的形状，跨进程之后运行时什么都能进来。
+ * 认不出的级别**当成 error** 而不是丢掉 —— 那多半来自一个比主进程新的渲染进程，
+ * 而 `error` 是任何级别设置下都写得进去的那一档，宁可多记一条也不要把新东西静默吞掉。
+ *
+ * 用 `ipcMain.on` 而不是 `handle`：这是单向的，渲染进程不等回执（见 `writeLog` 通道注释）。
+ */
+ipcMain.on(IPC_CHANNELS.writeLog, (_event, payload: unknown) => {
+  if (typeof payload !== 'object' || payload === null) return;
+
+  const entry = payload as Partial<RendererLogEntry>;
+  if (typeof entry.message !== 'string' || entry.message === '') return;
+
+  const detail = typeof entry.detail === 'string' ? entry.detail : undefined;
+  switch (isLogLevel(entry.level) ? entry.level : 'error') {
+    case 'error':
+      logError(entry.message, detail);
+      return;
+    case 'warn':
+      logWarn(entry.message, detail);
+      return;
+    case 'info':
+      logInfo(entry.message, detail);
+      return;
+    default:
+      logDebug(entry.message, detail);
+  }
+});
+
+/**
  * 该工作区的索引库**文件**路径。与下面那条是同一个库的两半：这个只把路径交出去，
  * 不打开任何东西。
  *
@@ -1461,7 +1582,7 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
     // 否则「工作区内的符号链接指向外部」那条防护不会生效。
     if (launchContext.workspaceRoot) {
       void service.authorizeWorkspace(launchContext.workspaceRoot).catch((err) => {
-        console.error('[Nexus Shell] 授权工作区失败:', err);
+        logError('[Nexus Shell] 授权工作区失败:', err);
       });
     }
 
@@ -1470,7 +1591,7 @@ function getOrCreateSession(webContents: Electron.WebContents): WebContentsSessi
     // 指向目录外也会被拒。失败不致命（字符串边界已经在构造函数里生效）。
     for (const assetRoot of assetRoots) {
       void service.authorizeAssetRoot(assetRoot).catch((err) => {
-        console.error('[Nexus Shell] 授权资源根失败:', err);
+        logError('[Nexus Shell] 授权资源根失败:', err);
       });
     }
 
@@ -1567,7 +1688,7 @@ ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, url: unknown) => {
     await shell.openExternal(allowed);
     return true;
   } catch (err) {
-    console.error('[Nexus Shell] Failed to open external URL:', err);
+    logError('[Nexus Shell] Failed to open external URL:', err);
     return false;
   }
 });

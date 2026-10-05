@@ -58,6 +58,7 @@ import {
   EDITOR_TABLE_LAYOUT_OPTIONS,
   EXTERNAL_CHANGE_OPTIONS,
   LINK_FORMAT_OPTIONS,
+  LOG_LEVEL_OPTIONS,
   NEW_DOCUMENT_LOCATION_OPTIONS,
   OUTLINE_LEVEL_OPTIONS,
   PDF_PAGE_LAYOUT_OPTIONS,
@@ -1280,6 +1281,71 @@ export const DIAGNOSTICS_FIELD: FieldDef = {
 };
 
 /**
+ * 日志级别。**决定主进程往盘上记多少**。
+ *
+ * ## 为什么这一项真的有用（而不是一个装饰性旋钮）
+ *
+ * 主进程的 stdout 在打包之后没有任何人看得到，所以「保存失败」「索引没建起来」这类消息
+ * 只能靠落盘日志传出来。而日志量必须可调：默认档要够用（能回答「为什么这次没进工作区」），
+ * 排查具体问题时又要能开到 `debug` 看细节。
+ *
+ * ## 为什么主进程也要知道它
+ *
+ * 写盘的是主进程，而设置住在渲染进程的存储里。所以这一项走宿主设置通道
+ * （`HostSettings.logLevel`），而不是随某个请求传参 —— 它没有可依附的请求，
+ * 每一条日志都要读它。改完立即生效，不需要重启（logger 每次写日志现读）。
+ *
+ * ## 描述文案必须说清「改大之后盘上会多」
+ *
+ * 这一项没有危险方向（它删不掉任何东西），但**用户该知道 debug 会写得更多** ——
+ * 否则他会以为「调大只是多一个选项」。这是这一项唯一需要提前说明的事。
+ */
+export const LOG_LEVEL_FIELD: FieldDef = {
+  id: 'data.logLevel',
+  section: 'data',
+  labelKey: 'settings.data.logLevel',
+  descriptionKey: 'settings.data.logLevelDescription',
+  keywords: ['日志', '级别', '记录', '排查', '调试', '详细', 'log', 'level', 'logging', 'debug', 'verbose', 'troubleshoot'],
+  control: 'select',
+  options: LOG_LEVEL_OPTIONS,
+  accessor: {
+    read: () => settings.get('data.logLevel'),
+    write: (value) => settings.set('data.logLevel', value),
+    subscribe: (listener) => settings.subscribe('data.logLevel', listener)
+  },
+  menu: false
+};
+
+/**
+ * 日志目录 + 打开它。
+ *
+ * 与 `OPEN_INDEX_DIR_FIELD` 完全同形（两半：只读值显示**文件**路径、按钮打开**目录**），
+ * 所以那一条的取舍在这里一并适用 —— 两半由主进程的 `log-file.ts` 算出，
+ * 「显示的位置」与「打开的位置」不会分家。
+ *
+ * **没有 `probe`**：日志不按工作区分，轻量模式（只开一个文件）下照样有日志目录。
+ * 与 `data.diagnostics` 一样，这一项在任何模式下都画得出来 —— 而另外几个 `data` 动作
+ * 都要先有工作区。
+ *
+ * 只读值显示的是**当前那份文件**而不是目录：目录里可能有轮转出来的 `nexus.1.log` 等，
+ * 用户想知道的是「现在的日志在哪」。
+ */
+export const OPEN_LOGS_DIR_FIELD: FieldDef = {
+  id: 'data.openLogsDirectory',
+  section: 'data',
+  labelKey: 'settings.data.openLogsDirectory',
+  descriptionKey: 'settings.data.openLogsDirectoryDescription',
+  keywords: ['日志', '目录', '位置', '排错', 'log', 'logs', 'folder', 'path', 'troubleshoot'],
+  control: 'action',
+  actionLabelKey: 'settings.data.openLogsDirectoryAction',
+  readonlyValue: async () => (await window.nexus?.getLogPath()) ?? null,
+  run: async () => {
+    await window.nexus?.openLogsDirectory();
+  },
+  menu: false
+};
+
+/**
  * 扫描时忽略的目录。
  *
  * 放在 `files` 组**最前面**：它决定「哪些东西算这个工作区的一部分」，是这一组里唯一
@@ -1611,6 +1677,8 @@ export const FIELDS: readonly FieldDef[] = [
   OPEN_HISTORY_DIR_FIELD,
   OPEN_INDEX_DIR_FIELD,
   DIAGNOSTICS_FIELD,
+  LOG_LEVEL_FIELD,
+  OPEN_LOGS_DIR_FIELD,
   APP_VERSION_FIELD
 ];
 

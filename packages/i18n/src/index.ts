@@ -479,6 +479,17 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.diagnosticsDescription':
       'Version, platform and where things live on this machine. It contains local paths, so it shows your user name — it never contains document text. Paste it when reporting a problem.',
     'settings.data.copyDiagnosticsAction': 'Copy diagnostics',
+    'settings.data.logLevel': 'Log level',
+    'settings.data.logLevelDescription':
+      'How much the app writes to its log file. When something goes wrong the log is the first thing we ask for — the window itself gives no other clue. “Info” answers most questions; “Debug” records a great deal more, so turn it on only while reproducing a problem.',
+    'settings.data.logLevel.error': 'Errors only',
+    'settings.data.logLevel.warn': 'Warnings and errors',
+    'settings.data.logLevel.info': 'Info, warnings and errors',
+    'settings.data.logLevel.debug': 'Everything (verbose)',
+    'settings.data.openLogsDirectory': 'Log file',
+    'settings.data.openLogsDirectoryDescription':
+      'Logs live in the app data folder, not in your workspace. The file below is the current one; earlier ones are kept beside it. A log never contains document text.',
+    'settings.data.openLogsDirectoryAction': 'Open log folder',
     'settings.data.needsWorkspace': 'Open a workspace to use this.',
     'settings.keybindings.remappable': 'Keyboard shortcuts',
     'settings.keybindings.remappableDescription':
@@ -1254,6 +1265,17 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.diagnosticsDescription':
       '版本、平台，以及东西在这台机器上落在哪。里面含本机路径，所以会露出你的用户名；不含任何文档内容。报问题时把它贴出去即可。',
     'settings.data.copyDiagnosticsAction': '复制诊断信息',
+    'settings.data.logLevel': '日志级别',
+    'settings.data.logLevelDescription':
+      '应用往日志文件里记多少东西。出问题时我们首先问的就是日志 —— 窗口本身给不出别的线索。「信息」够回答大多数问题；「调试」会多记很多，只在复现问题时临时打开。',
+    'settings.data.logLevel.error': '仅错误',
+    'settings.data.logLevel.warn': '警告与错误',
+    'settings.data.logLevel.info': '信息、警告与错误',
+    'settings.data.logLevel.debug': '全部（详细）',
+    'settings.data.openLogsDirectory': '日志文件',
+    'settings.data.openLogsDirectoryDescription':
+      '日志放在应用数据目录里，不在工作区中。下面这个文件是当前那份，更早的几份就在它旁边。日志里不含任何文档内容。',
+    'settings.data.openLogsDirectoryAction': '打开日志目录',
     'settings.data.needsWorkspace': '打开一个工作区后才能使用。',
     'settings.keybindings.remappable': '快捷键',
     'settings.keybindings.remappableDescription':

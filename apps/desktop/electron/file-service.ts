@@ -19,6 +19,7 @@ import {
 } from '@nexus/core';
 import type { FileDialog } from './file-dialog.js';
 import type { DeleteMode, SaveAttachmentRequest } from '../ipc/channels.js';
+import { logError } from './logger.js';
 
 /**
  * 文件句柄最小接口，便于测试 mock 与原子保存操作。
@@ -315,7 +316,7 @@ async function safeUnlink(fsAdapter: FileSystemAdapter, filePath: string): Promi
     await fsAdapter.unlink(filePath);
   } catch (error) {
     if (isNotFoundError(error)) return;
-    console.error(`[Nexus File Service] 文件清理失败: ${filePath}`, error);
+    logError(`[Nexus File Service] 文件清理失败: ${filePath}`, error);
   }
 }
 

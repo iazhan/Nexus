@@ -26,6 +26,7 @@ import type {
   HostSettings,
   RenameFileRequest,
   RenameFileResult,
+  RendererLogEntry,
   SaveAttachmentRequest,
   ThemeBootPayload,
   ThemeSyncResult,
@@ -288,6 +289,31 @@ export interface NexusBridge {
    * 返回值里**没有文档内容**：这份东西是贴进 issue 的，只能有环境不能有作品。
    */
   getDiagnostics: () => Promise<DiagnosticsReport>;
+  /**
+   * 当前日志**文件**的绝对路径（`<userData>/logs/nexus.log`）。
+   *
+   * 与 `openLogsDirectory` 是同一件事的两半：那个把文件管理器开到它所在的目录，这个把
+   * **文件路径**交给界面显示。目录里还有轮转出来的历史文件，只说「在某个目录下」等于没说。
+   * 两半都由主进程的 `log-file.ts` 算出，所以「显示的位置」与「打开的位置」不会分家。
+   *
+   * **不接受参数** —— 日志是 `userData` 的纯函数，没有工作区也能答（轻量模式下照样可看）。
+   * 文件还不存在时照样返回路径。
+   */
+  getLogPath: () => Promise<string | null>;
+  /**
+   * 在系统文件管理器里打开日志目录。
+   *
+   * 目录不存在时**先建出来再开**：这一项最常见的用法就是「去看看有没有东西」，
+   * 返回 `false` 会让用户以为日志系统坏了。
+   */
+  openLogsDirectory: () => Promise<boolean>;
+  /**
+   * 把一条渲染进程的日志交给主进程写盘。**单向，不等待回执**。
+   *
+   * 渲染进程没有文件系统，而它的错误（白屏、面板加载不出来、IPC 失败）恰恰是用户报得最多
+   * 的那一类。用 `send` 而不是 `invoke`：日志不能反过来拖慢它要记录的那件事。
+   */
+  writeLog: (entry: RendererLogEntry) => void;
   setDirty: (isDirty: boolean) => void;
   onSaveAndCloseRequested: (callback: () => Promise<void>) => Unsubscribe;
   readyToClose: () => void;
