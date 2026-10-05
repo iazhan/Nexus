@@ -621,7 +621,7 @@ describe('设置视图 · 界面缩放', () => {
  * 它绿不代表控件把「勾上」画成了「显示」。判据取 `data-field-member` 与 `aria-checked`
  * —— 不取文案，文案随 locale 变。
  *
- * 接线（改了设置主窗口真的少一块）不在这一层，在 `apps/desktop/test/chrome-visibility.test.ts`。
+ * 接线（改了设置主窗口真的少一块）不在这一层，在 `apps/desktop/renderer/test/chrome-visibility.test.tsx`。
  */
 describe('设置视图 · 开关组（界面元素显隐 / 状态栏显示项）', () => {
   beforeEach(() => {

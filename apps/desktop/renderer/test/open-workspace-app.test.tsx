@@ -2,7 +2,7 @@
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { App } from '../renderer/src/App.js';
+import { App } from '../src/App.js';
 
 /**
  * 「打开工作区」这条链的**渲染进程那一半**。

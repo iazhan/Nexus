@@ -2,9 +2,9 @@
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { App } from '../renderer/src/App.js';
+import { App } from '../src/App.js';
 import { setEditorReadOnly, type EditorView, type MarkdownDocumentSession } from '@nexus/editor';
-import type { NexusBridge } from '../preload/types.js';
+import type { NexusBridge } from '../../preload/types.js';
 
 /** 桌面开发入口提供的真实编辑器观测接口。 */
 const testWindow = window as Window & {

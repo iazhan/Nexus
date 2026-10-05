@@ -3,9 +3,9 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { documentTypeForPath, type IndexedDocument } from '@nexus/core';
-import { App } from '../renderer/src/App.js';
-import { settings } from '../renderer/src/platform.js';
-import type { NexusBridge } from '../preload/types.js';
+import { App } from '../src/App.js';
+import { settings } from '../src/platform.js';
+import type { NexusBridge } from '../../preload/types.js';
 
 /**
  * 「删除文件」在 `App.tsx` 这一层的接线。

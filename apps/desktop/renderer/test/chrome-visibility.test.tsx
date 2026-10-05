@@ -2,9 +2,9 @@
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { App } from '../renderer/src/App.js';
-import { commandRegistry, settings } from '../renderer/src/platform.js';
-import type { NexusBridge } from '../preload/types.js';
+import { App } from '../src/App.js';
+import { commandRegistry, settings } from '../src/platform.js';
+import type { NexusBridge } from '../../preload/types.js';
 
 /**
  * 「界面元素显隐」与「状态栏显示项」的**接线**用例。

@@ -2,9 +2,9 @@
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { App } from '../renderer/src/App.js';
+import { App } from '../src/App.js';
 import type { EditorView, MarkdownDocumentSession } from '@nexus/editor';
-import type { NexusBridge } from '../preload/types.js';
+import type { NexusBridge } from '../../preload/types.js';
 
 /**
  * 编辑器工具栏在**真实 App + 真实 CodeMirror view** 上的两条契约
@@ -27,7 +27,7 @@ import type { NexusBridge } from '../preload/types.js';
  * 焦点丢了 `view.state.selection` 未必立刻变，但**下一次按键**会打到按钮上而不是编辑器，
  * 所以两条都要断：焦点在不在编辑器里、选区是不是逐字段相同。
  *
- * `apps/desktop/test/**` 不进 typecheck，类型只靠 esbuild 转译。
+ * 测试目录不进 typecheck（`tsconfig.web.json` 只收 `renderer/src/**`），类型只靠 esbuild 转译。
  */
 
 const testWindow = window as Window & {

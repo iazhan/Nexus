@@ -36,6 +36,14 @@ export default defineConfig({
           environment: 'happy-dom',
           // 同时匹配 .ts：renderer 层的纯逻辑（状态层、纯函数）没有 JSX，
           // 不该因为后缀被挡在测试之外。
+          //
+          // **凡是渲染整个 `App` 的 happy-dom 用例，一律放这里**（2026-10-05 从
+          // `apps/desktop/test/` 搬来 8 个：`chrome-visibility` / `delete-file-app` /
+          // `desktop-ui-standards` / `editor-toolbar-focus` / `new-document-location` /
+          // `open-workspace-app` / `p1-04r-shortcut-dispatch` / `rename-file-app`）。
+          // 理由是下面那行 `setupFiles` **按 project 注册**：desktop project 拿不到它，
+          // 那批文件在 desktop project 里小批跑会以 `Invalid hook call`
+          // （`useState` 读到 null dispatcher）整片挂掉，只有全量跑时因模块图碰巧一致才绿。
           include: ['apps/desktop/renderer/test/**/*.test.{ts,tsx}'],
           // 见该文件注释：本机 react 被加载两份，act 不会提交 DOM，这里补一层。
           setupFiles: ['apps/desktop/renderer/test/support/setup.ts']
@@ -46,6 +54,10 @@ export default defineConfig({
           name: 'desktop',
           globals: true,
           environment: 'node',
+          // **渲染整个 `App` 的 happy-dom 用例不要放这里**（`// @vitest-environment happy-dom`
+          // 那批）：这个 project 拿不到 renderer 那份 React internals 补丁，它们会以
+          // `Invalid hook call` 整片挂掉。放 `apps/desktop/renderer/test/`，理由见上面
+          // renderer project 的 include 注释。
           include: ['apps/*/test/**/*.test.ts'],
           // 这些用例会启动真实 Electron 实例（16 个文件 / 100 条用例，每条都要冷启动一次
           // Electron，约 7s）。并行执行时多个 Electron 互相争抢 CPU，产生随机超时：

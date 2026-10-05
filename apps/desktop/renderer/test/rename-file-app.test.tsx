@@ -4,15 +4,15 @@ import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { documentTypeForPath, type IndexedDocument } from '@nexus/core';
 import { translate } from '@nexus/i18n';
-import { App } from '../renderer/src/App.js';
-import { localeManager, settings } from '../renderer/src/platform.js';
-import type { NexusBridge } from '../preload/types.js';
+import { App } from '../src/App.js';
+import { localeManager, settings } from '../src/platform.js';
+import type { NexusBridge } from '../../preload/types.js';
 import type {
   RenameFileChange,
   RenameFileRequest,
   RenameFileResult,
   RenameFileSkip
-} from '../ipc/channels.js';
+} from '../../ipc/channels.js';
 
 /**
  * 「重命名文件」在 `App.tsx` 这一层的接线。

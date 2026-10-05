@@ -135,7 +135,7 @@ describe('workspace 模式启动', () => {
    *
    *   - 主进程那一半在这里（授权 + 落盘）；
    *   - 渲染进程那一半（点按钮 → `setWorkspaceRoot` → 外壳挂起来）在
-   *     `open-workspace-app.test.ts` 里，用 happy-dom 渲染整个 App 盖。
+   *     `apps/desktop/renderer/test/open-workspace-app.test.tsx` 里，用 happy-dom 渲染整个 App 盖。
    *
    * 落盘那一份 `recent-workspace.json` 是这条用例独有的价值：主进程在这里是**重新读**磁盘
    * 那份再合并写入的，不是拿启动时那份快照（否则会把本次会话里已经改过的开关覆盖回去）——
