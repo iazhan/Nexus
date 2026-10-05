@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import type { IndexedDocument } from '@nexus/core';
+import { ProcessorRegistry, type DocumentProcessor, type IndexedDocument } from '@nexus/core';
 import { FileService } from '../electron/file-service.js';
 import { IndexStore } from '../electron/index-store.js';
 import { indexSingleFile, indexWorkspace } from '../electron/indexer.js';
@@ -184,6 +184,133 @@ describe('单文件索引与全量索引的对账', () => {
         indexSingleFile({ service, store, rootPath: workspace, filePath: outside })
       ).rejects.toThrow(/不在给定的工作区根之下/);
       expect(store.listDocuments()).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+/**
+ * 「重建索引」对附件正文必须是**幂等**的。
+ *
+ * ## 为什么这一组住在这个文件里
+ *
+ * 它验的是 `indexWorkspace` 的跳过判据，而上一组最后两条（「内容没变时再索引一次是空操作」）
+ * 验的是同一条判据的另一半。两条合起来才说得完整：**跳过写库 ≠ 跳过解析**。
+ * 而且这里是纯 node（不启 Electron），不占 desktop 那套批次预算。
+ *
+ * ## 缺陷现场（2026-10-05 修）
+ *
+ * `prepareIndexEntry` 曾经在「指纹没变」时**提前返回 `null`**，而引用集合的收集在
+ * `indexWorkspace` 里只发生在「没提前返回」的分支。于是磁盘一个字没动时点一次「重建索引」：
+ * 引用集合为空 ⇒ `extractReferencedAttachments` 把每个附件都读成「没人引用」⇒
+ * 把已提取的正文**全部清空**，且同一轮不会再提回来。用户看到的是「重建之后 PDF / DOCX
+ * 的内容从搜索里消失」。
+ *
+ * 判据必须**正反两面都钉**：只断言「重建后正文还在」，把 `allowClearing` 整条删掉也照样绿 ——
+ * 而那条分支本身是正当的（删掉引用之后正文就该消失）。
+ */
+
+/** 假处理器：把字节原样当文本。**不依赖 pdfjs / mammoth**，所以这个文件仍在 node 里跑完。 */
+function passthroughProcessor(id: string, type: 'pdf' | 'docx'): DocumentProcessor {
+  return {
+    id,
+    documentTypes: [type],
+    extract: async (input) => ({
+      status: 'extracted',
+      text: Buffer.from(input.bytes).toString('utf8')
+    })
+  };
+}
+
+describe('重建索引 · 附件正文的提取缓存', () => {
+  let tempDir: string;
+  let workspace: string;
+  let service: FileService;
+
+  beforeEach(async () => {
+    tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'nexus-index-rebuild-'));
+    workspace = path.join(tempDir, 'vault');
+    await fsPromises.mkdir(workspace, { recursive: true });
+
+    service = new FileService();
+    await service.authorizeWorkspace(workspace);
+  });
+
+  afterEach(async () => {
+    await fsPromises.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const writeFile = async (relativePath: string, content: string) => {
+    const absolute = path.join(workspace, relativePath);
+    await fsPromises.mkdir(path.dirname(absolute), { recursive: true });
+    await fsPromises.writeFile(absolute, content, 'utf-8');
+  };
+
+  const processors = (): ProcessorRegistry => {
+    const registry = new ProcessorRegistry();
+    registry.register(passthroughProcessor('pdf-text', 'pdf'));
+    registry.register(passthroughProcessor('docx-text', 'docx'));
+    return registry;
+  };
+
+  const statusOf = (store: IndexStore, relativePath: string) =>
+    store.listDocuments().find((document) => document.relativePath === relativePath)
+      ?.extractionStatus;
+
+  const hitsOf = (store: IndexStore, query: string) =>
+    store
+      .search(query)
+      .map((hit) => hit.relativePath)
+      .sort();
+
+  it('磁盘一个字没动时重建：已提取的附件正文必须还在', async () => {
+    await writeFile('note.md', '# 笔记\n\n见 [甲](doc.pdf) 与 [[spec.docx]]。\n');
+    await writeFile('doc.pdf', 'AlphaMarker');
+    await writeFile('spec.docx', 'BetaMarker');
+
+    const store = IndexStore.open(path.join(tempDir, 'idempotent.db'));
+    try {
+      await indexWorkspace({ service, store, rootPath: workspace, processors: processors() });
+
+      // 前提：两个附件真的被提取进来了。少了这一半，「重建后还在」可能只是从来没进去过。
+      expect(statusOf(store, 'doc.pdf')).toBe('extracted');
+      expect(statusOf(store, 'spec.docx')).toBe('extracted');
+      expect(hitsOf(store, 'AlphaMarker')).toEqual(['doc.pdf']);
+      expect(hitsOf(store, 'BetaMarker')).toEqual(['spec.docx']);
+
+      // 磁盘一个字没动，再重建一次 —— 这正是设置页那个「重建索引」按钮做的事
+      await indexWorkspace({ service, store, rootPath: workspace, processors: processors() });
+
+      expect(statusOf(store, 'doc.pdf')).toBe('extracted');
+      expect(statusOf(store, 'spec.docx')).toBe('extracted');
+      expect(hitsOf(store, 'AlphaMarker')).toEqual(['doc.pdf']);
+      expect(hitsOf(store, 'BetaMarker')).toEqual(['spec.docx']);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('引用被删掉之后重建：那个附件的正文要清掉 —— 清空那一支仍然有效', async () => {
+    await writeFile('note.md', '# 笔记\n\n见 [甲](doc.pdf) 与 [[spec.docx]]。\n');
+    await writeFile('doc.pdf', 'AlphaMarker');
+    await writeFile('spec.docx', 'BetaMarker');
+
+    const store = IndexStore.open(path.join(tempDir, 'clearing.db'));
+    try {
+      await indexWorkspace({ service, store, rootPath: workspace, processors: processors() });
+      expect(hitsOf(store, 'AlphaMarker')).toEqual(['doc.pdf']);
+
+      // 把指向 PDF 的引用删掉（note.md 的内容变了，指纹跟着变）
+      await writeFile('note.md', '# 笔记\n\n只留 [[spec.docx]]。\n');
+      await indexWorkspace({ service, store, rootPath: workspace, processors: processors() });
+
+      // 没人引用了 —— 正文要清掉，否则「删了引用却还搜得到」
+      expect(statusOf(store, 'doc.pdf')).toBe('none');
+      expect(hitsOf(store, 'AlphaMarker')).toEqual([]);
+      // 反面：另一个还被引用着的照旧 —— 清空不能连累别人
+      expect(statusOf(store, 'spec.docx')).toBe('extracted');
+      expect(hitsOf(store, 'BetaMarker')).toEqual(['spec.docx']);
     } finally {
       store.close();
     }

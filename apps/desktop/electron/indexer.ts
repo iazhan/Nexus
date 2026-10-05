@@ -87,7 +87,10 @@ export async function indexWorkspace(
 
   // 「被 Markdown 引用过的附件」的两个匹配集合（Phase 3 / P3-10）。
   // 在**同一个循环里**顺手收集：正文已经读进来了，为它再扫一遍盘是白付的 IO。
-  // 注意收集发生在「指纹没变就跳过」**之前** —— 跳过的是写库，不是解析。
+  //
+  // **集合必须完整**，所以收集对「指纹没变、这一轮不写库」的文件也照做（见 `prepareIndexEntry`
+  // 的头注释）。漏掉任何一个文件的引用，第二遍就会把一个还被引用着的附件判成「没人引用」，
+  // 而那一遍对「没人引用」的处理是**删掉它的正文** —— 不可逆，且用户看不出发生了什么。
   const referencedPaths = new Set<string>();
   const referencedWikilinkTargets = new Set<string>();
 
@@ -104,13 +107,16 @@ export async function indexWorkspace(
         existingByPath.get(file.path)?.contentHash
       );
 
-      if (prepared === null) {
+      // 引用集合**无条件**收集 —— 跳过的是写库，不是解析。少收一个文件的引用，
+      // 第二遍就会把某个还被引用着的附件当成「没人引用」并把它的正文删掉。
+      for (const reference of prepared.referencedPaths) referencedPaths.add(reference);
+      for (const target of prepared.referencedWikilinkTargets) {
+        referencedWikilinkTargets.add(target);
+      }
+
+      if (prepared.unchanged) {
         skipped += 1;
       } else {
-        for (const reference of prepared.referencedPaths) referencedPaths.add(reference);
-        for (const target of prepared.referencedWikilinkTargets) {
-          referencedWikilinkTargets.add(target);
-        }
         pendingUpserts.push(prepared.input);
       }
     } catch (err) {
@@ -177,17 +183,41 @@ interface PreparedIndexEntry {
   /** 正文里出现的附件相对路径（**已转小写**），供「被引用附件的文本提取」那一遍用。 */
   referencedPaths: string[];
   referencedWikilinkTargets: string[];
+  /**
+   * 指纹与索引里那一行相同 —— 调用方应当跳过**写库**。
+   *
+   * **但 `referencedPaths` / `referencedWikilinkTargets` 照样是有效的**，调用方必须收下它们。
+   * 这一点是 P3-10 那个「重建索引会把附件正文清空」缺陷的修复要点：引用集合必须**完整**，
+   * 少一个文件就等于把一个还被引用着的附件误判成「没人引用」，而那个误判的后果是
+   * `extractReferencedAttachments` 把它的正文**删掉**。见下面 `prepareIndexEntry` 的注释。
+   */
+  unchanged: boolean;
 }
 
 /**
- * 读一个文件、算出它该写进索引的那一行。**不落库、不判断该不该跳过**（返回值就是那个判断）。
+ * 读一个文件、算出它该写进索引的那一行。**不落库**；返回的 `unchanged` 就是「该不该跳过写库」。
  *
  * 抽出来的唯一理由是**全量与单文件两条路必须共用同一段判据**。各写一遍的话，
  * 漂移的症状不是报错，而是「索引里少了一样东西」—— 搜不到、图谱少节点、标签对不上，
  * 而那要等到有人搜不到东西才会被发现。所以「读内容 → 算指纹 → 抽 links/tags → 拼入参」
  * 这一段只有这一份实现，两条路都从这里走。
  *
- * 返回 `null` 表示内容指纹与 `existingHash` 相同 —— 调用方应当跳过它。
+ * ## 为什么指纹没变也照样解析引用（而不是提前返回）
+ *
+ * 正文**本来就要读进来算哈希**（Markdown 走 sha256，附件走 stat 指纹），所以跳过的从来不是
+ * I/O，只是「写库」这一步。而引用集合是**全量索引里第二遍**（被引用附件的文本提取）的输入，
+ * 它必须是**完整**的 —— 少一个 Markdown 的引用，就意味着某个附件会被当成「没人引用」，
+ * 而那一遍对「没人引用」的处理是 `store.setExtraction(path, { status: 'none', text: '' })`，
+ * 也就是**删掉它的正文**。
+ *
+ * 于是「指纹没变就提前返回」会踩出一条不可逆的路径：磁盘一个字没动、用户点一次「重建索引」，
+ * 引用集合为空 ⇒ 每个附件都「没人引用」⇒ 已提取的正文全部被清掉，而且同一轮里不会再提回来
+ * （`extractionStatus` 已经被写成 `'none'`，但那一遍已经处理过它了）。
+ * 2026-10-05 实测复现：一个没被碰过的 DOCX 在重建后从 `extracted` 掉成 `none`。
+ *
+ * 成本上这笔账是划算的：多出来的是两趟 `matchAll` 正则扫描（`attachmentReferences`），
+ * 而同一份正文刚刚才被 sha256 扫过一遍、也是刚从磁盘读上来的。
+ * 判据：**「跳过」只能跳过写库，不能跳过解析** —— 需要这个文件参与的任何派生结论都得算出来。
  *
  * 附件**不读内容**：它不进全文检索，正文从不参与查询，而给一个 200MB 的 PDF 每次
  * 全量索引都读一遍算哈希是纯粹白付的 IO。指纹改用 stat，代价与理由见
@@ -197,14 +227,16 @@ export async function prepareIndexEntry(
   service: FileService,
   file: IndexableFileFacts,
   existingHash: string | undefined
-): Promise<PreparedIndexEntry | null> {
+): Promise<PreparedIndexEntry> {
   const content = file.type === 'markdown' ? await service.readFile(file.path) : null;
   const contentHash =
     content !== null
       ? createHash('sha256').update(content, 'utf8').digest('hex')
       : attachmentContentFingerprint(file.sizeBytes, file.modifiedAtMs);
 
-  if (existingHash !== undefined && existingHash === contentHash) return null;
+  // **这里没有提前返回。** 指纹没变只是「不必写库」，而引用集合是第二遍的输入、
+  // 必须完整 —— 提前返回正是「重建索引清空附件正文」那个缺陷的成因，见函数头注释。
+  const unchanged = existingHash !== undefined && existingHash === contentHash;
 
   const referencedPaths: string[] = [];
   const referencedWikilinkTargets: string[] = [];
@@ -229,7 +261,8 @@ export async function prepareIndexEntry(
       tags: content !== null ? extractDocumentTags(content) : []
     },
     referencedPaths,
-    referencedWikilinkTargets
+    referencedWikilinkTargets,
+    unchanged
   };
 }
 
@@ -269,8 +302,10 @@ export async function indexSingleFile(options: IndexSingleFileOptions): Promise<
     store.getDocumentByPath(file.path)?.contentHash
   );
 
-  // 内容没变就什么都不做 —— 与全量那条的跳过判据是同一条。
-  if (prepared === null) return;
+  // 内容没变就什么都不做 —— 与全量那条的跳过判据是同一条（`prepareIndexEntry` 的 `unchanged`）。
+  // 这条路**不消费**引用集合（见函数头注释：它不做被引用附件的文本提取），所以丢掉的
+  // `referencedPaths` 在这里没有后果；判据仍然同源，两条路不会各算各的。
+  if (prepared.unchanged) return;
 
   store.upsertDocument(prepared.input, nowMs);
 }
@@ -295,6 +330,15 @@ export async function indexSingleFile(options: IndexSingleFileOptions): Promise<
  *
  * 不需要再存一个「提取时的指纹」—— 那会是同一件事的第二处记录，两者不同步时
  * 表现是「文件改了但索引里的文本还是旧的」，极难察觉。
+ *
+ * ## 前提：`references` 必须是**完整**的引用集合
+ *
+ * 这一遍把「不在集合里」读成「没人引用」，而那个分支的动作是**删掉它的正文**
+ * （`setExtraction(..., { status: 'none', text: '' })`）。所以集合缺一个文件，
+ * 就有一个还被引用着的附件被误删 —— 不可逆，而且用户只会看到「搜索里少了几篇的正文」。
+ *
+ * 调用方（`indexWorkspace`）因此对**指纹没变**的文件也照样解析引用，只跳过写库；
+ * 见 `prepareIndexEntry` 的头注释。
  */
 async function extractReferencedAttachments(options: {
   service: FileService;
