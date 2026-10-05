@@ -1,0 +1,122 @@
+{
+  "0.64.0": {
+    "date": "2026-10-02",
+    "changes": [
+      {
+        "type": "feat",
+        "zh": "首个公开发布版本：单文件 Markdown 编辑器，加工作区知识库（索引、双链、标签、图谱、版本历史）。",
+        "en": "First public release: the single-file Markdown editor plus the workspace knowledge base (index, backlinks, tags, graph, version history)."
+      }
+    ]
+  },
+  "0.68.0": {
+    "date": "2026-10-03",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "新增 PDF 阅读器：连续 / 单页翻页、缩放与缩略图大纲。",
+        "en": "Add a PDF reader with continuous and single-page layouts, zoom, and an outline."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "新增图片查看器，以及「在工作区中打开」。",
+        "en": "Add an image viewer and open-in-workspace."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "裸启动直接进入工作区模式，不再先落在轻量模式。",
+        "en": "Open workspace mode on a bare launch instead of landing in lightweight mode."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "文件树图标按类型区分，并修好新建文件后的选中落点。",
+        "en": "Split tree icons by file type and fix the selection after creating a file."
+      },
+      {
+        "type": "fix",
+        "scope": "desktop",
+        "zh": "更新判定改用 isUpdateAvailable，不再拿版本号比字符串 —— 本地领先于远端时不再误报有新版本。",
+        "en": "Judge updates by isUpdateAvailable rather than comparing version strings, so a local build ahead of the release no longer reports a phantom update."
+      }
+    ]
+  },
+  "0.70.0": {
+    "date": "2026-10-04",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "新增编辑器工具栏与格式动作。",
+        "en": "Add the editor toolbar and its format actions."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "标签页栏常驻显示，编辑器工具栏移到它下方。",
+        "en": "Always show the tab bar and move the editor toolbar below it."
+      },
+      {
+        "type": "fix",
+        "scope": "desktop",
+        "zh": "每个标签页各自记住滚动位置，切换回来不再跳回顶部。",
+        "en": "Keep a separate scroll position per tab instead of jumping back to the top."
+      }
+    ]
+  },
+  "0.73.0": {
+    "date": "2026-10-05",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "新增用户主题目录：自定义主题以文件形式存在 `~/.nexus/themes/`，可以直接编辑、备份、分享。",
+        "en": "Add the user theme directory: custom themes live as files under `~/.nexus/themes/`, so they can be edited, backed up and shared directly."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "设置页新增内置能力启停开关。",
+        "en": "Add built-in capability toggles in settings."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "插件面板显示提取失败、来源与停用状态。",
+        "en": "Show extraction failures, sources and disabled state in the plugins panel."
+      },
+      {
+        "type": "fix",
+        "scope": "desktop",
+        "zh": "修好「重建索引」在磁盘内容没变化时清空附件正文的问题。",
+        "en": "Stop rebuilding the index from clearing attachment text when nothing changed on disk."
+      }
+    ]
+  },
+  "0.74.0": {
+    "date": "2026-10-05",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "新增更新中心：启动时自动检查更新，在独立窗口里看更新日志与下载进度，可以跳过某一版或稍后再提醒。",
+        "en": "Add the update center: check for updates on launch, then read what changed and follow the download in its own window, with skip and remind-me-later."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "更新日志支持中英双语，远端、随包与 GitHub 发布说明三层回落。",
+        "en": "Serve the changelog in Chinese and English, falling back across the remote copy, the bundled copy and the GitHub release notes."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "设置页新增「关于」分组，版本号与更新入口从「通用」迁出。",
+        "en": "Add an About group in settings and move the version and the update entry point out of General."
+      }
+    ]
+  }
+}

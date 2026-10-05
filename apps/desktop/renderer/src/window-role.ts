@@ -25,7 +25,8 @@ const ROLE_PARAM = 'window';
  */
 const ROLE_BY_VALUE: Record<string, WindowRole> = {
   settings: 'settings',
-  theme: 'theme'
+  theme: 'theme',
+  update: 'update'
 };
 
 export function readWindowRole(search: string): WindowRole {

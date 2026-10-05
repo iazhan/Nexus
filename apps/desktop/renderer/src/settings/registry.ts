@@ -23,6 +23,7 @@ import {
 import { HISTORY_RETENTION_OPTIONS, HISTORY_RETENTION_UNLIMITED } from '@nexus/core';
 import type React from 'react';
 import {
+  AboutIcon,
   AppearanceIcon,
   DataIcon,
   EditorIcon,
@@ -73,7 +74,8 @@ export type SectionId =
   | 'keybindings'
   | 'plugins'
   | 'sync'
-  | 'data';
+  | 'data'
+  | 'about';
 
 export interface SectionDef {
   id: SectionId;
@@ -89,7 +91,7 @@ export interface SectionDef {
 }
 
 /**
- * 九个分组，**数组顺序即左栏顺序**。
+ * 十个分组，**数组顺序即左栏顺序**。
  *
  * `files` 是后加的第八组：它管「文件落在哪、链接怎么写」，与 `editor` 同属「文档本身」，
  * 所以排在 `editor` 之后、`appearance` 这类界面项之前。
@@ -97,6 +99,10 @@ export interface SectionDef {
  * `viewer` 是第九组，插在 `editor` 之后：它管的是**只读打开一份文档时怎么读**（PDF 翻页
  * 方式这一项），与 `editor` 同属「读文档」，但一个改内容、一个不改 —— 分开放才不会让
  * 「编辑器」这个标题把只读的行为也罩进去。
+ *
+ * `about` 排在**最后**：它里面全是「你装的是什么、有没有新的」，没有一项是用户能调的。
+ * 放到 `general` 里（曾经如此）会让「我可以改什么」和「它现在是什么样」混在一栏 ——
+ * 用户找版本号得先猜它在通用里。
  *
  * `availability` 落在数据上而不是组件里的分支 —— 未实现的分组**可点、可进入**，内容区给空态。
  * 把它们从数组里删掉（每加一组都要改导航结构）或禁用（「点了没反应」）都更糟。
@@ -185,6 +191,14 @@ export const SECTIONS: readonly SectionDef[] = [
     order: 9,
     availability: 'available',
     keywords: ['索引', '历史', '版本', '快照', '诊断', 'index', 'history', 'snapshot', 'diagnostics']
+  },
+  {
+    id: 'about',
+    titleKey: 'settings.section.about',
+    icon: AboutIcon,
+    order: 10,
+    availability: 'available',
+    keywords: ['关于', '版本', '更新', '升级', '仓库', 'about', 'version', 'update', 'upgrade', 'repo']
   }
 ];
 
@@ -771,31 +785,31 @@ export const RESTORE_LAST_WORKSPACE_FIELD: FieldDef = {
 
 /**
  * 当前版本 + 检查更新。**只读值 + 一个动作**，两半说的是同一件事：「你装的是什么、
- * 有没有更新的」。排在 `general` 组最后：前面几项都是「你可以改什么」，这一项是
- * 「你现在装的是什么」。
+ * 有没有更新的」。它住在 `about` 组，而**不是 `general`**：通用那一栏里其余每一项都是
+ * 「你可以改什么」，只有这一项是「你现在装的是什么」—— 混在一起时，用户找版本号得先猜。
  *
  * 版本号走主进程的 `app.getVersion()` 而不是渲染进程自己拼：渲染包里没有 `package.json`，
  * 那是唯一能拿到真实版本号的地方，也因此不会出现「界面显示的版本与安装包不一致」。
  *
- * `probe` 挡的是**未打包的构建**（`electron-vite dev`）：那种包里没有 `app-update.yml`，
- * 更新通道根本不存在。按钮禁用 + 一行原因，比「点得动、点了说无法检查」好。
+ * **没有 `descriptionKey`**：这一项由 `AboutSection` 亲自画（版本号是那一页的主角），
+ * 而「这一刻正在运行的版本」这句描述挂在它下面，读起来就是一个普通的设置行。
+ * 同一条理由也解释了为什么它有 `keywords` 却没有 `menu` —— 搜索要能找到，菜单装不下。
  *
- * 检查结果的详细反馈（发现新版本 / 已是最新 / 出错）由**主进程弹窗**给出，不在这里 ——
- * 「有没有新版本」是带数据的结果，而这个控件的回执行只有「已完成 / 失败」两档。
+ * **这一行只负责开门**：检查、日志、进度、跳过与稍后都在更新窗口里，这里放不下，
+ * 也不该放 —— 「有没有新版本」是带数据的结果，而这个控件的回执行只有「已完成 / 失败」两档。
+ * 于是它也**没有 `probe`**：未打包的构建照样打得开，窗口自己会说明没有更新通道，
+ * 而更新日志仍看得到（它不依赖更新通道）。禁用按钮等于把「看改了什么」一起关掉了。
  */
 export const APP_VERSION_FIELD: FieldDef = {
-  id: 'general.version',
-  section: 'general',
-  labelKey: 'settings.general.version',
-  descriptionKey: 'settings.general.versionDescription',
+  id: 'about.version',
+  section: 'about',
+  labelKey: 'settings.about.version',
   keywords: ['版本号', '关于', '更新', '升级', '检查更新', 'version', 'about', 'build', 'update', 'upgrade'],
   control: 'action',
-  actionLabelKey: 'settings.general.checkUpdateAction',
-  probe: async () =>
-    (await window.nexus?.canCheckUpdates()) ? null : 'settings.general.updateUnavailable',
+  actionLabelKey: 'settings.about.openUpdateAction',
   readonlyValue: async () => (await window.nexus?.getAppVersion()) ?? null,
   run: async () => {
-    await window.nexus?.checkForUpdates();
+    await window.nexus?.openUpdateWindow?.();
   },
   menu: false
 };
@@ -1568,7 +1582,6 @@ export const FIELDS: readonly FieldDef[] = [
   AUTO_SAVE_DELAY_FIELD,
   EXTERNAL_CHANGE_FIELD,
   RESTORE_LAST_WORKSPACE_FIELD,
-  APP_VERSION_FIELD,
   FONT_FAMILY_FIELD,
   FONT_SIZE_FIELD,
   LINE_HEIGHT_FIELD,
@@ -1597,7 +1610,8 @@ export const FIELDS: readonly FieldDef[] = [
   HISTORY_RETENTION_FIELD,
   OPEN_HISTORY_DIR_FIELD,
   OPEN_INDEX_DIR_FIELD,
-  DIAGNOSTICS_FIELD
+  DIAGNOSTICS_FIELD,
+  APP_VERSION_FIELD
 ];
 
 export function fieldsOfSection(section: SectionId): readonly FieldDef[] {

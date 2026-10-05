@@ -18,6 +18,7 @@ import type {
 } from '@nexus/core';
 import type { UserTheme } from '@nexus/theme';
 import type {
+  ChangelogResult,
   CreateDirectoryRequest,
   CreateFileRequest,
   DeleteMode,
@@ -28,6 +29,7 @@ import type {
   SaveAttachmentRequest,
   ThemeBootPayload,
   ThemeSyncResult,
+  UpdateState,
   WindowState
 } from '../ipc/channels.js';
 
@@ -241,12 +243,42 @@ export interface NexusBridge {
    */
   canCheckUpdates: () => Promise<boolean>;
   /**
-   * 手动检查更新。
+   * 手动检查更新，返回检查之后的状态快照。
    *
-   * **没有返回值**：检查结果（发现新版本 / 已是最新 / 失败）由主进程弹窗直接告诉用户，
-   * 渲染进程这边没有可显示的位置 —— 多一个结果类型只会多出一份「谁来显示」的重复判断。
+   * 自动检查（启动后那次）没有调用方，它的结果靠 `onUpdateStateChanged` 广播；
+   * 手动检查是「用户点了」，得立刻把结果交回去 —— 所以这里**有**返回值。
    */
-  checkForUpdates: () => Promise<void>;
+  checkForUpdates: () => Promise<UpdateState>;
+  /**
+   * 当前更新状态。窗口打开时先取一次，之后靠 `onUpdateStateChanged` 跟进。
+   *
+   * 与订阅并存而不是只订阅：广播是**增量**的，而窗口可能在广播之后才打开 ——
+   * 只订阅会让新开的窗口停在「尚未检查」，直到下一次状态变化。
+   */
+  getUpdateState: () => Promise<UpdateState>;
+  onUpdateStateChanged: (callback: (state: UpdateState) => void) => Unsubscribe;
+  /** 打开更新窗口。**单例**，与设置/主题窗口同形。 */
+  openUpdateWindow: () => Promise<void>;
+  /**
+   * 跳过某个版本：不再为它自动提示。返回新状态（`skipped` 已更新）。
+   *
+   * 传**版本号**而不是「当前最新」—— 主进程据此落盘，避免「跳过了但记的是另一个版本」。
+   */
+  skipUpdateVersion: (version: string) => Promise<UpdateState>;
+  /** 稍后提醒。有期限（`UPDATE_REMIND_INTERVAL_MS`），到期恢复自动提示。 */
+  remindUpdateLater: () => Promise<UpdateState>;
+  /**
+   * 立即重启并安装。**有未保存文档时返回 `false`** —— 不硬来。
+   *
+   * 返回布尔而不是抛：调用方要据此决定提示哪一句话，而「有未保存文档」是正常路径不是异常。
+   */
+  installUpdateNow: () => Promise<boolean>;
+  /**
+   * 更新日志（双语），按版本降序。
+   *
+   * `null` = 一条都没拿到（三层回落全失败），与空数组不同 —— 见 `ChangelogResult`。
+   */
+  getChangelog: () => Promise<ChangelogResult>;
   /**
    * 诊断信息：版本、平台、运行时版本、工作区与索引库的文件系统事实。
    *

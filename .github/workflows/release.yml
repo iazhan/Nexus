@@ -97,6 +97,19 @@ jobs:
           fi
           echo "版本 ${pkg} 与 tag 一致"
 
+      # 双语更新日志要有人补。**只警告，不失败** —— 这条流水线的职责是「把已提交的代码打成包」，
+      # 卡在一个文案上比少一条中文日志更糟。缺了它会回落到 GitHub 发布说明（英文），
+      # 用户在更新窗口里看到的来源标签会写明这一点。
+      - name: 检查双语更新日志是否已补
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if node -e "process.exit(require('./changelog.json')['${version}'] ? 0 : 1)" 2>/dev/null; then
+            echo "changelog.json 已包含 ${version}"
+          else
+            echo "::warning::changelog.json 里没有 ${version} —— 更新窗口会回落到 GitHub 发布说明（只有英文）。补一条中英对照更好。"
+          fi
+
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 

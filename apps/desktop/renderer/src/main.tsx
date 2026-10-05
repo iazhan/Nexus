@@ -1,6 +1,6 @@
 /**
- * 三个窗口共用的入口 —— 字体在这里 import 一次就覆盖全部角色（`ROOT_BY_ROLE` 是唯一的渲染分叉，
- * 放进任一角色的样式里，另外两个窗口就没有打包字体）。
+ * 四个窗口共用的入口 —— 字体在这里 import 一次就覆盖全部角色（`ROOT_BY_ROLE` 是唯一的渲染分叉，
+ * 放进任一角色的样式里，另外三个窗口就没有打包字体）。
  *
  * 两个包提供 `Inter Variable` / `JetBrains Mono Variable` 两个家族名，由 `App.css` 的 `:root` 引用。
  * **两者都不含中文字形**，中文靠那两条栈里的显式候选。
@@ -11,6 +11,7 @@ import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SettingsWindow } from './settings/SettingsWindow';
 import { ThemeWindow } from './settings/ThemeWindow';
+import { UpdateWindow } from './update/UpdateWindow';
 import { readWindowRole, type WindowRole } from './window-role';
 import { startHostSettingsSync } from './host-settings';
 import '@fontsource-variable/inter';
@@ -32,7 +33,7 @@ if (!rootElement) {
 }
 
 /**
- * 三个窗口跑同一份产物，只有这里分叉。角色来自 URL 查询串，**同步可读** ——
+ * 四个窗口跑同一份产物，只有这里分叉。角色来自 URL 查询串，**同步可读** ——
  * 等一次 IPC 再决定渲染什么，用户会先看到主界面闪一下（见 `window-role.ts`）。
  */
 const role = readWindowRole(window.location.search);
@@ -40,14 +41,16 @@ const role = readWindowRole(window.location.search);
 const ROOT_BY_ROLE: Record<WindowRole, React.ReactNode> = {
   main: <App />,
   settings: <SettingsWindow />,
-  theme: <ThemeWindow />
+  theme: <ThemeWindow />,
+  update: <UpdateWindow />
 };
 
 /** 白屏兜底卡片上的标题也得按角色换 —— 主题窗口白屏却报「Nexus failed to render」会让人找错地方。 */
 const TITLE_KEY_BY_ROLE: Record<WindowRole, string> = {
   main: 'error.appTitle',
   settings: 'error.settingsTitle',
-  theme: 'error.themeTitle'
+  theme: 'error.themeTitle',
+  update: 'error.updateTitle'
 };
 
 ReactDOM.createRoot(rootElement).render(

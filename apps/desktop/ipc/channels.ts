@@ -115,10 +115,49 @@ export const IPC_CHANNELS = {
    */
   canCheckUpdates: 'nexus:can-check-updates',
   /**
-   * 手动检查更新。**反馈（有新版本 / 已是最新 / 出错）由主进程弹窗承担**，
-   * 这条通道只负责「触发」—— 返回值里没有结果，因为没有第二个消费者。
+   * 手动检查更新。返回**检查之后的状态快照** —— 更新窗口靠它刷新界面。
+   *
+   * 与「弹窗反馈」并存而不是取代：自动检查（启动后那次）没有调用方，它的结果只能靠
+   * `updateStateChanged` 广播 + 主窗口的提示条表达；手动检查则是「用户点了，
+   * 得立刻告诉他结果」。
    */
   checkForUpdates: 'nexus:check-for-updates',
+  /**
+   * 当前更新状态。**主进程持有**（自动检查由它发起，它也是唯一能读 `app.isPackaged` 的一侧），
+   * 渲染进程只读。
+   */
+  getUpdateState: 'nexus:get-update-state',
+  /** 状态变化广播：检查中 / 有新版 / 下载进度 / 下载完成 / 出错。 */
+  updateStateChanged: 'nexus:update-state-changed',
+  /**
+   * 打开更新窗口（单例）。
+   *
+   * 与设置/主题窗口同形：角色靠 `?window=update` 查询串区分，这条通道只负责开窗。
+   * 入口有两处 —— 主窗口的更新提示条，以及设置页的版本行。
+   */
+  openUpdateWindow: 'nexus:open-update-window',
+  /**
+   * 跳过某个版本：**不再为它自动提示**。
+   *
+   * 与「稍后提醒」是两件事：跳过是**针对版本**的、跨会话的、由用户显式表达「这一版我不要」；
+   * 稍后是**针对时间**的、有期限的。合成一个「不再提示」会让「我就这次不想看」变成永久关闭。
+   */
+  skipUpdateVersion: 'nexus:skip-update-version',
+  /** 稍后提醒。有期限（见 `UPDATE_REMIND_INTERVAL_MS`），到期后恢复自动提示。 */
+  remindUpdateLater: 'nexus:remind-update-later',
+  /**
+   * 立即重启并安装已下载的更新。
+   *
+   * **有未保存文档时会拒绝**（返回 `false`）—— `quitAndInstall()` 会撞上主窗口的关闭拦截，
+   * 硬来等于把用户的改动丢掉。拒绝之后界面要提示「先保存再退出」。
+   */
+  installUpdateNow: 'nexus:install-update-now',
+  /**
+   * 更新日志。**主进程拉**：渲染进程的 CSP `connect-src` 没有 `https:`，发不出外部请求。
+   *
+   * 三层回落（内置文件 → 远端文件 → GitHub Releases notes），见 `electron/changelog.ts`。
+   */
+  getChangelog: 'nexus:get-changelog',
   /**
    * 诊断信息：版本、平台、运行时版本、工作区与索引库的文件系统事实。
    *
@@ -205,7 +244,7 @@ export const IPC_CHANNELS = {
  * 是**同一份**联合类型，两边各写一遍的话，加一个角色时漏改一边不会有任何东西报错 ——
  * 主进程照常按新角色加载，渲染进程把它当主窗口渲染。
  */
-export type WindowRole = 'main' | 'settings' | 'theme';
+export type WindowRole = 'main' | 'settings' | 'theme' | 'update';
 
 /**
  * 设置窗口「落在哪个分组」的查询串参数，与 `window` 参数走同一条路。
@@ -557,4 +596,151 @@ export interface ThemeSyncResult {
   written: number;
   removed: number;
   failed: string[];
+}
+
+/**
+ * 更新通道当前处于哪一阶段。
+ *
+ * **`unsupported` 与 `idle` 是两件事**：前者是「这个构建根本没有更新通道」（未打包，
+ * `updatesSupported()` 为假），后者是「有通道，但还没检查过」。混成一个会让未打包的界面
+ * 显示「尚未检查」，用户一直等一个不会发生的事。
+ *
+ * `available` 与 `downloading` 也是两件事：`autoDownload = true` 时两者之间只隔一个事件往返，
+ * 但**界面要能表达「有新版本」这个事实本身** —— 下载失败时用户至少知道有东西可下，
+ * 而不是界面整个退回「已是最新」。
+ */
+export type UpdatePhase =
+  | 'unsupported'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error';
+
+/**
+ * 更新状态快照。**主进程是唯一持有者**，渲染进程拿到的每一份都是拷贝。
+ *
+ * 字段全是基本类型（没有函数、没有 Date）：它要过 IPC，也要进 `updateStateChanged` 广播，
+ * 结构化克隆之后仍然相等 —— 渲染进程可以直接浅比较判断要不要重绘。
+ */
+export interface UpdateState {
+  phase: UpdatePhase;
+  /** 正在运行的版本。**主进程答**（`app.getVersion()`），渲染进程没有这个值。 */
+  current: string;
+  /**
+   * 远端最新版本。`idle` / `checking` / `error` 时为 `null`。
+   *
+   * **`up-to-date` 时它是「远端那个」，可能比 `current` 低** —— 开发机常态。
+   * 所以判「有没有新版」要认 `phase`，不要拿这两个字段比大小。
+   */
+  latest: string | null;
+  /** 被跳过的版本。等于 `latest` 时不再自动提示（但仍可手动打开更新窗口）。 */
+  skipped: string | null;
+  /**
+   * 「稍后提醒」的截止时刻（epoch 毫秒）。`null` ＝ 没有稍后。
+   *
+   * **给的是时刻不是布尔**：界面拿它现算「还在稍后期内吗」，到期自动失效，
+   * 不需要任何一方在到期时改一个标记。
+   */
+  remindAfter: number | null;
+  /** 下载进度 0–1。不在 `downloading` 时为 `null`。 */
+  progress: number | null;
+  /** 下载速度（字节/秒）。主进程拿不到时为 `null`。 */
+  bytesPerSecond: number | null;
+  /** 已接收字节数。不在 `downloading` 时为 `null`。 */
+  transferred: number | null;
+  /** 总字节数。主进程没报时为 `null`。 */
+  total: number | null;
+  /** 出错原因（主进程侧的原文）。界面按它给一句人话，不直接展示。 */
+  error: string | null;
+}
+
+/** 「稍后提醒」的期限：这段时间内不再自动提示，到期恢复。 */
+export const UPDATE_REMIND_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function numericParts(version: string): number[] {
+  const core = version.split(/[-+]/, 1)[0] ?? version;
+  return core.split('.').map((part) => {
+    const parsed = Number.parseInt(part, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+}
+
+/**
+ * 版本号比较（`x.y.z` 三段；prerelease 尾巴忽略 —— `0.74.0-beta.1` 与 `0.74.0` 同段）。
+ *
+ * **放在这里而不是两侧各写一份**：主进程用它给更新日志排序，渲染进程用它筛「比当前版本新的那些」，
+ * 两处口径必须一致 —— 一份把 prerelease 排前面、另一份排后面的话，界面会漏掉或重复某些版本。
+ * 而 `channels.ts` 正是两侧共享的中性层（`DELETE_MODES` 那份校验常量也在这里）。
+ *
+ * **认不出的版本号不抛**：缺的段补 0，非数字补 0。输入来自网络与他人手写的 JSON。
+ */
+export function compareVersions(a: string, b: string): number {
+  const left = numericParts(a);
+  const right = numericParts(b);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (left[index] ?? 0) - (right[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * 一条更新日志条目。
+ *
+ * `zh` / `en` **至少有一个非空**（解析器保证）；界面按当前语言挑，缺的那个回落到另一个。
+ * 于是「中文还没补」的版本在英文界面下照常可读，反之亦然 —— 双语日志是**渐进补全**的，
+ * 不是「要么都有、要么都没有」。
+ */
+export interface ChangelogEntry {
+  /** 提交类型（`feat` / `fix` / …）。解析不出是 `null`。 */
+  type: string | null;
+  /** 改动范围（`desktop` / `editor` / …）。解析不出是 `null`。 */
+  scope: string | null;
+  zh: string | null;
+  en: string | null;
+}
+
+/** 一个版本的更新日志。 */
+export interface ChangelogRelease {
+  /** `0.74.0` —— 不带前导 `v`，比较与显示都用它。 */
+  version: string;
+  /** `YYYY-MM-DD`。缺失时为 `null`。 */
+  date: string | null;
+  entries: ChangelogEntry[];
+  /**
+   * 这一条是从哪来的。**界面要如实区分** —— 从 GitHub 提交信息回落的那些是英文的，
+   * 而且早期版本可能一条都没有（那时流水线还没生成 notes）。
+   */
+  source: 'bundled' | 'remote' | 'github';
+}
+
+/**
+ * 更新日志查询结果。
+ *
+ * `null` = **一条都没拿到**（三层回落全失败）。与空数组是两件事：空数组是「拿到了，
+ * 但没有比当前版本更新的条目」，界面文案不同（前者「无法获取」，后者「已是最新」）。
+ */
+export type ChangelogResult = ChangelogRelease[] | null;
+
+/**
+ * 仓库里那份双语更新日志的形状（`changelog.json`）。
+ *
+ * **版本为键**：查一个版本的日志是 `record[version]`，不用遍历数组 —— 而它最常被用来答的
+ * 就是「这一个版本改了什么」。
+ */
+export interface ChangelogFile {
+  /** 版本号 → 条目。`changes` 与 `ChangelogEntry` 同形，但两个语言字段都可缺。 */
+  [version: string]: {
+    date?: string;
+    changes?: {
+      type?: string;
+      scope?: string;
+      zh?: string;
+      en?: string;
+    }[];
+  };
 }

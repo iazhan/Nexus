@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BUILT_IN_PRESETS, BUILT_IN_SCHEMES, DEFAULT_THEME_CHOICE } from '@nexus/theme';
 import { formatShortcut } from '@nexus/command';
 import { translate } from '@nexus/i18n';
-import type { DiagnosticsReport } from '../../ipc/channels.js';
+import type { DiagnosticsReport, UpdateState } from '../../ipc/channels.js';
 import { SettingsView } from '../src/settings/SettingsView.js';
 import { REMAPPABLE_ACTIONS, resolveShortcut } from '../src/keybindings.js';
 import {
@@ -115,7 +115,7 @@ describe('设置视图 · 左栏', () => {
     container.remove();
   });
 
-  it('九组全显示，一组标 planned、其余可用', () => {
+  it('十组全显示，一组标 planned、其余可用', () => {
     renderSettings();
 
     expect(navItems()).toHaveLength(SECTIONS.length);
@@ -132,7 +132,8 @@ describe('设置视图 · 左栏', () => {
       'appearance',
       'keybindings',
       'plugins',
-      'data'
+      'data',
+      'about'
     ]);
   });
 
@@ -1465,13 +1466,16 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改 / 启动恢
   });
 
   /**
-   * 当前版本。**没有可改的东西** —— 它是 `control: 'readonly'`，只画一行文本。
+   * 关于分组。这一组**从「通用」里分出来** —— 通用那一栏其余每一项都是「你可以改什么」，
+   * 只有版本号与更新是「你现在装的是什么」。
    *
-   * 两条判据都要有：画出来的必须是**桥给的那一串**（渲染进程自己拼一个 `0.43.0` 也是「看起来对」），
-   * 以及**取不到时不画**（主进程还没接上这条通道、或某个窗口没透出它时，
+   * 版本那两条判据都要有：画出来的必须是**桥给的那一串**（渲染进程自己拼一个 `0.43.0`
+   * 也是「看起来对」），以及**取不到时不画**（主进程还没接上这条通道、或某个窗口没透出它时，
    * 不能留一个空行或一个假版本号）。
+   *
+   * 身份卡与状态行另有一组用例，见下面的 `设置视图 · 关于`。
    */
-  describe('当前版本', () => {
+  describe('关于分组 · 版本行', () => {
     const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
 
     async function settle(): Promise<void> {
@@ -1489,43 +1493,198 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改 / 启动恢
       (window as unknown as { nexus: unknown }).nexus = {
         getAppVersion: () => Promise.resolve('9.9.9-probe')
       };
-      renderSettings('general');
+      renderSettings('about');
       await settle();
 
       expect(
-        container.querySelector('[data-field-readonly="general.version"]')?.textContent
+        container.querySelector('[data-field-readonly="about.version"]')?.textContent
       ).toBe('9.9.9-probe');
     });
 
+    /**
+     * 值是**行内**文本（`<span>`），不是 `FieldRow` 画的那个块级 `<p>` —— 这一页自绘身份卡，
+     * 版本号与它的标签同一行。钉住标签名是为了挡住「有人又把它接回通用字段行」。
+     */
     it('只读值是文本，不是控件', async () => {
       (window as unknown as { nexus: unknown }).nexus = {
         getAppVersion: () => Promise.resolve('1.2.3')
       };
-      renderSettings('general');
+      renderSettings('about');
       await settle();
 
-      expect(container.querySelector('[data-field-input="general.version"]')).toBeNull();
-      expect(container.querySelector('[data-field-readonly="general.version"]')?.tagName).toBe('P');
+      expect(container.querySelector('[data-field-input="about.version"]')).toBeNull();
+      expect(container.querySelector('[data-field-readonly="about.version"]')?.tagName).toBe('SPAN');
     });
 
     it('取不到版本时不画那一行（而不是画个空的）', async () => {
       (window as unknown as { nexus: unknown }).nexus = {};
-      renderSettings('general');
+      renderSettings('about');
       await settle();
 
-      expect(container.querySelector('[data-field="general.version"]')).not.toBeNull();
-      expect(container.querySelector('[data-field-readonly="general.version"]')).toBeNull();
+      expect(container.querySelector('[data-field="about.version"]')).not.toBeNull();
+      expect(container.querySelector('[data-field-readonly="about.version"]')).toBeNull();
     });
 
     it('不给重置键 —— 没有可重置的值', async () => {
       (window as unknown as { nexus: unknown }).nexus = {
         getAppVersion: () => Promise.resolve('1.2.3')
       };
-      renderSettings('general');
+      renderSettings('about');
       await settle();
 
-      expect(container.querySelector('[data-field-reset="general.version"]')).toBeNull();
+      expect(container.querySelector('[data-field-reset="about.version"]')).toBeNull();
     });
+  });
+});
+
+/**
+ * 「关于」分组：身份卡 + 实时更新状态 + 项目链接。
+ *
+ * 四条判据：
+ *
+ * 1. **状态行会跟着主进程的广播走** —— 它是这一页唯一会变的东西，写死就等于没接上。
+ * 2. **色调跟着阶段走**（`data-tone`）—— 「已是最新」与「有新版本」用的是两个颜色，
+ *    只断言文字的话，两态画成同一个颜色也能过。
+ * 3. **链接走 `openExternal`** —— 渲染进程里放 `<a href>` 会把整个设置窗口导航走，
+ *    而这个窗口没有地址栏，用户回不来。
+ * 4. **这一组里没有通用控件** —— 关于页全是只读信息，出现一个输入框就说明有人把
+ *    设置项又塞回来了。
+ */
+describe('设置视图 · 关于', () => {
+  const originalBridge = (window as unknown as { nexus?: unknown }).nexus;
+  let calls: { name: string; args: unknown[] }[];
+  let pushState: ((state: UpdateState) => void) | null;
+  let snapshot: UpdateState | null;
+
+  function state(overrides: Partial<UpdateState> = {}): UpdateState {
+    return {
+      phase: 'idle',
+      current: '0.73.0',
+      latest: null,
+      skipped: null,
+      remindAfter: null,
+      progress: null,
+      bytesPerSecond: null,
+      transferred: null,
+      total: null,
+      error: null,
+      ...overrides
+    };
+  }
+
+  async function settle(): Promise<void> {
+    await act(async () => {
+      for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
+    });
+  }
+
+  /**
+   * 换一份快照必须**真的重挂**：同一个 `root` 上二次 `render` 不重跑 effect（依赖数组是空的），
+   * 钩子还停在上一份状态，新给的那份根本读不到。在更新界面的组件用例里踩过一次（判据 71）。
+   */
+  async function remountSettings(section: SectionId = 'about'): Promise<void> {
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    renderSettings(section);
+    await settle();
+  }
+
+  beforeEach(() => {
+    calls = [];
+    pushState = null;
+    snapshot = state();
+    (window as unknown as { nexus: unknown }).nexus = {
+      getAppVersion: () => Promise.resolve('0.73.0'),
+      getUpdateState: () => Promise.resolve(snapshot),
+      onUpdateStateChanged: (callback: (next: UpdateState) => void) => {
+        pushState = callback;
+        return () => {
+          pushState = null;
+        };
+      },
+      openExternal: (url: string) => {
+        calls.push({ name: 'openExternal', args: [url] });
+        return Promise.resolve(true);
+      }
+    };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    (window as unknown as { nexus?: unknown }).nexus = originalBridge;
+  });
+
+  it('身份卡画出应用名与主进程报的更新状态', async () => {
+    snapshot = state({ phase: 'up-to-date' });
+    renderSettings('about');
+    await settle();
+
+    expect(container.querySelector('.nexus-about-name')?.textContent).toBe('Nexus');
+    expect(container.querySelector('[data-about-status]')?.textContent?.trim()).toBe(
+      translate(localeManager.locale, 'update.upToDate')
+    );
+  });
+
+  it('状态行的色调跟着阶段走 —— 两态画成同一个颜色是看不出来的', async () => {
+    snapshot = state({ phase: 'up-to-date' });
+    await remountSettings();
+    expect(container.querySelector('[data-about-status]')?.getAttribute('data-tone')).toBe(
+      'success'
+    );
+
+    snapshot = state({ phase: 'available', latest: '0.74.0' });
+    await remountSettings();
+    expect(container.querySelector('[data-about-status]')?.getAttribute('data-tone')).toBe('accent');
+  });
+
+  it('主进程推一份新状态，状态行跟着变', async () => {
+    renderSettings('about');
+    await settle();
+
+    await act(async () => {
+      pushState?.(state({ phase: 'available', latest: '0.74.0' }));
+    });
+
+    expect(container.querySelector('[data-about-status]')?.textContent).toContain('0.74.0');
+  });
+
+  it('三个项目链接都走 openExternal，而不是页面内导航', async () => {
+    renderSettings('about');
+    await settle();
+
+    const links = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[data-about-link]')
+    );
+    expect(links.map((link) => link.dataset.aboutLink)).toEqual([
+      'repository',
+      'releases',
+      'issues'
+    ]);
+
+    for (const link of links) {
+      await act(async () => link.click());
+    }
+
+    expect(calls.map((call) => call.name)).toEqual([
+      'openExternal',
+      'openExternal',
+      'openExternal'
+    ]);
+    for (const call of calls) {
+      expect(String(call.args[0])).toContain('github.com/iazhan/Nexus');
+    }
+  });
+
+  it('这一组里没有通用控件 —— 出现一个输入框就说明有人把设置项塞回来了', async () => {
+    renderSettings('about');
+    await settle();
+
+    expect(container.querySelector('[data-field-input]')).toBeNull();
+    expect(container.querySelector('[data-field-reset]')).toBeNull();
   });
 });
 

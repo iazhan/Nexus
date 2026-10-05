@@ -44,6 +44,15 @@ files:
 asarUnpack:
   - '**/*.wasm'
 
+# 双语更新日志随包走 —— 它是「离线也能看改了什么」的那一层兜底（远端那份拉不到时用它）。
+#
+# 放 `extraResources` 而不是 `files`：后者管的是 asar 里的东西，而这份文件由主进程
+# 按 `process.resourcesPath` 直接读，不进 asar 更好定位（与 wasm 同一个理由）。
+# 源文件在**仓库根**，`from` 相对的是本配置所在的 `apps/desktop`。
+extraResources:
+  - from: ../../changelog.json
+    to: changelog.json
+
 # 只留中英文的 Electron 界面资源（默认带几十种语言，几十 MB 里有一半是永远用不到的）。
 electronLanguages:
   - zh-CN

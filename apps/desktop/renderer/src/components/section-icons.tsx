@@ -100,6 +100,15 @@ export const SyncIcon = (
   </svg>
 );
 
+/** 关于：信息圆圈。**不用齿轮**（那是设置本身）、**不用问号**（那读成「帮助」）。 */
+export const AboutIcon = (
+  <svg {...PROPS}>
+    <circle cx="12" cy="12" r="9" />
+    <line x1="12" y1="11.2" x2="12" y2="16.6" />
+    <circle cx="12" cy="7.6" r="0.95" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 /** 数据：数据库圆柱。 */
 export const DataIcon = (
   <svg {...PROPS}>

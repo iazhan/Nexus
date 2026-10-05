@@ -153,6 +153,7 @@ export interface CDPTarget {
 export const MAIN_WINDOW_URL_MARKER = 'window=main';
 export const SETTINGS_WINDOW_URL_MARKER = 'window=settings';
 export const THEME_WINDOW_URL_MARKER = 'window=theme';
+export const UPDATE_WINDOW_URL_MARKER = 'window=update';
 
 /**
  * 测试用的临时目录登记表。
@@ -288,6 +289,18 @@ export const INDEX_WAIT_MS = 60_000;
  * 写成加法而不是字面量，就是为了让这个关系不可能被写反。
  */
 export const INDEXED_TEST_TIMEOUT_MS = INDEX_WAIT_MS + 60_000;
+
+/**
+ * 等一次编辑器事务落地 / 重测量完成的上限（`setSource()` 那条轮询）。
+ *
+ * 原值硬编码 10s，是本仓最老的一条偶发：**至少五次记录**（2026-09-26 / 10-01 / 10-02 /
+ * 10-04 / 10-05），每次都是「全量跑到后半段红一条、该文件单跑绿、且 2 秒左右就过」。
+ * 机制是 CDP 轮询在重负载下被拖慢，与代码无关 —— 单跑时离 10s 有 5 倍余量。
+ *
+ * 30s 而不是 10s：与 `CDP_CONNECT_TIMEOUT_MS` / `WS_CONNECT_TIMEOUT_MS` 同一处理，
+ * 都是「把上限放到负载再重也够」。真正的缺陷（事务没落地）仍然是失败，只是慢 20 秒才报。
+ */
+export const EDITOR_SETTLE_TIMEOUT_MS = 30_000;
 
 export class ElectronAppInstance {
   public readonly proc: ChildProcess;
@@ -817,7 +830,7 @@ export class ElectronAppInstance {
     // 用长度而不是内容比对：这里只需要确认「事务已落地」，内容由断言去管。
     await this.waitForFunction(
       `() => window.nexusActiveView?.state.doc.length === ${source.length}`,
-      10000
+      EDITOR_SETTLE_TIMEOUT_MS
     );
 
     // 再等 CM 重新测量。

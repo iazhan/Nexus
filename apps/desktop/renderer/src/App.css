@@ -5390,3 +5390,480 @@ button.nexus-outline-toggle:hover {
   flex-direction: column;
   gap: 2px;
 }
+
+/* ---- 设置页 · 关于 ---- */
+
+.nexus-about-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  background-color: var(--nexus-bg-surface);
+}
+
+.nexus-about-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--nexus-text-primary);
+}
+
+/* 版本行：标签与值**同行**，行内文本而不是通用字段行。
+   通用字段行（`FieldRow` 的只读值）是带描边的盒子 —— 它表达「这一项你可以改，但先看看当前值」，
+   而这里没有可改的东西，盒子会把它读成一个设置项。等宽字体同只读值那条判据：
+   `0.73.0` 里的 `0` 与 `O` 在比例字体下分不清。 */
+.nexus-about-version {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0 0;
+}
+
+.nexus-about-version-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-about-version-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-about-tagline {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-secondary);
+}
+
+/* 实时更新状态。与更新窗口那张卡片同一套色调判据（`updateStatusTone`）。 */
+.nexus-about-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-about-status::before {
+  content: '';
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--nexus-text-muted);
+}
+
+.nexus-about-status[data-tone='accent']::before {
+  background-color: var(--nexus-accent-indicator);
+}
+
+.nexus-about-status[data-tone='success']::before {
+  background-color: var(--nexus-status-success-text);
+}
+
+.nexus-about-status[data-tone='error']::before {
+  background-color: var(--nexus-status-error-text);
+}
+
+/* 卡片的行动点在右下角 —— 与更新窗口那张状态卡片同一处落点（那里的动作行也是靠右）。
+   靠右而不是靠左：这一页只有一个动作，而它不与上方的任何一行对齐。 */
+.nexus-about-action {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.nexus-about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.nexus-about-link {
+  padding: 4px 10px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--nexus-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nexus-about-link:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+.nexus-about-link:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 2px;
+}
+
+/* ---- 更新提示条（主窗口） ---- */
+
+/* 非模态：主窗口 header 与 body 之间的一行。不遮内容、不抢焦点 —— 用户点了才打开更新窗口。 */
+.nexus-update-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 5px 12px;
+  background-color: var(--nexus-bg-surface);
+  border-bottom: 1px solid var(--nexus-border-subtle);
+  font-size: 12px;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-update-notice-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-update-notice-action {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--nexus-border-control);
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--nexus-accent-text);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nexus-update-notice-action:hover {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+/* ---- 更新窗口 ---- */
+
+/* 两段：状态卡片（固定）+ 更新日志（吃掉剩余高度、自己滚）。
+   `overflow: hidden` 是刻意的 —— 滚动交给日志列表，卡片不该被滚走。 */
+.nexus-update-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 20px 18px;
+  overflow: hidden;
+}
+
+/* 状态卡片：这一页的主块，也是唯一的动作区。
+   动作不另起一行贴底 —— 那样内容少的时候会在日志底部与窗口底部之间留一条空带，
+   主按钮孤零零挂在左下角。 */
+.nexus-update-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  background-color: var(--nexus-bg-surface);
+  /* 状态点的颜色。**只给点用** —— 直接写在卡片上会把里面每一行文字都染上色。 */
+  --update-tone: var(--nexus-text-muted);
+}
+
+.nexus-update-summary[data-tone='accent'] {
+  --update-tone: var(--nexus-accent-indicator);
+}
+
+.nexus-update-summary[data-tone='success'] {
+  --update-tone: var(--nexus-status-success-text);
+}
+
+.nexus-update-summary[data-tone='error'] {
+  --update-tone: var(--nexus-status-error-text);
+}
+
+.nexus-update-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nexus-update-status-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--update-tone);
+}
+
+/* 状态那句话是卡片里最重的一行，其余都是它的注解。 */
+.nexus-update-status {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-update-versions {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.nexus-update-version-label {
+  color: var(--nexus-text-muted);
+}
+
+.nexus-update-version-value {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--nexus-text-primary);
+}
+
+/* 目标版本比当前版本重一档 —— 「更新到哪一版」才是这一行要说的事。 */
+.nexus-update-version-value-latest {
+  font-weight: 600;
+  color: var(--nexus-accent-text);
+}
+
+.nexus-update-version-arrow {
+  color: var(--nexus-text-muted);
+}
+
+.nexus-update-progress {
+  height: 6px;
+  border-radius: 3px;
+  background-color: var(--nexus-bg-surface-active);
+  overflow: hidden;
+}
+
+.nexus-update-progress-bar {
+  height: 100%;
+  background-color: var(--nexus-accent-solid);
+  /* 进度事件是离散的，短过渡让它看起来连续。 */
+  transition: width 120ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexus-update-progress-bar {
+    transition: none;
+  }
+}
+
+.nexus-update-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-muted);
+}
+
+/* 「有文档没保存」不是错误，是「先做另一件事」—— 用 warning 而不是 error。 */
+.nexus-update-note-warn {
+  color: var(--nexus-status-warning-text);
+}
+
+.nexus-update-changelog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.nexus-update-changelog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.nexus-update-changelog-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-update-show-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+  cursor: pointer;
+}
+
+/* 加载中 / 拿不到 / 没有更新 —— 这三种都只有一行字，把那一行**垂直居中**放在日志区里。
+   挂在顶上会让剩下的空间读成「渲染漏了」，居中读成「这一块没有内容」。 */
+.nexus-update-changelog-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.nexus-update-changelog-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-muted);
+  text-align: center;
+}
+
+/* 文案里的链接。做成按钮而不是 `<a>` —— 它走 `openExternal`，不产生任何导航。 */
+.nexus-update-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--nexus-accent-text);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.nexus-update-releases {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nexus-update-release {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+}
+
+.nexus-update-release-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.nexus-update-release-version {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-update-release-date {
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
+/* 来源标签推到右端：它是一句「这条是从哪来的」的旁注，不该挤在版本号旁边。 */
+.nexus-update-release-source {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-update-release-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--nexus-text-muted);
+}
+
+.nexus-update-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nexus-update-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 类型徽章。`flex-shrink: 0` —— 条目文本换行时徽章不该被压扁。 */
+.nexus-update-entry-type {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background-color: var(--nexus-bg-surface-active);
+  color: var(--nexus-text-secondary);
+  font-size: 11px;
+}
+
+.nexus-update-entry-text {
+  color: var(--nexus-text-primary);
+}
+
+/* 整排右对齐，主按钮在最右。DOM 顺序就是视觉顺序（次要动作在前、主按钮在后），
+   所以 Tab 不会反着跳。 */
+.nexus-update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.nexus-update-button {
+  padding: 6px 14px;
+  border: 1px solid var(--nexus-border-control);
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--nexus-text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nexus-update-button:hover:not(:disabled) {
+  background-color: var(--nexus-bg-surface-hover);
+}
+
+.nexus-update-button:disabled {
+  color: var(--nexus-text-muted);
+  opacity: 0.55;
+  cursor: default;
+}
+
+.nexus-update-button-primary {
+  border-color: transparent;
+  background-color: var(--nexus-accent-solid);
+  color: var(--nexus-accent-contrast);
+  font-weight: 500;
+}
+
+.nexus-update-button-primary:hover:not(:disabled) {
+  background-color: var(--nexus-accent-solid-hover);
+}
+
+/* 禁用态的主按钮不能继续顶着强调色的底：那条规则给的是半透明的蓝 + 灰字，
+   实测是全窗口最难读的一处（对比度肉眼可辨地不够）。换成中性底，
+   读起来是「这个按钮现在按不动」，而不是「这里有一块褪色的蓝」。 */
+.nexus-update-button-primary:disabled {
+  border-color: var(--nexus-border-control);
+  background-color: var(--nexus-bg-canvas);
+  opacity: 1;
+}
+
+.nexus-update-button:focus-visible,
+.nexus-update-link:focus-visible {
+  outline: 1px solid var(--nexus-accent-indicator);
+  outline-offset: 2px;
+}

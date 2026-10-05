@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../hooks.js';
 import { SECTIONS, fieldsOfSection, sectionById, type SectionId } from './registry.js';
 import { searchSettings, type SettingsSearchHit } from './settings-search.js';
+import { AboutSection } from './AboutSection.js';
 import { AppearanceSection } from './AppearanceSection.js';
 import { KeybindingsSection } from './KeybindingsSection.js';
 import { FieldList } from './FieldRow.js';
@@ -134,9 +135,10 @@ export interface SettingsViewProps {
  * 未实现的分组**可点、可进入**，内容区给空态。让它们点不动（`disabled`）就等于「点了没反应」，
  * 那是比空态更糟的反馈；而把它们从导航里删掉，每加一个分组都要改导航结构。
  *
- * 内容区只有三处分派：`appearance`（主题卡片网格）与 `keybindings`（n 行的表 + 跨行冲突检测）
- * 各走专用组件 —— 两者都不是通用控件能表达的；其余 `available` 分组一律走 `FieldList`，
- * 字段按 `section` 从 `FIELDS` 里取，所以「加一个字段」不用改这里。
+ * 内容区只有四处分派：`appearance`（主题卡片网格）、`keybindings`（n 行的表 + 跨行冲突检测）
+ * 与 `about`（身份卡 + 实时更新状态 + 项目链接）各走专用组件 —— 三者都不是通用控件能表达的；
+ * 其余 `available` 分组一律走 `FieldList`，字段按 `section` 从 `FIELDS` 里取，
+ * 所以「加一个字段」不用改这里。
  *
  * **搜索命中时内容区整个换成结果列表**（不是在下拉里浮一层）：搜索结果跨分组，需要的地方比
  * 200px 的侧栏宽得多。选完就清空查询，于是那一页立刻回来。
@@ -389,6 +391,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onSelectSec
         ) : section === 'keybindings' ? (
           /* 一张 n 行的表 + 跨行冲突检测，同样不是「一组字段」。 */
           <KeybindingsSection />
+        ) : section === 'about' ? (
+          /* 身份卡 + 实时更新状态 + 项目链接，没有一项有取值域。 */
+          <AboutSection />
         ) : (
           <section className="nexus-settings-section" data-section={section}>
             <h2 className="nexus-settings-section-title">{t(current.titleKey)}</h2>

@@ -111,7 +111,8 @@ describe('设置窗口', () => {
       'keybindings',
       'plugins',
       'sync',
-      'data'
+      'data',
+      'about'
     ]);
     expect(
       await app.evaluate<number>(
@@ -133,7 +134,8 @@ describe('设置窗口', () => {
       'appearance',
       'keybindings',
       'plugins',
-      'data'
+      'data',
+      'about'
     ]);
     // 独立窗口没有「返回工作区」这个键了 —— 关窗归标题栏与 Escape
     expect(await app.evaluate<boolean>(`!!document.querySelector('[data-settings-back]')`)).toBe(
@@ -347,32 +349,37 @@ describe('设置窗口', () => {
       )
     ).toBe('switch');
 
-    // ④c⁗′ 「当前版本」的只读值。这条要三样同时成立才过：preload 暴露了 `getAppVersion`、
-    //      主进程真的从 `app.getVersion()` 读到了 `apps/desktop/package.json` 的版本、
+    // ④c⁗′ 「关于」分组：版本号的只读值 + 一个开门按钮。这一组是从「通用」里分出来的 ——
+    //      通用那一栏其余每一项都是「你可以改什么」，只有这一项是「你现在装的是什么」。
+    //      这条要三样同时成立才过：preload 暴露了 `getAppVersion`、主进程真的从
+    //      `app.getVersion()` 读到了 `apps/desktop/package.json` 的版本、
     //      `FieldRow` 把值画出来了。renderer 用例里那个 `window.nexus` 是打桩的，
     //      证明不了前两样；而「非空」这种断言对一个写死的字符串也过，所以拿 package.json 比。
-    await app.waitForSelector('[data-field-readonly="general.version"]', 10000);
+    await app.click('.nexus-settings-nav [data-section="about"]');
+    await app.waitForSelector('[data-field-readonly="about.version"]', 10000);
     expect(
       await app.evaluate<string>(
-        `document.querySelector('[data-field-readonly="general.version"]').textContent`
+        `document.querySelector('[data-field-readonly="about.version"]').textContent`
       )
     ).toBe(EXPECTED_APP_VERSION);
-    // 通用分组里只读值只画这一处（索引那条在数据分组，不在此处）。
+    // 这一组里只读值只画这一处。
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-field-readonly]').length`)
     ).toBe(1);
 
     // ④c⁗″ 「检查更新」。上面那个只读值是这一行的前半截（装的是什么），这里是后半截
-    //      （有没有新的）。测试进程**没有打包**，主进程的 `canCheckUpdates()` 因此答 false ——
-    //      按钮应当是「禁用 + 一行原因」，这正是「未打包的构建没有更新通道」在界面上的样子。
-    //      钉的是那条 preload 通道真的接上了：renderer 用例里 `window.nexus` 是打桩的。
-    await app.waitForSelector('[data-field-action="general.version"]', 10000);
-    await app.waitForSelector('[data-field-blocked="general.version"]', 10000);
+    //      （有没有新的）。它现在**只负责开门**：检查、日志、进度、跳过与稍后都在更新窗口里，
+    //      所以按钮是**可点的**（未打包也点得动 —— 窗口自己会说明没有更新通道，
+    //      而更新日志仍看得到，它不依赖更新通道）。钉的是那条 preload 通道真的接上了：
+    //      renderer 用例里 `window.nexus` 是打桩的。
+    //      这里**不点**它：开出来的第三个窗口会打乱后面几条按窗口数做的断言，
+    //      真正的「点了会开窗」在 `update-window.test.ts` 里端到端验。
+    await app.waitForSelector('[data-field-action="about.version"]', 10000);
     expect(
       await app.evaluate<boolean>(
-        `document.querySelector('[data-field-action="general.version"]').disabled`
+        `document.querySelector('[data-field-action="about.version"]').disabled`
       )
-    ).toBe(true);
+    ).toBe(false);
 
     // ④d 数据分组在**真机**里探得到工作区。探测是 `getWorkspaceRoots()` 走 IPC 问主进程
     //     要根目录 —— 「preload 有没有暴露这条通道」「主进程在设置窗口的会话里认不认这个工作区」

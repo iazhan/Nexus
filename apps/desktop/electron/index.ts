@@ -41,7 +41,8 @@ import { deriveTitle, indexSingleFile, indexWorkspace } from './indexer.js';
 import { rewriteReferencesInSource } from './link-rewrite.js';
 import { findMentionsOfDocument } from './mentions.js';
 import { createProcessorRegistry } from './processor/index.js';
-import { checkForUpdatesManually, setupAutoUpdater, updatesSupported } from './updater.js';
+import { checkNow, getUpdateState, installNow, remindLater, setupAutoUpdater, skipVersion, updatesSupported } from './updater.js';
+import { loadChangelog } from './changelog.js';
 import { forgetWindow, isWindowDirty, markWindowDirty } from './window-dirty.js';
 import {
   scanThemeDirectory,
@@ -337,11 +338,12 @@ function toAllowedExternalUrl(rawUrl: unknown): string | null {
  * 这种反向条件，改一个窗口的加载方式就会悄悄失配。
  */
 const WINDOW_ROLE_PARAM = 'window';
-/** 角色 → `loadFile` 的查询串。三个窗口一张表，加角色只动这里与 `window-role.ts`。 */
+/** 角色 → `loadFile` 的查询串。四个窗口一张表，加角色只动这里与 `window-role.ts`。 */
 const WINDOW_QUERY: Record<WindowRole, Record<string, string>> = {
   main: { [WINDOW_ROLE_PARAM]: 'main' },
   settings: { [WINDOW_ROLE_PARAM]: 'settings' },
-  theme: { [WINDOW_ROLE_PARAM]: 'theme' }
+  theme: { [WINDOW_ROLE_PARAM]: 'theme' },
+  update: { [WINDOW_ROLE_PARAM]: 'update' }
 };
 
 /**
@@ -501,6 +503,7 @@ function createWindow(): BrowserWindowType {
     forgetWindow(mainWindow.id);
     closeSettingsWindow();
     closeThemeWindow();
+    closeUpdateWindow();
   });
 
   return mainWindow;
@@ -627,6 +630,70 @@ function createThemeWindow(): BrowserWindowType {
 function closeThemeWindow(): void {
   if (themeWindow && !themeWindow.isDestroyed()) themeWindow.close();
   themeWindow = null;
+}
+
+/**
+ * 更新窗口的尺寸。比设置窗口窄一圈 —— 它是一列内容（版本 + 更新日志 + 按钮），没有左栏要装。
+ * 高度给得比宽度多：更新日志是纵向滚的。
+ */
+const UPDATE_WINDOW_SIZE = { width: 720, height: 640, minWidth: 520, minHeight: 480 };
+
+/** 当前开着的更新窗口。`null` = 没开。 */
+let updateWindow: BrowserWindowType | null = null;
+
+/**
+ * 打开更新窗口，**单例**。与设置窗口同构（不调 `getOrCreateSession()`、无边框自绘、关闭即销毁）。
+ *
+ * 不跟着设置窗口走，只跟**主窗口**走（同主题窗口）—— 它是「看一眼更新了什么」的短命窗口，
+ * 主窗口关掉之后留着它没有意义。
+ */
+function createUpdateWindow(): BrowserWindowType {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    if (updateWindow.isMinimized()) updateWindow.restore();
+    updateWindow.focus();
+    return updateWindow;
+  }
+
+  const win = new BrowserWindow({
+    ...UPDATE_WINDOW_SIZE,
+    show: false,
+    // 中性初值，与主窗口同理：真正的标题由渲染进程按语言设置。
+    title: 'Nexus',
+    titleBarStyle: 'hidden',
+    webPreferences: {
+      preload: getPreloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  updateWindow = win;
+
+  showWhenReady(win);
+  broadcastWindowState(win);
+  win.once('closed', () => {
+    updateWindow = null;
+  });
+
+  loadRenderer(win, 'update');
+
+  return win;
+}
+
+function closeUpdateWindow(): void {
+  if (updateWindow && !updateWindow.isDestroyed()) updateWindow.close();
+  updateWindow = null;
+}
+
+/**
+ * 内置 `changelog.json` 所在目录。
+ *
+ * 打包后由 `electron-builder.yml` 的 `extraResources` 放进 `resources/`；
+ * dev 下 `app.getAppPath()` 是 `apps/desktop`，而那份文件在**仓库根**（上面两级）——
+ * 它同时是「发版时人工维护的那份」与「打包进 resources 的那份」，只有一个事实源。
+ */
+function changelogDir(): string {
+  return app.isPackaged ? process.resourcesPath : path.resolve(app.getAppPath(), '..', '..');
 }
 
 interface WebContentsSession {
@@ -1241,12 +1308,43 @@ ipcMain.handle(IPC_CHANNELS.getAppVersion, () => app.getVersion());
 ipcMain.handle(IPC_CHANNELS.canCheckUpdates, () => updatesSupported());
 
 /**
- * 手动检查更新。走 `handle` 而不是 `on`：设置页的按钮要在等待期间禁用（防连点），
+ * 手动检查更新。走 `handle` 而不是 `on`：界面要在等待期间禁用按钮（防连点），
  * 而它需要能等到这次检查真的开始。
  *
- * 反馈不从这里返回 —— 主进程会直接弹窗（发现新版本 / 已是最新 / 失败）。
+ * **返回检查之后的状态快照** —— 界面直接拿它刷新，不必再问一次 `getUpdateState`。
+ * 错误不往外抛（见 `checkNow`）：抛出去在渲染进程那边没有落点，用户会看到「点了没反应」。
  */
-ipcMain.handle(IPC_CHANNELS.checkForUpdates, () => checkForUpdatesManually());
+ipcMain.handle(IPC_CHANNELS.checkForUpdates, () => checkNow());
+
+/** 当前更新状态。窗口打开时先取一次，之后靠 `updateStateChanged` 广播跟进。 */
+ipcMain.handle(IPC_CHANNELS.getUpdateState, () => getUpdateState());
+
+/** 跳过某个版本。传的是**版本号** —— 理由见 `skipVersion` 的注释。 */
+ipcMain.handle(IPC_CHANNELS.skipUpdateVersion, (_event, version: unknown) =>
+  skipVersion(typeof version === 'string' ? version : '')
+);
+
+/** 稍后提醒。有期限，到期自动恢复提示。 */
+ipcMain.handle(IPC_CHANNELS.remindUpdateLater, () => remindLater());
+
+/**
+ * 立即重启并安装。**返回是否真的发起了重启** —— 有未保存文档时是 `false`，
+ * 界面据此提示「先保存再退出」，而不是让用户以为点了没反应。
+ */
+ipcMain.handle(IPC_CHANNELS.installUpdateNow, () => installNow());
+
+/** 打开更新窗口（单例）。入口有两处：主窗口的提示条、设置页的版本行。 */
+ipcMain.handle(IPC_CHANNELS.openUpdateWindow, () => {
+  createUpdateWindow();
+});
+
+/**
+ * 更新日志。**在主进程拉**：渲染进程的 CSP `connect-src` 没有 `https:`，发不出外部请求。
+ *
+ * 三层回落（远端文件 → 内置文件 → GitHub Releases notes）见 `electron/changelog.ts`。
+ * 不做缓存：这条通道只在更新窗口打开时调一次，而缓存要额外处理失效，代价大于收益。
+ */
+ipcMain.handle(IPC_CHANNELS.getChangelog, () => loadChangelog({ dir: changelogDir() }));
 
 /**
  * 诊断信息。用户报问题时贴出来的一段事实。

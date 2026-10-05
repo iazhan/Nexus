@@ -94,6 +94,7 @@ import { InsertLinkPalette } from './workspace/InsertLinkPalette.js';
 import { classifyOpenTarget } from './workspace/open-target.js';
 import { ViewerRendererRegistry } from './viewer/registry.js';
 import { ViewerSurface } from './viewer/ViewerSurface.js';
+import { UpdateNoticeBar } from './update/UpdateNoticeBar.js';
 import { PANEL_DEFAULT_WIDTH, clampPanelWidth } from './workspace/panel-width.js';
 import {
   CHROME_VISIBILITY,
@@ -3027,6 +3028,11 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 更新提示条。**非模态**：它只占一行，不挡文档、不抢焦点 —— 用户点了才打开更新窗口。
+          放在 header 与 body 之间而不是 status bar 里：状态栏那一行是「当前文档的读数」，
+          而这是一件与文档无关的事。 */}
+      <UpdateNoticeBar />
 
       {/* Main Content Area */}
       <div className="nexus-body">

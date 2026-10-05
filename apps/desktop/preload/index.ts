@@ -21,6 +21,7 @@ import type {
 import type { UserTheme } from '@nexus/theme';
 import {
   IPC_CHANNELS,
+  type ChangelogResult,
   type CreateDirectoryRequest,
   type CreateFileRequest,
   type DeleteMode,
@@ -31,6 +32,7 @@ import {
   type RenameFileResult,
   type SaveAttachmentRequest,
   type ThemeSyncResult,
+  type UpdateState,
   type WindowState
 } from '../ipc/channels.js';
 import type { NexusBridge } from './types.js';
@@ -229,8 +231,46 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.canCheckUpdates);
   },
 
-  checkForUpdates: (): Promise<void> => {
+  checkForUpdates: (): Promise<UpdateState> => {
     return ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates);
+  },
+
+  getUpdateState: (): Promise<UpdateState> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getUpdateState);
+  },
+
+  onUpdateStateChanged: (callback: (state: UpdateState) => void): Unsubscribe => {
+    const handler = (_event: unknown, state: UpdateState) => {
+      try {
+        callback(state);
+      } catch (err) {
+        console.error('[Nexus Preload] Update state listener error:', err);
+      }
+    };
+    ipcRenderer.on(IPC_CHANNELS.updateStateChanged, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.updateStateChanged, handler);
+    };
+  },
+
+  openUpdateWindow: (): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openUpdateWindow);
+  },
+
+  skipUpdateVersion: (version: string): Promise<UpdateState> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.skipUpdateVersion, version);
+  },
+
+  remindUpdateLater: (): Promise<UpdateState> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.remindUpdateLater);
+  },
+
+  installUpdateNow: (): Promise<boolean> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.installUpdateNow);
+  },
+
+  getChangelog: (): Promise<ChangelogResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getChangelog);
   },
 
   getDiagnostics: (): Promise<DiagnosticsReport> => {
