@@ -88,7 +88,7 @@ export interface FormattingSpan {
   to: number;
   open: string;
   close: string;
-  type: 'strong' | 'emphasis' | 'strike';
+  type: 'strong' | 'emphasis' | 'strike' | 'highlight';
 }
 
 /**
@@ -181,6 +181,20 @@ export function findFormattingSpans(source: string): FormattingSpan[] {
         open: delim,
         close: delim,
         type: 'strike'
+      });
+      for (const child of node.children) {
+        walk(child);
+      }
+      return;
+    }
+
+    if (node.type === 'highlight') {
+      spans.push({
+        from: node.range.from,
+        to: node.range.to,
+        open: '==',
+        close: '==',
+        type: 'highlight'
       });
       for (const child of node.children) {
         walk(child);

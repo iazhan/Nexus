@@ -56,8 +56,8 @@ describe('内置主题就是派生输出', () => {
     expect(nexusDark.tokens).toEqual(seedsToTokens(nexusDarkSeeds));
   });
 
-  it('每套 44 个 token，两套的名字一致', () => {
-    expect(Object.keys(nexusLight.tokens)).toHaveLength(44);
+  it('每套 45 个 token，两套的名字一致', () => {
+    expect(Object.keys(nexusLight.tokens)).toHaveLength(45);
     expect(Object.keys(nexusDark.tokens).sort()).toEqual(Object.keys(nexusLight.tokens).sort());
   });
 
@@ -150,7 +150,7 @@ describe('派生规则对第三方种子成立', () => {
 
   it('守卫不成立时不抛错，输出仍全部达标（Solarized Light 的带太窄）', () => {
     const tokens = seedsToTokens(SOLARIZED_LIGHT);
-    expect(Object.keys(tokens)).toHaveLength(44);
+    expect(Object.keys(tokens)).toHaveLength(45);
     expect(measureTheme(tokens).failures).toEqual([]);
   });
 });

@@ -96,13 +96,14 @@ describe('块级动作表（§3.1 下表）', () => {
       ...SELECTION_ACTION_SPECS.map((spec) => spec.id),
       ...BLOCK_FORMAT_SPECS.map((spec) => spec.id)
     ]);
-    // 正面：行内 6 项（bold / italic / strike / inline-code / insert-link / clear）+ 块级 14 项。
+    // 正面：行内 7 项（bold / italic / strike / highlight / inline-code / insert-link / clear）+ 块级 14 项。
     // 「插入链接」是 link 与 wikilink 两项的合并 —— 写法由设置项决定，不是两个按钮。
-    expect(ids.size).toBe(20);
+    expect(ids.size).toBe(21);
     for (const id of [
       'format.bold',
       'format.italic',
       'format.strike',
+      'format.highlight',
       'format.inline-code',
       'format.insert-link',
       'format.clear-formatting',

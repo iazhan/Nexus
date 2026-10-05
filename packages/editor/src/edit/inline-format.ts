@@ -42,7 +42,7 @@ import {
  * 空事务会进 undo 栈：用户连按几次「清除格式」，撤销要按同样多次才回到原处。
  * 判据见规划 §4 P0-7 ③。
  */
-export type InlineFormatKind = 'strong' | 'emphasis' | 'strike' | 'inline-code' | 'clear';
+export type InlineFormatKind = 'strong' | 'emphasis' | 'strike' | 'highlight' | 'inline-code' | 'clear';
 
 interface RemovedRange {
   from: number;
@@ -368,6 +368,43 @@ export function createInlineFormatTransaction(
       ],
       selection: makeSelection(from + marker.length, to + marker.length),
       userEvent: 'format.strike'
+    };
+  }
+
+  if (format === 'highlight') {
+    const matchingSpan = formattingSpans.find(
+      (s) =>
+        s.type === 'highlight' &&
+        ((s.from + s.open.length === from && s.to - s.close.length === to) ||
+          (s.from === from && s.to === to))
+    );
+
+    if (matchingSpan) {
+      const isInner =
+        matchingSpan.from + matchingSpan.open.length === from &&
+        matchingSpan.to - matchingSpan.close.length === to;
+      const nextFrom = isInner ? from - matchingSpan.open.length : from;
+      const nextTo = isInner
+        ? to - matchingSpan.open.length
+        : to - matchingSpan.open.length - matchingSpan.close.length;
+      return {
+        changes: [
+          { from: matchingSpan.from, to: matchingSpan.from + matchingSpan.open.length, insert: '' },
+          { from: matchingSpan.to - matchingSpan.close.length, to: matchingSpan.to, insert: '' }
+        ],
+        selection: makeSelection(nextFrom, nextTo),
+        userEvent: 'format.highlight'
+      };
+    }
+
+    const marker = '==';
+    return {
+      changes: [
+        { from, to: from, insert: marker },
+        { from: to, to, insert: marker }
+      ],
+      selection: makeSelection(from + marker.length, to + marker.length),
+      userEvent: 'format.highlight'
     };
   }
 

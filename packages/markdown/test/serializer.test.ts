@@ -127,6 +127,18 @@ describe('Markdown Serializer', () => {
         // 同一根因的另一形态：末块是围栏代码块而不是段落。
         name: 'ordered item with sublist, blank line and indented fenced code block',
         source: ['1. 顶', '   - 子项', '', '    ```js', '    x;', '    ```', ''].join('\n')
+      },
+      {
+        name: 'inline highlight ==text== surrounded by text',
+        source: '这是 ==高亮文本== 结束。\n'
+      },
+      {
+        name: 'highlight beside an equality operator that must stay plain',
+        source: '判断 a == b 是否相等，而 ==这个== 是高亮。\n'
+      },
+      {
+        name: 'highlight spanning a line break within one paragraph',
+        source: '==第一行\n第二行==\n'
       }
     ];
 

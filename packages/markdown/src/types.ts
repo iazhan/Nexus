@@ -31,6 +31,7 @@ export type MarkdownInlineNode =
   | ({ type: 'bold'; children: MarkdownInlineNode[] } & MarkdownBaseNode)
   | ({ type: 'italic'; children: MarkdownInlineNode[] } & MarkdownBaseNode)
   | ({ type: 'strike'; children: MarkdownInlineNode[] } & MarkdownBaseNode)
+  | ({ type: 'highlight'; children: MarkdownInlineNode[] } & MarkdownBaseNode)
   | ({ type: 'inline-code'; value: string } & MarkdownBaseNode)
   | ({
       type: 'link';

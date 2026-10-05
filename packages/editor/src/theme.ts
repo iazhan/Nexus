@@ -359,6 +359,12 @@ export const nexusBaseTheme = EditorView.theme({
   ".cm-visual-strike": {
     textDecoration: "line-through"
   },
+  // 跨行高亮时背景要连续，不能每行各断一次。
+  ".cm-visual-highlight": {
+    backgroundColor: "var(--nexus-bg-highlight)",
+    borderRadius: "2px",
+    boxDecorationBreak: "clone"
+  },
   ".cm-visual-hr-container": {
     display: "block",
     boxSizing: "border-box",

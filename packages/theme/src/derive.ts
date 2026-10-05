@@ -326,6 +326,9 @@ export function seedsToTokensWithReport(scheme: NexusThemeScheme): DeriveReport 
   // 后者是设置页导航选中项的图标）；0.3 分别是 5.49 / 3.56。浅色的 0.2 本来就够（8.80 / 3.14）。
   tokens['selection-bg'] = { ...seed('base0D'), a: variant === 'light' ? 0.2 : 0.3 };
   tokens['syntax-inline-code-bg'] = { ...seed('base05'), a: variant === 'light' ? 0.05 : 0.15 };
+  // 高亮 `==x==` 的底色。与 selection-bg 同一类：只垫一层底、文字颜色不动，
+  // 所以不为「压在上面的文字」做对比度修正。浅色底上黄色本身亮，alpha 要比深色大一点才看得出来。
+  tokens['bg-highlight'] = { ...seed('base0A'), a: variant === 'light' ? 0.35 : 0.3 };
 
   const out: Record<string, string> = {};
   for (const [token, colour] of Object.entries(tokens)) out[token] = rgbaString(colour);

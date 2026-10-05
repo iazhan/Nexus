@@ -6,6 +6,7 @@ import {
   createSessionEditorView,
   setEditorReadOnly,
   handleVisualModStrike,
+  handleVisualModHighlight,
   visualKeybindings,
   setDocumentDirectory,
   walkBlockNodes,
@@ -534,6 +535,38 @@ describe('P1-04R Visual semantic closure', () => {
     }
   });
 
+  it('wraps a plain selection in == and unwraps it again', () => {
+    const wrapped = mountVisual('A word B', 'p1-04r-hl-wrap');
+    try {
+      wrapped.handle.view.focus();
+      wrapped.handle.view.dispatch({ selection: EditorSelection.single(2, 6) });
+      expect(handleVisualModHighlight(wrapped.handle.view)).toBe(true);
+      expect(wrapped.session.getSnapshot().source).toBe('A ==word== B');
+      wrapped.session.undo();
+      expect(wrapped.session.getSnapshot().source).toBe('A word B');
+    } finally {
+      wrapped.cleanup();
+    }
+
+    // 已经包好的，再按一次要解包 —— 内层选区与整段选区都认。
+    for (const [label, sel] of [
+      ['inner', [4, 8]],
+      ['full', [2, 10]]
+    ] as const) {
+      const mounted = mountVisual('A ==word== B', `p1-04r-hl-unwrap-${label}`);
+      try {
+        mounted.handle.view.focus();
+        mounted.handle.view.dispatch({ selection: EditorSelection.single(sel[0], sel[1]) });
+        expect(handleVisualModHighlight(mounted.handle.view)).toBe(true);
+        expect(mounted.session.getSnapshot().source).toBe('A word B');
+        mounted.session.undo();
+        expect(mounted.session.getSnapshot().source).toBe('A ==word== B');
+      } finally {
+        mounted.cleanup();
+      }
+    }
+  });
+
   it('projects single-tilde strike without hiding first or last character', () => {
     const source = 'A ~word~ B';
     const mounted = mountVisual(source, 'p1-04r-r1-project');
@@ -546,6 +579,33 @@ describe('P1-04R Visual semantic closure', () => {
       const strikeMark = mounted.parent.querySelector('.cm-visual-strike');
       assert(strikeMark);
       expect(strikeMark.textContent).toBe('word');
+    } finally {
+      mounted.cleanup();
+    }
+  });
+
+  it('projects ==highlight== and hides both delimiter pairs', () => {
+    const source = 'A ==word== B';
+    const mounted = mountVisual(source, 'p1-04r-highlight-project');
+    try {
+      const delimiters = mounted.parent.querySelectorAll('.cm-visual-hidden-delimiter');
+      expect(delimiters).toHaveLength(2);
+      expect(delimiters[0]?.getAttribute('data-delimiter')).toBe('==');
+      expect(delimiters[1]?.getAttribute('data-delimiter')).toBe('==');
+
+      const mark = mounted.parent.querySelector('.cm-visual-highlight');
+      assert(mark);
+      expect(mark.textContent).toBe('word');
+    } finally {
+      mounted.cleanup();
+    }
+  });
+
+  it('leaves a bare equality operator unprojected', () => {
+    // `a == b` 里的 `==` 是等号 —— 不能画出高亮。
+    const mounted = mountVisual('判断 a == b 是否相等', 'p1-04r-highlight-negative');
+    try {
+      expect(mounted.parent.querySelector('.cm-visual-highlight')).toBeNull();
     } finally {
       mounted.cleanup();
     }

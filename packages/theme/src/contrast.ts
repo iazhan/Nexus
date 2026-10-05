@@ -108,7 +108,7 @@ export const SURFACES: readonly string[] = [
   'accent-solid-hover',
 ];
 
-export const OVERLAYS: readonly string[] = ['selection-bg'];
+export const OVERLAYS: readonly string[] = ['selection-bg', 'bg-highlight'];
 
 export interface TokenContract {
   readonly tier: ContrastTier;

@@ -3,6 +3,7 @@ import type { EditorView, InlineFormat } from '@nexus/editor';
 import {
   BoldIcon,
   ClearFormatIcon,
+  HighlightIcon,
   InlineCodeIcon,
   ItalicIcon,
   LinkIcon,
@@ -213,6 +214,7 @@ export const SELECTION_ACTION_SPECS: readonly SelectionActionSpec[] = [
   { id: 'format.bold', labelKey: 'cmd.bold', icon: BoldIcon, format: 'strong' },
   { id: 'format.italic', labelKey: 'cmd.italic', icon: ItalicIcon, format: 'emphasis' },
   { id: 'format.strike', labelKey: 'cmd.strike', icon: StrikeIcon, format: 'strike' },
+  { id: 'format.highlight', labelKey: 'cmd.highlight', icon: HighlightIcon, format: 'highlight' },
   { id: 'format.inline-code', labelKey: 'cmd.inlineCode', icon: InlineCodeIcon, format: 'inline-code' },
   { id: 'format.insert-link', labelKey: 'cmd.insertLink', icon: LinkIcon },
   { id: 'format.clear-formatting', labelKey: 'cmd.clearFormatting', icon: ClearFormatIcon }

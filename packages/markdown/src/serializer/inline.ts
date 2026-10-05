@@ -77,6 +77,9 @@ export function serializeInline(
       const delim = raw.startsWith('~') && !raw.startsWith('~~') ? '~' : '~~';
       return `${delim}${serializeInlines(node.children, source, force)}${delim}`;
     }
+    case 'highlight': {
+      return `==${serializeInlines(node.children, source, force)}==`;
+    }
     case 'inline-code': {
       if (node.value.length === 0) {
         return '';

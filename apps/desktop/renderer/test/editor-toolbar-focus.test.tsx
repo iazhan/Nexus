@@ -343,6 +343,7 @@ describe('选区上下文条 · 真机接线', () => {
       'format.bold',
       'format.italic',
       'format.strike',
+      'format.highlight',
       'format.inline-code',
       'format.insert-link',
       'format.clear-formatting'

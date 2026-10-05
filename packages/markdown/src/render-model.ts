@@ -22,6 +22,7 @@ export function extractTextContent(
       case 'bold':
       case 'italic':
       case 'strike':
+      case 'highlight':
         result += extractTextContent(node.children);
         break;
       case 'link':

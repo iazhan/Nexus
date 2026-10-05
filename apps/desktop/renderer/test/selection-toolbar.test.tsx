@@ -143,14 +143,15 @@ describe('选区上下文条：动作集', () => {
       'format.bold',
       'format.italic',
       'format.strike',
+      'format.highlight',
       'format.inline-code',
       'format.insert-link',
       'format.clear-formatting'
     ]);
   });
 
-  it('反面：不含 highlight —— Nexus 的 Markdown 模型里没有这套语法', () => {
-    expect(SELECTION_ACTION_SPECS.map((spec) => spec.id)).not.toContain('format.highlight');
+  it('含 highlight —— `==…==` 已于 2026-10-06 进 Markdown 模型（此前这里是一条反面断言）', () => {
+    expect(SELECTION_ACTION_SPECS.map((spec) => spec.id)).toContain('format.highlight');
   });
 
   it('反面：链接**只有一项**，不拆成 link + wikilink —— 写法由设置项决定，不该两个按钮打架', () => {
@@ -159,12 +160,13 @@ describe('选区上下文条：动作集', () => {
     expect(ids).not.toContain('format.wikilink');
   });
 
-  it('链接与清除格式不参与激活态，其余四项各对应一个行内标记', () => {
+  it('链接与清除格式不参与激活态，其余五项各对应一个行内标记', () => {
     const byId = new Map(SELECTION_ACTION_SPECS.map((spec) => [spec.id, spec.format]));
 
     expect(byId.get('format.bold')).toBe('strong');
     expect(byId.get('format.italic')).toBe('emphasis');
     expect(byId.get('format.strike')).toBe('strike');
+    expect(byId.get('format.highlight')).toBe('highlight');
     expect(byId.get('format.inline-code')).toBe('inline-code');
     // 「插入链接」与「清除格式」都没有「当前是它」这一态
     expect(byId.get('format.insert-link')).toBeUndefined();
@@ -258,6 +260,7 @@ describe('选区上下文条：渲染与交互', () => {
       'format.bold',
       'format.italic',
       'format.strike',
+      'format.highlight',
       'format.inline-code',
       'format.insert-link',
       'format.clear-formatting'

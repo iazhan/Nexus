@@ -28,6 +28,7 @@ import {
   handleVisualModB,
   handleVisualModI,
   handleVisualModStrike,
+  handleVisualModHighlight,
   handleVisualInlineCode,
   handleVisualClearFormatting,
   handleVisualBlockFormat,
@@ -2193,6 +2194,16 @@ export const App: React.FC = () => {
         execute: () => {
           const view = activeViewRef.current;
           if (view) handleVisualModStrike(view);
+        }
+      }),
+      commandRegistry.registerCommand({
+        id: 'format.highlight',
+        titleKey: 'cmd.highlight',
+        shortcut: DEFAULT_SHORTCUTS['format.highlight'],
+        isEnabled: () => Boolean(activeViewRef.current),
+        execute: () => {
+          const view = activeViewRef.current;
+          if (view) handleVisualModHighlight(view);
         }
       }),
       commandRegistry.registerCommand({

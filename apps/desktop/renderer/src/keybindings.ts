@@ -49,6 +49,8 @@ export const REMAPPABLE_ACTIONS: readonly RemappableAction[] = [
   { id: 'format.bold', labelKey: 'cmd.bold', defaultSpec: 'Mod-B' },
   { id: 'format.italic', labelKey: 'cmd.italic', defaultSpec: 'Mod-I' },
   { id: 'format.strike', labelKey: 'cmd.strike', defaultSpec: 'Mod-Shift-X' },
+  // `Mod-Shift-H` 取高亮的直觉（H = Highlight）。避开 `Mod-H`（替换）与 `Mod-Shift-X`（删除线）。
+  { id: 'format.highlight', labelKey: 'cmd.highlight', defaultSpec: 'Mod-Shift-H' },
   // `Mod-E` 对着参考实现定的（OpenKnowledge 的 `format-inline-code` 就是 ⌘E / Ctrl E）。
   // 「清除格式」刻意**不在这里**：它没有公认的组合键，硬塞一个不如让工具栏按钮独占入口 ——
   // 没有默认键的命令仍是正常命令（`format.clear-formatting` 照常注册、工具栏照常调用），

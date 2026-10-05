@@ -3,7 +3,7 @@ import type { MarkdownSelection } from '../types.js';
 import { findAtomicRanges, findFormattingSpans, readInlineCodeFence, type AtomicNodeRange } from './source-scan.js';
 
 /** 可切换的行内标记。链接 / 图片 / 公式是**原子节点**，不在这一列（见 `findAtomicRanges`）。 */
-export type InlineFormat = 'strong' | 'emphasis' | 'strike' | 'inline-code';
+export type InlineFormat = 'strong' | 'emphasis' | 'strike' | 'highlight' | 'inline-code';
 
 /** 行内标记区间。与 `FormattingSpan` 同形，多出 `inline-code` 一档。 */
 export interface InlineMarkerSpan {

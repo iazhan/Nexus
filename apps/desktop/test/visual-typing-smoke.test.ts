@@ -44,6 +44,13 @@ const CASES: TypingCase[] = [
     dom: '.cm-visual-strike'
   },
   {
+    id: 'highlight',
+    name: '高亮',
+    typed: '==marked==',
+    expected: ['==marked=='],
+    dom: '.cm-visual-highlight'
+  },
+  {
     id: 'inline-code',
     name: '行内代码',
     typed: '`inline`',

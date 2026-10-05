@@ -83,6 +83,30 @@ export function renderTableCellNodes(nodes: MarkdownInlineNode[], parentEl: HTML
         parentEl.appendChild(del);
         break;
       }
+      case 'highlight': {
+        const mark = document.createElement('mark');
+        mark.className = 'cm-visual-highlight';
+        const leftDelim = document.createElement('span');
+        leftDelim.className = 'cm-visual-hidden-delimiter';
+        leftDelim.setAttribute('aria-hidden', 'true');
+        leftDelim.dataset.delimiter = '==';
+        leftDelim.textContent = '==';
+        mark.appendChild(leftDelim);
+
+        if (node.children) {
+          renderTableCellNodes(node.children, mark);
+        }
+
+        const rightDelim = document.createElement('span');
+        rightDelim.className = 'cm-visual-hidden-delimiter';
+        rightDelim.setAttribute('aria-hidden', 'true');
+        rightDelim.dataset.delimiter = '==';
+        rightDelim.textContent = '==';
+        mark.appendChild(rightDelim);
+
+        parentEl.appendChild(mark);
+        break;
+      }
       case 'inline-code': {
         const code = document.createElement('code');
         code.className = 'cm-visual-inline-code';
@@ -226,6 +250,8 @@ export function serializeTableCellDOM(el: HTMLElement): string {
         result += `*${serializeTableCellDOM(elem)}*`;
       } else if (tag === 'del' || tag === 's' || elem.classList.contains('cm-visual-strike')) {
         result += `~~${serializeTableCellDOM(elem)}~~`;
+      } else if (tag === 'mark' || elem.classList.contains('cm-visual-highlight')) {
+        result += `==${serializeTableCellDOM(elem)}==`;
       } else if (tag === 'code' || elem.classList.contains('cm-visual-inline-code')) {
         result += `\`${serializeTableCellDOM(elem)}\``;
       } else if (tag === 'a' || elem.classList.contains('cm-visual-link')) {

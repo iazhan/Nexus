@@ -158,6 +158,78 @@ describe('Markdown Parser & Render Model', () => {
     });
   });
 
+  describe('Inline Highlight (==text==)', () => {
+    it('parses ==highlight== into a highlight node with exact range', () => {
+      const src = '这是 ==高亮文本== 结束。\n';
+      const result = parseMarkdown(src);
+      const p = result.root.children[0];
+      expect(p?.type).toBe('paragraph');
+      if (p?.type === 'paragraph') {
+        const hl = p.children.find((c) => c.type === 'highlight');
+        expect(hl).toBeDefined();
+        if (hl?.type === 'highlight') {
+          expect(hl.raw).toBe('==高亮文本==');
+          expect(hl.range).toEqual({ from: 3, to: 11 });
+        }
+      }
+    });
+
+    it('does not treat a bare equality operator as a highlight', () => {
+      // `==` 两侧紧邻空白 —— 那是等号，不是高亮标记。
+      for (const src of ['判断 a == b 是否相等。\n', '结果 == 预期 时报警\n', 'a = b\n', '====\n']) {
+        const result = parseMarkdown(src);
+        const p = result.root.children[0];
+        if (p?.type === 'paragraph') {
+          expect(p.children.some((c) => c.type === 'highlight')).toBe(false);
+        }
+      }
+    });
+
+    it('does not pair markers across a paragraph break', () => {
+      const src = '==第一段\n\n第二段==\n';
+      const result = parseMarkdown(src);
+      expect(result.root.children).toHaveLength(2);
+      for (const block of result.root.children) {
+        if (block.type === 'paragraph') {
+          expect(block.children.some((c) => c.type === 'highlight')).toBe(false);
+        }
+      }
+    });
+
+    it('leaves an unclosed marker as plain text', () => {
+      const src = '这是 ==没有闭合\n';
+      const result = parseMarkdown(src);
+      const p = result.root.children[0];
+      if (p?.type === 'paragraph') {
+        expect(p.children.some((c) => c.type === 'highlight')).toBe(false);
+      }
+    });
+
+    it('recognizes a highlight nested inside bold', () => {
+      const src = '**==高亮==**\n';
+      const result = parseMarkdown(src);
+      const p = result.root.children[0];
+      if (p?.type === 'paragraph') {
+        const bold = p.children.find((c) => c.type === 'bold');
+        expect(bold).toBeDefined();
+        if (bold?.type === 'bold') {
+          expect(bold.children.some((c) => c.type === 'highlight')).toBe(true);
+        }
+      }
+    });
+
+    it('recognizes a highlight inside a table cell', () => {
+      const src = '| A | B |\n| --- | --- |\n| ==x== | y |\n';
+      const result = parseMarkdown(src);
+      const table = result.root.children[0];
+      expect(table?.type).toBe('table');
+      if (table?.type === 'table') {
+        const cell = table.rows[0]?.[0] ?? [];
+        expect(cell.some((c) => c.type === 'highlight')).toBe(true);
+      }
+    });
+  });
+
   describe('Lists: Ordered, Unordered, and Nested', () => {
     it('parses unordered lists', () => {
       const src = '- Item 1\n- Item 2\n- Item 3';

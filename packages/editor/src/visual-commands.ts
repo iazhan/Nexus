@@ -271,6 +271,9 @@ export const handleVisualModI = inlineFormatHandler('emphasis', 'format.italic')
 /** 切换选区的删除线样式，解包现有 `~~` 分隔符。由宿主的 `format.strike` 命令调用。 */
 export const handleVisualModStrike = inlineFormatHandler('strike', 'format.strike');
 
+/** 切换选区的高亮样式，解包现有 `==` 分隔符。由宿主的 `format.highlight` 命令调用。 */
+export const handleVisualModHighlight = inlineFormatHandler('highlight', 'format.highlight');
+
 /** 切换选区的行内代码。整段或「围栏内的内容」都认，后者是包完再按一次的形状。 */
 export const handleVisualInlineCode = inlineFormatHandler('inline-code', 'format.inlineCode');
 

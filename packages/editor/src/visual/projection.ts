@@ -252,6 +252,30 @@ export function buildVisualProjection(
       for (const child of inlineNode.children) {
         walkInline(child);
       }
+    } else if (inlineNode.type === 'highlight') {
+      // `==` 只有一种形态，不像 strike 要在 `~` / `~~` 之间挑。
+      const delimLen = 2;
+      const isRevealed = isNodeRevealed(inlineNode.range);
+      ranges.push({
+        from: inlineNode.range.from,
+        to: inlineNode.range.from + delimLen,
+        decoration: Decoration.replace({ widget: new DelimiterWidget('==', isRevealed) })
+      });
+      ranges.push({
+        from: inlineNode.range.to - delimLen,
+        to: inlineNode.range.to,
+        decoration: Decoration.replace({ widget: new DelimiterWidget('==', isRevealed) })
+      });
+      if (inlineNode.range.to - delimLen > inlineNode.range.from + delimLen) {
+        ranges.push({
+          from: inlineNode.range.from + delimLen,
+          to: inlineNode.range.to - delimLen,
+          decoration: Decoration.mark({ class: 'cm-visual-highlight' })
+        });
+      }
+      for (const child of inlineNode.children) {
+        walkInline(child);
+      }
     } else if (inlineNode.type === 'link') {
       const isRevealed = isNodeRevealed(inlineNode.range);
       // 链接与 bold/italic/inline-code 同构：只替换 `[` 与 `](url)`，链接文字保留为
