@@ -98,6 +98,7 @@ import { PANEL_DEFAULT_WIDTH, clampPanelWidth } from './workspace/panel-width.js
 import {
   CHROME_VISIBILITY,
   disabledMembers,
+  isCapabilityDisabled,
   STATUS_BAR_METRICS
 } from './settings/preference-specs.js';
 import { ActivityBar } from './shell/ActivityBar.js';
@@ -146,6 +147,19 @@ const SAVE_STATE_TONE: Record<EditorSaveState, string> = {
 };
 
 /**
+ * 内置能力的启停谓词，两个注册表共用。
+ *
+ * **每次查表时现读设置**（`settings.get` 是内存读），所以改设置立即生效 ——
+ * 不需要重建注册表、不需要重启。这也正是注册表把谓词当参数收下、而不是在装配时筛的原因。
+ *
+ * 只有这一处把「设置里的存档串」翻成「这个 id 启用吗」：两个注册表各写一遍的话，
+ * 迟早有一处漏掉 `disabledMembers` 的整词比对（`pdf` 会匹配上 `pdf-text`）。
+ */
+function capabilityEnabled(id: string): boolean {
+  return !isCapabilityDisabled(settings.get('plugins.disabled'), id);
+}
+
+/**
  * 菜单项上显示的快捷键文案。**每次调用现读**当前生效表，所以取消绑定的项会当场变成
  * `undefined`（菜单不画那一格），不需要调用方自己判空。
  */
@@ -177,6 +191,17 @@ export const App: React.FC = () => {
    */
   const openSettingsWindow = useCallback(() => {
     void window.nexus?.openSettingsWindow?.();
+  }, []);
+
+  /**
+   * 直接落到「插件」那一组。活动栏的插件面板是**只读状态视图**，管理动作在设置页 ——
+   * 面板底部的跳转按钮走这一条（`?section=plugins`，见 `use-settings-section`）。
+   *
+   * 与上面那个分开写而不是给它加参数：那个是「打开设置」这个动作，被命令面板、菜单、
+   * 活动栏齿轮三处共用；带参数的调用点只有这一处，混在一起会让三个入口各自决定落点。
+   */
+  const openPluginsSettings = useCallback(() => {
+    void window.nexus?.openSettingsWindow?.('plugins');
   }, []);
 
   // Mermaid「点击图表显示源码」偏好。菜单的勾选状态必须与实际一致，
@@ -561,7 +586,7 @@ export const App: React.FC = () => {
    */
   const viewerRegistryRef = useRef<ViewerRendererRegistry | null>(null);
   if (viewerRegistryRef.current === null) {
-    const registry = new ViewerRendererRegistry();
+    const registry = new ViewerRendererRegistry(capabilityEnabled);
     // 图片：第一个真实渲染器（P3-06）。登记是急切的、加载是懒的 ——
     // `load` 必须写成 `() => import(...)`，先在别处 import 再包一层会让
     // 渲染器跟着入口块一起进主包，P1-06 换来的收益当场还回去。
@@ -704,7 +729,7 @@ export const App: React.FC = () => {
 
   const extensionHostRef = useRef<ExtensionHost | null>(null);
   if (extensionHostRef.current === null) {
-    const host = new ExtensionHost();
+    const host = new ExtensionHost(capabilityEnabled);
     extensionHostRef.current = host;
     // 按内容懒加载：这里只登记「谁负责哪种 marker」+ 一个动态 import 工厂，
     // 扩展包本体要等文档里第一次出现触发语法才下载。
@@ -3111,7 +3136,8 @@ export const App: React.FC = () => {
           >
             <PluginsPanel
               host={extensionHostRef.current ?? undefined}
-              revision={documentRevision}
+              viewers={viewerRegistryRef.current ?? undefined}
+              onManage={openPluginsSettings}
             />
           </div>
         </div>

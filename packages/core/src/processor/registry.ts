@@ -1,4 +1,5 @@
 import type { DocumentType } from '../document/types.js';
+import { ALL_CAPABILITIES_ENABLED, type CapabilityEnabled } from '../plugins/enabled.js';
 import type {
   DocumentProcessor,
   ProcessorExtractInput,
@@ -13,12 +14,26 @@ import type {
  * 做成类而不是几个函数，是因为「谁认领了哪个类型」这份状态必须只有一份 —— 两个模块
  * 各自 `new` 一个、各自注册一半，症状是「有的类型能提、有的不能」，而两边单看都是对的。
  *
- * 不做发现 / 启停 / 隔离：那三件事属于 Phase 5 的插件系统，Phase 3 的处理器都是仓库
- * 自己的代码，注册进来就是启用。
+ * **发现 / 隔离仍属 Phase 5；启停已经做了**（P1-4b）—— 方式与另两个注册表同形：收一个
+ * `CapabilityEnabled` 谓词，`find()` 每次调用现问，所以拨开关立即生效、不用重新注册、
+ * 也没有任何「撤销注册」的机制。
+ *
+ * ## 这里没有 `disabled` 这个状态，是有意的
+ *
+ * `ViewerRendererRegistry` 与 `ExtensionHost` 都要把「没登记」与「被关掉」分开画两张卡，
+ * 所以它们的 `list*()` 会报 `disabled`。**这个注册表没有状态概念**：它只有「注册进来
+ * 就是启用」这一条，而它唯一的消费者（索引器）问的是「有谁认领这个类型，能跑吗」——
+ * 被关掉与没登记对它的答案**完全相同**（不提取、记 `none`），所以 `find()` 一律返回
+ * `null` 就够。多造一个词表只会让两处判据有机会拼出不同结果（§4 不变量 3）。
  */
 export class ProcessorRegistry {
   private readonly byId = new Map<string, DocumentProcessor>();
   private readonly byType = new Map<DocumentType, DocumentProcessor>();
+  private readonly isEnabled: CapabilityEnabled;
+
+  constructor(isEnabled: CapabilityEnabled = ALL_CAPABILITIES_ENABLED) {
+    this.isEnabled = isEnabled;
+  }
 
   /**
    * 注册一个处理器。id 重复或类型撞车**立即抛错**，不覆盖也不忽略 ——
@@ -49,10 +64,17 @@ export class ProcessorRegistry {
     return [...this.byId.values()];
   }
 
-  /** 认领了该类型的处理器；没有则返回 `null`（「没处理器」是正常情况，不抛错）。 */
+  /**
+   * 认领了该类型**且现在没被关掉**的处理器；否则返回 `null`（「没处理器」是正常情况，不抛错）。
+   *
+   * 判据在返回前现问谓词，所以「在设置里关掉 pdf-text」之后**下一次调用**就变了 ——
+   * 不需要重建注册表。这也意味着 `find()` 的答案不是常量：别把它缓存进字段。
+   */
   find(documentType: DocumentType | null | undefined): DocumentProcessor | null {
     if (documentType === null || documentType === undefined) return null;
-    return this.byType.get(documentType) ?? null;
+    const processor = this.byType.get(documentType) ?? null;
+    if (processor === null) return null;
+    return this.isEnabled(processor.id) ? processor : null;
   }
 
   /**

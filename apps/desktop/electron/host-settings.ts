@@ -26,6 +26,7 @@
  * 这里是一份模块级的当前值，谁读都是同一份。
  */
 
+import { type CapabilityEnabled } from '@nexus/core';
 import { DEFAULT_HOST_SETTINGS, type HostSettings } from '../ipc/channels.js';
 
 let current: HostSettings = DEFAULT_HOST_SETTINGS;
@@ -74,6 +75,17 @@ export function sanitizeHostSettings(raw: unknown): Partial<HostSettings> {
     patch.restoreLastWorkspace = restore;
   }
 
+  if ('disabledCapabilities' in candidate) {
+    const disabled = candidate.disabledCapabilities;
+    // 与 `ignoreRules` 同形：字符串数组，逐项判。**不在这里比对 id 是否认得** ——
+    // 认得哪些 id 是渲染进程名册的事，主进程只照着自己那一份处理器表查表；
+    // 多出来的 id 一律忽略（前向兼容：渲染进程先升级时不该让整条通道报错）。
+    if (!Array.isArray(disabled) || disabled.some((id) => typeof id !== 'string')) {
+      throw new Error('syncHostSettings: disabledCapabilities 必须是字符串数组');
+    }
+    patch.disabledCapabilities = disabled as string[];
+  }
+
   return patch;
 }
 
@@ -81,6 +93,21 @@ export function sanitizeHostSettings(raw: unknown): Partial<HostSettings> {
 export function updateHostSettings(patch: Partial<HostSettings>): void {
   current = { ...current, ...patch };
 }
+
+/**
+ * 给主进程的注册表用的启停谓词：**每次调用现读当前值**，所以拨开关立即生效。
+ *
+ * 与渲染进程那份（`settings/preference-specs.ts` 的 `isCapabilityDisabled(raw, id)`）是
+ * **两个不同的答案，不是同一份口径的第二处实现**：那个问的是「用户在设置里关掉了什么」
+ * （读存档字符串），这个问的是「主进程现在照哪一份做事」（读已经送过来的那一份）。
+ * 两边都只有一处，不存在「同一个状态在两个地方拼出不同结果」。
+ *
+ * 注意它**不检查 id 认不认识** —— 渲染进程送来的表里也有渲染进程内那 5 个能力的 id，
+ * 而主进程不认识它们。这里只回答「在不在被关掉的表里」，认不认识由调用方（自己的
+ * 处理器表）决定：`ProcessorRegistry` 只会拿自己注册过的 id 来问。
+ */
+export const hostCapabilityEnabled: CapabilityEnabled = (id) =>
+  !current.disabledCapabilities.includes(id);
 
 /** 当前值。调用方**不要缓存返回值** —— 它就是「现在这一份」。 */
 export function hostSettings(): HostSettings {

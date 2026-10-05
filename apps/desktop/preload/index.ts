@@ -310,8 +310,8 @@ const bridge: NexusBridge = {
     };
   },
 
-  openSettingsWindow: (): Promise<void> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.openSettingsWindow);
+  openSettingsWindow: (section?: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openSettingsWindow, section);
   },
 
   openThemeWindow: (): Promise<void> => {

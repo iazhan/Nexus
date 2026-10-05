@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
+  hostCapabilityEnabled,
   hostSettings,
   resetHostSettings,
   sanitizeHostSettings,
@@ -67,6 +68,32 @@ describe('主进程宿主设置', () => {
       expect(() => sanitizeHostSettings({ restoreLastWorkspace: null })).toThrow(/布尔值/);
     });
 
+    it('disabledCapabilities 收字符串数组（空表也收）', () => {
+      expect(sanitizeHostSettings({ disabledCapabilities: ['pdf-text'] })).toEqual({
+        disabledCapabilities: ['pdf-text']
+      });
+      expect(sanitizeHostSettings({ disabledCapabilities: [] })).toEqual({
+        disabledCapabilities: []
+      });
+    });
+
+    it('disabledCapabilities 认不出的 id 照收 —— 认不认识是各自查表时的事', () => {
+      // 渲染进程送来的表里有渲染进程内那 5 个 id（`nexus-math` / `pdf` …），主进程不认识它们。
+      // 这里**不比对 id**：过滤掉会让「主进程那份缓存」与「渲染进程送来的那份」不一致，
+      // 而前向兼容（渲染进程先升级）也要求多出来的 id 不报错。主进程只拿自己的 id 查表。
+      expect(
+        sanitizeHostSettings({ disabledCapabilities: ['nexus-math', 'pdf', 'docx-text'] })
+      ).toEqual({ disabledCapabilities: ['nexus-math', 'pdf', 'docx-text'] });
+    });
+
+    it('disabledCapabilities 不是字符串数组就抛', () => {
+      expect(() => sanitizeHostSettings({ disabledCapabilities: 'pdf-text' })).toThrow(
+        /字符串数组/
+      );
+      expect(() => sanitizeHostSettings({ disabledCapabilities: [1] })).toThrow(/字符串数组/);
+      expect(() => sanitizeHostSettings({ disabledCapabilities: null })).toThrow(/字符串数组/);
+    });
+
     it('载荷本身不是对象就抛', () => {
       expect(() => sanitizeHostSettings(null)).toThrow(/必须是对象/);
       expect(() => sanitizeHostSettings('drafts')).toThrow(/必须是对象/);
@@ -83,7 +110,8 @@ describe('主进程宿主设置', () => {
       expect(hostSettings()).toEqual({
         ignoreRules: [],
         historyRetention: null,
-        restoreLastWorkspace: true
+        restoreLastWorkspace: true,
+        disabledCapabilities: []
       });
     });
 
@@ -108,7 +136,8 @@ describe('主进程宿主设置', () => {
       expect(hostSettings()).toEqual({
         ignoreRules: ['drafts'],
         historyRetention: 50,
-        restoreLastWorkspace: true
+        restoreLastWorkspace: true,
+        disabledCapabilities: []
       });
     });
 
@@ -119,8 +148,53 @@ describe('主进程宿主设置', () => {
       expect(hostSettings()).toEqual({
         ignoreRules: [],
         historyRetention: null,
-        restoreLastWorkspace: true
+        restoreLastWorkspace: true,
+        disabledCapabilities: []
       });
+    });
+  });
+
+  /**
+   * 启停谓词（P1-4b）。
+   *
+   * 它是 `ProcessorRegistry` 唯一的输入 —— 这一层测「它答得对不对」，
+   * 「注册表拿这个答案做了什么」在 `packages/core/test/processor-registry.test.ts` 里测。
+   */
+  describe('hostCapabilityEnabled · 启停谓词', () => {
+    it('默认全启用 —— 与加启停之前的行为一致', () => {
+      expect(hostCapabilityEnabled('pdf-text')).toBe(true);
+      expect(hostCapabilityEnabled('docx-text')).toBe(true);
+      expect(hostCapabilityEnabled('nexus-math')).toBe(true);
+    });
+
+    it('在被关掉的表里的 id 报 false，其余报 true', () => {
+      updateHostSettings({ disabledCapabilities: ['pdf-text'] });
+
+      expect(hostCapabilityEnabled('pdf-text')).toBe(false);
+      expect(hostCapabilityEnabled('docx-text')).toBe(true);
+    });
+
+    /**
+     * **每次调用现读当前值**，不是构造时快照 —— 这是「拨开关立即生效、不用重启」的全部依据。
+     * 写成 `const disabled = ...; return (id) => !disabled.includes(id)` 会让这一条红。
+     */
+    it('现读：改完设置再问，答案立刻变（不用重新构造谓词）', () => {
+      const enabled = hostCapabilityEnabled;
+
+      expect(enabled('pdf-text')).toBe(true);
+      updateHostSettings({ disabledCapabilities: ['pdf-text'] });
+      expect(enabled('pdf-text')).toBe(false);
+      // 再开回来
+      updateHostSettings({ disabledCapabilities: [] });
+      expect(enabled('pdf-text')).toBe(true);
+    });
+
+    it('不认识渲染进程的 id 只是永远命中不了 —— 不报错，也不牵连别人', () => {
+      // 渲染进程会把 `nexus-math` 之类一起送过来；主进程照收，但只有自己的 id 会被查。
+      updateHostSettings({ disabledCapabilities: ['nexus-math'] });
+
+      expect(hostCapabilityEnabled('nexus-math')).toBe(false);
+      expect(hostCapabilityEnabled('pdf-text')).toBe(true);
     });
   });
 });

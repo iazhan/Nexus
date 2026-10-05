@@ -1,4 +1,11 @@
-import { ProcessorRegistry, type DocumentProcessor } from '@nexus/core';
+import {
+  ALL_CAPABILITIES_ENABLED,
+  DOCX_TEXT_PROCESSOR_ID,
+  PDF_TEXT_PROCESSOR_ID,
+  ProcessorRegistry,
+  type CapabilityEnabled,
+  type DocumentProcessor
+} from '@nexus/core';
 import { extractPdfText } from './pdf-text.js';
 import { extractDocxText } from './docx-text.js';
 
@@ -15,13 +22,13 @@ import { extractDocxText } from './docx-text.js';
  */
 
 const pdfProcessor: DocumentProcessor = {
-  id: 'pdf-text',
+  id: PDF_TEXT_PROCESSOR_ID,
   documentTypes: ['pdf'],
   extract: extractPdfText
 };
 
 const docxProcessor: DocumentProcessor = {
-  id: 'docx-text',
+  id: DOCX_TEXT_PROCESSOR_ID,
   documentTypes: ['docx'],
   extract: extractDocxText
 };
@@ -32,9 +39,16 @@ const docxProcessor: DocumentProcessor = {
  * 图片**没有**处理器，这是有意的：图片里没有文本可提取，OCR 是 Phase 5 的事
  * （蓝图 §18）。不进注册表，索引器就连「要不要试试」都不会问 —— 比注册一个
  * 「永远返回 empty」的处理器诚实。
+ *
+ * `isEnabled` 是 P1-4b 的启停谓词。**默认全启用**（＝加启停之前的行为，也是所有用例的默认），
+ * 主进程在 `index.ts` 里把 `hostCapabilityEnabled` 传进来 —— 那个谓词每次调用现读
+ * 「渲染进程刚送过来的那份设置」，所以用户在设置里关掉 `pdf-text` 之后，**下一次**
+ * 索引扫描就不再提取 PDF 文本，不需要重启。
  */
-export function createProcessorRegistry(): ProcessorRegistry {
-  const registry = new ProcessorRegistry();
+export function createProcessorRegistry(
+  isEnabled: CapabilityEnabled = ALL_CAPABILITIES_ENABLED
+): ProcessorRegistry {
+  const registry = new ProcessorRegistry(isEnabled);
   registry.register(pdfProcessor);
   registry.register(docxProcessor);
   return registry;

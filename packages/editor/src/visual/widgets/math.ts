@@ -3,10 +3,12 @@ import { translate } from '@nexus/i18n';
 import {
   extensionHostFacet,
   mountExtension,
-  type EditorExtensionControl
+  type EditorExtensionControl,
+  type ExtensionHost
 } from '../../extensions.js';
 import { activateMathSource } from '../../inline-edit.js';
 import { editorLocaleFacet } from '../../source-editor.js';
+import type { MarkdownMarker } from '../../types.js';
 
 /**
  * 块级公式进入编辑态时追加在块尾的**实时预览**。
@@ -16,16 +18,26 @@ import { editorLocaleFacet } from '../../source-editor.js';
  * 也避免"构造参数没送达"这类隐蔽问题。
  */
 export class BlockMathPreviewWidget extends WidgetType {
+  /** 建它时宿主还认领这个 marker 吗。必须进 `eq`、且让 `updateDOM` 返回 `false`，见 `ExtensionHost.isCapabilityEnabled`。 */
+  public readonly handled: boolean;
+
   public constructor(
     public readonly from: number,
     public readonly to: number,
     public readonly raw: string,
-    public readonly formula: string
+    public readonly formula: string,
+    host?: ExtensionHost
   ) {
     super();
+    this.handled = host?.getHandler(this.marker()) !== undefined;
   }
 
   private control?: EditorExtensionControl;
+
+  /** 构造、`toDOM`、`updateDOM` 共用的 marker —— 各写一遍会漂移。 */
+  private marker(): MarkdownMarker {
+    return { type: 'block-math', from: this.from, to: this.to, text: this.formula };
+  }
 
   /** 追加的块级 widget：给一个下界，免得高度表在测量前把它算成 0 导致滚动跳动。 */
   public get estimatedHeight(): number {
@@ -38,11 +50,14 @@ export class BlockMathPreviewWidget extends WidgetType {
       other.from === this.from &&
       other.to === this.to &&
       other.raw === this.raw &&
-      other.formula === this.formula
+      other.formula === this.formula &&
+      other.handled === this.handled
     );
   }
 
   public updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    // 建它时就没有宿主认领 → DOM 里是 fallback 文本，没有可转发的渲染体。见 `handled`。
+    if (!this.handled) return false;
     const control = (dom as any).__nexusExtensionControl as EditorExtensionControl | undefined;
     if (control) {
       control.update(this.formula);
@@ -59,7 +74,7 @@ export class BlockMathPreviewWidget extends WidgetType {
     const host = view.state.facet(extensionHostFacet);
     this.control = mountExtension(
       host,
-      { type: 'block-math', from: this.from, to: this.to, text: this.formula },
+      this.marker(),
       container,
       this.formula,
       () => {
@@ -89,16 +104,26 @@ export class BlockMathPreviewWidget extends WidgetType {
  *   边改边看。markra 的 `markra-math-render-active-preview` 就是这个思路。
  */
 export class BlockMathWidget extends WidgetType {
+  /** 建它时宿主还认领这个 marker 吗。必须进 `eq`、且让 `updateDOM` 返回 `false`，见 `ExtensionHost.isCapabilityEnabled`。 */
+  public readonly handled: boolean;
+
   public constructor(
     public readonly from: number,
     public readonly to: number,
     public readonly raw: string,
-    public readonly formula: string
+    public readonly formula: string,
+    host?: ExtensionHost
   ) {
     super();
+    this.handled = host?.getHandler(this.marker()) !== undefined;
   }
 
   private control?: EditorExtensionControl;
+
+  /** 构造、`toDOM`、`updateDOM` 共用的 marker —— 各写一遍会漂移。 */
+  private marker(): MarkdownMarker {
+    return { type: 'block-math', from: this.from, to: this.to, text: this.formula };
+  }
 
   public get estimatedHeight(): number {
     return 60;
@@ -110,11 +135,14 @@ export class BlockMathWidget extends WidgetType {
       other.from === this.from &&
       other.to === this.to &&
       other.raw === this.raw &&
-      other.formula === this.formula
+      other.formula === this.formula &&
+      other.handled === this.handled
     );
   }
 
   public updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    // 建它时就没有宿主认领 → DOM 里是 fallback 文本，没有可转发的渲染体。见 `handled`。
+    if (!this.handled) return false;
     const control = (dom as any).__nexusExtensionControl as EditorExtensionControl | undefined;
     if (control) {
       control.update(this.formula);
@@ -132,7 +160,7 @@ export class BlockMathWidget extends WidgetType {
 
     this.control = mountExtension(
       host,
-      { type: 'block-math', from: this.from, to: this.to, text: this.formula },
+      this.marker(),
       container,
       this.formula,
       () => {

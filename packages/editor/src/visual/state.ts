@@ -96,6 +96,23 @@ export function setDocumentDirectory(view: EditorView, directory: string | null)
 }
 
 /**
+ * 「内置能力的启停变了」的信号。**不带值**。
+ *
+ * 投影不从状态里读禁用清单 —— 那份清单住在宿主的注册表里，投影每建一个 widget 都现问
+ * `host.getHandler()`。这个 effect 的唯一作用是**把重算叫醒**：投影是 `StateField`，
+ * 只在它列出的那几个变化上重算，而「用户在设置窗口里拨了一个开关」不产生其中任何一个。
+ * 没有它，关掉 math 之后已经渲染出来的公式会一直留在画面上，直到用户碰一下文档 ——
+ * 而那看起来就是「开关坏了」。
+ *
+ * 不带值是有意的：带一份 id 列表进来就会变成**第二份**启停状态，与注册表那份迟早对不上。
+ */
+export const capabilitiesChangedEffect = StateEffect.define<null>();
+
+export function notifyCapabilitiesChanged(view: EditorView): void {
+  view.dispatch({ effects: capabilitiesChangedEffect.of(null) });
+}
+
+/**
  * 工作区里一个可能被 `![[…]]` 命中的资源。
  *
  * 三份都是宿主算好的成品 —— 编辑器不知道工作区根在哪、也不该知道，与

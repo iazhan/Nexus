@@ -9,6 +9,7 @@ import {
 } from '@nexus/markdown';
 import { findMarkdownMarkers } from '../markdown-markers.js';
 import { isMermaidLanguage } from '../extension-triggers.js';
+import type { ExtensionHost } from '../extensions.js';
 import {
   LinkWidget,
   ImageWidget,
@@ -71,7 +72,19 @@ export function buildVisualProjection(
   documentDirectory: string | null = null,
   locale: string = 'zh-CN',
   mermaidPins: ReadonlyMap<number, MermaidPreviewPin> = EMPTY_MERMAID_PINS,
-  workspaceAssets: readonly WorkspaceAssetEntry[] = EMPTY_WORKSPACE_ASSETS
+  workspaceAssets: readonly WorkspaceAssetEntry[] = EMPTY_WORKSPACE_ASSETS,
+  /**
+   * 扩展宿主。**只用来回答一个问题**：这个 marker 现在有宿主认领吗。
+   *
+   * 由扩展渲染的 widget 把答案记进自己的身份（`handled`，进 `eq()`），因为投影重算
+   * 造出的新 widget 与旧的字段往往完全一样，CodeMirror 会据此复用旧 DOM —— 那样
+   * 「用户刚在设置里关掉这个扩展」就永远看不见。完整理由见
+   * `ExtensionHost.isCapabilityEnabled`。
+   *
+   * 宿主不存在时传 `undefined`：那时 `handled` 恒 `false`，渲染走 fallback，与
+   * `mountExtension` 的行为一致。
+   */
+  host?: ExtensionHost
 ): DecorationSet {
   const ranges: ProjectionRange[] = [];
   const { root } = parseMarkdown(source);
@@ -403,7 +416,8 @@ export function buildVisualProjection(
               inlineNode.range.from,
               inlineNode.range.to,
               raw,
-              inlineNode.formula
+              inlineNode.formula,
+              host
             )
           })
         });
@@ -729,7 +743,8 @@ export function buildVisualProjection(
               blockNode.raw,
               blockNode.language,
               blockNode.value,
-              locale
+              locale,
+              host
             ),
             block: true
           })
@@ -843,7 +858,8 @@ export function buildVisualProjection(
               blockNode.range.from,
               blockNode.range.to,
               blockNode.raw,
-              blockNode.formula
+              blockNode.formula,
+              host
             )
           })
         });
@@ -856,7 +872,8 @@ export function buildVisualProjection(
               blockNode.range.from,
               blockNode.range.to,
               blockNode.raw,
-              blockNode.formula
+              blockNode.formula,
+              host
             ),
             block: true
           })

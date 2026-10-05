@@ -2008,6 +2008,16 @@ button.nexus-outline-toggle:hover {
   color: var(--nexus-status-error-text);
 }
 
+/* 面板底部的「在设置中管理」。它是这个只读面板**唯一**的写入口 ——
+   形状沿用 `.nexus-sidebar-action`（同一个「这里只有这一个可点的东西」的场景），
+   这里只补底部对齐：面板是纵向 flex，清单自己滚动，按钮要留在最下面。
+   用 `align-self: stretch` 而不是固定宽度 —— 侧栏宽度可拖。 */
+.nexus-plugin-manage {
+  align-self: stretch;
+  justify-content: center;
+  margin: 0 12px 12px;
+}
+
 /* 挑一个文档的两个面板：快速打开（Ctrl+P）与插入链接（Ctrl+Alt+K）。
    两者是同一个交互形状 —— 输入 → 模糊过滤 → 上下键选 → 回车确认 —— 所以共用一套声明，
    只在语义类名上分开（测试要能单独数出各自开了几个）。backdrop 用 absolute 而不是 fixed：
@@ -2679,6 +2689,12 @@ button.nexus-outline-toggle:hover {
   line-height: 1.6;
   color: var(--nexus-text-muted);
   text-align: center;
+}
+
+/* 插件没加载上：与 `ViewerPlaceholder`（「这个构建里就没有这个渲染器」）共用同一套
+   居中堆叠，只有标题走错误色 —— 一个是正常状态，一个是这次出了岔子。 */
+.nexus-viewer-unavailable .nexus-workspace-empty-title {
+  color: var(--nexus-status-error-text);
 }
 
 /* 裸启动欢迎态的主行动。用强调色实底：这一屏只有这一个可点的东西，

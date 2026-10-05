@@ -1,8 +1,10 @@
 import React, { Suspense } from 'react';
-import { useLocale } from '../hooks.js';
+import { useLocale, useSettingValue } from '../hooks.js';
 import { ErrorBoundary } from '../ErrorBoundary.js';
 import type { ViewerRendererRegistry } from './registry.js';
 import { ViewerPlaceholder } from './ViewerPlaceholder.js';
+import { ViewerDisabled } from './ViewerDisabled.js';
+import { ViewerUnavailable } from './ViewerUnavailable.js';
 import type { ViewerDocumentDescriptor } from './types.js';
 
 export interface ViewerSurfaceProps {
@@ -26,19 +28,49 @@ export interface ViewerSurfaceProps {
  *   的说明）。resetKey 绑文档路径 —— 换一份文档必须清掉上一份的错误状态，
  *   否则一份坏 PDF 会让之后每一份 PDF 都显示同一张错误卡。
  * - `ViewerPlaceholder` 管**没有渲染器**：这不是错误，是当前构建的正常状态。
+ *
+ * 「没有渲染器」还分两种，各有一张卡（判据都来自注册表，这里不比对设置串）：
+ * 没登记 → `ViewerPlaceholder`；登记了但**被用户关掉** → `ViewerDisabled`。
+ * 画成同一张卡的话，用户分不出自己该换文件还是去设置里打开。
+ *
+ * **「渲染器的包没下载下来」走的是 `ErrorBoundary`，但换了一张卡。** 那条路
+ * 一定会经过边界（`React.lazy` 的 reject 只能由边界接），所以不另设分支 ——
+ * 由 `fallback` 读注册表决定画哪张。`hasFailed` **必须在回调里读**：闭包里捕获
+ * 到的是出错前那一版（`false`），第一次失败会被画成原始异常。
  */
 export const ViewerSurface: React.FC<ViewerSurfaceProps> = ({ document: doc, registry }) => {
   const { t } = useLocale();
+
+  /**
+   * 订阅启停设置。**值不参与渲染** —— 它只是触发器：`registry.get()` 每次现问谓词，
+   * 所以只要这个组件重渲染一次，被关掉的能力当场从画面上消失。
+   *
+   * 少了这一行，用户在设置里关掉 PDF 之后，已经打开的那份 PDF 会一直渲染到
+   * 下一次因为别的原因重渲染 —— 表现是「改了设置没反应」，而那是最容易被当成
+   * 「这个开关是坏的」的一类症状。
+   */
+  useSettingValue('plugins.disabled');
+
   const renderer = registry.get(doc.type);
 
   if (!renderer) {
-    return <ViewerPlaceholder document={doc} />;
+    // 两种「没人渲染」要分开：**没登记**（当前构建里就没有）与**被关掉了**（有，但用户在
+    // 设置里关了）。判据只有注册表那一个 —— 这里不比对设置串，那样就成了第二份口径。
+    return registry.isCapabilityEnabled(doc.type) ? (
+      <ViewerPlaceholder document={doc} />
+    ) : (
+      <ViewerDisabled document={doc} />
+    );
   }
 
   const Renderer = renderer.component;
 
   return (
-    <ErrorBoundary resetKey={doc.path} titleKey="error.viewerTitle">
+    <ErrorBoundary
+      resetKey={doc.path}
+      titleKey="error.viewerTitle"
+      fallback={() => (renderer.hasFailed ? <ViewerUnavailable document={doc} /> : null)}
+    >
       <div className="nexus-viewer-surface" data-viewer-type={doc.type}>
         <Suspense
           fallback={

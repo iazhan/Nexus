@@ -1,4 +1,5 @@
 import type { MarkdownMarker } from './types.js';
+import { ALL_CAPABILITIES_ENABLED, createChangeNotifier, type CapabilityEnabled } from '@nexus/core';
 import { translate } from '@nexus/i18n';
 
 export interface EditorExtensionControl {
@@ -16,8 +17,14 @@ export interface EditorExtensionControl {
  */
 export interface ExtensionStatus {
   id: string;
-  /** idle = 已注册但从未被触发；loading = 正在加载；loaded = 可用；failed = 加载失败 */
-  state: 'idle' | 'loading' | 'loaded' | 'failed';
+  /**
+   * idle = 已注册但从未被触发；loading = 正在加载；loaded = 可用；failed = 加载失败；
+   * disabled = 用户关掉了（永远不会加载）。
+   *
+   * `disabled` 不能并进 `idle`：两者都「没加载」，但 `idle` 的意思是「用到它就会加载」，
+   * `disabled` 是「用到了也不会加载」。画成同一个词就是谎报现状。
+   */
+  state: 'idle' | 'loading' | 'loaded' | 'failed' | 'disabled';
 }
 
 export interface EditorExtension {
@@ -64,7 +71,17 @@ class LazyExtension implements EditorExtension {
    */
   private failed = false;
 
-  public constructor(private readonly loader: ExtensionLoader) {
+  /**
+   * `onTransition` 在**每一个状态位翻转之后**调用。
+   *
+   * 三个位各翻各的，所以通知点有三处；漏掉任何一处，订阅方就会永远停在上一个状态
+   * （面板显示「加载中」不消失，正是这个形状）。通知本身要不要合并、要不要推迟，
+   * 由 `ExtensionHost` 那侧决定 —— 这里只如实报告「翻了」。
+   */
+  public constructor(
+    private readonly loader: ExtensionLoader,
+    private readonly onTransition: () => void
+  ) {
     this.id = loader.id;
   }
 
@@ -73,7 +90,12 @@ class LazyExtension implements EditorExtension {
   }
 
   public load(): Promise<void> {
-    this.wasRequested = true;
+    // 只在**真的翻转**时报告：`load()` 会被多个 widget 各调一次，重复报告
+    // 会让订阅方白重渲染（而状态一个字节都没变）。
+    if (!this.wasRequested) {
+      this.wasRequested = true;
+      this.onTransition();
+    }
     if (!this.pending) {
       this.pending = this.loader
         .load()
@@ -82,12 +104,14 @@ class LazyExtension implements EditorExtension {
           this.inner = extension;
           // 重试成功要把失败标记清掉，否则面板会一直显示「加载失败」
           this.failed = false;
+          this.onTransition();
         })
         // 失败要允许重试：清掉 pending，下一次 load() 会重新 import。
         // 不这么做的话，首次失败会被永久缓存，错误 UI 上的「重试」按钮点了没用。
         .catch((err) => {
           this.pending = null;
           this.failed = true;
+          this.onTransition();
           throw err;
         });
     }
@@ -124,6 +148,17 @@ class LazyExtension implements EditorExtension {
 export class ExtensionHost {
   private extensions: EditorExtension[] = [];
   private readonly lazy: LazyExtension[] = [];
+  private readonly notifier = createChangeNotifier();
+
+  /**
+   * 谁被用户关掉了。**在每次查表时求值，不在装配时筛** —— 于是启停立即生效：
+   * 不用重新注册（`registerLazy` 对重复 id 是抛错的）、不用重启、也不需要给宿主补一套撤销注册。
+   *
+   * 不传 ＝ 全启用，那正是加这个机制之前的行为，也是所有既有测试的默认。
+   */
+  public constructor(
+    private readonly isEnabled: CapabilityEnabled = ALL_CAPABILITIES_ENABLED
+  ) {}
 
   register(extension: EditorExtension) {
     this.extensions.push(extension);
@@ -131,13 +166,65 @@ export class ExtensionHost {
 
   /** 登记一个按需加载的扩展。谓词立刻生效，扩展包本体等第一次命中才 import。 */
   registerLazy(loader: ExtensionLoader): void {
-    const extension = new LazyExtension(loader);
+    const extension = new LazyExtension(loader, () => this.notifier.notify());
     this.lazy.push(extension);
     this.extensions.push(extension);
   }
 
+  /**
+   * 这个 id 现在启用吗。**启停的判定只有这一处** —— 查表、状态投影都问它，
+   * 所以「面板说已禁用、编辑器却照样渲染」这种两处不一致不可能发生。
+   *
+   * ## 为什么由扩展渲染的 widget 要把它的答案记进自己的身份
+   *
+   * 「宿主认不认领这个 marker」是**渲染结果的一部分**：认领 → 渲染体，不认领 → 源码文本。
+   * 而投影重算造出的新 widget 字段往往与旧的完全一样，`WidgetType.eq` 就按那几个字段比 ——
+   * 相等时 CodeMirror 会**直接复用旧 DOM**（`Reused.DOM`，连 `updateDOM` 都不调），
+   * 于是「用户刚在设置里关掉这个扩展」在 DOM 层完全看不见。
+   *
+   * 所以 `InlineMathWidget` / `BlockMathWidget` / `BlockMathPreviewWidget` / `CodeBlockWidget`
+   * 都把构造那一刻的答案存成 `handled`，并且：
+   *
+   * - 进 `eq()` —— 不然连 `updateDOM` 都不会被调到；
+   * - `updateDOM()` 里 `!handled` 直接返回 `false` —— 不然它会接过旧 DOM 只换个 widget
+   *   实例，画面还是上一版的渲染体。
+   *
+   * 两处少一处都只会静默退回「关了设置没反应」。重新打开走的是同一条路：`handled`
+   * 从 `false` 变 `true`，`eq` 不等 → 重跑 `toDOM` → 渲染回来。
+   */
+  isCapabilityEnabled(id: string): boolean {
+    return this.isEnabled(id);
+  }
+
+  /**
+   * 订阅扩展状态跃迁。返回退订函数。
+   *
+   * 存在的理由：`listExtensions()` 是**拉**模型，而扩展包是在用户看不见的时候加载完的
+   * （投影挂载那条路）。没有通知的话，插件面板只能靠借别人的刷新信号（文档版本号）
+   * 碰运气 —— 加载完成到下一次编辑之间，面板会一直停在「加载中」。
+   *
+   * **通知是异步的（下一拍），同拍的多次跃迁合并成一次。** 理由见 `createChangeNotifier`：
+   * `React.lazy` 的工厂在渲染过程中跑，同步通知会撞上「渲染期间更新」。
+   */
+  subscribe(listener: () => void): () => void {
+    return this.notifier.subscribe(listener);
+  }
+
+  /** 已经发出过多少次状态通知。`useSyncExternalStore` 的快照用它。 */
+  get revision(): number {
+    return this.notifier.revision;
+  }
+
+  /**
+   * 认领这个 marker 的扩展；没有则 `undefined`（调用方回落源码文本）。
+   *
+   * **被禁用的扩展直接跳过，而不是提前返回 `undefined`** —— 两个扩展认领同一种 marker 时
+   * （`registerLazy` 不禁止这件事），关掉前一个应该落到后一个上，而不是让这个 marker 没人管。
+   */
   getHandler(marker: MarkdownMarker): EditorExtension | undefined {
-    return this.extensions.find(ext => ext.canHandle(marker));
+    return this.extensions.find(
+      ext => this.isEnabled(ext.id) && ext.canHandle(marker)
+    );
   }
 
   /**
@@ -164,6 +251,10 @@ export class ExtensionHost {
    */
   listExtensions(): ExtensionStatus[] {
     return this.extensions.map((extension) => {
+      // 关掉的排在最前：用户的选择解释了「为什么什么都没渲染」，比加载态更该被看见
+      if (!this.isEnabled(extension.id)) {
+        return { id: extension.id, state: 'disabled' as const };
+      }
       // 静态注册的扩展在 host 里就是就绪的
       if (!(extension instanceof LazyExtension)) {
         return { id: extension.id, state: 'loaded' as const };

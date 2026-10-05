@@ -40,6 +40,7 @@ import {
   UI_ZOOM_STORAGE_KEY
 } from '../../../preload/ui-zoom.js';
 import { DELETE_MODES, type DeleteMode } from '../../../ipc/channels.js';
+import { BUILTIN_CAPABILITY_IDS } from '../capability-roster.js';
 
 /** 一个数值项的完整取值域。`step` 只给控件用，不参与夹取。 */
 export interface NumberSettingSpec {
@@ -651,6 +652,49 @@ export const STATUS_BAR_METRICS: GroupSettingSpec = {
   options: ['lineColumn', 'selection', 'format'],
   fallback: ''
 };
+
+export const PLUGINS_DISABLED_STORAGE_KEY = 'nexus-plugins-disabled';
+
+/**
+ * 被禁用的内置能力 —— 值同样是**被关掉的那些**，空串 ＝ 全启用。
+ *
+ * 复用 `GroupSettingSpec` 不是图省事，是三条性质都要：
+ *
+ * - **默认值就是空串**，而空串也正是「存档缺失 / 写坏了 / 被清掉」解析出来的东西 ——
+ *   失败方向天然安全：一个坏值不会静默关掉一项能力。
+ * - **将来加一个新能力，它对已有用户是「启用」的。** 存「启用列表」则相反 ——
+ *   新能力会在所有老用户那里默认关掉，而症状是「升级之后某个功能不见了」。
+ * - `options` 的顺序就是存储顺序，所以同一组开关无论按什么顺序点，存档里都是同一个字符串 ——
+ *   否则「值变了没有」会误报。
+ *
+ * `options` 取自出厂名册（`capability-roster.ts`），不是在这里手抄一遍：名册少一项的症状是
+ * 那个能力**永远没法被禁用**（开关点了没反应），而手抄的字符串在 id 常量改名时不会报错。
+ *
+ * **7 项，跨两个进程。** 渲染进程内那 5 个由 `isCapabilityDisabled` 消费；主进程那 2 个
+ * （`pdf-text` / `docx-text`）的值要经宿主设置通道送过去（`renderer/src/host-settings.ts`
+ * 的 `disabledCapabilities`），否则开关点了什么都不会发生 —— 那比没有开关更糟。
+ * 这一项的值是**一整份**：两个进程各自只认自己那几个 id，多出来的忽略。
+ */
+export const PLUGINS_DISABLED: GroupSettingSpec = {
+  storageKey: PLUGINS_DISABLED_STORAGE_KEY,
+  options: BUILTIN_CAPABILITY_IDS,
+  fallback: ''
+};
+
+/**
+ * 某个内置能力现在被禁用了吗。注册表把它当查表谓词注入（`CapabilityEnabled`）。
+ *
+ * 走 `disabledMembers` 而不是 `raw.includes(id)`：后者会把 `pdf` 匹配到 `pdf-text` 上。
+ * 这两个 id **同时**在名册里（`pdf` 是渲染器、`pdf-text` 是主进程处理器），所以子串
+ * 匹配会真的出错：关掉查看器会连带把处理器也判成关掉。
+ *
+ * **它只回答渲染进程认识的那几个。** 主进程那 2 个 id 虽然在名册里，但它们的启用与否
+ * 由主进程自己那份缓存决定（`electron/host-settings.ts` 的 `hostCapabilityEnabled`）——
+ * 两处问的是不同的问题，不是同一份口径的两处实现。
+ */
+export function isCapabilityDisabled(raw: string | null, id: string): boolean {
+  return disabledMembers(BUILTIN_CAPABILITY_IDS, raw).includes(id);
+}
 
 /**
  * UI 缩放。**取值口径（磁盘键 / 档位 / 解析）住在 `preload/ui-zoom.ts`** —— 那个文件

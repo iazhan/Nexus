@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   CHROME_VISIBILITY,
   disabledMembers,
+  isCapabilityDisabled,
   parseGroupSetting,
+  PLUGINS_DISABLED,
   serializeGroupMembers,
   STATUS_BAR_METRICS,
   toggleGroupMember,
   type GroupSettingSpec
 } from '../src/settings/preference-specs.js';
+import { BUILTIN_CAPABILITY_IDS } from '../src/capability-roster.js';
 
 const SPEC: GroupSettingSpec = {
   storageKey: 'test-group',
@@ -104,14 +107,15 @@ describe('开关组 · 拨动一个成员', () => {
   });
 });
 
-describe('两个真实取值域', () => {
+describe('三个真实取值域', () => {
   it('默认都是「全开」（空串）', () => {
     expect(CHROME_VISIBILITY.fallback).toBe('');
     expect(STATUS_BAR_METRICS.fallback).toBe('');
+    expect(PLUGINS_DISABLED.fallback).toBe('');
   });
 
   it('成员表非空且不重复', () => {
-    for (const spec of [CHROME_VISIBILITY, STATUS_BAR_METRICS]) {
+    for (const spec of [CHROME_VISIBILITY, STATUS_BAR_METRICS, PLUGINS_DISABLED]) {
       expect(spec.options.length).toBeGreaterThan(0);
       expect(new Set(spec.options).size).toBe(spec.options.length);
     }
@@ -143,5 +147,72 @@ describe('两个真实取值域', () => {
    */
   it('界面元素里有编辑器工具栏', () => {
     expect(CHROME_VISIBILITY.options).toContain('editorToolbar');
+  });
+});
+
+/**
+ * 内置插件启停。
+ *
+ * 这一组的成员表**不是手写的**，它从出厂名册（`capability-roster.ts`）拼出来 ——
+ * 于是「名册少一项」的后果是那个能力永远关不掉（开关点了没反应），而手抄的字符串
+ * 在 id 常量改名时不会报错。下面两条一正一反盯着这件事。
+ */
+describe('内置插件启停 · 取值域', () => {
+  it('成员表与出厂名册逐项相同、顺序也相同', () => {
+    // 顺序即存储顺序：两份表顺序不同的话，同一个集合会有两种写法，「值变了没有」会误报。
+    expect(PLUGINS_DISABLED.options).toEqual([...BUILTIN_CAPABILITY_IDS]);
+  });
+
+  it('名册非空，且每一项都能被这个取值域认出来', () => {
+    expect(BUILTIN_CAPABILITY_IDS.length).toBeGreaterThan(0);
+    for (const id of BUILTIN_CAPABILITY_IDS) {
+      expect(disabledMembers(PLUGINS_DISABLED.options, id)).toEqual([id]);
+    }
+  });
+});
+
+describe('isCapabilityDisabled', () => {
+  it('空串与 null ＝ 一个都没关', () => {
+    for (const id of BUILTIN_CAPABILITY_IDS) {
+      expect(isCapabilityDisabled('', id)).toBe(false);
+      expect(isCapabilityDisabled(null, id)).toBe(false);
+    }
+  });
+
+  it('关掉一个只影响它自己', () => {
+    const raw = serializeGroupMembers(PLUGINS_DISABLED.options, ['pdf']);
+
+    expect(isCapabilityDisabled(raw, 'pdf')).toBe(true);
+    // 反面：只断言「pdf 被关了」对「关掉 pdf 顺手把别的也关了」同样成立
+    for (const id of BUILTIN_CAPABILITY_IDS.filter((value) => value !== 'pdf')) {
+      expect(isCapabilityDisabled(raw, id)).toBe(false);
+    }
+  });
+
+  /**
+   * 按**整词**比对，不是子串包含。`raw.includes('pdf')` 会把 `pdf` 匹配到 `pdf-text` 上。
+   *
+   * P1-4b 之后这两个 id **同时在这份成员表里**了（`pdf` 是查看器、`pdf-text` 是文档处理器），
+   * 所以这条从「埋伏」变成了当场生效的判据。两个方向都要断言 —— 只测一个方向的话，
+   * 把实现换成 `raw.includes(id)` 恰好能过其中一个。
+   */
+  it('不按子串匹配：pdf 与 pdf-text 互不牵连（两个方向都测）', () => {
+    const onlyViewer = serializeGroupMembers(PLUGINS_DISABLED.options, ['pdf']);
+    expect(isCapabilityDisabled(onlyViewer, 'pdf')).toBe(true);
+    expect(isCapabilityDisabled(onlyViewer, 'pdf-text')).toBe(false);
+
+    const onlyProcessor = serializeGroupMembers(PLUGINS_DISABLED.options, ['pdf-text']);
+    expect(isCapabilityDisabled(onlyProcessor, 'pdf-text')).toBe(true);
+    expect(isCapabilityDisabled(onlyProcessor, 'pdf')).toBe(false);
+
+    // docx 那一对同理：`docx` 是 `docx-text` 的前缀。
+    const onlyDocx = serializeGroupMembers(PLUGINS_DISABLED.options, ['docx']);
+    expect(isCapabilityDisabled(onlyDocx, 'docx')).toBe(true);
+    expect(isCapabilityDisabled(onlyDocx, 'docx-text')).toBe(false);
+  });
+
+  it('认不出的 id 一律当作启用 —— 一个坏字节不该静默关掉一项能力', () => {
+    expect(isCapabilityDisabled('garbage', 'pdf')).toBe(false);
+    expect(isCapabilityDisabled('pdf,gone', 'gone')).toBe(false);
   });
 });

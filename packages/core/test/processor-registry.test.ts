@@ -72,6 +72,63 @@ describe('ProcessorRegistry', () => {
     });
   });
 
+  describe('启停', () => {
+    /** 两个处理器都注册上，谓词由用例控制。 */
+    function togglable(disabled: Set<string>) {
+      const registry = new ProcessorRegistry((id) => !disabled.has(id));
+      registry.register(processor('pdf-text', ['pdf'], { status: 'extracted', text: 'PDF 正文' }));
+      registry.register(processor('docx-text', ['docx'], { status: 'extracted', text: 'DOCX 正文' }));
+      return registry;
+    }
+
+    it('被关掉的处理器不认领任何类型，另一个照常', async () => {
+      const registry = togglable(new Set(['pdf-text']));
+
+      expect(registry.find('pdf')).toBeNull();
+      // 反面：关掉一个不能连累另一个 —— 否则「全都返回 null」也能过
+      expect(registry.find('docx')?.id).toBe('docx-text');
+
+      await expect(
+        registry.extract('pdf', { relativePath: 'a.pdf', bytes: bytes('') })
+      ).resolves.toEqual({ status: 'none', text: '' });
+      await expect(
+        registry.extract('docx', { relativePath: 'a.docx', bytes: bytes('') })
+      ).resolves.toEqual({ status: 'extracted', text: 'DOCX 正文' });
+    });
+
+    it('改谓词立即生效 —— 不用重新注册，也不用重建注册表', async () => {
+      // 这条是「查表时求值」的全部意义：设置是**运行期**改的，而注册发生在进程启动时。
+      const disabled = new Set<string>();
+      const registry = new ProcessorRegistry((id) => !disabled.has(id));
+      registry.register(processor('pdf-text', ['pdf'], { status: 'extracted', text: '正文' }));
+
+      expect(registry.find('pdf')?.id).toBe('pdf-text');
+
+      disabled.add('pdf-text');
+      expect(registry.find('pdf')).toBeNull();
+
+      // 再打开：回到可用态，而不是「关过一次就永久废了」
+      disabled.delete('pdf-text');
+      expect(registry.find('pdf')?.id).toBe('pdf-text');
+    });
+
+    it('list() 不受启停影响 —— 它是「出厂有哪些」，与「现在能不能用」两件事', () => {
+      const registry = togglable(new Set(['pdf-text', 'docx-text']));
+
+      expect(registry.list().map((item) => item.id)).toEqual(['pdf-text', 'docx-text']);
+      expect(registry.find('pdf')).toBeNull();
+    });
+
+    it('不传谓词时与从前逐字相同 —— 全部认领', () => {
+      // 缺省必须是 `ALL_CAPABILITIES_ENABLED`：加了这个构造参数之后，
+      // 任何忘了传的地方都会静默变成「什么都不认领」。
+      const registry = new ProcessorRegistry();
+      registry.register(processor('pdf-text', ['pdf'], { status: 'extracted', text: '正文' }));
+
+      expect(registry.find('pdf')?.id).toBe('pdf-text');
+    });
+  });
+
   describe('查找', () => {
     it('按类型找到认领它的处理器', () => {
       const registry = new ProcessorRegistry();

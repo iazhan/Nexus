@@ -3,9 +3,11 @@ import { translate } from '@nexus/i18n';
 import {
   extensionHostFacet,
   mountExtension,
-  type EditorExtensionControl
+  type EditorExtensionControl,
+  type ExtensionHost
 } from '../extensions.js';
 import { editorLocaleFacet } from '../source-editor.js';
+import type { MarkdownMarker } from '../types.js';
 import { activateMathSource } from './math-activation.js';
 
 export class LinkWidget extends WidgetType {
@@ -228,16 +230,35 @@ export class ImageWidget extends WidgetType {
 }
 
 export class InlineMathWidget extends WidgetType {
+  /**
+   * 建这个 widget 的时候，宿主**还认领**这个 marker 吗。
+   *
+   * 它必须进 `eq`，也必须让 `updateDOM` 直接返回 `false` —— 两处少一处都会让
+   * 「刚在设置里关掉 math」看不见。完整理由见 `ExtensionHost.isCapabilityEnabled`。
+   */
+  public readonly handled: boolean;
+
   public constructor(
     public readonly from: number,
     public readonly to: number,
     public readonly raw: string,
-    public readonly formula: string
+    public readonly formula: string,
+    host?: ExtensionHost
   ) {
     super();
+    this.handled = host?.getHandler(this.marker()) !== undefined;
   }
 
   private control?: EditorExtensionControl;
+
+  /**
+   * 交给宿主的 marker。构造、`toDOM`、`updateDOM` **共用这一个** ——
+   * 各写一遍的话，「`handled` 说还有宿主、`toDOM` 却查不到」这种漂移不会报错，
+   * 只会让关掉的扩展偶尔还渲染一下。
+   */
+  private marker(): MarkdownMarker {
+    return { type: 'inline-math', from: this.from, to: this.to, text: this.formula };
+  }
 
   public toDOM(view: EditorView): HTMLElement {
     const span = document.createElement('span');
@@ -257,7 +278,7 @@ export class InlineMathWidget extends WidgetType {
 
     this.control = mountExtension(
       host,
-      { type: 'inline-math', from: this.from, to: this.to, text: this.formula },
+      this.marker(),
       span,
       this.formula,
       () => {
@@ -285,6 +306,9 @@ export class InlineMathWidget extends WidgetType {
   }
 
   public updateDOM(dom: HTMLElement, _view: EditorView): boolean {
+    // 建它的时候就没有宿主认领 → 这枚 DOM 里是 fallback 的源码文本，没有可转发的渲染体。
+    // 返回 `false` 让 CodeMirror 重跑 `toDOM`（那时宿主可能又认领了，会渲染出来）。
+    if (!this.handled) return false;
     const control = (dom as any).__nexusExtensionControl as EditorExtensionControl | undefined;
     if (control) {
       control.update(this.formula);
@@ -300,7 +324,8 @@ export class InlineMathWidget extends WidgetType {
       other.from === this.from &&
       other.to === this.to &&
       other.raw === this.raw &&
-      other.formula === this.formula
+      other.formula === this.formula &&
+      other.handled === this.handled
     );
   }
 

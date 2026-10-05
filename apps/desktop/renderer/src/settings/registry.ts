@@ -2,10 +2,10 @@
  * 设置注册表：分组与字段的**唯一数据源**。设置页左栏、内容区、外观菜单（现名「首选项」）都读它 ——
  * 三处各列一遍必然漂移，而漂移已经发生过一次：手写的外观菜单漏掉了「跟随系统」。
  *
- * `availability` 落在数据上、不是组件里的 8 个 `if` —— 这是「全部分组都显示、未实现的走空态」的前提。
+ * `availability` 落在数据上、不是组件里每组一个 `if` —— 这是「全部分组都显示、未实现的走空态」的前提。
  *
- * **字段可以属于一个本期不做内容的分组**：`plugins` / `sync` 两组仍是 `planned`，
- * 内容区是空态，但仍是菜单项。按分组过滤菜单会让它们消失，那是功能回退。
+ * **字段可以属于一个本期不做内容的分组**：`sync` 一组仍是 `planned`，
+ * 内容区是空态，但仍是菜单项。按分组过滤菜单会让它消失，那是功能回退。
  */
 
 import {
@@ -33,6 +33,7 @@ import {
   SyncIcon,
   ViewerIcon
 } from '../components/section-icons.js';
+import { BUILTIN_CAPABILITY_IDS, capabilityLabelKey } from '../capability-roster.js';
 import { applyThemeChoice, localeManager, mermaidPreviewPreference, settings, themeManager } from '../platform.js';
 import { hostSettingsSynced } from '../host-settings.js';
 import { readDiagnosticsText } from './diagnostics.js';
@@ -166,8 +167,8 @@ export const SECTIONS: readonly SectionDef[] = [
     titleKey: 'settings.section.plugins',
     icon: PluginsIcon,
     order: 7,
-    availability: 'planned',
-    keywords: ['扩展', '插件', 'extension', 'addon', 'plugin']
+    availability: 'available',
+    keywords: ['扩展', '插件', '禁用', '启停', 'extension', 'addon', 'plugin', 'disable', 'enable']
   },
   {
     id: 'sync',
@@ -194,7 +195,7 @@ export function sectionById(id: SectionId): SectionDef | undefined {
   return SECTIONS.find((section) => section.id === id);
 }
 
-/** 存档里可能是旧的分组 id，用它校验成员资格 —— 不校验 `availability`，那六组也进得去（看空态）。 */
+/** 存档里可能是旧的分组 id，用它校验成员资格 —— 不校验 `availability`，`sync` 那组也进得去（看空态）。 */
 export function isSectionId(id: string): id is SectionId {
   return SECTIONS.some((section) => section.id === id);
 }
@@ -575,6 +576,37 @@ export const STATUS_BAR_METRICS_FIELD: FieldDef = {
     read: () => settings.get('appearance.statusBarMetrics'),
     write: (value) => settings.set('appearance.statusBarMetrics', value),
     subscribe: (listener) => settings.subscribe('appearance.statusBarMetrics', listener)
+  },
+  menu: false
+};
+
+/**
+ * 内置插件的启停。**第三个 `control: 'group'`**，值同样是「被关掉的那些」，空串 ＝ 全启用。
+ *
+ * 成员表取自出厂名册（`capability-roster.ts`），**不在 `options` 里手抄一遍 id** ——
+ * 名册少一项的症状是那个能力永远关不掉（开关点了没反应），而手抄的字符串在 id 常量
+ * 改名时不会报错。可读名也走同一份名册（`capabilityLabelKey`），与活动栏面板同一个答案。
+ *
+ * **这里只画静态名册，不显示运行状态** —— 设置窗口是另一个窗口，两个注册表都不存在，
+ * 那份「现在加载到哪一步」在这里根本读不到。分工是：设置页管**能改什么**，
+ * 活动栏面板管**现在怎么样**（见 `docs/plugin-system-plan.md` §5 决策 #2）。
+ *
+ * **7 项，跨两个进程**（渲染进程内 5 个 + 主进程 2 个文档处理器）。主进程那 2 个的值要经
+ * 宿主设置通道送过去（`renderer/src/host-settings.ts` 的 `disabledCapabilities`），
+ * 否则开关点了什么都不会发生 —— 那比没有开关更糟。理由见 `capability-roster.ts`。
+ */
+export const PLUGINS_DISABLED_FIELD: FieldDef = {
+  id: 'plugins.disabled',
+  section: 'plugins',
+  labelKey: 'settings.plugins.disabled',
+  descriptionKey: 'settings.plugins.disabledDescription',
+  keywords: ['插件', '扩展', '禁用', '启用', '关闭', 'plugin', 'extension', 'disable', 'enable', 'turn off'],
+  control: 'group',
+  options: BUILTIN_CAPABILITY_IDS.map((id) => ({ value: id, labelKey: capabilityLabelKey(id) })),
+  accessor: {
+    read: () => settings.get('plugins.disabled'),
+    write: (value) => settings.set('plugins.disabled', value),
+    subscribe: (listener) => settings.subscribe('plugins.disabled', listener)
   },
   menu: false
 };
@@ -1527,6 +1559,7 @@ export const FIELDS: readonly FieldDef[] = [
   PANEL_WIDTH_FIELD,
   OUTLINE_LEVEL_FIELD,
   PDF_PAGE_LAYOUT_FIELD,
+  PLUGINS_DISABLED_FIELD,
   REBUILD_INDEX_FIELD,
   HISTORY_RETENTION_FIELD,
   OPEN_HISTORY_DIR_FIELD,

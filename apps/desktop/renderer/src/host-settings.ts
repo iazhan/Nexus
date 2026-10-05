@@ -24,6 +24,8 @@
 import { parseHistoryRetention, parseIgnoreRules } from '@nexus/core';
 import type { HostSettings } from '../../ipc/channels.js';
 import { settings } from './platform.js';
+import { disabledMembers } from './settings/preference-specs.js';
+import { BUILTIN_CAPABILITY_IDS } from './capability-roster.js';
 
 /**
  * 主进程关心的那一份。**加一项时这里与 `HostSettings` 一起改** ——
@@ -33,7 +35,13 @@ function currentHostSettings(): HostSettings {
   return {
     ignoreRules: parseIgnoreRules(settings.get('files.ignoreRules')),
     historyRetention: parseHistoryRetention(settings.get('data.historyRetention')),
-    restoreLastWorkspace: settings.get('general.restoreLastWorkspace')
+    restoreLastWorkspace: settings.get('general.restoreLastWorkspace'),
+    // 送的是**归一化后的成员数组**，不是存档里的原串：主进程只做 `includes` 查表，
+    // 不该让它也懂「逗号分隔 + 顺序 + 去重」这套存档格式（那正是 `disabledMembers` 的职责）。
+    disabledCapabilities: disabledMembers(
+      BUILTIN_CAPABILITY_IDS,
+      settings.get('plugins.disabled')
+    )
   };
 }
 
@@ -44,8 +52,16 @@ function currentHostSettings(): HostSettings {
  * `subscribe` 一次只收一个键，所以这里是数组而不是单个字符串。
  */
 const WATCHED: ReadonlyArray<
-  'files.ignoreRules' | 'data.historyRetention' | 'general.restoreLastWorkspace'
-> = ['files.ignoreRules', 'data.historyRetention', 'general.restoreLastWorkspace'];
+  | 'files.ignoreRules'
+  | 'data.historyRetention'
+  | 'general.restoreLastWorkspace'
+  | 'plugins.disabled'
+> = [
+  'files.ignoreRules',
+  'data.historyRetention',
+  'general.restoreLastWorkspace',
+  'plugins.disabled'
+];
 
 /** 最近一次推送。串起来是为了「改得快」时后一次不会先落地。 */
 let pending: Promise<void> = Promise.resolve();

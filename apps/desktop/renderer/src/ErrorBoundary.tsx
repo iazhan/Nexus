@@ -14,6 +14,14 @@ export interface ErrorBoundaryProps {
    * 拿不到 `useLocale()`，只能自己订阅 `localeManager` 才跟得上语言切换。
    */
   titleKey?: string;
+  /**
+   * 自定义兜底卡片。**在错误发生之后调用** —— 所以函数体里读到的外部状态（注册表、
+   * 全局单例）已经是新的。这正是「第一次加载就失败也能当场换成对的卡」所依赖的：
+   * 闭包里捕获的状态是**出错前**那一版，读到的会是 `false`。
+   *
+   * 返回 `null` 表示「用默认卡」—— 只关心某一类错误的调用方不必把默认卡的标记抄一遍。
+   */
+  fallback?: (error: Error) => React.ReactNode;
 }
 
 interface ErrorBoundaryState {
@@ -77,6 +85,11 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     const { error } = this.state;
     if (!error) {
       return this.props.children;
+    }
+
+    const custom = this.props.fallback?.(error);
+    if (custom !== null && custom !== undefined) {
+      return <>{custom}</>;
     }
 
     const t = (key: string) => localeManager.t(key);

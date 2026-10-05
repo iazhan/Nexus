@@ -117,15 +117,24 @@ describe('设置窗口', () => {
       await app.evaluate<number>(
         `document.querySelectorAll('.nexus-settings-nav [data-availability="planned"]').length`
       )
-    ).toBe(2);
+    ).toBe(1);
     // 数据分组这一批转可用：里面是两个动作（重建索引 / 打开历史目录）。
     // 文件与链接分组随「粘贴图片落盘」转可用（附件存放位置 / 子目录名 / 命名模板），
-    // 后又加了「新建文档默认位置」。
+    // 后又加了「新建文档默认位置」。插件分组随「内置能力启停」转可用。
     expect(
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('.nexus-settings-nav [data-availability="available"]')).map((el) => el.getAttribute('data-section'))`
       )
-    ).toEqual(['general', 'editor', 'viewer', 'files', 'appearance', 'keybindings', 'data']);
+    ).toEqual([
+      'general',
+      'editor',
+      'viewer',
+      'files',
+      'appearance',
+      'keybindings',
+      'plugins',
+      'data'
+    ]);
     // 独立窗口没有「返回工作区」这个键了 —— 关窗归标题栏与 Escape
     expect(await app.evaluate<boolean>(`!!document.querySelector('[data-settings-back]')`)).toBe(
       false
@@ -720,6 +729,19 @@ describe('设置窗口', () => {
       `(() => { window.nexusSettings.set('appearance.uiZoom', '100'); return true; })()`
     );
     expect(await stableWidth()).toBeGreaterThan(mainBaseWidth * 0.9);
+
+    // ⑩ 带分组打开设置窗口 —— 「在设置中管理」那条路。**此时设置窗口已经开着**
+    //    （第 ⑨ 步刚用过），所以这一条验的正是单例分支：只聚焦不重载的话，分组还停在
+    //    `appearance`（第 ⑨ 步点过去的），`waitForSelector` 会超时 —— 那正是用户
+    //    从活动栏点「在设置中管理」时「点了没反应」的样子。
+    await app.attachToWindow(MAIN_WINDOW_URL_MARKER);
+    await app.evaluate(`window.nexus.openSettingsWindow('plugins')`);
+    await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
+    await app.waitForSelector('[data-settings-section="plugins"]', 10000);
+    // 是「同一个窗口重载」而不是「又开了一个」。
+    expect(
+      (await app.pageTargets()).filter((t) => t.url.includes(SETTINGS_WINDOW_URL_MARKER)).length
+    ).toBe(1);
 
     // 还原字号、藏起来的读数与上次停留的分组：Electron 的 user-data-dir **没有按用例隔离**，
     // 留一个 18px 或「状态栏少一项」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。

@@ -182,6 +182,18 @@ export const IPC_CHANNELS = {
 export type WindowRole = 'main' | 'settings' | 'theme';
 
 /**
+ * 设置窗口「落在哪个分组」的查询串参数，与 `window` 参数走同一条路。
+ *
+ * 定义在这里而不是主进程与渲染进程各写一份：两边必须拼/读同一个名字 —— 各写一遍的话，
+ * 改一处漏一处不会有任何东西报错，症状只是「跳转打开了设置窗口却停在旧分组」。
+ *
+ * **取值不在这里校验**：合法值域是渲染进程的 `SectionId`，主进程不认识它。认不出的值
+ * 由渲染进程忽略、回落 `settings.lastSection` —— 与 `readWindowRole()` 的「认不出的值
+ * 一律当主窗口」同一个方向：宁可停在默认分组，也不要把用户丢进一个空页。
+ */
+export const SETTINGS_SECTION_PARAM = 'section';
+
+/**
  * 自绘窗口按钮需要同步的最小状态集合。
  */
 export interface WindowState {
@@ -402,6 +414,18 @@ export interface HostSettings {
    * 这是 `host-settings.ts` 那句「内存而不是落盘」的唯一例外。
    */
   restoreLastWorkspace: boolean;
+  /**
+   * 被用户关掉的内置能力 id（`plugins.disabled` 归一化后的结果）。
+   *
+   * **只有主进程那一侧的消费者会用它**：文档处理器（`pdf-text` / `docx-text`）住在主进程，
+   * 而「哪个处理器现在不能跑」只有主进程能照着做。渲染进程内那 5 个能力也在这个表里，
+   * 但主进程**不认识它们** —— 多出来的 id 一律忽略（与 `sanitizeHostSettings` 对未知键的
+   * 态度一致：前向兼容，多送一项不该让整条通道报错）。
+   *
+   * 送的是**归一化后的 id 列表**而不是存档里的逗号串（`'pdf-text,nexus-math'`）：
+   * 「存档格式」是渲染进程的事（`GroupSettingSpec`），主进程只该拿到「哪些被关掉了」。
+   */
+  disabledCapabilities: readonly string[];
 }
 
 /**
@@ -415,11 +439,16 @@ export interface HostSettings {
  * 这一项没有「保守」可言 —— 关掉它只是让人看到欢迎态，不会少删或误删任何东西。
  * 与设置项唱反调反而制造出一个真实的分歧：同一件「用户没表达过偏好」，
  * 主进程说开、渲染进程说开，唯独这里说关。
+ *
+ * `disabledCapabilities: []` 与设置项的默认值一致，而且这里**没有别的选择**：
+ * 空表 ＝ 一个都没关 ＝ 全部启用，正是加启停之前的行为。任何「更保守」的替代
+ * （比如默认全关）都会让主进程在收到设置之前什么都不提取。
  */
 export const DEFAULT_HOST_SETTINGS: HostSettings = {
   ignoreRules: [],
   historyRetention: null,
-  restoreLastWorkspace: true
+  restoreLastWorkspace: true,
+  disabledCapabilities: []
 };
 
 /**

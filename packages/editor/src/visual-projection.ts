@@ -22,6 +22,8 @@ export {
   setDocumentDirectoryEffect,
   documentDirectoryField,
   setDocumentDirectory,
+  capabilitiesChangedEffect,
+  notifyCapabilitiesChanged,
   setTableTargetEffect,
   tableTargetField,
   DEFAULT_MERMAID_PREVIEW_SETTINGS,

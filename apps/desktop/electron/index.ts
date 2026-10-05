@@ -22,7 +22,12 @@ import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js
 import { createElectronFileDialog } from './file-dialog.js';
 import { createElectronTrash } from './trash.js';
 import { HistoryStore, HISTORY_DIR } from './history-store.js';
-import { hostSettings, sanitizeHostSettings, updateHostSettings } from './host-settings.js';
+import {
+  hostCapabilityEnabled,
+  hostSettings,
+  sanitizeHostSettings,
+  updateHostSettings
+} from './host-settings.js';
 import {
   applyRecentWorkspace,
   EMPTY_RECENT_WORKSPACE,
@@ -39,6 +44,7 @@ import { forgetWindow, isWindowDirty, markWindowDirty } from './window-dirty.js'
 import {
   DELETE_MODES,
   IPC_CHANNELS,
+  SETTINGS_SECTION_PARAM,
   type CreateDirectoryRequest,
   type CreateFileRequest,
   type DeleteMode,
@@ -238,12 +244,19 @@ const WINDOW_QUERY: Record<WindowRole, Record<string, string>> = {
  * 把渲染产物装进窗口。三个窗口跑**同一份产物**，只有角色参数不同 ——
  * 另开一个构建目标意味着主题、i18n、设置存档、样式全都要么抽公共包要么抄一遍。
  */
-function loadRenderer(win: BrowserWindowType, role: WindowRole): void {
+function loadRenderer(
+  win: BrowserWindowType,
+  role: WindowRole,
+  extraQuery: Record<string, string> = {}
+): void {
+  // 两条路（dev 的 loadURL / 打包的 loadFile）**共用同一份 query**。原先各拼一次，
+  // 加参数时漏改一条的症状是「dev 能用、打包不能用」—— 而本地开发跑的正是 dev。
+  const query = { ...WINDOW_QUERY[role], ...extraQuery };
   const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
   if (devServerUrl) {
-    win.loadURL(`${devServerUrl}?${WINDOW_ROLE_PARAM}=${role}`);
+    win.loadURL(`${devServerUrl}?${new URLSearchParams(query).toString()}`);
   } else {
-    win.loadFile(path.join(__dirname, '../renderer/index.html'), { query: WINDOW_QUERY[role] });
+    win.loadFile(path.join(__dirname, '../renderer/index.html'), { query });
   }
 }
 
@@ -406,11 +419,20 @@ let settingsWindow: BrowserWindowType | null = null;
  *    `BrowserWindow.fromWebContents(event.sender)` 定位窗口，所以这里不需要任何改动。
  * 3. **关闭即销毁**，不做「隐藏起来复用」。设置窗口没有需要保活的状态 —— 分组停在哪儿
  *    存在 `settings.lastSection` 里，重建一次就能恢复。
+ * 4. **`section` 参数只决定「落在哪一组」**，且已开着时会**重新加载**：单例窗口只聚焦
+ *    的话分组不会变，用户从活动栏点「在设置中管理」会以为点了没反应。第 3 条
+ *    （没有需要保活的状态）正是重载安全的前提。
  */
-function createSettingsWindow(): BrowserWindowType {
+function createSettingsWindow(section?: string): BrowserWindowType {
+  const extraQuery: Record<string, string> = section
+    ? { [SETTINGS_SECTION_PARAM]: section }
+    : {};
+
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     if (settingsWindow.isMinimized()) settingsWindow.restore();
     settingsWindow.focus();
+    // 指定了分组就重新加载（理由见头注释第 4 条）。
+    if (section) loadRenderer(settingsWindow, 'settings', extraQuery);
     return settingsWindow;
   }
 
@@ -435,7 +457,7 @@ function createSettingsWindow(): BrowserWindowType {
     settingsWindow = null;
   });
 
-  loadRenderer(win, 'settings');
+  loadRenderer(win, 'settings', extraQuery);
 
   return win;
 }
@@ -1495,7 +1517,9 @@ ipcMain.handle(IPC_CHANNELS.rebuildIndex, async (event, rootPath: unknown) => {
     // 跳过规则与「扫描工作区」那条通道取的是**同一份**宿主设置 —— 索引与文件树是
     // 两个投影，规则不一致会让「树里没有、搜索里有」。
     scanOptions: { ignoreRules: hostSettings().ignoreRules },
-    processors: createProcessorRegistry()
+    // 启停谓词与设置同源：`hostCapabilityEnabled` 每次查表现读渲染进程刚送来的那份
+    // `disabledCapabilities`，所以关掉一个处理器之后下一次索引就变了（P1-4b）。
+    processors: createProcessorRegistry(hostCapabilityEnabled)
   });
 });
 
@@ -1628,8 +1652,11 @@ ipcMain.handle(IPC_CHANNELS.getWindowState, (event): WindowState => {
 
 // 设置窗口的入口。**只从主窗口触发** —— 设置窗口里没有「再开一个设置窗口」的入口，
 // 单例判定因此只需挡「重复点主窗口的齿轮」这一种情况。
-ipcMain.handle(IPC_CHANNELS.openSettingsWindow, () => {
-  createSettingsWindow();
+//
+// `section` 是要落在哪个分组（如 `'plugins'`）。**只收字符串**：认不出的载荷一律当
+// 「没指定分组」，由渲染进程回落存档 —— 主进程不认识分组名，校验在那一侧。
+ipcMain.handle(IPC_CHANNELS.openSettingsWindow, (_event, section?: unknown) => {
+  createSettingsWindow(typeof section === 'string' ? section : undefined);
 });
 
 // 主题窗口的入口。**只从设置窗口触发** —— 主窗口里没有直达主题编辑器的入口。

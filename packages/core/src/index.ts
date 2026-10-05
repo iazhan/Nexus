@@ -92,6 +92,8 @@ export {
 
 export { ProcessorRegistry } from './processor/registry.js';
 
+export { PDF_TEXT_PROCESSOR_ID, DOCX_TEXT_PROCESSOR_ID } from './processor/ids.js';
+
 export {
   parseLaunchArgs,
   type ParseLaunchArgsOptions
@@ -163,3 +165,7 @@ export {
   parseHistoryRetention,
   entriesToTrim
 } from './history/retention.js';
+
+export { type ChangeNotifier, createChangeNotifier } from './state/change-notifier.js';
+
+export { type CapabilityEnabled, ALL_CAPABILITIES_ENABLED } from './plugins/enabled.js';

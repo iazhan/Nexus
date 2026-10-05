@@ -41,6 +41,7 @@ import {
   DELETE_BEHAVIOR_DEFAULT,
   DELETE_BEHAVIOR_OPTIONS,
   DELETE_BEHAVIOR_STORAGE_KEY,
+  PLUGINS_DISABLED,
   STATUS_BAR_METRICS,
   EDITOR_CONTENT_WIDTH_DEFAULT,
   EDITOR_CONTENT_WIDTH_OPTIONS,
@@ -587,7 +588,14 @@ export const SETTING_DEFS = {
   'appearance.chromeVisibility': groupSetting(CHROME_VISIBILITY),
 
   /** 状态栏右侧显示项。同上，值是「被藏起来的那些」。 */
-  'appearance.statusBarMetrics': groupSetting(STATUS_BAR_METRICS)
+  'appearance.statusBarMetrics': groupSetting(STATUS_BAR_METRICS),
+
+  /**
+   * 被禁用的内置能力。**第三个 `control: 'group'`**，值同样是「被关掉的那些」，
+   * 空串 ＝ 全启用 —— 为什么是「关掉的」而不是「开着的」，见 `GroupSettingSpec` 的两条理由
+   * （那两条在这里的收益最大：默认全启用，所以一个坏值不会静默关掉一项能力）。
+   */
+  'plugins.disabled': groupSetting(PLUGINS_DISABLED)
 };
 
 export type SettingPath = keyof typeof SETTING_DEFS;

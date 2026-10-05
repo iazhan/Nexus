@@ -13,6 +13,7 @@ import {
   setMermaidPreviewSettings,
   applyEditorVim,
   loadVimExtension,
+  notifyCapabilitiesChanged,
   type EditorSurfaceKind,
   type EditorSaveState,
   type EditorSelectionInfo,
@@ -305,6 +306,24 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
     };
     apply();
     return settings.subscribe('editor.spellCheck', apply);
+  }, []);
+
+  /**
+   * 内置插件启停。**这个 effect 不自己改扩展** —— 它只把投影叫醒。
+   *
+   * 「谁被关掉了」只有注册表那一个答案，而投影每建一个 widget 都现问 `host.getHandler()`，
+   * 所以这里唯一要做的就是把重算触发起来（投影是 `StateField`，改设置不产生它认的变化）。
+   * 自己在这边判一遍启停、再去卸扩展，就是第二份口径 —— 而它必然会与注册表那份漂移。
+   *
+   * 不判 `surfaceKind`：Source 面没有投影字段，这个 effect 落进去无人认领、也就什么都不做。
+   */
+  useEffect(() => {
+    const apply = () => {
+      if (handleRef.current) {
+        notifyCapabilitiesChanged(handleRef.current.view);
+      }
+    };
+    return settings.subscribe('plugins.disabled', apply);
   }, []);
 
   /**

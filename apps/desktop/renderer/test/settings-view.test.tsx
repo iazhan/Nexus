@@ -28,6 +28,8 @@ import {
 } from '../src/platform.js';
 import { PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH } from '../src/workspace/panel-width.js';
 import { LINK_FORMAT_DEFAULT, LINK_FORMATS } from '../src/settings/preference-specs.js';
+import { BUILTIN_CAPABILITY_IDS } from '../src/capability-roster.js';
+import { MATH_EXTENSION_ID, MERMAID_EXTENSION_ID } from '@nexus/editor';
 
 /**
  * 设置本体与 Appearance 分组的渲染（P4-03 / P4-04）。
@@ -113,11 +115,11 @@ describe('设置视图 · 左栏', () => {
     container.remove();
   });
 
-  it('九组全显示，两组标 planned、其余可用', () => {
+  it('九组全显示，一组标 planned、其余可用', () => {
     renderSettings();
 
     expect(navItems()).toHaveLength(SECTIONS.length);
-    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-availability="planned"]')).toHaveLength(1);
 
     const available = navItems().filter(
       (item) => item.dataset.availability === 'available'
@@ -129,6 +131,7 @@ describe('设置视图 · 左栏', () => {
       'files',
       'appearance',
       'keybindings',
+      'plugins',
       'data'
     ]);
   });
@@ -735,6 +738,105 @@ describe('设置视图 · 开关组（界面元素显隐 / 状态栏显示项）
 
     expect(container.querySelector('[data-field-reset="appearance.chromeVisibility"]')).toBeNull();
     expect(container.querySelector('[data-field-reset="appearance.statusBarMetrics"]')).toBeNull();
+  });
+});
+
+/**
+ * 设置视图 · 插件分组。
+ *
+ * 这一页只画**静态名册**（「出厂有哪些能力」），不显示运行状态 —— 设置窗口是另一个窗口，
+ * 两个注册表都不存在，那份状态在这里根本读不到。分工：设置页管「能改什么」，
+ * 活动栏面板管「现在怎么样」。所以这里的断言全是「成员表 + 写回存档」，
+ * 没有一条读状态。
+ *
+ * 与上面那两组开关的区别只有一处，但它值得单钉：**勾上 ＝ 启用**（上面两组是「勾上 ＝ 显示」）。
+ * 存储语义仍然是「被关掉的那些」，两处一致。
+ */
+describe('设置视图 · 插件', () => {
+  beforeEach(() => {
+    settings.set('plugins.disabled', '');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    settings.set('plugins.disabled', '');
+  });
+
+  function members(): HTMLElement[] {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>('[data-field-member^="plugins.disabled:"]')
+    );
+  }
+
+  function member(id: string): HTMLElement | null {
+    return container.querySelector<HTMLElement>(`[data-field-member="plugins.disabled:${id}"]`);
+  }
+
+  function isOn(el: HTMLElement | null): boolean {
+    return el?.getAttribute('aria-checked') === 'true';
+  }
+
+  it('插件分组是可用分组，渲染出全部内置能力的开关', () => {
+    renderSettings('plugins');
+
+    // 可用分组才画得出字段；仍是 `planned` 的话这里会是空态
+    expect(container.querySelector('.nexus-settings-empty')).toBeNull();
+    // 成员表与出厂名册逐项相同 —— 少一项的后果是那个能力永远关不掉
+    expect(members().map((el) => el.dataset.fieldMember)).toEqual(
+      BUILTIN_CAPABILITY_IDS.map((id) => `plugins.disabled:${id}`)
+    );
+  });
+
+  it('默认全启用：每个开关都是勾上的', () => {
+    renderSettings('plugins');
+
+    expect(members().length).toBeGreaterThan(0);
+    for (const el of members()) {
+      expect(isOn(el)).toBe(true);
+    }
+  });
+
+  it('点一下关掉：存档写的是被关掉的那一个，其余照旧勾着', () => {
+    renderSettings('plugins');
+
+    act(() => member('pdf')?.click());
+
+    expect(settings.get('plugins.disabled')).toBe('pdf');
+    expect(isOn(member('pdf'))).toBe(false);
+    // 反面：关掉一个不能连累另一个
+    expect(isOn(member('image'))).toBe(true);
+    expect(isOn(member('docx'))).toBe(true);
+  });
+
+  it('再点一下打开，回到空串', () => {
+    renderSettings('plugins');
+
+    act(() => member(MERMAID_EXTENSION_ID)?.click());
+    expect(settings.get('plugins.disabled')).toBe(MERMAID_EXTENSION_ID);
+
+    act(() => member(MERMAID_EXTENSION_ID)?.click());
+    expect(settings.get('plugins.disabled')).toBe('');
+  });
+
+  it('另一个窗口改了也跟得上', () => {
+    renderSettings('plugins');
+
+    act(() => settings.set('plugins.disabled', 'image'));
+
+    expect(isOn(member('image'))).toBe(false);
+    expect(isOn(member(MATH_EXTENSION_ID))).toBe(true);
+  });
+
+  it('不画重置键 —— 被关掉的成员就画在旁边，点回来即可', () => {
+    act(() => settings.set('plugins.disabled', 'docx'));
+
+    renderSettings('plugins');
+
+    expect(container.querySelector('[data-field-reset="plugins.disabled"]')).toBeNull();
   });
 });
 
@@ -2646,6 +2748,75 @@ describe('设置分组状态', () => {
     });
 
     expect(latest?.section).toBe('appearance');
+  });
+});
+
+/**
+ * 查询串里的 `section` —— 活动栏的插件面板「在设置中管理」走这条路。
+ *
+ * 与角色（`window-role.ts`）同一条路：首帧同步可读，所以要在**渲染之前**把 URL 摆好。
+ */
+describe('设置分组的查询串落点', () => {
+  let latest: SettingsSectionState | null = null;
+
+  const Probe: React.FC = () => {
+    latest = useSettingsSection();
+    return null;
+  };
+
+  /** 摆好 URL 再挂载 —— `useSettingsSection` 只在**首次渲染**读一次查询串。 */
+  const renderWith = (search: string): void => {
+    window.history.replaceState({}, '', `/${search}`);
+    latest = null;
+    act(() => {
+      root.render(<Probe />);
+    });
+  };
+
+  beforeEach(() => {
+    latest = null;
+    settings.set('settings.lastSection', 'appearance');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    window.history.replaceState({}, '', '/');
+    settings.set('settings.lastSection', 'appearance');
+  });
+
+  it('查询串指定分组时落在该分组，并写进存档', () => {
+    renderWith('?window=settings&section=plugins');
+
+    expect(latest?.section).toBe('plugins');
+    // 写进存档：下次打开设置停在这一组，与「在左栏点了一下」是同一种效果。
+    expect(settings.get('settings.lastSection')).toBe('plugins');
+  });
+
+  it('查询串是认不出的分组时回落存档 —— 不把用户丢进一个空页', () => {
+    settings.set('settings.lastSection', 'editor');
+    renderWith('?window=settings&section=nonsense');
+
+    expect(latest?.section).toBe('editor');
+  });
+
+  /**
+   * 反面：查询串的落点**只消费一次**。
+   *
+   * 留着它一直压着存档的话，用户接下来点任何分组都点不动（URL 没变），
+   * 而症状是「左栏点了没反应」—— 这条用例专门守这个。
+   */
+  it('查询串的落点只消费一次 —— 之后点别的分组切得动', () => {
+    renderWith('?window=settings&section=plugins');
+    expect(latest?.section).toBe('plugins');
+
+    act(() => latest?.selectSection('data'));
+
+    expect(latest?.section).toBe('data');
+    expect(settings.get('settings.lastSection')).toBe('data');
   });
 });
 

@@ -6,10 +6,12 @@ import {
   type ViewUpdate
 } from '@codemirror/view';
 import { isEditorComposing, setComposingEffect } from '../ime-composition.js';
+import { extensionHostFacet } from '../extensions.js';
 import { editorLocaleFacet } from '../source-editor.js';
 import { subEditorLifecyclePlugin } from './sub-editor.js';
 import {
   DEFAULT_MERMAID_PREVIEW_SETTINGS,
+  capabilitiesChangedEffect,
   documentDirectoryField,
   hoveredCodeBlockField,
   mermaidPreviewCompartment,
@@ -36,7 +38,8 @@ export const visualProjectionField = StateField.define<DecorationSet>({
       docDir,
       locale,
       state.field(mermaidPreviewPinField, false),
-      state.field(workspaceAssetsField, false)
+      state.field(workspaceAssetsField, false),
+      state.facet(extensionHostFacet)
     );
   },
   update(decorations, transaction) {
@@ -59,6 +62,10 @@ export const visualProjectionField = StateField.define<DecorationSet>({
     const mermaidPins = transaction.state.field(mermaidPreviewPinField, false);
     const mermaidPinsChanged =
       mermaidPins !== transaction.startState.field(mermaidPreviewPinField, false);
+    // 启停变了：widget 该不该存在由宿主现问注册表决定，投影只需要重跑一遍。
+    const capabilitiesChanged = transaction.effects.some((e) =>
+      e.is(capabilitiesChangedEffect)
+    );
 
     if (
       transaction.docChanged ||
@@ -69,6 +76,7 @@ export const visualProjectionField = StateField.define<DecorationSet>({
       selectionChanged ||
       mermaidPinsChanged ||
       assetsChanged ||
+      capabilitiesChanged ||
       transaction.effects.some((e) => e.is(setComposingEffect) && !e.value)
     ) {
       if (isEditorComposing(transaction.state)) {
@@ -81,7 +89,8 @@ export const visualProjectionField = StateField.define<DecorationSet>({
         docDir,
         locale,
         mermaidPins,
-        assets
+        assets,
+        transaction.state.facet(extensionHostFacet)
       );
     }
     return decorations;

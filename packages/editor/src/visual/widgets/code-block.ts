@@ -1,7 +1,7 @@
 import { EditorSelection } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
 import { translate } from '@nexus/i18n';
-import { extensionHostFacet, mountExtension } from '../../extensions.js';
+import { extensionHostFacet, mountExtension, type ExtensionHost } from '../../extensions.js';
 import { isMermaidLanguage } from '../../extension-triggers.js';
 import { dispatchCodeBlockLanguageChange } from '../../code-block-edit.js';
 import { DEFAULT_CODE_LANGUAGES, normalizeLanguage } from '../../code-highlight.js';
@@ -281,6 +281,14 @@ function createMermaidModeToggle(
 export class CodeBlockWidget extends WidgetType {
   private copyTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * 建它时宿主还认领这个 mermaid 块吗（宿主关掉 mermaid 之后就是 `false`）。
+   *
+   * 必须进 `eq`：这个类**没有** `updateDOM`，`eq` 相等时 CodeMirror 会连 DOM 带渲染体
+   * 一起复用，画面上那块图就一直在。完整理由见 `ExtensionHost.isCapabilityEnabled`。
+   */
+  public readonly handled: boolean;
+
   public constructor(
     public readonly from: number,
     public readonly to: number,
@@ -288,9 +296,18 @@ export class CodeBlockWidget extends WidgetType {
     public readonly language: string | undefined,
     public readonly value: string,
     /** 按钮文案依赖语言：进 eq() 才能让运行时切语言时重建 DOM，而不是留着旧文案。 */
-    public readonly locale: string
+    public readonly locale: string,
+    host?: ExtensionHost
   ) {
     super();
+    this.handled =
+      host?.getHandler({
+        type: 'code-fence',
+        from: this.from,
+        to: this.to,
+        text: this.value,
+        language: this.language
+      }) !== undefined;
   }
 
   public get estimatedHeight(): number {
@@ -305,7 +322,8 @@ export class CodeBlockWidget extends WidgetType {
       other.raw === this.raw &&
       other.language === this.language &&
       other.value === this.value &&
-      other.locale === this.locale
+      other.locale === this.locale &&
+      other.handled === this.handled
     );
   }
 

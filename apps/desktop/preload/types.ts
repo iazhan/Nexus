@@ -239,8 +239,12 @@ export interface NexusBridge {
    * 打开设置窗口。**单例** —— 已经开着就还原并聚焦，不会开出第二个。
    *
    * 只从主窗口调用：设置界面自己不再提供「打开设置」的入口。
+   *
+   * `section` 是**要落在哪个分组**（如 `'plugins'`）。给了它，窗口会停在那一组
+   * （已开着时重新加载过去）；不给就停在 `settings.lastSection`。合法值域是渲染进程的
+   * `SectionId`，这里只当字符串传 —— 主进程不认识分组，认不出的值由渲染进程忽略。
    */
-  openSettingsWindow: () => Promise<void>;
+  openSettingsWindow: (section?: string) => Promise<void>;
   /**
    * 打开主题窗口。**单例** —— 已经开着就还原并聚焦，不会开出第二个。
    *

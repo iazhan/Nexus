@@ -20,6 +20,7 @@ describe('宿主设置同步', () => {
     settings.set('files.ignoreRules', '');
     settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
     settings.set('general.restoreLastWorkspace', true);
+    settings.set('plugins.disabled', '');
     syncSpy = vi.fn().mockResolvedValue(undefined);
     (window as unknown as { nexus?: unknown }).nexus = { syncHostSettings: syncSpy };
   });
@@ -31,6 +32,7 @@ describe('宿主设置同步', () => {
     settings.set('files.ignoreRules', '');
     settings.set('data.historyRetention', HISTORY_RETENTION_DEFAULT);
     settings.set('general.restoreLastWorkspace', true);
+    settings.set('plugins.disabled', '');
   });
 
   it('启动时立刻推一次，值已经归一化', async () => {
@@ -42,7 +44,8 @@ describe('宿主设置同步', () => {
     expect(syncSpy).toHaveBeenCalledWith({
       ignoreRules: ['Drafts', 'notes/private'],
       historyRetention: 100,
-      restoreLastWorkspace: true
+      restoreLastWorkspace: true,
+      disabledCapabilities: []
     });
   });
 
@@ -53,7 +56,8 @@ describe('宿主设置同步', () => {
     expect(syncSpy).toHaveBeenCalledWith({
       ignoreRules: [],
       historyRetention: 100,
-      restoreLastWorkspace: true
+      restoreLastWorkspace: true,
+      disabledCapabilities: []
     });
   });
 
@@ -69,7 +73,8 @@ describe('宿主设置同步', () => {
     expect(syncSpy).toHaveBeenLastCalledWith({
       ignoreRules: ['drafts'],
       historyRetention: 100,
-      restoreLastWorkspace: true
+      restoreLastWorkspace: true,
+      disabledCapabilities: []
     });
   });
 
@@ -123,7 +128,8 @@ describe('宿主设置同步', () => {
     expect(syncSpy).toHaveBeenLastCalledWith({
       ignoreRules: ['drafts'],
       historyRetention: 100,
-      restoreLastWorkspace: true
+      restoreLastWorkspace: true,
+      disabledCapabilities: []
     });
     consoleError.mockRestore();
   });
@@ -242,6 +248,77 @@ describe('宿主设置同步', () => {
 
       const payload = syncSpy.mock.calls.at(-1)?.[0] as { restoreLastWorkspace: unknown };
       expect(payload.restoreLastWorkspace).toBe(true);
+    });
+  });
+
+  /**
+   * 内置能力启停。
+   *
+   * 渲染进程内那 5 个能力不需要这条通道（它们直接读存档），但主进程那 2 个文档处理器
+   * 只能靠它 —— 所以这里测「值送出去了没有」，「送过去之后主进程怎么用」在
+   * `apps/desktop/test/host-settings.test.ts` 与真机用例里各测一半。
+   */
+  describe('被禁用的内置能力', () => {
+    it('默认送空表 —— 一个都没关', async () => {
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ disabledCapabilities: [] })
+      );
+    });
+
+    it('送的是归一化后的成员数组，不是存档里的逗号串', async () => {
+      // 存档里是 `'nexus-math,pdf-text'`；主进程只该拿到「哪些被关掉了」这个答案。
+      settings.set('plugins.disabled', 'nexus-math,pdf-text');
+
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ disabledCapabilities: ['nexus-math', 'pdf-text'] })
+      );
+    });
+
+    /**
+     * 主进程那两个处理器的 id 在名册里 —— 这是 P1-4b 三条缺一不可里最容易被漏掉的一条。
+     * 名册少一项的症状就是这一条红：值被 `disabledMembers` 当未知成员丢掉，
+     * 开关点了什么都不会发生。
+     */
+    it('pdf-text / docx-text 送得出去 —— 它们在名册里', async () => {
+      settings.set('plugins.disabled', 'pdf-text,docx-text');
+
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ disabledCapabilities: ['pdf-text', 'docx-text'] })
+      );
+    });
+
+    it('**改这一项本身就会触发推送** —— 漏订阅的症状是「关了处理器，重建索引却还在提取」', async () => {
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+
+      settings.set('plugins.disabled', 'pdf-text');
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenCalledTimes(2);
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ disabledCapabilities: ['pdf-text'] })
+      );
+    });
+
+    it('认不出的成员丢掉，不会让整串失效 —— 老存档不该整份作废', async () => {
+      settings.set('plugins.disabled', 'pdf-text,gone-from-a-future-version');
+
+      stop = startHostSettingsSync();
+      await hostSettingsSynced();
+
+      expect(syncSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ disabledCapabilities: ['pdf-text'] })
+      );
     });
   });
 });
