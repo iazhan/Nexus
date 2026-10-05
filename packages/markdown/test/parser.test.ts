@@ -116,6 +116,46 @@ describe('Markdown Parser & Render Model', () => {
         }
       }
     });
+
+    it('treats a footnote reference as plain text, never as a link', () => {
+      // `[^1]: 内容` 会被 marked 当成 link reference definition，于是 `[^1]` 解析成
+      // 一个 href 指向脚注正文的坏链接。它不是链接，必须按字面文本保留。
+      const src = '正文[^1] 继续。\n\n[^1]: 定义内容。\n';
+      const result = parseMarkdown(src);
+      const p = result.root.children[0];
+      expect(p?.type).toBe('paragraph');
+      if (p?.type === 'paragraph') {
+        expect(p.children.some((c) => c.type === 'link')).toBe(false);
+        const text = p.children
+          .filter((c) => c.type === 'text')
+          .map((c) => (c as { value: string }).value)
+          .join('');
+        expect(text).toBe('正文[^1] 继续。');
+      }
+    });
+
+    it('treats a named footnote reference as plain text too', () => {
+      const src = '见[^note]。\n\n[^note]: 命名脚注。\n';
+      const result = parseMarkdown(src);
+      const p = result.root.children[0];
+      if (p?.type === 'paragraph') {
+        expect(p.children.some((c) => c.type === 'link')).toBe(false);
+      }
+    });
+
+    it('still parses a real link whose label begins with a caret', () => {
+      // `[^1](url)` 是真链接 —— 它的 raw 带着 `(...)`，不能跟着脚注一起降级。
+      const src = '看 [^1](https://example.com) 这里。\n';
+      const result = parseMarkdown(src);
+      const p = result.root.children[0];
+      if (p?.type === 'paragraph') {
+        const link = p.children.find((c) => c.type === 'link');
+        expect(link).toBeDefined();
+        if (link?.type === 'link') {
+          expect(link.safeHref).toBe('https://example.com');
+        }
+      }
+    });
   });
 
   describe('Lists: Ordered, Unordered, and Nested', () => {

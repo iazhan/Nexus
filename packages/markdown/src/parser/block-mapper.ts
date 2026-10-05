@@ -26,6 +26,31 @@ import {
 } from './source-offsets.js';
 
 /**
+ * 按 token.raw 的行数，从 start 起在 source 上推进到该 token 的结束偏移（不含尾随空行）。
+ *
+ * 不能用 `matchTokenEndInSource(source, start, token.raw)` 代替：marked 给**嵌套列表**的
+ * raw 是去掉缩进的（`- 子项`，而非 `   - 子项`），逐字符匹配会少走缩进那一段，
+ * 于是子列表的范围偏小、把后面的兄弟块漏在外面。按行数推进与缩进无关。
+ *
+ * 超过 limit 就夹到 limit —— limit 是外层列表项的末尾，任何子块都不可能越过它。
+ */
+function advanceTokenLines(source: string, start: number, raw: string, limit: number): number {
+  const lines = raw.split(/\r?\n/);
+  if (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
+  }
+  let end = start;
+  for (let l = 0; l < lines.length; l++) {
+    const nextNl = source.indexOf('\n', end);
+    if (nextNl === -1 || nextNl >= limit) {
+      return limit;
+    }
+    end = nextNl + 1;
+  }
+  return end;
+}
+
+/**
  * Maps a marked list token into a project MarkdownBlockNode with exact ranges.
  * Handles recursive nested lists with correct indentation and parent-child containment.
  */
@@ -101,11 +126,12 @@ function mapListToken(
               nestedStart = nextNl + 1;
             }
           }
+          const nestedEnd = advanceTokenLines(source, nestedStart, subToken.raw, itemRange.to);
           const nestedList = mapListToken(
             subToken as Tokens.List,
             source,
             nestedStart,
-            itemRange.to,
+            nestedEnd,
             diagnostics
           );
           itemChildren.push(nestedList);
@@ -147,20 +173,7 @@ function mapListToken(
             }
           }
 
-          const subLines = subToken.raw.split(/\r?\n/);
-          if (subLines.length > 0 && subLines[subLines.length - 1] === '') {
-            subLines.pop();
-          }
-          const lineCount = subLines.length;
-          let blockEnd = blockStart;
-          for (let l = 0; l < lineCount; l++) {
-            const nextNl = source.indexOf('\n', blockEnd);
-            if (nextNl === -1 || nextNl >= itemRange.to) {
-              blockEnd = itemRange.to;
-              break;
-            }
-            blockEnd = nextNl + 1;
-          }
+          const blockEnd = advanceTokenLines(source, blockStart, subToken.raw, itemRange.to);
 
           const raw = source.slice(blockStart, blockEnd);
 

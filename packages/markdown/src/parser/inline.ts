@@ -8,6 +8,15 @@ import type { MarkdownDiagnostic, MarkdownInlineNode, SourceRange } from '../typ
 import { matchTokenEndInSource } from './source-offsets.js';
 
 /**
+ * 脚注引用 `[^label]` 的形态：整个 raw 就是一个方括号组。
+ *
+ * 文档里有 `[^1]: 内容` 定义时，marked 会把那条定义读成 link reference definition，
+ * 于是 `[^1]` 变成一个 href 指向脚注正文的链接 —— 它不是链接，要按字面文本保留。
+ * 只认「整组」：`[^1](url)`（真链接，raw 带 `(...)`）与 `[text][ref]`（内部含 `]`）都不命中。
+ */
+const FOOTNOTE_REFERENCE = /^\[\^[^\]\n]*\]$/;
+
+/**
  * Parses inline text to identify math ($...$, $$...$$) and wikilinks ([[...]])
  * while preserving all other text verbatim with exact source ranges.
  */
@@ -279,6 +288,11 @@ export function mapInlineTokens(
         break;
       }
       case 'link': {
+        if (FOOTNOTE_REFERENCE.test(raw)) {
+          result.push({ type: 'text', value: raw, range, raw });
+          break;
+        }
+
         const linkToken = token as Tokens.Link;
         const sanitizeResult = sanitizeUrl(linkToken.href);
         if (sanitizeResult.isBlocked) {

@@ -111,6 +111,22 @@ describe('Markdown Serializer', () => {
           'Inline formula $a^2 + b^2 = c^2$ and [[Glossary|terms]].',
           ''
         ].join('\n')
+      },
+      {
+        // 真实语料回归：有序列表项 + 3 空格缩进的子列表 + 空行 + 缩进段落。
+        // 子列表的结束偏移一旦算成外层 item 的末尾，后面的段落 token 会定位落空，
+        // 序列化时用 value 再输出一次 —— 末段重复。
+        name: 'ordered item with indented sublist, blank line and indented continuation',
+        source: ['1. 顶', '   - 子项', '', '    末段', ''].join('\n')
+      },
+      {
+        name: 'ordered item with sublist and indented continuation (CRLF)',
+        source: ['1. 顶', '   - 子项', '', '    末段', ''].join('\r\n')
+      },
+      {
+        // 同一根因的另一形态：末块是围栏代码块而不是段落。
+        name: 'ordered item with sublist, blank line and indented fenced code block',
+        source: ['1. 顶', '   - 子项', '', '    ```js', '    x;', '    ```', ''].join('\n')
       }
     ];
 
