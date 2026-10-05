@@ -446,4 +446,35 @@ describe('ExtensionHost 状态订阅', () => {
     // 但状态照常推进：退订只影响「谁被叫醒」，不影响记账
     expect(host.loadedIds()).toEqual([MATH_EXTENSION_ID]);
   });
+
+  /**
+   * 启停是**第三条**信号，与加载态跃迁无关。
+   *
+   * `listExtensions()` 里那一档 `disabled` 是**现问谓词**的，所以用户拨完开关它报的东西立刻
+   * 就变了 —— 但 `revision` 只在加载态跃迁时自己跳。少了这一条，插件面板的
+   * `useSyncExternalStore` 快照不变、`useMemo` 也不重算，面板会一直停在旧值。
+   *
+   * 反面同样要钉：**通知是必须的，不能靠「反正会有人重渲染」** —— 上面那条「改谓词立即生效」
+   * 只验了「拉」到的值对，验不了「推」有没有发生。
+   */
+  it('谓词答案变了也要通知 —— 面板靠这一条才知道「用户把它关掉了」', async () => {
+    let disabled = false;
+    const host = new ExtensionHost((id) => !(disabled && id === MATH_EXTENSION_ID));
+    const { loader } = makeLoader(MATH_EXTENSION_ID, isMathMarker);
+    host.registerLazy(loader);
+
+    const seen: string[] = [];
+    host.subscribe(() => {
+      seen.push(host.listExtensions().find((e) => e.id === MATH_EXTENSION_ID)!.state);
+    });
+
+    const before = host.revision;
+    disabled = true;
+    host.notifyCapabilitiesChanged();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 送达时读到的是**新**值：通知发在谓词翻转之后，订阅方不可能读到旧状态
+    expect(seen).toEqual(['disabled']);
+    expect(host.revision).toBeGreaterThan(before);
+  });
 });

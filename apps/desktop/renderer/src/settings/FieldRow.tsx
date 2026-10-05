@@ -30,7 +30,7 @@ import React, {
 } from 'react';
 import { useLocale } from '../hooks.js';
 import { EDITOR_FONT_CANDIDATES, disabledMembers, toggleGroupMember } from './preference-specs.js';
-import { optionLabel, optionsOf, type FieldDef } from './registry.js';
+import { optionLabel, optionsOf, type ActionOutcome, type FieldDef } from './registry.js';
 import { localFontFamilies } from './system-fonts.js';
 
 type Translate = (key: string, vars?: Record<string, string>) => string;
@@ -564,11 +564,15 @@ const FontControl: React.FC<{ field: FieldDef; label: string; t: Translate; valu
  *
  * 跑完之后给一行短暂的回执。没有它，这个按钮的效果落在**另一个窗口**（重建索引会让主窗口的
  * 侧栏刷新、打开目录会弹资源管理器），在当前窗口里点了像没反应。
+ *
+ * 回执的文案由 `run` 的返回值决定（见 `ActionOutcome`）：多数动作只说「已完成。」，
+ * 而「重建索引」这类**成功了但不全好**的要说清有几条没成。这里存归一化后的对象而不是
+ * 裸字典键 —— 否则状态里就要混一个「有时是字符串、有时是对象」的联合类型。
  */
 const ActionControl: React.FC<{ field: FieldDef; t: Translate }> = ({ field, t }) => {
   const [blockedKey, setBlockedKey] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [outcomeKey, setOutcomeKey] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<ActionOutcome | null>(null);
 
   useEffect(() => {
     if (!field.probe) {
@@ -602,10 +606,10 @@ const ActionControl: React.FC<{ field: FieldDef; t: Translate }> = ({ field, t }
         onClick={() => {
           if (pending) return;
           setPending(true);
-          setOutcomeKey(null);
+          setOutcome(null);
           void Promise.resolve(field.run?.()).then(
-            () => setOutcomeKey('settings.action.done'),
-            () => setOutcomeKey('settings.action.failed')
+            (result) => setOutcome(result ?? { key: 'settings.action.done' }),
+            () => setOutcome({ key: 'settings.action.failed' })
           ).finally(() => setPending(false));
         }}
       >
@@ -615,9 +619,9 @@ const ActionControl: React.FC<{ field: FieldDef; t: Translate }> = ({ field, t }
         <p className="nexus-settings-action-note" data-field-blocked={field.id}>
           {t(blockedKey)}
         </p>
-      ) : outcomeKey ? (
+      ) : outcome ? (
         <p className="nexus-settings-action-note" data-field-outcome={field.id}>
-          {t(outcomeKey)}
+          {t(outcome.key, outcome.vars)}
         </p>
       ) : null}
     </div>

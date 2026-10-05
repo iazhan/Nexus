@@ -66,6 +66,8 @@ interface RenderOptions {
   directories?: WorkspaceDirectoryEntry[];
   showImages?: boolean;
   rebuildFails?: boolean;
+  /** 主进程报回来的「没处理成」清单。非空时侧栏要出一条可关闭的警告。 */
+  indexErrors?: string[];
 }
 
 describe('工作区侧栏：单树 + 工具栏', () => {
@@ -94,7 +96,9 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       onCreateFile: vi.fn(async () => '/vault/b.md'),
       onCreateFolder: vi.fn(async () => '/vault/素材'),
       onDeleteFile: vi.fn(),
-      onRefresh: vi.fn(async () => undefined),
+      // 契约是「返回这一轮的失败清单」，不是 void —— 侧栏拿它换掉警告条上的旧数据。
+      // 返回 `undefined` 的话刷新一次就会把清单清成 undefined，正是这条契约要挡的事。
+      onRefresh: vi.fn(async () => []),
       // 与 `App` 里那一个同形：把请求清掉，下次渲染组件看到的才是「没有请求」。
       onRevealHandled: vi.fn(() => {
         currentReveal = null;
@@ -154,7 +158,7 @@ describe('工作区侧栏：单树 + 工具栏', () => {
     (window as unknown as { nexus: unknown }).nexus = {
       rebuildIndex: vi.fn(async () => {
         if (options.rebuildFails) throw new Error('索引库被占用');
-        return { ...OK_RESULT, scanned: documents.length };
+        return { ...OK_RESULT, scanned: documents.length, errors: options.indexErrors ?? [] };
       }),
       // **每次返回一份新数组**，不是同一个引用 —— 跨 IPC 过来的本来就是新对象。
       // 返回同一引用的话 `setDocuments(同一个数组)` 会被 React 的 `Object.is`
@@ -884,6 +888,93 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       // 反过来（当场放弃）会让「刚开完工作区就定位」永远差一拍。
       expect(props.onRevealHandled).not.toHaveBeenCalled();
       expect(rows().map((row) => row.relativePath)).toEqual(['a.md']);
+    });
+  });
+
+  /**
+   * 「有 N 个文件没能建索引」。
+   *
+   * 这一条要同时钉住三件事，缺一个都会退化成「用户以为一切正常」：
+   * ① 清单非空时**真的画出来**（原来是 `console.warn`，界面上完全不存在）；
+   * ② 件数是主进程给的，不是渲染进程自己数的；
+   * ③ 明细在 tooltip 里 —— 条上只说件数，因为一条坏路径的报错消息可能很长。
+   *
+   * 反面同样重要：没有失败时**一条都不能有**。判据要是写成「有 errors 字段就画」，
+   * 每个正常的工作区顶上都会常驻一条警告。
+   */
+  describe('部分文件没能建索引', () => {
+    const warning = () =>
+      container.querySelector<HTMLElement>('[data-sidebar-warning="index-errors"]');
+
+    it('主进程报了失败时画一条可关闭的警告，件数来自清单', async () => {
+      await renderSidebar({
+        documents: [doc('a.md')],
+        directories: [],
+        indexErrors: ['docs/坏.pdf: Unexpected end of PDF', 'notes/x.md: EACCES']
+      });
+
+      const banner = warning();
+      expect(banner).not.toBeNull();
+      // 件数是清单的长度，不是「画了一条」这种弱判据
+      expect(banner?.textContent).toContain('2');
+      // 明细走 title
+      expect(banner?.getAttribute('title')).toContain('docs/坏.pdf');
+      expect(banner?.getAttribute('title')).toContain('notes/x.md');
+
+      // 树照常画 —— 这条与「整次索引失败」不是一回事，它不该把树顶掉
+      expect(rows().map((row) => row.relativePath)).toEqual(['a.md']);
+    });
+
+    it('点「关闭」把条收掉 —— 它不阻塞任何操作，不该赖着不走', async () => {
+      await renderSidebar({
+        documents: [doc('a.md')],
+        directories: [],
+        indexErrors: ['docs/坏.pdf: boom']
+      });
+      expect(warning()).not.toBeNull();
+
+      await click('[data-action="dismiss-index-errors"]');
+
+      expect(warning()).toBeNull();
+      expect(rows().map((row) => row.relativePath)).toEqual(['a.md']);
+    });
+
+    it('没有失败时一条都不画', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [], indexErrors: [] });
+
+      expect(warning()).toBeNull();
+    });
+
+    /**
+     * 工具栏那个「刷新」**也会重跑索引**，所以它必须把新清单交回来。
+     *
+     * 只让进入工作区那一次报失败、刷新之后不管，条就会一直挂着上一轮的旧数据 ——
+     * 用户按了刷新、问题已经好了，条还在说「有 2 个文件没能建立索引」。
+     * 两个方向都钉：先是「刷新之后才出现」，再是「刷新之后消失」。
+     */
+    it('刷新之后条跟着**这一轮**的结果走，不是挂着旧数据', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+      expect(warning()).toBeNull();
+
+      props.onRefresh.mockResolvedValueOnce(['docs/坏.pdf: boom', 'notes/x.md: EACCES']);
+      await click('.nexus-toolbar-button[data-action="refresh"]');
+      expect(warning()?.textContent).toContain('2');
+
+      // 这一轮全好了 —— 条要消失，不能因为「曾经失败过」就一直留着
+      props.onRefresh.mockResolvedValueOnce([]);
+      await click('.nexus-toolbar-button[data-action="refresh"]');
+      expect(warning()).toBeNull();
+    });
+
+    /**
+     * 反面中的反面：整次索引失败时走的是 `.nexus-sidebar-error`（树画不出来），
+     * 不是这一条。两条混用的话，「一条坏文件」和「整个工作区打不开」会长得一样。
+     */
+    it('整次索引失败时走错误态，不画这条警告', async () => {
+      await renderSidebar({ documents: [], directories: [], rebuildFails: true });
+
+      expect(warning()).toBeNull();
+      expect(container.querySelector('.nexus-sidebar-error')).not.toBeNull();
     });
   });
 });

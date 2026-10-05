@@ -1,6 +1,6 @@
 import type { ExtensionHost, ExtensionStatus } from '@nexus/editor';
 import type { ViewerRendererRegistry } from '../viewer/registry.js';
-import { capabilityLabelKey } from '../capability-roster.js';
+import { capabilityLabelKey, isBuiltinCapability } from '../capability-roster.js';
 
 /**
  * 一份内置能力的清单 —— 「Nexus 有哪些能力、现在什么状态」的**唯一答案**。
@@ -54,6 +54,14 @@ export type CapabilityKind = 'editor-extension' | 'viewer';
  */
 export type CapabilityStatus = ExtensionStatus['state'];
 
+/**
+ * 能力从哪来（P2-6 形状冻结）。
+ *
+ * 本期只有 `'builtin'` 一个真值，但**字段现在就留着**，理由见下面 `CapabilityEntry` 的
+ * 「预留字段」一节 —— 加一个来源不该是改形状。
+ */
+export type CapabilitySource = 'builtin' | 'community';
+
 export interface CapabilityEntry {
   /** 注册表里的原生标识（编辑器扩展是 `nexus-math`，渲染器是 `pdf`）。启停列表用它。 */
   readonly id: string;
@@ -61,6 +69,36 @@ export interface CapabilityEntry {
   /** 可读名称的 i18n key；名册里没有时是裸 id。 */
   readonly labelKey: string;
   readonly status: CapabilityStatus;
+  /**
+   * 出厂内置，还是第三方装上来的。
+   *
+   * 判据是「在不在**出厂名册**里」（`isBuiltinCapability()`）—— 名册的定义本来就是
+   * 「Nexus 出厂带哪些能力」，所以这是把那张表读第二遍，不是新事实源。
+   * **不要改成让注册表报**：同一个问题两个答案，而注册表并不知道「出厂」是什么。
+   *
+   * ## 界面上的显示规则：默认不显示
+   *
+   * 面板只在**不是 `'builtin'`** 时画一枚来源标记（`PluginsPanel`）。今天一个标记都不会出现
+   * —— 全是内置，给每一行挂一枚「内置」是纯噪声，而且会把「这个不一样」这个信号稀释掉
+   * （与 `.nexus-copy-link-notice` 不复用警告底色是同一条理由）。等真有第三方能力时，
+   * 标记**自动**出现，不需要再动 UI。
+   *
+   * ## 预留字段（P2-6；**本期一律不填、不读、不校验**）
+   *
+   * 第三方 manifest 需要而内置能力不需要的四项。它们在这里的意义是**冻结名字与类型**：
+   * 将来加的时候不该再挑一个别的词，也不该改这个形状。
+   *
+   * - `version`：插件自己的版本。
+   * - `apiVersion`：它按哪一版插件 API 写的（蓝图 §19.2 警告过过早冻结 API）。
+   * - `permissions`：它要什么权限。**本期不做任何权限校验** —— 清单只**列**，不**拦**。
+   *   现在加校验会让 P0/P1 的零代价承诺落空，而且没有第三方可校验。
+   * - `entry`：它的入口（文件路径 / chunk 名）。
+   */
+  readonly source: CapabilitySource;
+  readonly version?: string;
+  readonly apiVersion?: string;
+  readonly permissions?: readonly string[];
+  readonly entry?: string;
 }
 
 /**
@@ -94,6 +132,11 @@ function viewerStatus(renderer: {
  *
  * 两个参数都可选：轻量模式（单文件）下扩展宿主可能还没建。缺哪个就少哪一半，**不抛错** ——
  * 这个面板是只读展示，不该因为一个注册表缺失就整块消失。
+ *
+ * **注册表报什么就列什么，一个都不滤。** 认不出的 id（不在出厂名册里）照样出现在清单上，
+ * 只是 `source` 算成 `'community'`、名字回落成裸 id。这条与 P2-6 的反面是同一件事：
+ * 本期**不做** manifest 校验 —— 一旦这里开始「认不出的就丢掉」，第三方能力会静默消失，
+ * 而那正是这个面板存在的意义要防的那类缺陷。
  */
 export function buildCapabilityManifest(
   host: Pick<ExtensionHost, 'listExtensions'> | undefined,
@@ -106,7 +149,8 @@ export function buildCapabilityManifest(
       id: extension.id,
       kind: 'editor-extension',
       labelKey: capabilityLabelKey(extension.id),
-      status: extension.state
+      status: extension.state,
+      source: sourceOf(extension.id)
     });
   }
 
@@ -115,9 +159,15 @@ export function buildCapabilityManifest(
       id: renderer.type,
       kind: 'viewer',
       labelKey: capabilityLabelKey(renderer.type),
-      status: viewerStatus(renderer)
+      status: viewerStatus(renderer),
+      source: sourceOf(renderer.type)
     });
   }
 
   return entries;
+}
+
+/** 出厂名册认得出就是内置，认不出就是第三方 —— 见 `CapabilityEntry.source` 的说明。 */
+function sourceOf(id: string): CapabilitySource {
+  return isBuiltinCapability(id) ? 'builtin' : 'community';
 }

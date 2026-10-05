@@ -325,8 +325,17 @@ export async function indexSingleFile(options: IndexSingleFileOptions): Promise<
  * 附件的 `content_hash` **就是** stat 指纹，而 `upsertDocument` 在内容变化时会把
  * `extraction_status` 重置成 `'none'`。于是：
  *
- *   - 状态不是 `'none'` ⟹ 当前内容已经提取过 ⟹ 跳过（几百页的手册不会每轮重读）；
- *   - 状态是 `'none'` ⟹ 要么刚变过、要么刚被引用上 ⟹ 提取。
+ *   - 状态是 `'extracted'` / `'empty'` ⟹ 当前内容已经有过结论 ⟹ 跳过（几百页的手册不会每轮重读）；
+ *   - 状态是 `'none'` ⟹ 要么刚变过、要么刚被引用上 ⟹ 提取；
+ *   - 状态是 `'failed'` ⟹ **照提不误**。理由见下面那条判据，它与「失败可见」是一件事的两半：
+ *     看得见失败、却没有任何办法重试，等于把用户堵在一个死胡同里。
+ *
+ * ## 失败的两条路都要留下痕迹
+ *
+ * 「提取失败」有两条路进来：处理器抛异常（由 `ProcessorRegistry.extract` 收成 `failed`），
+ * 与**字节读不出来**（权限、扫描途中被删）。两条都必须 `setExtraction(..., 'failed')` ——
+ * 只记一条 error 不写状态的话，那一行会停在 `'none'`，而 `'none'` 在界面上是「不提示」，
+ * 于是那个附件既没有正文也没有任何说明，只有日志里知道出过事（§2.4 第 3 条）。
  *
  * 不需要再存一个「提取时的指纹」—— 那会是同一件事的第二处记录，两者不同步时
  * 表现是「文件改了但索引里的文本还是旧的」，极难察觉。
@@ -370,8 +379,16 @@ async function extractReferencedAttachments(options: {
       continue;
     }
 
-    // 已经提过且内容没变（变了会被 upsertDocument 重置成 'none'）
-    if (document.extractionStatus !== 'none') continue;
+    // 已经有过结论、且内容没变（变了会被 upsertDocument 重置成 'none'）的跳过。
+    //
+    // **`'failed'` 不在跳过之列**：失败是暂态（文件被占用、库没装好、扫描途中被删），
+    // 而「重建索引」是用户看到失败之后**唯一**的手动修复入口。把它一起跳过，那个按钮
+    // 对这些文件就等于没作用，而且同样是静默的 —— 它只报「已完成」。
+    // `'empty'`（扫描版 PDF 真的没有文本）反过来必须跳过：那是关于**内容**的结论，
+    // 每轮重跑只是白付一次解析。
+    if (document.extractionStatus === 'extracted' || document.extractionStatus === 'empty') {
+      continue;
+    }
 
     try {
       const bytes = await service.readDocumentBytes(document.path);
@@ -383,10 +400,21 @@ async function extractReferencedAttachments(options: {
 
       if (outcome.status === 'extracted') extracted += 1;
       if (outcome.status === 'failed') {
-        errors.push(`${document.relativePath}: ${outcome.message ?? '提取失败'}`);
+        // `message` 在 `failed` 上必然有值（这个状态只由 `ProcessorRegistry.extract`
+        // 从异常里造出来），但类型上它是可选的。兜底**不能写中文** —— 这些字符串
+        // 会被原样送进界面（侧栏警告条、设置页回执）。
+        errors.push(
+          outcome.message ? `${document.relativePath}: ${outcome.message}` : document.relativePath
+        );
       }
     } catch (err) {
-      // 读不动（权限、扫描途中被删）与提取失败同样处理：记一条、继续
+      // 读不动（权限、扫描途中被删）与提取失败同样处理：记一条、**并且把状态写成 `failed`**。
+      //
+      // 写状态这一行是必须的：不写，这一行就停在 `'none'`，而 `'none'` 在界面上是
+      // 「不提示」（见 `extractionNoteOf()`）—— 用户看到一个既没有正文、也没有任何说明的
+      // 附件，只有日志里知道出过事。处理器抛异常那条路会经由上面那行 `setExtraction`
+      // 写成 `failed`，两条路的结论必须同一个。
+      store.setExtraction(document.path, { status: 'failed', text: '' });
       errors.push(
         `${document.relativePath}: ${err instanceof Error ? err.message : String(err)}`
       );

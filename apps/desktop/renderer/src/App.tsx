@@ -750,6 +750,32 @@ export const App: React.FC = () => {
     });
   }
 
+  /**
+   * 内置能力启停变了：叫醒两个注册表的订阅方。
+   *
+   * 两张注册表报的状态里都有一档 `disabled`，而且都是**现问谓词**的（`listExtensions()` /
+   * `listRenderers()`），所以用户拨完开关它们报的东西立刻就变了。但 `revision` 只在
+   * **加载态**跃迁时自己跳 —— 少了这一条，插件面板的 `useSyncExternalStore` 快照不变、
+   * `useMemo` 也不重算，面板会一直停在旧状态。症状就是「在设置里禁用一个插件，左侧栏
+   * 看到的还是『未加载』」。
+   *
+   * **为什么接在这里**：谓词是一个裸函数，它没有变更通知；注册表也不该认识设置系统
+   * （连 `plugins.disabled` 这个键名都不该知道）。谁把谓词装进去，谁在谓词的输入变了之后
+   * 喊一声 —— 那是 `App`：`capabilityEnabled` 与这两个注册表都是在这里接起来的。
+   *
+   * 另外两条生效信号各自在别处，都**不动**：编辑器的投影走 `SourceEditor` 的
+   * `notifyCapabilitiesChanged(view)`（`StateField` 认不出设置变了），附件外壳走
+   * `ViewerSurface` 的 `useSettingValue('plugins.disabled')`（它自己会重渲染）。
+   * 这一条补的是**第三个**消费者 —— 靠 `revision` 订阅的插件面板。
+   */
+  useEffect(() => {
+    const apply = () => {
+      extensionHostRef.current?.notifyCapabilitiesChanged();
+      viewerRegistryRef.current?.notifyCapabilitiesChanged();
+    };
+    return settings.subscribe('plugins.disabled', apply);
+  }, []);
+
   // Expose session on window for smoke testing and developer debugging
   if (typeof window !== 'undefined') {
     (window as any).nexusSession = session;
@@ -1602,10 +1628,14 @@ export const App: React.FC = () => {
    * 两个参考实现都没有这个动作（Markra 靠 file watcher 整树 refresh、OpenKnowledge
    * 靠窗口 focus 自动刷新），Nexus 需要它是因为树来自**索引** —— watcher 报的变更
    * 不会自动进索引。列表由侧栏在它 resolve 之后自己重读。
+   *
+   * 返回值是这一轮**没处理成**的文件清单，交给侧栏那条警告条。不返回的话，
+   * 「补完之后警告还在」就会变成一个说不清的状态。
    */
-  const handleRefreshWorkspace = useCallback(async () => {
-    if (!workspaceRoot) return;
-    await window.nexus?.rebuildIndex?.(workspaceRoot);
+  const handleRefreshWorkspace = useCallback(async (): Promise<string[]> => {
+    if (!workspaceRoot) return [];
+    const result = await window.nexus?.rebuildIndex?.(workspaceRoot);
+    return result?.errors ?? [];
   }, [workspaceRoot]);
 
   /**

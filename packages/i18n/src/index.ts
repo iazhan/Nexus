@@ -71,6 +71,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.openFolder': 'Open Folder…',
     'workspace.indexing': 'Indexing workspace…',
     'workspace.indexFailed': 'Failed to build the index',
+    // 索引建完了，但有文件没处理成（读不动、或文本提取失败）。**不是整块失败** ——
+    // 所以它走一条可关闭的警告条，树照常画；`.nexus-sidebar-error` 那条是整块失败。
+    'workspace.indexPartialFailure': '{count} file(s) could not be indexed.',
     // P3-09 起「有没有文档」与「有没有 Markdown」是两件事：侧栏分成两段后，
     // 只有整个工作区**一个文档都没有**才走这句，所以文案跟着判据改。
     'workspace.noFiles': 'No documents in this workspace.',
@@ -238,6 +241,8 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'plugins.capability.docx': 'DOCX viewer',
     'plugins.capability.pdfText': 'PDF text extraction',
     'plugins.capability.docxText': 'DOCX text extraction',
+    // 来源标记（P2-6）。**只有这一条**：内置是默认，默认不画标记，所以没有 `builtin` 那一半。
+    'plugins.source.community': 'Community',
     'settings.plugins.disabled': 'Built-in plugins',
     'settings.plugins.disabledDescription':
       'Turn off the ones you never use — a disabled capability stops being used: viewers and extensions are no longer loaded (so their code is not downloaded), and text extraction no longer runs (so those files stop feeding the search index). Changes apply right away, no restart.',
@@ -451,6 +456,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.rebuildIndexDescription':
       'Re-scan the workspace and rebuild the search index. Use it when search or backlinks look wrong.',
     'settings.data.rebuildIndexAction': 'Rebuild index',
+    // 索引建完了，但有文件没处理成。**与 `settings.action.done` 分开**：那条是「一切正常」，
+    // 而这里按了重建却有一批文件仍旧没进去，说「已完成」就是在骗人。
+    'settings.data.rebuildIndexPartial': 'Done, but {count} file(s) could not be indexed.',
     'settings.data.historyRetention': 'History limit',
     'settings.data.historyRetentionDescription':
       'How many snapshots to keep per document. Beyond the limit the oldest ones are deleted and cannot be recovered — they are the only copy of that content on this machine. Choose “Unlimited” to never delete.',
@@ -802,6 +810,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.openFolder': '打开文件夹…',
     'workspace.indexing': '正在建立索引…',
     'workspace.indexFailed': '建立索引失败',
+    'workspace.indexPartialFailure': '有 {count} 个文件没能建立索引。',
     // P3-09 起「有没有文档」与「有没有 Markdown」是两件事：侧栏分成两段后，
     // 只有整个工作区**一个文档都没有**才走这句，所以文案跟着判据改。
     'workspace.noFiles': '这个工作区里没有文档。',
@@ -960,6 +969,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'plugins.capability.docx': 'DOCX 查看器',
     'plugins.capability.pdfText': 'PDF 文本提取',
     'plugins.capability.docxText': 'DOCX 文本提取',
+    'plugins.source.community': '社区',
     'settings.plugins.disabled': '内置插件',
     'settings.plugins.disabledDescription':
       '关掉用不上的那些 —— 被禁用的能力不再被使用：查看器与扩展不再加载（代码也就不下载），文本提取不再运行（那些文件的内容就不进搜索索引）。改完立即生效，不用重启。',
@@ -1155,6 +1165,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.data.rebuildIndexDescription':
       '重新扫描工作区并重建搜索索引。搜索或反向链接看起来不对时用它。',
     'settings.data.rebuildIndexAction': '重建索引',
+    'settings.data.rebuildIndexPartial': '完成，但有 {count} 个文件没能建立索引。',
     'settings.data.historyRetention': '历史快照上限',
     'settings.data.historyRetentionDescription':
       '每个文档最多保留多少份历史快照。超出上限时最旧的会被删除，且不可恢复 —— 那些内容在本机只有这一份副本。选「不清理」则永不自动删除。',

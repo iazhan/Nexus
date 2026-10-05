@@ -70,8 +70,14 @@ export interface WorkspaceSidebarProps {
   /** 同上，返回新目录的绝对路径。 */
   onCreateFolder: (directoryPath: string, name: string) => Promise<string | null>;
   onDeleteFile: (filePath: string) => void;
-  /** 重新扫描工作区（重扫目录 + 重建索引）。列表由侧栏自己重读。 */
-  onRefresh: () => Promise<void>;
+  /**
+   * 重新扫描工作区（重扫目录 + 重建索引）。列表由侧栏自己重读。
+   *
+   * **返回这一轮的失败清单**（读不动 / 提取不出来的那些文件）：刷新是用户在
+   * 「有文件没进去」之后最自然的补救动作，拿不到新清单的话那条警告会一直挂着
+   * 上一轮的旧数据 —— 补完之后还在报，比不报更糟。
+   */
+  onRefresh: () => Promise<string[]>;
   /**
    * 外部（目录行的右键菜单）要求「在这个目录里开始新建」。
    *
@@ -194,6 +200,14 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   const [directories, setDirectories] = useState<WorkspaceDirectoryEntry[]>([]);
   const [phase, setPhase] = useState<IndexPhase>('indexing');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  /**
+   * 这一轮索引里**没处理成**的文件（读不动、或文本提取失败）。
+   *
+   * 与 `errorMessage` 是两件事：那个是「整次索引失败、树画不出来」，这个是
+   * 「树画出来了，但其中几个文件没进去」。混成一个的话，一条坏文件就会把整个
+   * 侧栏打成错误态 —— 而用户真正需要的是「照常看树，顺带知道有几条没成」。
+   */
+  const [indexErrors, setIndexErrors] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const onIndexedRef = useRef(onIndexed);
@@ -221,6 +235,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
 
     setPhase('indexing');
     setErrorMessage(null);
+    setIndexErrors([]);
     // 换工作区要把「默认展开」重新套一遍，否则新工作区的顶层目录全是收着的
     setExpansionInitialized(false);
     setSelected(null);
@@ -240,10 +255,10 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
         const result = await window.nexus.rebuildIndex(rootPath);
         if (cancelled) return;
 
-        // 单个文件读不动不该让侧栏整块失败，但要让人看见
-        if (result.errors.length > 0) {
-          console.warn('[Nexus] 部分文件索引失败:', result.errors);
-        }
+        // 单个文件读不动不该让侧栏整块失败，但**要让人看见**：只 `console.warn` 的话，
+        // 「有几个 PDF 没提出来」这件事在界面上完全不存在，用户只会觉得「搜不到」。
+        // 明细进 tooltip，条上只说件数 —— 一条坏路径的报错消息可能很长。
+        setIndexErrors(result.errors);
 
         applyLists(await readLists());
         if (cancelled) return;
@@ -491,7 +506,8 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await onRefresh();
+      // 用这一轮的清单**换掉**旧的，而不是合并：刷新就是为了让它变短。
+      setIndexErrors(await onRefresh());
       applyLists(await readLists());
       setPhase('ready');
       setErrorMessage(null);
@@ -720,6 +736,28 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
           </span>
         )}
       </div>
+
+      {/* 部分文件没能建索引。**与下面那三个 `.nexus-sidebar-note` 不同**：它们出现时树是不画的，
+          这一条相反 —— 树照常画，它只是在树上面加一行「有几条没成」。
+          可关闭，因为它不阻塞任何操作；明细走 `title`（一条坏路径的报错可能很长）。 */}
+      {indexErrors.length > 0 && (
+        <div
+          className="nexus-sidebar-warning"
+          role="status"
+          data-sidebar-warning="index-errors"
+          title={indexErrors.join('\n')}
+        >
+          <span>{t('workspace.indexPartialFailure', { count: String(indexErrors.length) })}</span>
+          <button
+            type="button"
+            className="nexus-banner-dismiss-btn"
+            data-action="dismiss-index-errors"
+            onClick={() => setIndexErrors([])}
+          >
+            {t('banner.dismiss')}
+          </button>
+        </div>
+      )}
 
       <WorkspaceToolbar
         hasImages={imageCount > 0}

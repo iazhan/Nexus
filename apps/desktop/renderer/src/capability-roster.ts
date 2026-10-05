@@ -56,3 +56,17 @@ const LABEL_KEYS: Record<string, string> = {
 export function capabilityLabelKey(id: string): string {
   return LABEL_KEYS[id] ?? id;
 }
+
+/**
+ * 这个 id 是不是**出厂能力**（P2-6 形状冻结里的 `source: 'builtin'`）。
+ *
+ * 判据就是「在不在名册里」—— 名册的定义本来就是「Nexus **出厂**带哪些能力」，所以这不是
+ * 一条新事实，只是把那张表读第二遍。**别改成让注册表报 `source`**：同一个问题有两个答案，
+ * 而注册表并不知道「出厂」是什么（它只知道谁 `register()` 过自己）。
+ *
+ * 认不出 ≠ 出错：第三方能力本来就不在名册里（它们的可读名由 `capabilityLabelKey` 回落成
+ * 裸 id，那条路早就在）。所以「不在名册里」的正确含义是 `'community'`，不是「非法」。
+ */
+export function isBuiltinCapability(id: string): boolean {
+  return BUILTIN_CAPABILITY_IDS.includes(id);
+}

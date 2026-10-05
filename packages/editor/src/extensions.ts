@@ -216,6 +216,29 @@ export class ExtensionHost {
   }
 
   /**
+   * 谓词的答案可能变了（用户在设置里拨了内置能力的启停），叫醒订阅方。
+   *
+   * ## 为什么必须有这一条
+   *
+   * `listExtensions()` 报的状态里有一档是 `disabled`，而它是**现问谓词**的（见下面那段）——
+   * 所以用户拨完开关，这个方法报的东西立刻就变了。但 `revision` 不会自己跳：它只在
+   * **加载态**跃迁时由 `LazyExtension` 通知。少了这一条，「宿主报什么」与「订阅方看到的」
+   * 就断了——插件面板会一直停在旧状态，症状是「设置里关了插件，左侧栏还是『未加载』」。
+   *
+   * ## 为什么由调用方喊，而不是宿主自己订阅设置
+   *
+   * 谓词是一个裸函数（`(id) => boolean`），它没有变更通知。宿主也不该认识设置系统 ——
+   * 它连 `plugins.disabled` 这个键名都不该知道。谁把谓词装进来，谁负责在谓词的**输入**变了
+   * 之后喊一声：那是 `App`（组合根）。
+   *
+   * 名字与 `visual/state.ts` 的 `notifyCapabilitiesChanged(view)` 同源：同一个概念的三处信号
+   * （注册表订阅方 / 编辑器投影 / 附件外壳），`grep` 一个词能找全。
+   */
+  notifyCapabilitiesChanged(): void {
+    this.notifier.notify();
+  }
+
+  /**
    * 认领这个 marker 的扩展；没有则 `undefined`（调用方回落源码文本）。
    *
    * **被禁用的扩展直接跳过，而不是提前返回 `undefined`** —— 两个扩展认领同一种 marker 时

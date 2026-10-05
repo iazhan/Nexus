@@ -129,6 +129,23 @@ describe('内置能力启停', () => {
          ?.getAttribute('aria-checked') === 'true'`
     );
 
+  /**
+   * 插件面板里某一行写的状态。
+   *
+   * 取 `data-plugin-status`（面板给测试留的口子），不比对文案 —— 文案受语言影响，
+   * 断文案会变成「单跑绿、全跑红」。
+   */
+  const pluginStatus = (app: ElectronAppInstance, id: string) =>
+    app.evaluate<string | null>(
+      `document.querySelector('[data-plugin-id="${id}"]')?.dataset.pluginStatus ?? null`
+    );
+
+  /** 打开活动栏的插件面板。它和文件树**共用同一个侧栏槽位**，所以要在文件操作之后再做。 */
+  async function openPluginsPanel(app: ElectronAppInstance): Promise<void> {
+    await app.click('.nexus-activity-icon[data-activity="extensions"]');
+    await app.waitForSelector('.nexus-plugin-row', 10000);
+  }
+
   /** 拨一下那个成员，并等它真的翻过去。 */
   async function flipMember(app: ElectronAppInstance, id: string): Promise<void> {
     const selector = `[data-field-member="plugins.disabled:${id}"]`;
@@ -193,12 +210,39 @@ describe('内置能力启停', () => {
     // 反面（进程这侧）：哨兵还在，说明渲染进程没换过
     expect(await app.evaluate<string | null>(`window.__nexusToggleSentinel ?? null`)).toBe('alive');
 
+    /*
+     * 面板也要看得见 —— 这是 P1-4a 的**第三个**消费者，也是用户报的那个缺陷。
+     *
+     * 两张注册表报的状态里都有一档 `disabled`，而且是**现问谓词**的，所以拨完开关它们报的
+     * 东西立刻就变了。但 `revision` 只在**加载态**跃迁时自己跳 —— 少了 App 里那条
+     * `settings.subscribe('plugins.disabled', …)` 接线，面板的 `useSyncExternalStore` 快照
+     * 不变、`useMemo` 也不重算，于是左侧栏一直写着「未加载」。
+     *
+     * 判据落在**面板这一层**，不是编辑器那两层：投影退回源码（上面那条）与这张面板是两条
+     * 独立的信号，前者绿完全不能推出后者。
+     */
+    await openPluginsPanel(app);
+    expect(await pluginStatus(app, MATH_EXTENSION_ID)).toBe('disabled');
+    // 反面：关掉 math 不能把 mermaid 也标成禁用（与设置页那条哨兵同一个理由）。
+    // 判据取「不是 disabled」而不是某个具体值 —— 这份 fixture 里 mermaid 已经被渲染过，
+    // 所以它是 `loaded`；钉死 `idle` 会把「面板报的是真实加载态」错判成失败。
+    expect(await pluginStatus(app, MERMAID_EXTENSION_ID)).not.toBe('disabled');
+
     // 再打开：当场回到渲染态，同样不重启
     await openPluginsSettings(app);
     await flipMember(app, MATH_EXTENSION_ID);
     await backToMain(app);
     expect(await readDisabled(app)).toBe('');
     await app.waitForSelector('.cm-visual-inline-math .katex', 20000);
+
+    // 面板也跟着回来 —— 只钉「变 disabled」的话，一个把状态缓存死的实现也能过，
+    // 而那种实现的表现是「重新打开插件之后面板还写着已禁用」。
+    //
+    // 判据取「不是 disabled」而不是某个具体值：拨回来会连着触发**两次**通知（谓词变了、
+    // 包加载完了），而 `ChangeNotifier` 是推迟一拍的 —— 此刻可能是 `loading` 也可能是
+    // `loaded`。两个都对，钉死一个就成了偶发红。精确的 idle↔disabled 往返由
+    // `renderer/test/plugins-panel.test.tsx` 那条钉（那里是可控的）。
+    expect(await pluginStatus(app, MATH_EXTENSION_ID)).not.toBe('disabled');
   }, INDEXED_TEST_TIMEOUT_MS);
 
   it('关掉 pdf 渲染器：那份 PDF 当场换成「已禁用」卡，图片照常', async () => {

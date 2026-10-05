@@ -271,6 +271,25 @@ export interface FieldAccessor {
   subscribe(listener: () => void): () => void;
 }
 
+/**
+ * `action` 跑完之后要说的话。
+ *
+ * 不返回它 ＝ 「成了，没什么可说的」，控件显示默认的 `settings.action.done`。
+ *
+ * ## 为什么需要它
+ *
+ * 有些动作**成功了，但不是一切正常** —— 「重建索引」跑完可能有一批文件仍旧没进去
+ * （读不动、文本提取失败）。只说「已完成。」就是在骗人：用户按这个按钮的**唯一**理由
+ * 是「索引看起来不对」，而它恰好会掩盖「还是不对」。
+ *
+ * `vars` 走 `t()` 的插值，与选项标签同一套（`FieldTranslate` 的说明）—— 不这样做的话
+ * 「3 个文件失败」只能靠手拼字符串，而那在英文界面里会漏出中文。
+ */
+export interface ActionOutcome {
+  key: string;
+  vars?: Record<string, string>;
+}
+
 export interface FieldDef {
   /** 稳定标识，也是测试锚点。 */
   id: string;
@@ -315,8 +334,13 @@ export interface FieldDef {
    * 空访问器会把「这个字段没有值」这件事从类型里抹掉，而菜单投影正是按它有无来决定能不能读。
    */
   accessor?: FieldAccessor;
-  /** `action` 控件点击时执行。返回 Promise 时按钮在等待期间禁用，防连点。 */
-  run?: () => void | Promise<void>;
+  /**
+   * `action` 控件点击时执行。返回 Promise 时按钮在等待期间禁用，防连点。
+   *
+   * 返回值是可选的回执：给了就用它取代默认的「已完成。」（见 `ActionOutcome`）。
+   * 抛异常仍表示**整个动作失败**，控件显示 `settings.action.failed`。
+   */
+  run?: () => void | ActionOutcome | Promise<void | ActionOutcome>;
   /**
    * `action` 控件的可用性探测：返回 `null` 表示可执行，否则返回**说明为什么不能**的字典键。
    *
@@ -1098,7 +1122,16 @@ export const REBUILD_INDEX_FIELD: FieldDef = {
     // 与侧栏那次同一个理由：跳过规则在主进程生效，先等设置送到再建索引。
     // 少了这一句，「刚改完忽略规则就按重建索引」会跑在旧规则上。
     await hostSettingsSynced();
-    await window.nexus?.rebuildIndex(root);
+
+    if (!window.nexus?.rebuildIndex) throw new Error('索引接口不可用');
+    const result = await window.nexus.rebuildIndex(root);
+
+    // 建完了，但有文件没进去 —— 如实报件数，别落回「已完成。」。
+    // 明细只有侧栏那条警告条的 tooltip 有（这个窗口是短命的，树不在这里）。
+    const failed = result.errors.length;
+    return failed > 0
+      ? { key: 'settings.data.rebuildIndexPartial', vars: { count: String(failed) } }
+      : undefined;
   },
   menu: false
 };

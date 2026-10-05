@@ -86,8 +86,15 @@ export const PluginsPanel: React.FC<PluginsPanelProps> = ({ host, viewers, onMan
                 data-plugin-id={entry.id}
                 data-plugin-kind={entry.kind}
                 data-plugin-status={entry.status}
+                data-plugin-source={entry.source}
               >
                 <span className="nexus-plugin-name">{t(entry.labelKey)}</span>
+                {/* 来源标记**只在不是内置时画**（P2-6）。今天全是内置 ⇒ 一枚都不出现；
+                    给每一行挂一枚「内置」是纯噪声，还会把「这一条不一样」这个信号稀释掉。
+                    等真有第三方能力时标记自动出现，不必再改 UI。 */}
+                {entry.source !== 'builtin' && (
+                  <span className="nexus-plugin-source">{t('plugins.source.community')}</span>
+                )}
                 <span className={`nexus-plugin-state nexus-plugin-state-${entry.status}`}>
                   {t(`plugins.state.${entry.status}`)}
                 </span>

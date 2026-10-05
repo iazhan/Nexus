@@ -152,6 +152,16 @@ describe('P3-10 附件文本提取：被引用的附件进全文索引', () => {
     expect(rowByName.get('cjk.pdf')?.[1]).toBeNull();
     expect(rowByName.get('orphan.pdf')?.[1]).toBeNull();
 
+    // ── 3b. 「没有文本」不能被报成失败 ─────────────────────────────────────
+    // 上面那个 scan.pdf 是 `empty`。它一旦被算进失败清单，侧栏顶上就会多一条
+    // 「有 N 个文件没能建立索引」—— 用户会以为有一批文件坏了，而其实什么都没坏。
+    // 这是 `empty` 与 `failed` 的分界在**真实链路**里唯一的证据：单测能钉索引库里的
+    // 那一列，钉不住「它有没有变成界面上的那条警告」。
+    const hasIndexWarning = await app.evaluate<boolean>(
+      `document.querySelector('[data-sidebar-warning="index-errors"]') !== null`
+    );
+    expect(hasIndexWarning).toBe(false);
+
     // ── 4. 搜索结果带类型徽标 ──────────────────────────────────────────────
     await app.click('.nexus-activity-icon[data-activity="search"]');
     await app.waitForSelector('.nexus-search-input', 10000);

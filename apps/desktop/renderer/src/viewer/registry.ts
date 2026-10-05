@@ -139,6 +139,20 @@ export class ViewerRendererRegistry {
   }
 
   /**
+   * 谓词的答案可能变了（用户在设置里拨了内置能力的启停），叫醒订阅方。
+   *
+   * 与 `ExtensionHost.notifyCapabilitiesChanged()` 同形同义，理由见那里。这里只说一句本注册表
+   * 特有的：`listRenderers()` 里那一格 `disabled` 也是**现问谓词**的，所以「拨开关 → 报的东西
+   * 变了」在两张表上都成立，`revision` 也就都得跟着跳。
+   *
+   * 注意**别把它和 `ViewerSurface` 的信号搞混**：外壳走 `useSettingValue('plugins.disabled')`，
+   * 自己就会重渲染；这一条是给「靠 `revision` 订阅」的消费者（插件面板）用的。
+   */
+  notifyCapabilitiesChanged(): void {
+    this.notifier.notify();
+  }
+
+  /**
    * 这个类型现在启用吗。**启停的判定只有这一处** —— 查表、状态投影都问它，
    * 所以「清单说已禁用、附件却照样渲染」这种两处不一致不可能发生。
    *

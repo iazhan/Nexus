@@ -1992,6 +1992,23 @@ button.nexus-outline-toggle:hover {
   white-space: nowrap;
 }
 
+/*
+ * 来源标记（P2-6）。**只在不是内置时出现** —— 今天一枚都不会画（面板里全是出厂能力）。
+ * 做得很轻：它是「这一条不是出厂的」这一句注解，不该与右侧的状态抢注意力。
+ * `margin-right: auto` 把右边的空白全吃掉，于是它紧贴名字、状态仍在最右 ——
+ * 少了这一句，`space-between` 会把三样东西均匀摊开，标记飘到中间去。
+ */
+.nexus-plugin-source {
+  flex: 0 0 auto;
+  margin-right: auto;
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--nexus-text-muted);
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 3px;
+}
+
 /* 状态靠颜色区分：「已加载」是最弱的一档（正常态不必抢注意力），
    「加载失败」最显眼。 */
 .nexus-plugin-state {
@@ -2170,6 +2187,28 @@ button.nexus-outline-toggle:hover {
 
 .nexus-sidebar-error {
   color: var(--nexus-status-error-text);
+}
+
+/*
+ * 「有 N 个文件没能建索引」。
+ *
+ * 不复用 `.nexus-sidebar-note`：那三个 note 是**互斥的整块状态**（加载 / 整次失败 / 空态），
+ * 出现时树是不画的；这一条相反 —— 树照常画，它只是加一行说明。底色用
+ * `--nexus-status-warning-*` 这一组，与顶部那条 `.nexus-warning-banner` 同一套，
+ * 里面那枚 `.nexus-banner-dismiss-btn` 在同样的底色上已经用过（顶部链接失败条）。
+ */
+.nexus-sidebar-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 8px 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  background-color: var(--nexus-status-warning-bg);
+  color: var(--nexus-status-warning-text);
+  border-bottom: 1px solid var(--nexus-status-warning-border);
 }
 
 .nexus-sidebar-list {

@@ -86,12 +86,13 @@ describe('插件面板', () => {
     await app.waitForSelector('.nexus-plugin-row', 10000);
 
     const rows = await app.evaluate<
-      Array<{ id: string; kind: string; status: string; name: string }>
+      Array<{ id: string; kind: string; status: string; name: string; source: string }>
     >(
       `Array.from(document.querySelectorAll('.nexus-plugin-row')).map((el) => ({
          id: el.dataset.pluginId,
          kind: el.dataset.pluginKind,
          status: el.dataset.pluginStatus,
+         source: el.dataset.pluginSource,
          name: el.querySelector('.nexus-plugin-name').textContent
        }))`
     );
@@ -99,6 +100,13 @@ describe('插件面板', () => {
     expect(rows.map((row) => row.id).sort()).toEqual([...BUILTIN_IDS].sort());
     expect(rows.filter((row) => row.kind === 'editor-extension')).toHaveLength(2);
     expect(rows.filter((row) => row.kind === 'viewer')).toHaveLength(3);
+
+    // 来源（P2-6 形状冻结）：出厂五条全是 `builtin`，而标记节点**一枚都不画** ——
+    // 给每一行挂一枚「内置」是纯噪声，还会把「这一条不一样」这个信号稀释掉。
+    // 判据落在真实链路（`isBuiltinCapability()` 读的是出厂名册），单测那一侧在
+    // `renderer/test/plugins-panel.test.tsx` 的「来源标记」组。
+    expect(rows.map((row) => row.source)).toEqual(['builtin', 'builtin', 'builtin', 'builtin', 'builtin']);
+    expect(await app.evaluate<number>(`document.querySelectorAll('.nexus-plugin-source').length`)).toBe(0);
 
     // 可读名称：`nexus-math` 是标识符不是名字。断言「不等于 id」而不是比对具体文案，
     // 这样换语言、改文案都不会误伤；裸 id 仍留在行的 `title` 上供排查。

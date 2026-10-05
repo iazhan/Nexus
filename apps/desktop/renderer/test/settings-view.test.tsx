@@ -1929,7 +1929,8 @@ describe('设置视图 · 动作字段', () => {
   function stubBridge(
     roots: string[],
     indexPath: string | null = INDEX_PATH,
-    report: DiagnosticsReport | null = null
+    report: DiagnosticsReport | null = null,
+    indexErrors: string[] = []
   ): {
     rebuilds: string[];
     opened: string[];
@@ -1948,7 +1949,18 @@ describe('设置视图 · 动作字段', () => {
       getWorkspaceRoots: () => Promise.resolve(roots),
       rebuildIndex: (rootPath: string) => {
         calls.rebuilds.push(rootPath);
-        return Promise.resolve({});
+        // 返回值**必须是一份完整的结果**：动作的回执要读 `errors` 才能说清
+        // 「有几条没成」。给一个 `{}` 会让它抛 `undefined.length`，
+        // 而那条异常会被吞成「操作失败」，测试照样绿 —— 那是在测一个假东西。
+        return Promise.resolve({
+          scanned: 0,
+          indexed: 0,
+          skipped: 0,
+          removed: 0,
+          extracted: 0,
+          truncated: false,
+          errors: indexErrors
+        });
       },
       openHistoryDirectory: (rootPath: string) => {
         calls.opened.push(rootPath);
@@ -2063,6 +2075,49 @@ describe('设置视图 · 动作字段', () => {
 
     expect(container.querySelector('[data-field-outcome="data.rebuildIndex"]')?.textContent).toBe(
       translate(localeManager.locale, 'settings.action.failed')
+    );
+  });
+
+  /**
+   * 索引建完了，但有文件没进去。
+   *
+   * **回执必须说清件数**：这个按钮存在的唯一理由是「索引看起来不对」，而它恰好会掩盖
+   * 「还是不对」。一句「已完成。」在这里就是谎报 —— 用户按完以为好了，下次搜索还是缺东西。
+   *
+   * 反面写在同一条用例的第二段：**一个失败都没有时仍旧是「已完成。」**。
+   * 判据不能是「回执里出现了数字」，那对两种情况都成立。
+   */
+  it('重建索引有文件没成功时，回执带上件数', async () => {
+    stubBridge(['E:/notes'], INDEX_PATH, null, [
+      'docs/坏.pdf: Unexpected end of PDF',
+      'notes/x.md: EACCES: 权限不足'
+    ]);
+    renderSettings('data');
+    await settle();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-field-action="data.rebuildIndex"]')?.click();
+    });
+
+    const outcome = container.querySelector('[data-field-outcome="data.rebuildIndex"]');
+    expect(outcome?.textContent).toBe(
+      translate(localeManager.locale, 'settings.data.rebuildIndexPartial', { count: '2' })
+    );
+    // 字典里写着 `{count}` 而调用方忘了传，是这类文案最常见的错法：界面上会原样漏出花括号。
+    expect(outcome?.textContent).not.toContain('{');
+  });
+
+  it('没有文件失败时回执仍旧是「已完成。」', async () => {
+    stubBridge(['E:/notes']);
+    renderSettings('data');
+    await settle();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-field-action="data.rebuildIndex"]')?.click();
+    });
+
+    expect(container.querySelector('[data-field-outcome="data.rebuildIndex"]')?.textContent).toBe(
+      translate(localeManager.locale, 'settings.action.done')
     );
   });
 

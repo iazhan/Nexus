@@ -197,6 +197,35 @@ describe('ViewerRendererRegistry 状态订阅', () => {
     // 但状态照常推进：退订只影响「谁被叫醒」，不影响记账
     expect(registry.loadedIds()).toEqual(['image']);
   });
+
+  /**
+   * 启停是**第三条**信号，与加载态跃迁无关（`ExtensionHost` 那侧有一条同形的）。
+   *
+   * `listRenderers()` 里那一格 `disabled` 是现问谓词的，所以拨完开关它报的东西立刻就变了；
+   * 但 `revision` 只在加载态跃迁时自己跳。少了这一条，插件面板会一直停在旧值。
+   */
+  it('谓词答案变了也要通知 —— 面板靠这一条才知道「用户把它关掉了」', async () => {
+    let disabled = false;
+    const registry = new ViewerRendererRegistry((type) => !(disabled && type === 'image'));
+    registry.registerLazy({
+      type: 'image',
+      load: async () => ({ default: () => <div className="fake-image" /> })
+    });
+
+    const seen: string[] = [];
+    registry.subscribe(() => {
+      const renderer = registry.listRenderers().find((r) => r.type === 'image')!;
+      seen.push(renderer.disabled ? 'disabled' : 'idle');
+    });
+
+    const before = registry.revision;
+    disabled = true;
+    registry.notifyCapabilitiesChanged();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(seen).toEqual(['disabled']);
+    expect(registry.revision).toBeGreaterThan(before);
+  });
 });
 
 /**

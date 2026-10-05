@@ -139,3 +139,57 @@ describe('buildCapabilityManifest', () => {
     expect(buildCapabilityManifest(undefined, undefined)).toEqual([]);
   });
 });
+
+/**
+ * P2-6 的**形状冻结**。
+ *
+ * 这一条计划要的是「形状能容纳 `source: 'community'` 与 `permissions: string[]` 而不改形状」，
+ * 而它的反面是「**不因为将来要支持就现在加校验**」。两半都在这里钉：
+ *
+ * - 类型那一半（四个预留字段的**槽位**）由 `CapabilityEntry` 的声明守着，**不在这里** ——
+ *   `renderer/test/**` 不进 typecheck（`tsconfig.web.json` 只收 `renderer/src/**`），
+ *   写在这里的类型断言是空转的。所以下面这条改成断言**运行时对象里一个预留字段都没填**。
+ * - 行为那一半（不校验、不过滤）在这里：认不出的 id 照样列出来，只是 `source` 变了。
+ */
+describe('P2-6 形状冻结 · source 与预留字段', () => {
+  it('出厂能力全是 builtin —— 判据是「在不在名册里」', () => {
+    const entries = buildCapabilityManifest(BUILTIN_HOST, BUILTIN_VIEWERS);
+
+    expect(entries).toHaveLength(5);
+    for (const entry of entries) {
+      expect(entry.source).toBe('builtin');
+    }
+  });
+
+  it('不在名册里的 id 是 community，而且**照样列出来** —— 本期不做 manifest 校验', () => {
+    const entries = buildCapabilityManifest(
+      {
+        listExtensions: () => [
+          { id: MATH_EXTENSION_ID, state: 'idle' as const },
+          { id: 'community:epub-viewer', state: 'idle' as const }
+        ]
+      },
+      undefined
+    );
+
+    // 正面：来源分得出来
+    expect(entries[0].source).toBe('builtin');
+    expect(entries[1].source).toBe('community');
+    // 反面：**不能因为「不是出厂的」就把它滤掉或拦下**。一旦这里开始校验，
+    // 第三方能力会静默消失 —— 而这个面板存在的意义正是「别让能力静默消失」。
+    expect(entries.map((entry) => entry.id)).toEqual([MATH_EXTENSION_ID, 'community:epub-viewer']);
+  });
+
+  it('预留字段本期一个都不填 —— 填了就成了没人执行的承诺', () => {
+    const entries = buildCapabilityManifest(BUILTIN_HOST, BUILTIN_VIEWERS);
+
+    // 这条是**「不加校验」的运行时哨兵**，也是「形状没被顺手扩写」的哨兵：
+    // 键集合变了就说明有人往投影里塞了新东西，而那种改动必须是有意的。
+    for (const entry of entries) {
+      expect(Object.keys(entry).sort()).toEqual(['id', 'kind', 'labelKey', 'source', 'status']);
+    }
+    // 特别钉一遍 `permissions`：它是 P2-6 里最容易「顺手填上」的那个 —— 而填了权限
+    // 却没有任何东西执行它，比不填更糟（一个看起来被检查过、实际没人看的字段）。
+    expect(entries[0].permissions).toBeUndefined();
+  });
+});
