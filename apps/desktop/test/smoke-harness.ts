@@ -113,6 +113,10 @@ function resolveElectronBinary(): string {
 export interface LaunchElectronOptions {
   filePath?: string;
   args?: string[];
+  /**
+   * 覆写子进程环境。**这里给了 `USERPROFILE` / `HOME` 就以它为准** —— 默认值见下面 `userDataDir`
+   * 那段（每个实例一个临时家目录）。
+   */
   env?: Record<string, string>;
   cwd?: string;
   /**
@@ -122,6 +126,9 @@ export interface LaunchElectronOptions {
    * 无限累积，累积本身又会让后续实例变慢。**只有「要跨两次启动验证同一份落盘状态」的用例
    * 才该传它** —— 目前只有「启动时恢复上次工作区」这一条：它的效果就是「上一次启动写了什么，
    * 下一次启动读到什么」，两次启动必须看同一个目录。
+   *
+   * **家目录（`os.homedir()`）跟着它走**：`<userDataDir>/home`，通过 `USERPROFILE`（Windows）/
+   * `HOME`（POSIX）传给子进程。所以「复用 userDataDir」同时意味着「两次启动看同一份家目录」。
    *
    * 传进来的目录同样登记进 `createTempDir` 的清理表（用 `createTempDir` 造它即可），
    * 所以用例不必自己删。
@@ -290,6 +297,18 @@ export class ElectronAppInstance {
   /** 本实例专属的 userData 目录；`close()` 时删掉，避免临时目录无限累积。 */
   public readonly userDataDir: string;
   /**
+   * 本实例专属的**家目录**（`<userDataDir>/home`），以 `USERPROFILE` / `HOME` 传给子进程。
+   *
+   * 主进程里凡是「用户级」的路径都从 `os.homedir()` 算（今天是用户主题目录
+   * `<home>/.nexus/themes`）。不隔离的话测试会**直接读写开发者真实的家目录**：实测 2026-10-05，
+   * `theme-editor` / `theme-import` 把主题文件写进了 `C:\Users\<me>\.nexus\themes\`，而首帧载荷
+   * 又会把它们读回来 ⇒ 用例之间互相污染（`saved.themes` 莫名多出一套），而且**只在跑过另一个
+   * 会写主题的文件之后才红**，单跑永远是绿的。
+   *
+   * 用例要断言那个目录时用它，别自己造一个 —— 自己造就得重复一遍「哪个平台读哪个变量」。
+   */
+  public readonly homeDir: string;
+  /**
    * 这个目录是本实例建的吗。**`false` 时 `close()` 不删它** —— 调用方传了
    * `userDataDir` 就说明他要跨启动复用同一份状态，删掉等于把第二次启动的数据抹了。
    * 复用目录的清理归 `createTempDir` 的退出钩子。
@@ -305,6 +324,7 @@ export class ElectronAppInstance {
     target: CDPTarget,
     ws: WebSocket,
     userDataDir: string,
+    homeDir: string,
     ownsUserDataDir = true
   ) {
     this.proc = proc;
@@ -312,6 +332,7 @@ export class ElectronAppInstance {
     this.target = target;
     this.ws = ws;
     this.userDataDir = userDataDir;
+    this.homeDir = homeDir;
     this.ownsUserDataDir = ownsUserDataDir;
     this.bindSocket(ws);
   }
@@ -956,6 +977,14 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
   const userDataDir = options.userDataDir ?? createTempDir('nexus-userdata-');
   args.push(`--user-data-dir=${userDataDir}`);
 
+  // 家目录也隔离，理由见 `ElectronAppInstance.homeDir`。放在 userDataDir 之下而不是另开一个
+  // 临时目录：**「复用 userDataDir」与「两次启动看同一份家目录」应当是同一件事**，否则跨启动
+  // 用例会以为状态延续了、其实每次家目录都是新的。
+  const homeDir = path.join(userDataDir, 'home');
+  fs.mkdirSync(homeDir, { recursive: true });
+  const homeEnv =
+    process.platform === 'win32' ? { USERPROFILE: homeDir } : { HOME: homeDir };
+
   if (options.filePath) {
     args.push(options.filePath);
   }
@@ -971,6 +1000,7 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
     env: {
       ...childEnv,
       NODE_ENV: 'test',
+      ...homeEnv,
       ...options.env
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -1038,6 +1068,7 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
     target,
     ws,
     userDataDir,
+    homeDir,
     options.userDataDir === undefined
   );
   await instance.sendCommand('Runtime.enable');

@@ -1,8 +1,10 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { BrowserWindow as BrowserWindowType } from 'electron';
+import { parseUserThemes, type UserTheme } from '@nexus/theme';
 import {
   ASSET_SCHEME,
   parseLaunchArgs,
@@ -42,6 +44,13 @@ import { createProcessorRegistry } from './processor/index.js';
 import { checkForUpdatesManually, setupAutoUpdater, updatesSupported } from './updater.js';
 import { forgetWindow, isWindowDirty, markWindowDirty } from './window-dirty.js';
 import {
+  scanThemeDirectory,
+  syncThemeDirectory,
+  themeDirectoryPath,
+  type ThemeDirectoryScan
+} from './theme-directory.js';
+import { themeBootPayload } from './theme-boot-payload.js';
+import {
   DELETE_MODES,
   IPC_CHANNELS,
   SETTINGS_SECTION_PARAM,
@@ -53,6 +62,9 @@ import {
   type RenameFileRequest,
   type RenameFileResult,
   type RenameFileSkip,
+  type ThemeBootPayload,
+  type ThemeBootRequest,
+  type ThemeSyncResult,
   type WindowRole,
   type WindowState
 } from '../ipc/channels.js';
@@ -187,6 +199,98 @@ if (recentWorkspaceDir && launchContext.workspaceRoot) {
     ...startupState,
     workspaceRoot: launchContext.workspaceRoot
   });
+}
+
+/**
+ * 用户主题目录（`<home>/.nexus/themes`）。**模块顶层求值**：首帧主题要在任何窗口创建之前
+ * 定下来，而它读的就是这个目录（见 `theme-directory.ts` 的头注释）。
+ */
+const themeDirectory = themeDirectoryPath(os.homedir());
+
+/**
+ * 目录快照的缓存。窗口有三个（主 / 设置 / 主题），每个 preload 都会来问一次首帧载荷，
+ * 而扫描是同步 IO —— 不缓存的话它会在启动路径上被跑三遍。
+ */
+let themeDirectoryCache: ThemeDirectoryScan | null = null;
+
+function currentThemeScan(): ThemeDirectoryScan {
+  themeDirectoryCache ??= scanThemeDirectory(themeDirectory);
+  return themeDirectoryCache;
+}
+
+/** 按 id 取并集，**前者优先**（目录是事实源，存档里多出来的那些只是还没落盘）。 */
+function mergeThemeLists(primary: readonly UserTheme[], extra: readonly UserTheme[]): UserTheme[] {
+  const byId = new Map(primary.map((theme) => [theme.id, theme]));
+  for (const theme of extra) {
+    if (!byId.has(theme.id)) byId.set(theme.id, theme);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * 首帧请求的处理：**目录是主题的事实源**，所以「用哪套主题、要不要注入变量」由主进程算。
+ *
+ * ## 为什么一次性迁移在这里做
+ *
+ * 用户主题原本存在渲染进程的 localStorage 里（键 `nexus-user-theme`），主进程读不到 ——
+ * 那份存档的**原文**由 preload 带过来。顺序是「读存档 → 写文件 → 确认全部写成功 → 打标记」，
+ * **不能反**：先停读再写的话，一次磁盘写失败（权限 / 磁盘满 / 目录被占）就等于用户主题全丢，
+ * 且没有撤销。
+ *
+ * 迁移没成功时**把那几套一并交出去**（它们只是还没落盘）：列表里照样看得见、能选，
+ * 下一次启动重试。否则用户会以为主题没了。
+ */
+function resolveThemeBoot(raw: unknown): ThemeBootPayload {
+  const request = (raw ?? {}) as Partial<ThemeBootRequest>;
+  const choice = typeof request.choice === 'string' ? request.choice : null;
+  const prefersDark = request.prefersDark === true;
+  const storedThemes = typeof request.storedThemes === 'string' ? request.storedThemes : null;
+
+  let scan = currentThemeScan();
+  const migrated = request.migrated === true;
+
+  if (migrated) {
+    return {
+      ...themeBootPayload(choice, prefersDark, scan.themes),
+      themes: scan.themes,
+      broken: scan.broken,
+      migrated: true,
+      directory: themeDirectory
+    };
+  }
+
+  const legacy = storedThemes ? parseUserThemes(storedThemes) : [];
+  const merged = mergeThemeLists(scan.themes, legacy);
+  const result =
+    legacy.length > 0
+      ? syncThemeDirectory(
+          themeDirectory,
+          merged,
+          scan.themes.map((theme) => theme.id)
+        )
+      : null;
+
+  if (result && result.failed.length > 0) {
+    console.warn('[Nexus Shell] 用户主题写盘失败，本次仍按存档里的那几套走:', result.failed);
+    return {
+      ...themeBootPayload(choice, prefersDark, merged),
+      themes: merged,
+      broken: scan.broken,
+      migrated: false,
+      directory: themeDirectory
+    };
+  }
+
+  // 写出去了（或本来就没有要写的）：目录才是权威，重扫一次。
+  themeDirectoryCache = null;
+  scan = currentThemeScan();
+  return {
+    ...themeBootPayload(choice, prefersDark, scan.themes),
+    themes: scan.themes,
+    broken: scan.broken,
+    migrated: true,
+    directory: themeDirectory
+  };
 }
 
 function getPreloadPath(): string {
@@ -1104,6 +1208,23 @@ ipcMain.handle(IPC_CHANNELS.openHistoryDirectory, async (event, rootPath: unknow
 });
 
 /**
+ * 打开用户主题目录。**路径由主进程拼**，不接受渲染进程给的目录（同 `openHistoryDirectory`）。
+ *
+ * 目录不存在时**先建出来**：这个入口的典型用法就是「第一次进来看看该把文件放哪」，
+ * 返回 `false` 会让用户以为这个功能坏了。建不出来才返回 `false`。
+ */
+ipcMain.handle(IPC_CHANNELS.openThemeDirectory, async () => {
+  try {
+    fs.mkdirSync(themeDirectory, { recursive: true });
+  } catch {
+    return false;
+  }
+
+  // `shell.openPath` 用**返回的字符串**报错（空串才是成功），不抛。
+  return (await shell.openPath(themeDirectory)) === '';
+});
+
+/**
  * 应用版本号。
  *
  * `app.getVersion()` 读的是**应用目录**的 `package.json`（打包后是安装包里的那一份），
@@ -1700,6 +1821,29 @@ ipcMain.handle(IPC_CHANNELS.syncHostSettings, async (_event, payload: unknown) =
       workspaceRoot: readRecentWorkspace(recentWorkspaceDir).workspaceRoot
     });
   }
+});
+
+/**
+ * 首帧主题。**唯一的 `sendSync`**：preload 在页面脚本之前跑，主题必须在那一刻定下来，
+ * 而「用哪套主题」在渲染进程的 localStorage 里（见 `channels.ts` 的 `getThemeBoot`）。
+ *
+ * 用 `ipcMain.on` + `event.returnValue` 而不是 `handle` —— 后者是异步的，等它回来首帧已经画过。
+ */
+ipcMain.on(IPC_CHANNELS.getThemeBoot, (event, payload: unknown) => {
+  event.returnValue = resolveThemeBoot(payload);
+});
+
+/**
+ * 把渲染进程手里的主题列表对齐到目录。**不 await**（同步 fs），但用 `handle` 是为了让调用方
+ * 拿到 `failed` —— 写不进去时必须说话。
+ */
+ipcMain.handle(IPC_CHANNELS.syncThemeLibrary, (_event, raw: unknown): ThemeSyncResult => {
+  const themes = Array.isArray(raw) ? parseUserThemes(JSON.stringify({ themes: raw })) : [];
+  const knownIds = currentThemeScan().themes.map((theme) => theme.id);
+  const result = syncThemeDirectory(themeDirectory, themes, knownIds);
+  // 目录变了，下一次扫描（别的窗口的 preload、或下一次同步）要重新读。
+  themeDirectoryCache = null;
+  return result;
 });
 
 // App lifecycle

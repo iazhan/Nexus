@@ -1,4 +1,5 @@
 import type { FileWatchEvent } from '@nexus/core';
+import type { UserTheme } from '@nexus/theme';
 
 /**
  * 主进程与 preload 共用的 IPC channel，避免业务代码散落字符串字面量。
@@ -169,7 +170,32 @@ export const IPC_CHANNELS = {
    * （收方各读各的存档），这条是**给主进程**的数据。合并的话主进程就要区分
    * 「这次广播是不是给我的」，而窗口之间的广播本来也不该顺带传值。
    */
-  syncHostSettings: 'nexus:sync-host-settings'
+  syncHostSettings: 'nexus:sync-host-settings',
+  /**
+   * 首帧主题：**同步**取一次主进程算好的载荷。
+   *
+   * 唯一一条 `sendSync` 通道，理由只有一个 —— 主题必须在**首帧之前**定下来，而「用哪套主题」
+   * 存在渲染进程的 localStorage 里、**主进程读不到**。用户主题的变量还得由主进程派生（它没有
+   * 构建期静态 CSS），所以方向是 preload → 主进程 → preload，且必须同步。
+   *
+   * 不用 `invoke`：那是异步的，等它回来首帧已经画过了 —— 正是这条通道要消除的闪烁。
+   */
+  getThemeBoot: 'nexus:get-theme-boot',
+  /**
+   * 把渲染进程手里的主题列表**对齐到目录**（写缺的、删多的）。
+   *
+   * 整表下发而不是逐条增删：目录是**列表**，一次编辑可能同时改到两三个文件（加一个变体、
+   * 并掉一套），逐条通道会让「中间态」变成一种真实存在的磁盘状态。
+   */
+  syncThemeLibrary: 'nexus:sync-theme-library',
+  /**
+   * 在系统文件管理器里打开用户主题目录（`<home>/.nexus/themes`）。
+   *
+   * 与 `openHistoryDirectory` / `openIndexDirectory` 同形，返回**是否真的打开了**。
+   * 目录不存在时**先建出来再开** —— 那正是「第一次进来看看放哪」的路径，返回 `false`
+   * 会让用户以为这个功能坏了。
+   */
+  openThemeDirectory: 'nexus:open-theme-directory'
 } as const;
 
 /**
@@ -457,4 +483,78 @@ export const DEFAULT_HOST_SETTINGS: HostSettings = {
 export interface FileWatchIpcPayload {
   subscriptionId: string;
   event: FileWatchEvent;
+}
+
+/**
+ * 目录里一个读不动的主题文件。
+ *
+ * `unreadable` = 字节没读出来（权限 / 是目录 / 符号链接 / 太大）；`duplicate-variant` = 同 id
+ * 同变体有两份文件（「哪份生效」会取决于文件系统给的顺序）；其余是 base16 的结构化错误码，
+ * 由渲染进程翻成文案。
+ *
+ * 定义在这里而不是 `electron/theme-directory.ts`：它是**跨进程契约**，而那个模块 import 了
+ * `node:fs` —— preload 在 sandbox 下拿不到它。形状放这儿，两边只 import 类型。
+ */
+export type BrokenThemeReason =
+  | 'empty'
+  | 'not-a-scheme'
+  | 'missing-slots'
+  | 'invalid-colour'
+  | 'unreadable'
+  | 'duplicate-variant';
+
+export interface BrokenThemeFile {
+  fileName: string;
+  reason: BrokenThemeReason;
+}
+
+/**
+ * preload 发给主进程的首帧请求。
+ *
+ * `storedThemes` 是 localStorage 里那份用户主题存档的**原文**，不是解析结果 —— 「存档格式」
+ * 归渲染进程一侧（`parseUserThemes`），主进程只该拿到「有哪些主题」这个答案，不该自己再解析
+ * 一遍 JSON。它是 `null` 表示没有存档。
+ *
+ * `migrated` 是「那份存档是否已经写出成文件」的标记。为 `false` 且存档非空时，主进程先把它
+ * 写出来再答 —— 顺序不能反，先停读再写的话一次磁盘写失败就等于用户主题全丢。
+ */
+export interface ThemeBootRequest {
+  choice: string | null;
+  prefersDark: boolean;
+  storedThemes: string | null;
+  migrated: boolean;
+}
+
+/**
+ * 首帧载荷：写哪个 `data-theme`、要不要注入一段 CSS，以及**目录的完整快照**。
+ *
+ * 快照搭这条通道一起走，是因为渲染进程也需要它（主题列表、坏文件清单），而它已经在手上了 ——
+ * 再开一条 `invoke` 只会让「首帧用的那批主题」与「列表里显示的那批」成为两次读取。
+ */
+export interface ThemeBootPayload {
+  /** 写到 `<html data-theme>` 上的值。 */
+  themeId: string;
+  /** `:root { --nexus-… }` 文本。**内置主题是空串**（它们有构建期静态 CSS）。 */
+  cssText: string;
+  themes: UserTheme[];
+  broken: BrokenThemeFile[];
+  /** 这一次之后，localStorage 那份存档是否已经写出成文件。 */
+  migrated: boolean;
+  /**
+   * 目录的绝对路径。界面要**显示**它（「放哪」是这个功能唯一的用法说明），也要能打开它 ——
+   * 而 `<home>` 只有主进程知道。
+   */
+  directory: string;
+}
+
+/**
+ * 一次目录同步的结果。
+ *
+ * `failed` 非空时**调用方必须说话**：写不进去的主题下次启动就不在了，静默降级等于
+ * 「我的主题自己消失了」。
+ */
+export interface ThemeSyncResult {
+  written: number;
+  removed: number;
+  failed: string[];
 }

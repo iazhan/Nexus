@@ -115,8 +115,13 @@ function toScheme(
   return { ok: true, scheme: { name, author, variant, palette } };
 }
 
-/** 剥掉 YAML 行尾注释。`#` 只有**在引号外且前面是空白**时才是注释 —— 色值本身以 `#` 开头。 */
-function stripYamlComment(line: string): string {
+/**
+ * 剥掉 YAML 行尾注释。`#` 只有**在引号外且前面是空白**时才是注释 —— 色值本身以 `#` 开头。
+ *
+ * 导出给 `theme-file.ts` 共用：它是本包唯一一处「引号状态机」，扩展块里的 `#rrggbb` 与
+ * 注释走的是同一条判据。
+ */
+export function stripYamlComment(line: string): string {
   let quote: string | null = null;
   for (let i = 0; i < line.length; i += 1) {
     const char = line[i] as string;
@@ -133,7 +138,7 @@ function stripYamlComment(line: string): string {
   return line;
 }
 
-function unquote(value: string): string {
+export function unquote(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length >= 2) {
     const first = trimmed[0];
@@ -208,7 +213,13 @@ export function parseBase16(text: string, fallbackName = 'Imported'): Base16Pars
   return parseYaml(trimmed, fallbackName);
 }
 
-const quoted = (value: string): string => `"${value.replace(/"/g, '\\"')}"`;
+/**
+ * YAML 双引号字符串。`theme-file.ts` 共用 —— 两处各写一遍的话，转义规则一旦只改一边，
+ * 写出去的文件另一边就读不回来。
+ */
+export const quoteYaml = (value: string): string => `"${value.replace(/"/g, '\\"')}"`;
+
+const quoted = quoteYaml;
 
 /** 写 spec 0.11 的嵌套形状 —— 那是当前规范，扁平形状只为了读老文件而保留。 */
 export function serializeBase16(scheme: Base16Scheme, format: Base16Format = 'yaml'): string {

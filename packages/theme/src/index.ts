@@ -61,6 +61,13 @@ export {
   type Base16Scheme
 } from './base16.js';
 export {
+  parseThemeFile,
+  serializeThemeFile,
+  THEME_FILE_EXTENSIONS,
+  type ThemeFileExtras,
+  type ThemeFileParseResult
+} from './theme-file.js';
+export {
   applyOverrides,
   defaultTuning,
   seedsToTokens,

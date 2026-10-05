@@ -15,6 +15,7 @@ import {
 } from '@nexus/theme';
 import { SettingsStore } from './settings/store.js';
 import { EDITOR_CSS_VARS, codeLineNumbersDisplay, editorFontStack } from './settings/preference-specs.js';
+import { reportThemeWriteFailures } from './theme-directory.js';
 
 export const commandRegistry = new CommandRegistry();
 export const localeManager = new LocaleManager();
@@ -30,6 +31,18 @@ const LOCALE_STORAGE_KEY = 'nexus-locale';
  * —— 与既有行为一致（没有存档时看系统偏好），且存档恒可解读，不用区分「跟随」与「从未选过」。
  */
 export const settings = new SettingsStore();
+
+/**
+ * 主题的**事实源在磁盘上**（`<home>/.nexus/themes/`），而磁盘只有主进程读得到 —— preload 已经
+ * 在首帧之前把那份快照取回来了，这里只是把它接进存档。
+ *
+ * 顺序要紧：**先接进来再构造 `themeManager`**。反过来会让首帧按存档里那份（上一次会话的）
+ * 构造，而两份不一致时首帧与第二帧就是两套主题 —— 症状是「启动闪一下」。
+ *
+ * 主进程答不上来时（`themeBoot` 是 `null`）保持存档原样，那正是改动之前的行为。
+ */
+const bootThemes = window.nexus?.themeBoot?.themes;
+if (bootThemes) settings.set('appearance.userThemes', bootThemes);
 
 const savedUserThemes = settings.get('appearance.userThemes');
 
@@ -75,6 +88,27 @@ export function applyThemeChoice(choice: string): void {
 }
 
 /**
+ * 把当前列表对齐到主题目录。**每次改动之后都要调一次** —— 目录是事实源，落盘晚一步就意味着
+ * 「这次改的东西下次启动不见了」。
+ *
+ * 不 `await`：界面已经按内存态更新过了，写盘是后台动作。但**结果要接住** —— `failed` 非空
+ * 说明有文件没写进去，那是必须说出来的（静默降级等于「我的主题自己消失了」）。
+ */
+function syncThemeLibrary(): void {
+  const themes = settings.get('appearance.userThemes');
+  void Promise.resolve(window.nexus?.syncThemeLibrary?.(themes))
+    .then((result) => {
+      if (!result) return;
+      if (result.failed.length > 0) console.warn('[Nexus] 用户主题写盘失败:', result.failed);
+      reportThemeWriteFailures(result.failed);
+    })
+    .catch((error: unknown) => {
+      console.warn('[Nexus] 用户主题写盘通道出错:', error);
+      reportThemeWriteFailures(themes.length > 0 ? ['<目录不可写>'] : []);
+    });
+}
+
+/**
  * 把一份用户主题写回列表：**同 id 替换，否则追加**。
  *
  * 其余条目原样保留 —— 用户可以同时拥有多套自定义主题，覆盖写会让「切走一套就丢一套」。
@@ -87,6 +121,7 @@ function upsertUserTheme(theme: UserTheme): void {
       ? list.map((item) => (item.id === theme.id ? theme : item))
       : [...list, theme]
   );
+  syncThemeLibrary();
 }
 
 /** 把当前用户主题落盘。落在内置主题上时无事可做。 */
@@ -124,6 +159,7 @@ export function removeUserTheme(id: string): void {
   settings.set('appearance.userThemes', next);
   // 注册表跟着换一份：留着的话它的 id 还能被选择引用，「删了却还能切回去」。
   themeManager.setUserThemes(next);
+  syncThemeLibrary();
 }
 
 /**
@@ -150,11 +186,13 @@ export function mergeUserThemeInto(targetId: string, sourceId: string): UserThem
     settings.set('appearance.userThemes', next);
     themeManager.setUserThemes(next);
     applyThemeChoice(formatSelection({ preset: targetId, mode }));
+    syncThemeLibrary();
     return merged;
   }
 
   settings.set('appearance.userThemes', next);
   themeManager.setUserThemes(next);
+  syncThemeLibrary();
   return merged;
 }
 

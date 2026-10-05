@@ -480,6 +480,7 @@ describe('设置视图 · Appearance', () => {
       if (button.dataset.themeDelete !== undefined) return 'delete';
       if (button.dataset.themeNew !== undefined) return 'new';
       if (button.dataset.themeOpenWindow !== undefined) return 'open';
+      if (button.dataset.themeDirectoryOpen !== undefined) return 'directory';
       if (button.dataset.themePasteApply !== undefined || button.dataset.themePasteClear !== undefined) {
         return 'paste';
       }
@@ -502,6 +503,8 @@ describe('设置视图 · Appearance', () => {
     expect(kinds.filter((kind) => kind === 'mode')).toHaveLength(3);
     expect(kinds.filter((kind) => kind === 'new')).toHaveLength(1);
     expect(kinds.filter((kind) => kind === 'open')).toHaveLength(1);
+    // 主题目录那一段的「打开目录」：目录是事实源，用户要能照着路径去找它。
+    expect(kinds.filter((kind) => kind === 'directory')).toHaveLength(1);
     // 每张卡一枚：全部出厂预设 + 刚造出来那份用户主题。
     expect(kinds.filter((kind) => kind === 'copy')).toHaveLength(BUILT_IN_PRESETS.length + 1);
     // 删除键与编辑键**只在用户主题的卡片上** —— 内置主题删不掉也改不动（改要先复制），

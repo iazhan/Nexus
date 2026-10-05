@@ -16,6 +16,7 @@ import type {
   BacklinkEntry,
   HistoryEntry
 } from '@nexus/core';
+import type { UserTheme } from '@nexus/theme';
 import type {
   CreateDirectoryRequest,
   CreateFileRequest,
@@ -25,10 +26,38 @@ import type {
   RenameFileRequest,
   RenameFileResult,
   SaveAttachmentRequest,
+  ThemeBootPayload,
+  ThemeSyncResult,
   WindowState
 } from '../ipc/channels.js';
 
 export interface NexusBridge {
+  /**
+   * 首帧主题的载荷：写哪个 `data-theme`、注入了哪段 CSS，以及**主题目录的整份快照**。
+   *
+   * 它是一次 `sendSync` 的结果，在 preload 执行时就拿到了 —— 所以这里是**数据**而不是
+   * 一个 `Promise`。渲染进程读它是同步的（`platform.ts` 在模块加载时就要那份列表去构造
+   * `ThemeManager`，晚一步就会先画一帧别的主题）。
+   *
+   * `null` ＝ 主进程没答上来（bridge 还没建好、或那一步出错）。调用方按「目录为空」处理。
+   */
+  themeBoot: ThemeBootPayload | null;
+  /**
+   * 把主题列表对齐到目录：写缺的文件、删多出来的。
+   *
+   * **整表下发**。目录是一个列表，一次编辑可能同时改到两三个文件（加一个变体、并掉一套），
+   * 逐条通道会让中间态变成一种真实存在的磁盘状态。
+   *
+   * 返回值里的 `failed` 非空时调用方**必须说话** —— 写不进去的主题下次启动就不在了。
+   */
+  syncThemeLibrary: (themes: UserTheme[]) => Promise<ThemeSyncResult>;
+  /**
+   * 在系统文件管理器里打开用户主题目录，返回是否真的打开了。
+   *
+   * 目录不存在时主进程**先建出来** —— 这个入口的典型用法就是「第一次进来看看该把文件放哪」，
+   * 那里返回 `false` 会让用户以为功能坏了。
+   */
+  openThemeDirectory: () => Promise<boolean>;
   getLaunchContext: () => Promise<LaunchContext>;
   openFile: (filePath?: string) => Promise<FileDocument>;
   /**

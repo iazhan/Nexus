@@ -5325,3 +5325,68 @@ button.nexus-outline-toggle:hover {
 .nexus-theme-transfer-status[data-status='error'] {
   color: var(--nexus-status-error-text);
 }
+
+/*
+ * 主题目录。与导入 / 导出同一个区块的下一段：那一个是**动作**（选文件、拖放），
+ * 这一段是**位置**（文件放哪儿）与**回执**（哪几个没读出来）。
+ *
+ * 用实线边框而不是 `.nexus-theme-transfer` 的虚线 —— 虚线在那个组件里是「把文件拖到这儿」
+ * 的语义，这里没有可投放的东西，跟着画会让用户往里拖。
+ */
+.nexus-theme-directory {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+}
+
+.nexus-theme-directory-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nexus-theme-directory-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nexus-text-primary);
+}
+
+/* 路径是**数据**，可能很长：折行而不是省略号 —— 用户要照着它去找目录，看不全等于没给。 */
+.nexus-theme-directory [data-theme-directory-path] {
+  margin: 0;
+  word-break: break-all;
+}
+
+.nexus-theme-directory-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  background-color: var(--nexus-status-warning-bg);
+  color: var(--nexus-status-warning-text);
+}
+
+.nexus-theme-directory-warning-title {
+  font-weight: 600;
+}
+
+.nexus-theme-directory-warning .nexus-settings-field-description {
+  margin: 0;
+  color: inherit;
+}
+
+.nexus-theme-directory-warning-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

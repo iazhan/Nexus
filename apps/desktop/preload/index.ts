@@ -18,6 +18,7 @@ import type {
   BacklinkEntry,
   HistoryEntry
 } from '@nexus/core';
+import type { UserTheme } from '@nexus/theme';
 import {
   IPC_CHANNELS,
   type CreateDirectoryRequest,
@@ -29,15 +30,17 @@ import {
   type RenameFileRequest,
   type RenameFileResult,
   type SaveAttachmentRequest,
+  type ThemeSyncResult,
   type WindowState
 } from '../ipc/channels.js';
 import type { NexusBridge } from './types.js';
 import { installThemeBoot } from './theme-boot.js';
 import { applyStoredUiZoom, uiZoomFactor } from './ui-zoom.js';
 
-// 最早执行的一段：首帧之前把主题落到 `<html data-theme>` 上。放在 bridge 之前，
-// 因为它和 IPC 无关，越早越好。
-installThemeBoot(document, window);
+// 最早执行的一段：首帧之前把主题落到 `<html data-theme>` 上、把用户主题的变量注入 `<head>`。
+// 它同时带回目录的整份快照（主题列表 + 坏文件清单），渲染进程从这里读 —— 主题的**事实源**
+// 在磁盘上，而磁盘只有主进程读得到。
+const themeBoot = installThemeBoot(document, window);
 
 // 与主题同一个理由，但**更简单**：缩放不碰 DOM，随时可调，所以不需要等 `<html>`。
 // 晚一帧的代价是「先按 100% 画一帧再跳」—— 改的是布局视口，跳一下整窗都要重排。
@@ -76,6 +79,16 @@ ipcRenderer.on(
 let subscriptionCounter = 0;
 
 const bridge: NexusBridge = {
+  themeBoot,
+
+  syncThemeLibrary: (themes: UserTheme[]): Promise<ThemeSyncResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.syncThemeLibrary, themes);
+  },
+
+  openThemeDirectory: (): Promise<boolean> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.openThemeDirectory);
+  },
+
   getLaunchContext: (): Promise<LaunchContext> => {
     return ipcRenderer.invoke(IPC_CHANNELS.getLaunchContext);
   },

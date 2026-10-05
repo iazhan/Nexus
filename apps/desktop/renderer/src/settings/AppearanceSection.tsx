@@ -23,6 +23,7 @@ import {
 } from './registry.js';
 import { schemesForPreset } from './theme-preview-schemes.js';
 import { ThemeThumbnail } from './ThemeThumbnail.js';
+import { ThemeDirectoryNotice } from './ThemeDirectoryNotice.js';
 import { ThemeTransfer } from './ThemeTransfer.js';
 import { FieldRow } from './FieldRow.js';
 
@@ -473,6 +474,11 @@ export const AppearanceSection: React.FC = () => {
           在设置页里挑。它不进主题窗口 —— 那个窗口可能正开在一套内置主题上（只读），
           文件投放区不该跟着只读。 */}
       <ThemeTransfer />
+
+      {/* 主题目录紧挨着导入导出：两者是同一件事的两面（把外面的主题拿进来），只是一个走界面、
+          一个走文件系统。目录本身是**事实源**，所以它带着「打开目录」的入口与坏文件清单 ——
+          少了后者，一个手改坏的文件只会表现为「Nexus 不认我的主题」。 */}
+      <ThemeDirectoryNotice />
     </section>
   );
 };
