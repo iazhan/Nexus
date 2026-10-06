@@ -120,4 +120,29 @@ describe('Editor Syntax Highlighting Theme', () => {
     view.destroy();
     parent.remove();
   });
+
+  /**
+   * 行盒必须有最小高度，否则 CRLF 文档的「行号重叠」会回来。
+   *
+   * CRLF 文档的行内容末尾带 `\r`（`Text.of(source.split('\n'))` 为了保住「doc 偏移 ==
+   * source 偏移」而刻意保留它）。`\r` 零宽且不产生行盒，于是**只有 `\r` 的空行高度塌成 0**
+   * —— 行号槽的高度由 CM 逐行测量得出，同样塌成 0，行号数字全被压在上一行的下边缘上。
+   *
+   * 2026-10-06 实测：120 行、纯 CRLF 的真实笔记里，19 个空行的行号元素 inline `height: 0px`，
+   * 行号显示成 1、3、5、7、9、10、13、16… （跳号 + 错位）。加 `min-height` 后
+   * `gutterH === contentH` 逐行相等（含 31/45/67/90 这些由标题与软换行撑出的非 22px 行）。
+   *
+   * 取值必须是 `calc(<行高变量> * 1em)`：写死像素会在用户改「行高」设置后失效，
+   * 而 `min-height` 又恰好要比正常行高**不大** —— 大了整篇文档会被逐行拉长。
+   */
+  it('.cm-line 有跟随行高变量的 min-height，兜住 CRLF 空行高度塌成 0', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({ parent, extensions: [nexusBaseTheme] });
+    const styles = Array.from(document.querySelectorAll('style')).map(s => s.textContent).join('\n');
+
+    expect(styles).toMatch(/\.cm-line\s*\{[^}]*min-height:\s*calc\(var\(--nx-editor-line-height[^)]*\)\s*\*\s*1em\)/);
+    view.destroy();
+    parent.remove();
+  });
 });

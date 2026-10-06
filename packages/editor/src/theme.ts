@@ -25,8 +25,14 @@ export const nexusBaseTheme = EditorView.theme({
     padding: "12px 16px 12px 36px",
     lineHeight: "var(--nx-editor-line-height, 1.6)"
   },
+  // CRLF 文档的行内容末尾带 `\r`（`Text.of(source.split('\n'))` 为了保住「doc 偏移 == source
+  // 偏移」而刻意保留它）。`\r` 是零宽且不产生行盒的字符，于是**只有 `\r` 的空行高度会塌成 0**
+  // —— 内容行与行号槽同时塌，行号数字全被压在上一行的下边缘上，看上去就是「行号重叠」。
+  // 兜底给一个最小行高：正常行本来就 >= 这个值，只有塌陷行被撑回来。
+  // 用 `calc(... * 1em)` 而不是写死像素，跟随 `--nx-editor-line-height` 设置。
   ".cm-line": {
-    position: "relative"
+    position: "relative",
+    minHeight: "calc(var(--nx-editor-line-height, 1.6) * 1em)"
   },
   // 块与块之间的空行。间距用 `padding-bottom` 而不是 `margin`：行高变化会被 CM 的高度测量
   // 吃掉（编辑器开着 `lineWrapping`，逐行高度本来就是测出来的），而 margin 不计入行盒。
