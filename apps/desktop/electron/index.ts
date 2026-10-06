@@ -20,7 +20,13 @@ import {
 } from '@nexus/core';
 import { FileService } from './file-service.js';
 import { buildDiagnostics } from './diagnostics.js';
-import { indexDirectoryForWorkspace, indexPathForWorkspace } from './index-path.js';
+import {
+  indexDirectoryForWorkspace,
+  indexPathForWorkspace,
+  ledgerDirectoryForWorkspace,
+  workspaceKey
+} from './index-path.js';
+import { ConcordLedger } from './ledger.js';
 import { logFilePath, logsDirectoryFor } from './log-file.js';
 import { initLogger, logDebug, logError, logInfo, logWarn } from './logger.js';
 import { ASSET_SCHEME_PRIVILEGES, createAssetHandler } from './asset-protocol.js';
@@ -775,6 +781,25 @@ function indexDirectoryFor(rootPath: string): string {
   return indexDirectoryForWorkspace(app.getPath('userData'), rootPath);
 }
 
+/**
+ * 按工作区缓存的共同祖先账本。
+ *
+ * 键取 `workspaceKey()`（归一化后的路径）而不是原始字符串 —— 同一个工作区在这个应用里
+ * 有**不止一种写法**（启动参数里的原始路径 vs `getWorkspaceRoots()` 的比较键），
+ * 不归一就会出现「保存时写进 A 账本、合并时读 B 账本」，而两边都不报错。
+ */
+const ledgers = new Map<string, ConcordLedger>();
+
+function ledgerFor(rootPath: string): ConcordLedger {
+  const key = workspaceKey(rootPath);
+  const existing = ledgers.get(key);
+  if (existing) return existing;
+
+  const ledger = new ConcordLedger(ledgerDirectoryForWorkspace(app.getPath('userData'), rootPath));
+  ledgers.set(key, ledger);
+  return ledger;
+}
+
 function openIndexStore(webContentsId: number, rootPath: string): IndexStore {
   const existing = indexStores.get(webContentsId);
   if (existing && existing.rootPath === rootPath) {
@@ -864,12 +889,36 @@ function recordHistory(session: WebContentsSession, filePath: string, content: s
 }
 
 /**
+ * 记共同祖先：把「磁盘上现在是什么」写进账本，作为下次冲突合并的 base。
+ *
+ * 与 `recordHistory` 的分工是**一对反向** —— 历史留的是**写盘前**的旧内容（给人回滚），
+ * 账本记的是**写盘后**的新内容（给三路合并当祖先）。所以一个在 `writeFile` 之前调、
+ * 一个在之后调，顺序不能换：换了两边都会拿到错的那一份。
+ *
+ * **失败只记日志**：账本是可丢弃的缓存，坏了就降级成两路对齐，绝不让它挡住保存。
+ */
+function recordBaseLedger(session: WebContentsSession, filePath: string, content: string): void {
+  const root = session.workspaceRoot;
+  if (!root) return;
+
+  const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
+  // 在工作区之外（或正好是根）就不记 —— 账本是按工作区组织的
+  if (!relativePath || relativePath.startsWith('..')) return;
+
+  try {
+    ledgerFor(root).record(relativePath, content);
+  } catch (err) {
+    logError('[Nexus Shell] 记共同祖先失败（不影响保存）:', err);
+  }
+}
+
+/**
  * 从 IPC 事件推出「工作区根 + 文档相对路径」。
  *
- * 三个历史相关的 handler 都要这一步，抽出来免得各写一遍 ——
+ * 历史与账本相关的 handler 都要这一步，抽出来免得各写一遍 ——
  * 而且「不在工作区内就返回 null」这条判断只该有一处。
  */
-function historyTarget(
+function workspaceTarget(
   event: Electron.IpcMainInvokeEvent,
   documentPath: unknown
 ): { session: WebContentsSession; root: string; relativePath: string } | null {
@@ -891,20 +940,51 @@ function historyTarget(
  *
  * 与 `recordHistory` 对称：那个在写盘前留一份，这个在删掉后全部忘掉。
  *
- * 注意它用的是 `historyTarget`，而那个函数只做路径运算、**不碰文件系统** ——
+ * 注意它用的是 `workspaceTarget`，而那个函数只做路径运算、**不碰文件系统** ——
  * 所以在这里「文件已经不存在了」不影响它算得出相对路径。
  *
  * 失败只记日志：文件已经删掉了，一个删不掉的历史目录不该把整次删除变成「失败」，
  * 那会让用户重试，而重试只会撞上「文件不存在」。
  */
 function forgetHistory(event: Electron.IpcMainInvokeEvent, documentPath: unknown): void {
-  const target = historyTarget(event, documentPath);
+  const target = workspaceTarget(event, documentPath);
   if (!target) return;
 
   try {
     new HistoryStore(target.root).forget(target.relativePath);
   } catch (err) {
     logError('[Nexus Shell] 清理历史失败（不影响删除）:', err);
+  }
+}
+
+/**
+ * 丢掉某个文档的账本条目（删除、以及改名后的旧路径）。
+ *
+ * 与 `forgetHistory` 同一个理由：那个路径上已经不会有对应的内容了。留着更糟 ——
+ * 将来有**新文件**用回这个路径时，会读到上一位住户的祖先。**失败只记日志**：
+ * 删不掉的缓存条目不该把整次操作变成「失败」，那会让用户重试。
+ */
+function forgetBaseLedger(root: string, absolutePath: string): void {
+  const relativePath = path.relative(root, absolutePath).replace(/\\/g, '/');
+  if (!relativePath || relativePath.startsWith('..')) return;
+
+  try {
+    ledgerFor(root).forget(relativePath);
+  } catch (err) {
+    logError('[Nexus Shell] 清理共同祖先失败（不影响删除）:', err);
+  }
+}
+
+/** 文档改名：把账本条目搬到新键上（内容没变，只换键）。见 `ConcordLedger.rename`。 */
+function renameBaseLedger(root: string, fromAbsolute: string, toAbsolute: string): void {
+  const from = path.relative(root, fromAbsolute).replace(/\\/g, '/');
+  const to = path.relative(root, toAbsolute).replace(/\\/g, '/');
+  if (!from || from.startsWith('..') || !to || to.startsWith('..')) return;
+
+  try {
+    ledgerFor(root).rename(from, to);
+  } catch (err) {
+    logError('[Nexus Shell] 搬共同祖先失败（不影响改名）:', err);
   }
 }
 
@@ -923,14 +1003,14 @@ function requireEntry(value: unknown): HistoryEntry {
 }
 
 ipcMain.handle(IPC_CHANNELS.listHistory, (event, documentPath: unknown) => {
-  const target = historyTarget(event, documentPath);
+  const target = workspaceTarget(event, documentPath);
   if (!target) return [];
 
   return new HistoryStore(target.root).list(target.relativePath);
 });
 
 ipcMain.handle(IPC_CHANNELS.readHistory, (event, documentPath: unknown, entry: unknown) => {
-  const target = historyTarget(event, documentPath);
+  const target = workspaceTarget(event, documentPath);
   if (!target) throw new Error('readHistory: 文档不在工作区内');
 
   return new HistoryStore(target.root).read(target.relativePath, requireEntry(entry));
@@ -939,7 +1019,7 @@ ipcMain.handle(IPC_CHANNELS.readHistory, (event, documentPath: unknown, entry: u
 ipcMain.handle(
   IPC_CHANNELS.restoreHistory,
   async (event, documentPath: unknown, entry: unknown) => {
-    const target = historyTarget(event, documentPath);
+    const target = workspaceTarget(event, documentPath);
     if (!target) throw new Error('restoreHistory: 文档不在工作区内');
 
     const { session, root, relativePath } = target;
@@ -985,8 +1065,10 @@ ipcMain.handle(IPC_CHANNELS.deleteFile, async (event, filePath: unknown, mode: u
   getIndexStore(event.sender.id)?.removeDocuments([filePath]);
 
   // 放在删除**之后**：删失败时历史必须原样留着，否则用户既没了文件也没了历史。
+  // 账本同一条判据 —— 而且**只清永久删除**：进了回收站的文件可能被捞回来，那时它的祖先还得在。
   if (resolved === 'permanent') {
     forgetHistory(event, filePath);
+    if (session.workspaceRoot) forgetBaseLedger(session.workspaceRoot, filePath);
   }
 });
 
@@ -1235,6 +1317,10 @@ ipcMain.handle(IPC_CHANNELS.renameFile, async (event, raw: unknown) => {
   // 真的改：先改名 → 再搬历史 → 最后逐篇写回。
   const renamedPath = await session.service.renameFile(request.filePath, request.newName);
 
+  // 账本的键是相对路径 —— 改名后旧键就悬空了。不清掉的话，将来有文件用回那个路径时
+  // 会读到**上一位住户**的祖先。历史那边是搬目录，账本这边是搬键：两者都不改内容。
+  if (root) renameBaseLedger(root, request.filePath, renamedPath);
+
   // 历史按相对路径组织，改名后不搬目录的话「可回退」这条路自己就断了。
   // 必须在写回之前：被改名那篇自己的快照要落在**新**路径下。
   if (root && fromRelative !== null && toRelative !== null && fromRelative !== toRelative) {
@@ -1273,6 +1359,8 @@ ipcMain.handle(IPC_CHANNELS.renameFile, async (event, raw: unknown) => {
       // 一个快照都不会留 —— 那正是「可回退」这一条悄悄失效的方式。
       recordHistory(session, target, change.after);
       await session.service.writeFile(target, change.after);
+      // 写盘**之后**记账本 —— 与上面那条相反的理由（历史要旧的，账本要新的）。
+      recordBaseLedger(session, target, change.after);
       applied.push(change);
     } catch (err) {
       logError('[Nexus Shell] 回写引用失败:', err);
@@ -1703,7 +1791,14 @@ ipcMain.handle(IPC_CHANNELS.copyText, (_event, text: unknown) => {
 
 ipcMain.handle(IPC_CHANNELS.readFile, async (event, filePath: string) => {
   const session = getOrCreateSession(event.sender);
-  return await session.service.readFile(filePath);
+  const content = await session.service.readFile(filePath);
+
+  // 读到什么就记什么 —— 账本的定义是「本机最后一次**读到或写到**磁盘的内容」。
+  // 这一条同时覆盖两个时刻：打开文档，以及**接纳外部变更**（渲染进程重载时会再读一次）。
+  // 少了它，「外部改过 → 用户重载 → 用户再改」这条链上的祖先会停在外部修改之前。
+  recordBaseLedger(session, filePath, content);
+
+  return content;
 });
 
 ipcMain.handle(IPC_CHANNELS.writeFile, async (event, filePath: string, content: string) => {
@@ -1713,6 +1808,10 @@ ipcMain.handle(IPC_CHANNELS.writeFile, async (event, filePath: string, content: 
   recordHistory(session, filePath, content);
 
   await session.service.writeFile(filePath, content);
+
+  // 写盘**之后**记共同祖先 —— 它记的是「磁盘上现在是什么」，所以必须是**新**内容。
+  // 与上面那条顺序相反，不能合并成一个调用：历史要旧的，账本要新的。
+  recordBaseLedger(session, filePath, content);
 });
 
 /**

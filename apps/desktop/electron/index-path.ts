@@ -1,5 +1,9 @@
 /**
- * 工作区索引库的落点。
+ * 工作区**派生数据**的落点：索引库与共同祖先账本。
+ *
+ * 两者都是「按工作区分目录、住在 `userData` 里、删掉可重建」的东西，所以共用同一套归一化
+ * 与摘要 —— 见下面 `workspaceKey()` 那一段。放进工作区是不行的：它们不是用户的内容，
+ * 而工作区会被同步工具与版本控制原样带走。
  *
  * ## 为什么单独一个模块
  *
@@ -75,4 +79,23 @@ export function indexPathForWorkspace(userDataDir: string, rootPath: string): st
  */
 export function indexDirectoryForWorkspace(userDataDir: string, rootPath: string): string {
   return path.dirname(indexPathForWorkspace(userDataDir, rootPath));
+}
+
+/**
+ * 共同祖先账本（base ledger）落在这个子目录下。
+ *
+ * 它**不是用户数据**：删掉只会让下一次合并退化成两路对齐，不会丢任何笔记。所以它和索引库
+ * 一样住在 `userData` 而不是工作区里 —— 放进工作区会被同步工具与版本控制当成内容带走。
+ */
+export const LEDGER_DIR_NAME = 'concord-ledger';
+
+/**
+ * 某个工作区的账本**目录**的绝对路径。
+ *
+ * 与索引库同一个模式（`<userData>/<目录名>/<digest>`），**共用** `workspaceKey` 的归一化。
+ * 两处各写一套归一的话，「保存时记到哪个账本」与「合并时读哪个账本」会静默分家 ——
+ * 症状是「明明刚保存过，合并却说没有共同祖先」，而两边都不报错。
+ */
+export function ledgerDirectoryForWorkspace(userDataDir: string, rootPath: string): string {
+  return path.join(userDataDir, LEDGER_DIR_NAME, digestOf(rootPath));
 }

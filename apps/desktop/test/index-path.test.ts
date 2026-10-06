@@ -15,8 +15,10 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   INDEX_DIR_NAME,
+  LEDGER_DIR_NAME,
   indexDirectoryForWorkspace,
   indexPathForWorkspace,
+  ledgerDirectoryForWorkspace,
   workspaceKey
 } from '../electron/index-path.js';
 
@@ -113,5 +115,39 @@ describe('索引库路径', () => {
 
     expect(dir).toBe(path.dirname(indexPathForWorkspace(USER_DATA, ROOT)));
     expect(dir).toBe(path.join(USER_DATA, INDEX_DIR_NAME));
+  });
+});
+
+describe('账本目录', () => {
+  it('落在 userData 下的 concord-ledger 里，按工作区摘要分目录', () => {
+    const dir = ledgerDirectoryForWorkspace(USER_DATA, ROOT);
+
+    expect(path.dirname(dir)).toBe(path.join(USER_DATA, LEDGER_DIR_NAME));
+    expect(path.basename(dir)).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  /**
+   * 「保存时写进哪个账本」与「合并时读哪个账本」不分家的判据。两者各写一套归一的话，
+   * 症状是「明明刚保存过，合并却说没有共同祖先」，而两边都不报错。
+   */
+  it('与索引库共用同一套归一 —— 同一个工作区的不同写法落到同一个账本', () => {
+    const trailingSlash = `${ROOT}${path.sep}`;
+    expect(ledgerDirectoryForWorkspace(USER_DATA, trailingSlash)).toBe(
+      ledgerDirectoryForWorkspace(USER_DATA, ROOT)
+    );
+
+    if (process.platform === 'win32') {
+      expect(ledgerDirectoryForWorkspace(USER_DATA, ROOT.toUpperCase())).toBe(
+        ledgerDirectoryForWorkspace(USER_DATA, ROOT)
+      );
+    }
+  });
+
+  it('不同工作区落到不同目录，且不与索引库共目录', () => {
+    const a = ledgerDirectoryForWorkspace(USER_DATA, ROOT);
+    const b = ledgerDirectoryForWorkspace(USER_DATA, path.join('E:', 'other'));
+
+    expect(a).not.toBe(b);
+    expect(path.dirname(a)).not.toBe(indexDirectoryForWorkspace(USER_DATA, ROOT));
   });
 });
