@@ -109,6 +109,82 @@ function topLevelBlocks(source: string): string[] {
   return parseMarkdown(source).root.children.map((block: MarkdownBlockNode) => block.raw);
 }
 
+/**
+ * 一个顶层块，以及它在源文里的位置。
+ *
+ * `text` 是块的原文（`raw`）**去掉尾随空白**后的样子 —— 块之间的分隔空行不属于任何块，
+ * 去掉它，块与块就能用**规范分隔**重新拼起来（见 `joinMergedBlocks`）。
+ *
+ * ## 为什么需要它（而不是直接用 `raw`）
+ *
+ * 合并重建要按下标取块，而**下标的坐标系必须与对齐一致**：`alignThreeWay` 的
+ * `mineIndex` / `theirsIndex` 指的正是 `topLevelBlocks` 的下标，本函数与它**一一对应**。
+ *
+ * `from` / `to` 是块在源文里的偏移（**块自身**的范围，不含块间那个空行），
+ * 供调用方需要「块在原文哪儿」时用（比如把合并结果显示回编辑器做高亮）。
+ *
+ * 空白组成的源文（`'   \n'`）**没有顶层块** —— 与 `topLevelBlocks` 判据一致，返回空数组；
+ * 这种文档在合并面板里走**整体二选一**那条路，不会被当成空文档丢掉。
+ */
+export interface BlockSlice {
+  /** 块原文，已去掉尾随空白。 */
+  text: string;
+  /** 块起点在源文里的偏移。 */
+  from: number;
+  /** 块的结束偏移（`from <= to`）。 */
+  to: number;
+}
+
+/**
+ * 顶层块的切片，与 `topLevelBlocks` 的下标**一一对应**。见 `BlockSlice`。
+ *
+ * 源文里没有顶层块时（空文档、纯空白文档）返回空数组。
+ */
+export function topLevelBlockSlices(source: string): BlockSlice[] {
+  if (source.trim().length === 0) return [];
+
+  const children = parseMarkdown(source).root.children as readonly MarkdownBlockNode[];
+  return children.map((block) => {
+    const from = block.range.from;
+    const to = block.range.to;
+    return { text: block.raw.trimEnd(), from, to };
+  });
+}
+
+/**
+ * 把一组选定的块拼成合并结果。
+ *
+ * ## 规范空白
+ *
+ * 块之间统一用一个**空行**分隔（`newline + newline`），换行符沿用 `reference` 的主风格
+ * （`\r\n` 还是 `\n`）—— 于是 CRLF 文档合并后仍是 CRLF。末尾是否补尾换行也看 `reference`：
+ * 它有尾换行就补一个，没有就不补。
+ *
+ * **为什么规范化而不是逐块带自己的空白**：块间的空行不属于任何块，逐块带空白会让
+ * 「选本地的那块 + 选磁盘的那块」在交界处把两边的空白**叠起来**（三个空行），
+ * 或**都丢掉**（没有空行）—— 怎么选都看着像 bug。统一成规范形式之后，
+ * 结果只取决于「选了哪些块」，与它们原先各自的空白无关，可预测、可断言。
+ *
+ * **代价**：一份刻意用三空行分隔的文档，一旦发生合并，多余空行会被规整成一个。
+ * 这是**显式合并操作**的一部分（用户点了「应用合并结果」），不是保存路径上的静默改写 ——
+ * 保存路径（`writeFile`）仍然原样写字节，往返不变量不受影响。
+ *
+ * ## 幂等
+ *
+ * 两侧完全一致时（每个块都选本地），输出与输入**逐字节相同** —— 包括 CRLF 与尾换行。
+ * 因为每个块的 `text` 就是它去掉尾随空白的样子，而块内换行**没被动过**。
+ */
+export function joinMergedBlocks(blocks: readonly string[], reference: string): string {
+  if (blocks.length === 0) {
+    // 没有块：结果是空。调用方若原本有内容（纯空白文档），走的是整体二选一，不到这里。
+    return '';
+  }
+
+  const newline = reference.includes('\r\n') ? '\r\n' : '\n';
+  const trailing = reference.endsWith('\n') ? newline : '';
+  return blocks.join(newline + newline) + trailing;
+}
+
 /** 比较键：折换行 + 去尾随空白。见文件头「比较键要归一换行」。 */
 function compareKey(raw: string): string {
   return raw.replace(/\r\n/g, '\n').trimEnd();
@@ -298,6 +374,21 @@ export interface ThreeWayRow {
   base: string | null;
   mine: string | null;
   theirs: string | null;
+  /**
+   * `mine` 侧这一块的**顶层块下标**；`null` = 该侧没有这一块（被删／未新增）。
+   *
+   * 存在的理由只有一个：**合并结果必须能从这一份对齐重建**（ADR 0020 的 diff/merge symmetry）。
+   * 光有文本重建不出原文 —— 块的 `raw` 不含块之间的空行，`join` 会把分隔符吃掉。
+   * 有了下标，调用方就能去 `topLevelBlockSlices()` 的切片里取**带间隔的原文**，
+   * 于是「保留这一块」= 「保留这一块连同它原本的分隔」。
+   *
+   * 与 `mine: null` 是**同一件事的两种表达**：文本为 `null` 时这个下标也为 `null`。
+   * 保留两个而不是只留一个，是为了让调用方按自己顺手的那种读 —— 判定删没删看文本，
+   * 取原文看下标。
+   */
+  mineIndex: number | null;
+  /** `theirs` 侧这一块的顶层块下标；`null` 同上。 */
+  theirsIndex: number | null;
   suggestion: ThreeWaySuggestion;
 }
 
@@ -349,19 +440,33 @@ export function alignThreeWay(base: string, mine: string, theirs: string): Three
 
   for (let i = 0; i < baseBlocks.length; i += 1) {
     const baseText = baseBlocks[i]!;
-    const mineSide = mineState.byBase[i] ?? { kind: 'same' as const, text: baseText };
-    const theirsSide = theirsState.byBase[i] ?? { kind: 'same' as const, text: baseText };
+    const mineSide = mineState.byBase[i] ?? { kind: 'same' as const, text: baseText, index: i };
+    const theirsSide = theirsState.byBase[i] ?? { kind: 'same' as const, text: baseText, index: i };
 
     const mineMoved = mineSide.kind !== 'same';
     const theirsMoved = theirsSide.kind !== 'same';
 
     if (mineMoved && theirsMoved && mineSide.text !== theirsSide.text) {
-      rows.push(makeThreeWayRow(i, baseText, mineSide.text, theirsSide.text, 'conflict'));
+      rows.push(
+        makeThreeWayRow(
+          i,
+          baseText,
+          mineSide.text,
+          theirsSide.text,
+          mineSide.index,
+          theirsSide.index,
+          'conflict'
+        )
+      );
     } else if (!mineMoved && theirsMoved) {
-      rows.push(makeThreeWayRow(i, baseText, baseText, theirsSide.text, 'theirs'));
+      rows.push(
+        makeThreeWayRow(i, baseText, baseText, theirsSide.text, mineSide.index, theirsSide.index, 'theirs')
+      );
     } else {
       // 其余全部落这里：都没动 / 只有 mine 动 / 两边动成了同一样子。
-      rows.push(makeThreeWayRow(i, baseText, mineSide.text, theirsSide.text, 'mine'));
+      rows.push(
+        makeThreeWayRow(i, baseText, mineSide.text, theirsSide.text, mineSide.index, theirsSide.index, 'mine')
+      );
     }
 
     rows.push(
@@ -374,10 +479,13 @@ export function alignThreeWay(base: string, mine: string, theirs: string): Three
 
 /** 一侧相对 base 的状态。 */
 interface SideState {
-  /** base 块 i 在这一侧的样子：`same` 未改 / `changed` 改过 / `deleted` 删了。 */
-  byBase: Array<{ kind: 'same' | 'changed' | 'deleted'; text: string | null }>;
-  /** 插在 base 块 i **之后**的新增块；键 `-1` 表示在最前面。 */
-  addedAfter: Map<number, string[]>;
+  /**
+   * base 块 i 在这一侧的样子：`same` 未改 / `changed` 改过 / `deleted` 删了。
+   * `index` 是这一块在**这一侧**顶层块里的下标（`deleted` 时为 `null`）。
+   */
+  byBase: Array<{ kind: 'same' | 'changed' | 'deleted'; text: string | null; index: number | null }>;
+  /** 插在 base 块 i **之后**的新增块；键 `-1` 表示在最前面。`index` 同上。 */
+  addedAfter: Map<number, Array<{ text: string; index: number }>>;
 }
 
 /**
@@ -385,23 +493,28 @@ interface SideState {
  *
  * 两路的每一行要么锚在一个 base 块上（`same` / `changed` / `left-only`），
  * 要么是这一侧新增的（`right-only`）—— 后者没有 base 锚点，只能挂到前一个 base 块之后。
+ *
+ * **两侧都记 `rightIndex`**：它是「这一块在右侧文档里的位置」，合并重建时靠它取切片。
+ * 对 `left-only`（这一侧删了）来说右侧没有对应块，记 `null`。
  */
 function sideState(rows: readonly AlignedRow[]): SideState {
   const byBase: SideState['byBase'] = [];
-  const addedAfter = new Map<number, string[]>();
+  const addedAfter = new Map<number, Array<{ text: string; index: number }>>();
   let lastBase = -1;
 
   for (const row of rows) {
     if (row.kind === 'right-only') {
+      const entry = { text: row.right!, index: row.rightIndex! };
       const existing = addedAfter.get(lastBase);
-      if (existing) existing.push(row.right!);
-      else addedAfter.set(lastBase, [row.right!]);
+      if (existing) existing.push(entry);
+      else addedAfter.set(lastBase, [entry]);
       continue;
     }
     const index = row.leftIndex!;
     byBase[index] = {
       kind: row.kind === 'same' ? 'same' : row.kind === 'changed' ? 'changed' : 'deleted',
-      text: row.right
+      text: row.right,
+      index: row.rightIndex
     };
     lastBase = index;
   }
@@ -410,22 +523,33 @@ function sideState(rows: readonly AlignedRow[]): SideState {
 }
 
 /** 两侧在同一位置各自新增的块：内容相同就合成一行，不同则给 `both`。 */
-function mergeAdded(mineAdded: readonly string[], theirsAdded: readonly string[]): ThreeWayRow[] {
+function mergeAdded(
+  mineAdded: readonly { text: string; index: number }[],
+  theirsAdded: readonly { text: string; index: number }[]
+): ThreeWayRow[] {
   const rows: ThreeWayRow[] = [];
   const count = Math.max(mineAdded.length, theirsAdded.length);
 
   for (let k = 0; k < count; k += 1) {
-    const mineText = mineAdded[k] ?? null;
-    const theirsText = theirsAdded[k] ?? null;
+    const mineEntry = mineAdded[k] ?? null;
+    const theirsEntry = theirsAdded[k] ?? null;
 
-    if (mineText !== null && theirsText !== null) {
+    if (mineEntry !== null && theirsEntry !== null) {
       rows.push(
-        makeThreeWayRow(null, null, mineText, theirsText, mineText === theirsText ? 'mine' : 'both')
+        makeThreeWayRow(
+          null,
+          null,
+          mineEntry.text,
+          theirsEntry.text,
+          mineEntry.index,
+          theirsEntry.index,
+          mineEntry.text === theirsEntry.text ? 'mine' : 'both'
+        )
       );
-    } else if (mineText !== null) {
-      rows.push(makeThreeWayRow(null, null, mineText, null, 'mine'));
+    } else if (mineEntry !== null) {
+      rows.push(makeThreeWayRow(null, null, mineEntry.text, null, mineEntry.index, null, 'mine'));
     } else {
-      rows.push(makeThreeWayRow(null, null, null, theirsText, 'theirs'));
+      rows.push(makeThreeWayRow(null, null, null, theirsEntry!.text, null, theirsEntry!.index, 'theirs'));
     }
   }
 
@@ -437,7 +561,9 @@ function makeThreeWayRow(
   base: string | null,
   mine: string | null,
   theirs: string | null,
+  mineIndex: number | null,
+  theirsIndex: number | null,
   suggestion: ThreeWaySuggestion
 ): ThreeWayRow {
-  return { baseIndex, base, mine, theirs, suggestion };
+  return { baseIndex, base, mine, theirs, mineIndex, theirsIndex, suggestion };
 }

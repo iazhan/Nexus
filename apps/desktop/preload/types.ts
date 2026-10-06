@@ -205,6 +205,13 @@ export interface NexusBridge {
    */
   restoreHistory: (documentPath: string, entry: HistoryEntry) => Promise<void>;
   /**
+   * 读「共同祖先账本」里记的该文档内容，供三路合并当 base。
+   *
+   * 返回 `null` ＝ **文档还没进过账本**（不是空文档）—— 合并 UI 收到它就降级成两路对齐。
+   * 轻量模式（无工作区）下恒为 `null`。
+   */
+  readBaseContent: (documentPath: string) => Promise<string | null>;
+  /**
    * 在系统文件管理器里打开工作区的版本历史目录。
    *
    * 返回**是否真的打开了**：目录还不存在（从未保存过任何版本）时主进程返回 `false`，

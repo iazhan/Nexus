@@ -1035,6 +1035,31 @@ ipcMain.handle(
 );
 
 /**
+ * 读共同祖先账本里记的该文档内容，供三路合并当 base。
+ *
+ * `workspaceTarget` 的「不在工作区内 → `null`」在这里就是答案本身（没有祖先可谈），
+ * **不抛错** —— 账本按工作区组织，轻量模式打开单个文件时本来就没有工作区，
+ * 那时合并只能降级成两路，是这个功能的正常一档而不是错误。
+ *
+ * 与另外几条账本-related handler 不同，这里**只读、不写、不改任何东西**，
+ * 所以不需要 try/catch 包住「失败不影响别的操作」—— 读失败就是读失败，如实抛回去。
+ * 但 `ledger.getBase` 自己遇到坏文件会返回 `null`（它按哈希校验，读不回来当没有），
+ * 于是「账本坏了」的降级路径与「文档没进过账本」是同一条，正是我们要的方向。
+ */
+ipcMain.handle(IPC_CHANNELS.readBaseContent, (event, documentPath: unknown) => {
+  const target = workspaceTarget(event, documentPath);
+  if (!target) return null;
+
+  try {
+    return ledgerFor(target.root).getBase(target.relativePath);
+  } catch (err) {
+    // 账本读取抛错（磁盘/权限）不该把合并整个打死 —— 降级成两路对齐，用户照样能合并。
+    logError('[Nexus Shell] 读共同祖先失败（降级为两路对齐）:', err);
+    return null;
+  }
+});
+
+/**
  * 删除一个文件。`mode` 收 `unknown` 后自己校验 —— 跨了进程边界，编译期形状不作数。
  *
  * **认不出的值按回收站处理，而不是报错。** 报错会让一次误传变成「删不掉」，

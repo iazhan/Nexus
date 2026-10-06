@@ -86,6 +86,17 @@ export const IPC_CHANNELS = {
   listHistory: 'nexus:list-history',
   readHistory: 'nexus:read-history',
   restoreHistory: 'nexus:restore-history',
+  /**
+   * 读「共同祖先账本」里记的该文档内容（`ConcordLedger.getBase`），供三路合并当 base。
+   *
+   * 返回 `string | null`：`null` ＝ 这个文档还没进过账本（首次读到之前就被外部改了），
+   * **不是空文档**。合并 UI 收到 `null` 就**降级成两路对齐**，而不是拿空串当 base ——
+   * 拿空串当 base 会把「两侧都有的内容」全判成「新增」，建议表整个失真。
+   *
+   * 单独一条而不是并进 `readFile`：那是「读磁盘上现在是什么」（事实源），这是
+   * 「读我们上次看到的是什么」（缓存）。两者在合并场景下**必须分开看**，合起来就无从区分。
+   */
+  readBaseContent: 'nexus:read-base-content',
   /** 在系统文件管理器里打开 `<workspace>/.nexus/history`。目录不存在时返回 `false`。 */
   openHistoryDirectory: 'nexus:open-history-directory',
   /** 在系统文件管理器里打开该工作区的索引库目录（在 `userData` 下）。不存在时返回 `false`。 */

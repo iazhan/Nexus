@@ -213,6 +213,10 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.restoreHistory, documentPath, entry);
   },
 
+  readBaseContent: (documentPath: string): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.readBaseContent, documentPath);
+  },
+
   openHistoryDirectory: (rootPath: string): Promise<boolean> => {
     return ipcRenderer.invoke(IPC_CHANNELS.openHistoryDirectory, rootPath);
   },

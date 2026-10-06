@@ -80,6 +80,7 @@ import { TabBar } from './workspace/TabBar.js';
 import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
 import { WorkspaceEmpty } from './workspace/WorkspaceEmpty.js';
 import { RenamePreview } from './workspace/RenamePreview.js';
+import { MergePanel } from './workspace/MergePanel.js';
 import { describeSkips, unsavedPaths } from './workspace/rename.js';
 import { linkFailureKey } from './workspace/link-failure.js';
 import { buildWorkspaceImageOptions } from './workspace/image-picker.js';
@@ -362,6 +363,27 @@ export const App: React.FC = () => {
     updateLinks: boolean;
     plan: RenameFileResult;
   } | null>(null);
+
+  /**
+   * 三路合并面板的三份输入。`null` ＝ 面板关着。
+   *
+   * **在打开的那一刻把它们读成快照**，之后不再跟着文档变 —— 面板里用户逐块选择的过程中，
+   * 编辑器缓冲区或磁盘都可能还在动，而「边选边变」会让他的每一个选择都失去参照。
+   * 三份一起冻结，等点了「应用」再一次性写回。
+   */
+  const [mergeInput, setMergeInput] = useState<{
+    base: string;
+    mine: string;
+    theirs: string;
+  } | null>(null);
+
+  /**
+   * 这份文档**在账本里有没有祖先**。`external-changed` 时探一次，决定横幅上画不画「合并…」。
+   *
+   * `null` ＝ 还没探出来（不画）；`true`/`false` ＝ 探到的结果。没有祖先时只能两路，
+   * 现有的「重新加载 / 保留当前」已经覆盖那种情形，合并入口不该出现。
+   */
+  const [mergeBaseAvailable, setMergeBaseAvailable] = useState<boolean | null>(null);
 
   /**
    * watcher 的强制重装信号。
@@ -2347,6 +2369,85 @@ export const App: React.FC = () => {
     updateSaveState('dirty');
   }, [updateSaveState]);
 
+  /**
+   * 冲突态下探一次「账本里有没有祖先」，决定横幅上画不画「合并…」。
+   *
+   * 只在进入 `external-changed` 时探，离开就清空 —— 探测本身是一次 IPC（读账本、校验哈希），
+   * 不该跟着每次保存状态变化重跑。拿不到（没有工作区 / 没进过账本 / 读失败）一律当**没有**：
+   * 失败方向选「不显示合并入口」，用户至少还能走原来那两个按钮。
+   */
+  useEffect(() => {
+    if (saveState !== 'external-changed' || !filePath || !window.nexus?.readBaseContent) {
+      setMergeBaseAvailable(null);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const base = await window.nexus!.readBaseContent!(filePath);
+        if (!cancelled) setMergeBaseAvailable(base !== null);
+      } catch (err) {
+        console.error('Failed to read base content:', err);
+        if (!cancelled) setMergeBaseAvailable(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [saveState, filePath]);
+
+  /**
+   * 打开合并面板：读齐 base（账本）与 theirs（磁盘），本地那份取当前缓冲区。
+   *
+   * **读磁盘而不是用 watcher 报的那份**：从「收到外部变更」到「用户点合并」之间，
+   * 文件可能又被改过。以点下去那一刻的磁盘为准，用户合并的就是他现在看到的东西。
+   *
+   * `mine` 取 session 快照而不是 `initialContentRef`：前者才是缓冲区里**用户正在编辑**的内容
+   * （可能还没保存），后者是最后一次读盘的内容 —— 拿错了会把用户的改动丢掉。
+   */
+  const handleOpenMerge = useCallback(async () => {
+    if (!filePath || !window.nexus?.readBaseContent || !window.nexus?.readFile) return;
+
+    try {
+      const [base, theirs] = await Promise.all([
+        window.nexus.readBaseContent(filePath),
+        window.nexus.readFile(filePath)
+      ]);
+      // 探测说有、真读时又没了（账本被清）—— 悄悄退回，不弹一个没有 base 的面板。
+      if (base === null) {
+        setMergeBaseAvailable(false);
+        return;
+      }
+
+      const mine = session.getSnapshot().source;
+      setMergeInput({ base, mine, theirs });
+    } catch (err) {
+      console.error('Failed to open merge:', err);
+    }
+  }, [filePath, session]);
+
+  /**
+   * 应用合并结果：把合并后的源文灌进缓冲区，然后**走正常保存路径**写回。
+   *
+   * 为什么不是「设成 dirty 等自动保存」：用户点了「应用合并结果」，他要的是**冲突解决掉**。
+   * 停在 dirty 上意味着这次解决随时可能被别的事打断（关窗口、切文件），
+   * 而界面还挂着「冲突」的印象。直接保存一次，状态回到 `saved`，冲突当场结束。
+   *
+   * 写盘仍然**只经** `writeFile`（`saveFile` 内部就是它）—— 守卫链、原子替换、
+   * 写前留历史快照、写后记账本祖先，全部照常发生。所以这次合并是**可逆的**：
+   * 写前那一刻的旧内容已经进了历史，用户能从版本历史里找回。
+   */
+  const handleApplyMerge = useCallback(
+    (mergedSource: string) => {
+      session.replaceSource(mergedSource);
+      setMergeInput(null);
+      void saveFile();
+    },
+    [session, saveFile]
+  );
+
   /** 双击标题栏最大化/还原；命中按钮或下拉菜单时不触发，避免误触。 */
   const handleHeaderDoubleClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement | null;
@@ -3001,6 +3102,17 @@ export const App: React.FC = () => {
             >
               {t('banner.keepLocal')}
             </button>
+            {/* 只有账本里有祖先时才给合并入口：没有 base 的三路说不出「谁改的」，
+                那种情形原有的两个按钮已经够了（见 `mergeBaseAvailable`）。 */}
+            {mergeBaseAvailable === true && (
+              <button
+                type="button"
+                className="nexus-conflict-merge-btn"
+                onClick={() => void handleOpenMerge()}
+              >
+                {t('banner.merge')}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -3416,6 +3528,18 @@ export const App: React.FC = () => {
           skipped={renamePreview.plan.skipped}
           onConfirm={handleRenameConfirm}
           onCancel={() => setRenamePreview(null)}
+        />
+      )}
+
+      {/* 三路合并面板。三份输入在打开那一刻就冻成快照（见 `mergeInput`），
+          应用时把结果灌回缓冲区再走正常保存路径。 */}
+      {mergeInput && (
+        <MergePanel
+          base={mergeInput.base}
+          mine={mergeInput.mine}
+          theirs={mergeInput.theirs}
+          onApply={handleApplyMerge}
+          onCancel={() => setMergeInput(null)}
         />
       )}
     </div>

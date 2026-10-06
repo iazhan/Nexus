@@ -60,6 +60,9 @@ importers:
       '@nexus/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@nexus/markdown':
+        specifier: workspace:*
+        version: link:../../packages/markdown
       '@nexus/math':
         specifier: workspace:*
         version: link:../../packages/math

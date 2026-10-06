@@ -441,6 +441,7 @@ body {
 
 .nexus-conflict-reload-btn,
 .nexus-conflict-keep-btn,
+.nexus-conflict-merge-btn,
 .nexus-banner-saveas-btn,
 .nexus-banner-dismiss-btn,
 .nexus-save-error-retry,
@@ -467,6 +468,7 @@ body {
 }
 
 .nexus-conflict-keep-btn,
+.nexus-conflict-merge-btn,
 .nexus-banner-saveas-btn,
 .nexus-banner-dismiss-btn,
 .nexus-save-error-saveas {
@@ -476,6 +478,7 @@ body {
 }
 
 .nexus-conflict-keep-btn:hover,
+.nexus-conflict-merge-btn:hover,
 .nexus-banner-saveas-btn:hover,
 .nexus-banner-dismiss-btn:hover,
 .nexus-save-error-saveas:hover {
@@ -5137,6 +5140,178 @@ button.nexus-outline-toggle:hover {
 }
 
 .nexus-rename-button-primary:hover {
+  background-color: var(--nexus-accent-solid-hover);
+}
+
+/* 三路合并面板（`MergePanel`）。外壳同上，这一屏更宽 —— 两侧内容要并排看。 */
+.nexus-merge-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(720px, 100%);
+  max-height: min(78vh, 720px);
+  padding: 16px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  background-color: var(--nexus-bg-surface);
+  color: var(--nexus-text-primary);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); /* @constant 抬升阴影，与主题无关 */
+  overflow: hidden;
+}
+
+.nexus-merge-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nexus-merge-subtitle,
+.nexus-merge-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-secondary);
+}
+
+/* 有冲突时给一条带色的提示 —— 「还有几处没定」是这一屏唯一需要打断的信息 */
+.nexus-merge-conflict-count {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  background-color: var(--nexus-status-warning-bg);
+  color: var(--nexus-status-warning-text);
+  border: 1px solid var(--nexus-status-warning-border);
+}
+
+.nexus-merge-rows {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+}
+
+.nexus-merge-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+.nexus-merge-row + .nexus-merge-row {
+  border-top: 1px solid var(--nexus-border-subtle);
+}
+
+/* 冲突行左侧一条警示边 —— 扫一眼就能找到要处理的那几块 */
+.nexus-merge-row-conflict {
+  border-left: 3px solid var(--nexus-status-warning-border);
+}
+
+.nexus-merge-suggestion {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--nexus-text-muted);
+  text-transform: none;
+}
+
+.nexus-merge-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+
+.nexus-merge-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nexus-merge-side-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--nexus-text-secondary);
+}
+
+.nexus-merge-text {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 4px;
+  background-color: var(--nexus-bg-canvas);
+  max-height: 160px;
+  overflow: auto;
+}
+
+.nexus-merge-picks {
+  display: flex;
+  gap: 6px;
+}
+
+.nexus-merge-pick {
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--nexus-border-default);
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+  transition: background-color 0.15s ease;
+}
+
+.nexus-merge-pick:hover {
+  background-color: var(--nexus-bg-surface-active);
+}
+
+.nexus-merge-pick-active {
+  background-color: var(--nexus-accent-solid);
+  color: var(--nexus-accent-contrast);
+  border-color: var(--nexus-accent-solid);
+}
+
+.nexus-merge-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 与改名确认屏、冲突横幅那组按钮同形 —— 同一窗口里的次要按钮不该长得不一样。 */
+.nexus-merge-button {
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--nexus-border-default);
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+  transition: background-color 0.15s ease;
+}
+
+.nexus-merge-button:hover {
+  background-color: var(--nexus-bg-surface-active);
+}
+
+.nexus-merge-button-primary {
+  background-color: var(--nexus-accent-solid);
+  color: var(--nexus-accent-contrast);
+  border-color: var(--nexus-accent-solid);
+}
+
+.nexus-merge-button-primary:hover {
   background-color: var(--nexus-accent-solid-hover);
 }
 
