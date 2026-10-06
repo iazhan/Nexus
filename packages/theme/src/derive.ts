@@ -1,5 +1,5 @@
 /**
- * `seedsToTokens()` —— 16 色种子 → 44 个语义 token 的纯计算。另外两个出口：`applyOverrides()`
+ * `seedsToTokens()` —— 16 色种子 → 45 个语义 token 的纯计算。另外两个出口：`applyOverrides()`
  * 是它之后的可选一层，`seedsToTokensWithReport()` 多带一份「哪些 token 被对比度修正动过」。
  *
  * 六段顺序有依赖，不能重排：背景梯度 → 边框 → 中性文字 → accent → 语法与状态 → 半透明。

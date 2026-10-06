@@ -282,7 +282,7 @@ export const ThemeEditor: React.FC = () => {
                   ))}
                 </div>
 
-                {/* 44 个 token 分五组铺开，不搜就只能滚。基础档只有 21 个控件，分组标题够用。 */}
+                {/* 45 个 token 分五组铺开，不搜就只能滚。基础档只有 21 个控件，分组标题够用。 */}
                 {tier === 'advanced' && (
                   <input
                     type="search"

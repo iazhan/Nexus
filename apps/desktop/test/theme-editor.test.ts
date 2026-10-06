@@ -195,12 +195,12 @@ describe('主题窗口', () => {
     expect(saved.themes?.[0]?.id).toBe(userThemeId);
     expect(saved.themes?.[0]?.variants?.light?.palette?.base00).toBe('#101010');
 
-    // ⑦ 高级档：44 个 token 行，搜索能把它过滤成子集
+    // ⑦ 高级档：45 个 token 行，搜索能把它过滤成子集
     await app.click('[data-theme-tier="advanced"]');
     await app.waitForSelector('[data-theme-tier-panel="advanced"]', 10000);
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-theme-token]').length`)
-    ).toBe(44);
+    ).toBe(45);
 
     // 搜索框也是 `<input>`，同一个原生 setter 就能驱动它。
     expect(
@@ -217,7 +217,7 @@ describe('主题窗口', () => {
     // 清掉过滤，后面的步骤要在完整列表上做
     await app.evaluate<string>(SET_COLOUR('[data-theme-token-search]', ''));
     await app.waitForFunction(
-      `() => document.querySelectorAll('[data-theme-token]').length === 44`,
+      `() => document.querySelectorAll('[data-theme-token]').length === 45`,
       10000
     );
 

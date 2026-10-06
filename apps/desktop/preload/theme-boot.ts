@@ -19,7 +19,7 @@ import { logFromPreload } from './log.js';
  *
  * ## 派生不在这里
  *
- * 这里只做一次字符串注入。**用户主题没有构建期静态 CSS**，它的 44 个 token 必须现派生 ——
+ * 这里只做一次字符串注入。**用户主题没有构建期静态 CSS**，它的 45 个 token 必须现派生 ——
  * 而派生一百多套实测 74ms、产物上百 KB，放在首帧之前跑等于直接把它加到窗口出现的时间上。
  * 所以派生在主进程（Node 环境，不受首帧约束），preload 只把它算好的 CSS 文本写进 DOM。
  *
@@ -86,7 +86,7 @@ export function installThemeBoot(doc: Document, win: Window): ThemeBootPayload |
   /**
    * 与 `ThemeManager` 的运行时注入**同一个元素、同一个 id**：渲染进程起来之后会覆盖它，
    * 内容也逐字相同（两边都从同一份 token 派生）。用 `<style>` 而不是内联样式，是因为
-   * 44 个自定义属性写进 `style` 属性会让每个元素的 `style` 都带一份。
+   * 45 个自定义属性写进 `style` 属性会让每个元素的 `style` 都带一份。
    */
   const applyVars = (): void => {
     if (!doc.head || !payload.cssText) return;
