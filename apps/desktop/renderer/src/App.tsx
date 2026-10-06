@@ -3314,6 +3314,9 @@ export const App: React.FC = () => {
           activeId={workspaceSnapshot.activeId}
           onActivate={store.activate}
           onClose={handleCloseTab}
+          // 栏上那枚 `+` 只是 `new-file` 的第三个入口，动作本身仍由 `handleNewFile` 定义 ——
+          // 与 Ctrl+N、菜单「文件 → 新建」共用同一条路径，不是第二份实现。
+          onCreate={() => void handleNewFile()}
         />
       )}
       {/* 编辑器工具栏挂在**标签栏下方**。标签栏回答的是「哪些文档开着」，工具栏作用于

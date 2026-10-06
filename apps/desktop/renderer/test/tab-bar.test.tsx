@@ -23,6 +23,8 @@ import { localeManager } from '../src/platform.js';
  *    所以在 `readonly` 与 `clean` 上必须**没有**点，否则那条判据被抄成了第二份。
  * 3. **关闭按钮不冒泡成激活**：`onClick` 里少了 `stopPropagation` 时，点一下 × 会先把
  *    那个标签激活再去关它 —— 用户看到的是「闪一下才关」，而两个回调各自都对。
+ * 4. **`+` 在 `role="tablist"` 之外**：它是动作不是标签，混进列表里等于向读屏器谎报
+ *    列表长度；而它又必须在栏内，否则上一条断言「不在列表里」对「整个按钮被挪走了」同样成立。
  *
  * `apps/desktop/renderer/test/**` 不进 typecheck，类型只靠 esbuild 转译。
  */
@@ -34,6 +36,7 @@ describe('标签栏渲染契约', () => {
   let root: Root;
   let onActivate: ReturnType<typeof vi.fn>;
   let onClose: ReturnType<typeof vi.fn>;
+  let onCreate: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     container = document.createElement('div');
@@ -41,6 +44,7 @@ describe('标签栏渲染契约', () => {
     root = createRoot(container);
     onActivate = vi.fn();
     onClose = vi.fn();
+    onCreate = vi.fn();
   });
 
   afterEach(() => {
@@ -85,6 +89,7 @@ describe('标签栏渲染契约', () => {
           activeId={activeId ?? documents[0]?.id ?? null}
           onActivate={onActivate}
           onClose={onClose}
+          onCreate={onCreate}
         />
       );
     });
@@ -95,15 +100,62 @@ describe('标签栏渲染契约', () => {
   const activeTabs = () => container.querySelectorAll('.nexus-tab-active').length;
   const dotted = () => container.querySelectorAll('.nexus-tab-dot').length;
 
+  /**
+   * 给滚动容器造一个「装不下」的形状。
+   *
+   * happy-dom 没有布局，`scrollWidth` / `clientWidth` / `scrollLeft` 恒为 0，
+   * 于是「溢出了没有」这条分支在真实 DOM 里永远走不到。溢出是**量的**
+   * （`scrollWidth` vs `clientWidth`），所以只能把量出来的数喂进去。
+   */
+  const mockScrollable = (
+    element: HTMLElement,
+    { scrollWidth, clientWidth }: { scrollWidth: number; clientWidth: number }
+  ) => {
+    let scrollLeft = 0;
+    Object.defineProperty(element, 'scrollWidth', { configurable: true, get: () => scrollWidth });
+    Object.defineProperty(element, 'clientWidth', { configurable: true, get: () => clientWidth });
+    Object.defineProperty(element, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeft,
+      set: (value: number) => {
+        scrollLeft = value;
+      }
+    });
+  };
+
   it('零个文档不渲染，一个文档就渲染', () => {
     render([]);
     // 空栏没有可点的东西，而那种状态下主区本来就在画空态
     expect(bar()).toBeNull();
+    // `+` 跟着一起消失：空栏里孤零零一个按钮，而新建本来就有快捷键和菜单两条路
+    expect(container.querySelector('.nexus-tab-new')).toBeNull();
 
     // 反面：一个文档必须渲染 —— 少了这一半，「永远返回 null」也能让上面那句通过
     render([doc()]);
     expect(bar()).not.toBeNull();
     expect(tabs()).toHaveLength(1);
+  });
+
+  it('点＋走 onCreate，且它不在 tablist 里', () => {
+    render([doc()]);
+
+    const button = container.querySelector<HTMLButtonElement>('.nexus-tab-new');
+    expect(button).not.toBeNull();
+
+    // `+` 是动作不是标签，混进 `role="tablist"` 等于向读屏器谎报列表长度
+    const list = container.querySelector('[role="tablist"]');
+    expect(list).not.toBeNull();
+    expect(list!.contains(button!)).toBe(false);
+    // 反面：它也不能被挪到栏外 —— 那样上面那句同样成立
+    expect(bar()!.contains(button!)).toBe(true);
+
+    act(() => {
+      button!.click();
+    });
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    // 新建不落在任何一个既有标签上，两者不该互相触发
+    expect(onActivate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('一个文档时那一条就是当前文档', () => {
@@ -176,5 +228,82 @@ describe('标签栏渲染契约', () => {
       );
     });
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('纵向滚轮横滚标签，到边界就把事件还给编辑器', () => {
+    render([doc()]);
+    const strip = container.querySelector<HTMLElement>('.nexus-tab-strip')!;
+    mockScrollable(strip, { scrollWidth: 900, clientWidth: 600 });
+
+    const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(wheel, 'preventDefault');
+    act(() => {
+      strip.dispatchEvent(wheel);
+    });
+    expect(strip.scrollLeft).toBe(120);
+    expect(preventDefault).toHaveBeenCalled();
+
+    // 反面：已经在右边界时**不能**拦截。拦了标签栏就成了滚轮的死区 ——
+    // 鼠标停在标签上想把编辑器往下滚，会发现毫无反应。
+    strip.scrollLeft = 300;
+    const atEdge = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+    const preventAtEdge = vi.spyOn(atEdge, 'preventDefault');
+    act(() => {
+      strip.dispatchEvent(atEdge);
+    });
+    expect(strip.scrollLeft).toBe(300);
+    expect(preventAtEdge).not.toHaveBeenCalled();
+  });
+
+  it('溢出状态驱动两端渐隐的属性', () => {
+    render([doc()]);
+    const strip = container.querySelector<HTMLElement>('.nexus-tab-strip')!;
+    // mock 在挂载之后才生效，所以挂载时量到的是「没溢出」，手动触发一次重算
+    mockScrollable(strip, { scrollWidth: 900, clientWidth: 600 });
+    act(() => {
+      strip.dispatchEvent(new Event('scroll'));
+    });
+
+    // 停在最左：左边没得回，右边还有
+    expect(strip.getAttribute('data-overflow-left')).toBe('false');
+    expect(strip.getAttribute('data-overflow-right')).toBe('true');
+
+    // 中间：两边都有
+    strip.scrollLeft = 150;
+    act(() => {
+      strip.dispatchEvent(new Event('scroll'));
+    });
+    expect(strip.getAttribute('data-overflow-left')).toBe('true');
+    expect(strip.getAttribute('data-overflow-right')).toBe('true');
+
+    // 最右：只剩左边
+    strip.scrollLeft = 300;
+    act(() => {
+      strip.dispatchEvent(new Event('scroll'));
+    });
+    expect(strip.getAttribute('data-overflow-left')).toBe('true');
+    expect(strip.getAttribute('data-overflow-right')).toBe('false');
+  });
+
+  it('切标签时把活动标签滚进视野', () => {
+    const scrollIntoView = vi.fn();
+    const proto = Element.prototype as unknown as { scrollIntoView?: unknown };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scrollIntoView;
+
+    try {
+      const documents = [doc(), doc({ id: 'doc-2', filePath: 'C:/vault/b.md' })];
+      render(documents, 'doc-1');
+      // 挂载那次也算数，清掉才测得到「切过去」这一次
+      scrollIntoView.mockClear();
+
+      render(documents, 'doc-2');
+
+      // `block: 'nearest'` 不能省：默认的 `block: 'start'` 会顺带把编辑器纵向滚一下
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    } finally {
+      if (original === undefined) delete proto.scrollIntoView;
+      else proto.scrollIntoView = original;
+    }
   });
 });

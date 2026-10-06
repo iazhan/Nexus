@@ -94,4 +94,31 @@ describe('工作区多标签页', () => {
       10000
     );
   });
+
+  it('点标签栏的＋新建一份未命名文档', async () => {
+    const firstPath = path.join(tempDir, 'plus.md');
+    fs.writeFileSync(firstPath, '# plus\n', 'utf-8');
+
+    // 单文件启动 —— 这一条顺带证了 `+` **不依赖工作区**：它与 `Ctrl+N` 同源，
+    // 而 `Ctrl+N` 在没打开工作区时照样要能用。
+    activeApp = await launchElectronApp({ filePath: firstPath });
+    const app = activeApp;
+    await app.waitForSelector('.nexus-tab-new', 20000);
+
+    expect(await app.evaluate<number>(`document.querySelectorAll('.nexus-tab').length`)).toBe(1);
+
+    await app.click('.nexus-tab-new');
+    await app.waitForFunction(`document.querySelectorAll('.nexus-tab').length === 2`, 10000);
+
+    // 新开的是**空白未命名**文档，并且它就是当前文档（新标签追加在末尾）
+    expect(await app.evaluate<string>(`window.nexusSession.getSnapshot().source`)).toBe('');
+    expect(
+      await app.evaluate<boolean>(
+        `(() => {
+          const tabs = document.querySelectorAll('.nexus-tab');
+          return tabs[tabs.length - 1].classList.contains('nexus-tab-active');
+        })()`
+      )
+    ).toBe(true);
+  });
 });

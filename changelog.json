@@ -164,5 +164,22 @@
         "en": "Fix blocks after nested lists being written twice, and footnotes being parsed into broken links."
       }
     ]
+  },
+  "0.83.0": {
+    "date": "2026-10-07",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "标签栏末尾新增「＋」按钮，用来新建未命名文档（等同 Ctrl+N）。",
+        "en": "Add a \"+\" button at the end of the tab bar to create a new untitled document (same as Ctrl+N)."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "标签超出标签栏宽度时可纵向滚轮横滚，被挤出去的一侧渐隐提示。",
+        "en": "Tabs that overflow the tab bar can be scrolled with the vertical mouse wheel, and the clipped side fades out."
+      }
+    ]
   }
 }

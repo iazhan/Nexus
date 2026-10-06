@@ -2645,18 +2645,54 @@ button.nexus-outline-toggle:hover {
   align-items: stretch;
   /* 固定高度，不参与伸缩 —— 它上面没有别的东西跟它抢空间 */
   flex: 0 0 auto;
-  gap: 1px;
   height: 34px;
+  background-color: var(--nexus-bg-canvas);
+  border-bottom: 1px solid var(--nexus-border-subtle);
+}
+
+/* 标签与滚动都在这一层。`flex: 0 1 auto`（**不是 `1 1 auto`**）是让 `+` 落在正确位置的
+   全部机关：基准宽度取内容宽度、只在装不下时才收缩。
+   标签少 → strip 只有标签那么宽，`+` 紧跟在最后一个标签之后（浏览器 / Obsidian 的形态）；
+   标签多 → strip 收缩到「栏宽 − 按钮宽」，标签在内部横向滚动，`+` 被顶到右边缘且**不跟着滚**。
+   若写成 `1 1 auto`，strip 永远撑满整条栏，`+` 就恒在最右侧 —— 标签少时离最后一个标签老远。 */
+.nexus-tab-strip {
+  display: flex;
+  align-items: stretch;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 1px;
   padding: 0 6px;
   overflow-x: auto;
   overflow-y: hidden;
-  background-color: var(--nexus-bg-canvas);
-  border-bottom: 1px solid var(--nexus-border-subtle);
   scrollbar-width: none;
 }
 
-.nexus-tab-bar::-webkit-scrollbar {
+.nexus-tab-strip::-webkit-scrollbar {
   display: none;
+}
+
+/* 被挤出去的那一侧渐隐，提示「这边还有标签」。滚动条是刻意藏掉的，没有它就完全没有
+   溢出的痕迹。
+   用 mask 而不是盖一层渐变：盖上去的那层会挡住标签的点击区，mask 只让内容自己淡出。
+   颜色用 `currentColor` 而不是写死色值 —— 遮罩只看 alpha，而这里要的正是「不透明」；
+   写十六进制会撞 `tokens:audit` 的「定义文件之外的颜色字面量」。
+   两端同时溢出要单独一条三段式：两条单侧规则是**互相覆盖**而不是叠加，后写的那条会赢。 */
+.nexus-tab-strip[data-overflow-left='true'] {
+  mask-image: linear-gradient(to right, transparent 0, currentColor 24px);
+}
+
+.nexus-tab-strip[data-overflow-right='true'] {
+  mask-image: linear-gradient(to left, transparent 0, currentColor 24px);
+}
+
+.nexus-tab-strip[data-overflow-left='true'][data-overflow-right='true'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    currentColor 24px,
+    currentColor calc(100% - 24px),
+    transparent 100%
+  );
 }
 
 .nexus-tab {
@@ -2721,6 +2757,31 @@ button.nexus-outline-toggle:hover {
 .nexus-tab-close:hover {
   opacity: 1;
   background-color: var(--nexus-bg-surface-active);
+}
+
+/* 新建文档。常驻可见（不像关闭按钮那样悬浮才现身）—— 它没有任何破坏性，
+   藏起来只会让人以为标签栏到头了。
+   左边距交给 `.nexus-tab-strip` 的右 padding，这里只留右边那 6px 顶住栏边缘。 */
+.nexus-tab-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin: 0 6px 0 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  cursor: pointer;
+}
+
+.nexus-tab-new:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
 }
 
 /* 内容区里的居中纵向堆叠：工作区空态、裸启动欢迎态、以及 `ViewerPlaceholder`
