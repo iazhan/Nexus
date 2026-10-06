@@ -29,6 +29,13 @@
   --nx-editor-content-width: none;
   --nx-editor-code-line-numbers: inline-block;
   --nx-editor-table-layout: auto;
+  /* 动效。**新写 transition 一律取这三个值**，不再写裸的时长与曲线。
+     曲线是既有布局动画那条（活动栏指示条、侧栏展开）提上来的，观感不变。
+     fast 给微交互与浮层进出，base 给布局尺寸变化。
+     存量里还有一批 `0.15s` 的裸值没收敛 —— 与 fast 只差 30ms，肉眼无差，留给单独一次。 */
+  --nx-motion-fast: 120ms;
+  --nx-motion-base: 160ms;
+  --nx-motion-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 /*
@@ -1221,7 +1228,7 @@ body {
   width: 2px;
   background-color: var(--nexus-accent-indicator);
   transform: scaleY(0);
-  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+  transition: transform var(--nx-motion-base) var(--nx-motion-ease);
 }
 
 .nexus-activity-icon-active::before {
@@ -1262,7 +1269,7 @@ body {
   background-color: var(--nexus-bg-surface);
   /* 边框常驻但透明：直接在有/无之间切会让收起动画末尾跳一下 */
   border-right: 1px solid transparent;
-  transition: flex-basis 160ms cubic-bezier(0.2, 0, 0, 1), border-color 160ms ease-out;
+  transition: flex-basis var(--nx-motion-base) var(--nx-motion-ease), border-color var(--nx-motion-base) ease-out;
 }
 
 /* 宽度来自 --nx-panel-width（App 的拖拽逻辑写入这个变量），默认 240px */
@@ -2554,6 +2561,28 @@ button.nexus-outline-toggle:hover {
   /* 菜单自己拿焦点（`tabIndex={-1}`）来接键盘，但不画焦点环 ——
      焦点环会围着整个菜单画一圈，看起来像「菜单本身被选中了」。 */
   outline: none;
+  /* 进场**只有淡入**：菜单贴着指针位置出现，从中心放大看起来像「从自己肚子里长出来」，
+     而不是「在指针处展开」。缩放留给对话框那种居中的浮层。
+     退场不做 —— 组件是条件渲染（`if (!open) return null`），DOM 一关就没了，
+     要播退场得改成延迟卸载，代价大于收益。 */
+  opacity: 1;
+  transition: opacity var(--nx-motion-fast) var(--nx-motion-ease);
+}
+
+/* 元素是**插入**进来的（不是 `display` 从 none 切回来），所以 `@starting-style` 给个起始值
+   就够了，不需要 `transition-behavior: allow-discrete`（那是给已存在元素切 display 用的）。
+   首帧那个 `visibility: hidden`（尺寸还没量出来）挡不住它 —— `useLayoutEffect` 在绘制前
+   就把 `visibility` 打开了，用户看到的第一个可见帧动画刚起步。 */
+@starting-style {
+  .nexus-context-menu {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexus-context-menu {
+    transition: none;
+  }
 }
 
 .nexus-context-menu-item {
@@ -4987,6 +5016,9 @@ button.nexus-outline-toggle:hover {
   background-color: rgba(0, 0, 0, 0.4); /* @constant 弹层遮罩，全窗口 */
   z-index: 10000;
   display: flex;
+  /* 遮罩只淡入，**不跟着面板缩放** —— 它是铺满全窗口的一层，缩放会把屏幕边缘也拖进来。 */
+  opacity: 1;
+  transition: opacity var(--nx-motion-fast) var(--nx-motion-ease);
 }
 
 .nexus-dialog-backdrop-top {
@@ -5003,6 +5035,39 @@ button.nexus-outline-toggle:hover {
 
 .nexus-dialog {
   outline: none;
+  /* 面板从 95% 缩到 100%。**不是 90%** —— 那个幅度看着像「弹出来」；95% 只是让出现有重量，
+     用户注意不到缩放过，只觉得它落定得比较自然。
+     `scale: 1` 这个终值**必须显式写**。省掉它计算值就是 `none`，而 `none` 不能当过渡端点 ——
+     实测（Chromium 132）：起始值 0.95 会一直挂到动画结束才跳成 `none`，整个缩放不发生，
+     而且不报任何错。`opacity` 没这个陷阱（初始值是 1 不是 `none`），所以那边写不写都行。
+     代价是恒等变换也创建 stacking context，这里无妨：面板内没有 `position: fixed` 后代
+     （全仓只有遮罩、上下文菜单、选区条三处 fixed），而父级遮罩本来就是一个 stacking context。 */
+  scale: 1;
+  transition: scale var(--nx-motion-fast) var(--nx-motion-ease);
+}
+
+/* 贴顶的命令面板从**上沿**缩放，居中的弹窗从中心。从中心缩一个贴顶的面板，
+   看起来像它从屏幕外掉下来。`transform-origin` 对独立的 `scale` 属性同样生效。 */
+.nexus-dialog-backdrop-top .nexus-dialog {
+  transform-origin: top center;
+}
+
+/* 与 `.nexus-context-menu` 同理：元素是插入进来的，`@starting-style` 够用。 */
+@starting-style {
+  .nexus-dialog-backdrop {
+    opacity: 0;
+  }
+
+  .nexus-dialog {
+    scale: 0.95;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexus-dialog-backdrop,
+  .nexus-dialog {
+    transition: none;
+  }
 }
 
 /* 改名确认屏（`RenamePreview`）。公共外壳（遮罩 / 焦点陷阱 / Escape / 焦点归还）
