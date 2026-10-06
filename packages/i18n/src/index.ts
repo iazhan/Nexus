@@ -662,7 +662,6 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'cmd.paragraph': 'Paragraph',
     // 工具栏上那一枚下拉的标签。它里面装的是「正文 + 标题 1–6」，六个标题是主体，
     // 所以叫 `Heading` 而不是 `Block type` —— 与 Word / Google Docs 的叫法一致。
-    'cmd.heading': 'Heading',
     'cmd.heading1': 'Heading 1',
     'cmd.heading2': 'Heading 2',
     'cmd.heading3': 'Heading 3',
@@ -1463,7 +1462,6 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'cmd.insertLink': '插入链接',
     'cmd.clearFormatting': '清除格式',
     'cmd.paragraph': '正文',
-    'cmd.heading': '标题',
     'cmd.heading1': '标题 1',
     'cmd.heading2': '标题 2',
     'cmd.heading3': '标题 3',

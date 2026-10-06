@@ -296,7 +296,7 @@ describe('块级改型（格式菜单 → 改型 → 回退）', () => {
   }, INDEXED_TEST_TIMEOUT_MS);
 
   /**
-   * 常驻工具栏（2026-10-04）。第三个入口，同一条命令。
+   * 常驻工具栏（2026-10-04；2026-10-06 标题拆成七枚平铺按钮）。第三个入口，同一条命令。
    *
    * 结果与上面那条菜单用例**逐字相同** —— 那本身就是「两处同源」的证据。
    *
@@ -304,7 +304,7 @@ describe('块级改型（格式菜单 → 改型 → 回退）', () => {
    * 「按钮不抢编辑器焦点」这条 —— 焦点一丢，事务读到的选区就是空的，
    * 表现成「点了没反应」。用 `click` 的话这条链根本没被走过，用例绿得没有意义。
    */
-  it('常驻工具栏：标题下拉改型，落点与「格式」菜单逐字一致', async () => {
+  it('常驻工具栏：标题按钮改型，落点与「格式」菜单逐字一致', async () => {
     activeApp = await launchElectronApp({ filePath: workspace });
     const app = activeApp;
 
@@ -314,48 +314,29 @@ describe('块级改型（格式菜单 → 改型 → 回退）', () => {
 
     await setCaret(app, 1);
 
-    const headingPressed = () =>
+    const pressed = (action: string) =>
       app.evaluate<string | null>(
-        `document.querySelector('[data-action="format.heading"]')?.getAttribute('aria-pressed') ?? null`
+        `document.querySelector('[data-action="${action}"]')?.getAttribute('aria-pressed') ?? null`
       );
-    const headingLit = () =>
+    const lit = (action: string) =>
       app.evaluate<boolean>(
-        `document.querySelector('[data-action="format.heading"]')?.classList.contains('nexus-toolbar-button-on') ?? false`
+        `document.querySelector('[data-action="${action}"]')?.classList.contains('nexus-toolbar-button-on') ?? false`
       );
 
-    // 改型之前：光标在正文上，标题按钮不该亮
-    expect(await headingPressed()).toBe('false');
+    // 改型之前：光标在正文上，「正文」那一格亮、标题不亮
+    expect(await pressed('format.paragraph')).toBe('true');
+    expect(await pressed('format.heading-2')).toBe('false');
 
-    await app.mouseClick('[data-action="format.heading"]');
-    await app.waitForSelector('.nexus-context-menu', 5000);
-
-    // 7 项 + 1 条分组线（正文与标题之间）
-    expect(
-      await app.evaluate<number>(`document.querySelectorAll('[data-context-menu-item]').length`)
-    ).toBe(7);
-    expect(
-      await app.evaluate<number>(`document.querySelectorAll('.nexus-context-menu-separator').length`)
-    ).toBe(1);
-
-    // ✓ 落在「正文」上（与菜单栏那份同一个 `blockFormatState`）
-    expect(
-      await app.evaluate<string[]>(
-        `Array.from(document.querySelectorAll('[data-context-menu-checkable]'))
-          .filter((el) => el.getAttribute('aria-checked') === 'true')
-          .map((el) => el.getAttribute('data-context-menu-item'))`
-      )
-    ).toEqual(['format.paragraph']);
-
-    await app.mouseClick('[data-context-menu-item="format.heading-2"]');
-    await waitForGone(app, '.nexus-context-menu');
-
+    // 点一下就改型 —— 拆成按钮之后不再有「先开下拉再点条目」这一步
+    await app.mouseClick('[data-action="format.heading-2"]');
     expect(await source(app)).toBe('## 第一段\n\n第二段\n\n```\ncode\n```\n');
 
-    // 按下态跟着变：现在光标所在块是标题，按钮该亮；视觉与 `aria-pressed` 同源
-    expect(await headingPressed()).toBe('true');
-    expect(await headingLit()).toBe(true);
+    // 按下态跟着变：现在光标所在块是标题 2，那一格该亮；视觉与 `aria-pressed` 同源
+    expect(await pressed('format.heading-2')).toBe('true');
+    expect(await lit('format.heading-2')).toBe(true);
+    expect(await pressed('format.paragraph')).toBe('false');
 
-    // 直接按钮（不走下拉）：引用是容器，加在标题之外
+    // 直接按钮：引用是容器，加在标题之外
     await app.mouseClick('[data-action="format.quote"]');
     expect(await source(app)).toBe('> ## 第一段\n\n第二段\n\n```\ncode\n```\n');
   }, INDEXED_TEST_TIMEOUT_MS);

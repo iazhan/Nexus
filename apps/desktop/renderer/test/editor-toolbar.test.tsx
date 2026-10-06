@@ -10,11 +10,11 @@ import { CodeIcon, EyeIcon } from '../src/components/editor-icons.js';
 import { localeManager } from '../src/platform.js';
 
 /**
- * 编辑器常驻工具栏的**渲染契约**（2026-10-03，块级动作 2026-10-04）。
+ * 编辑器常驻工具栏的**渲染契约**（2026-10-03，块级动作 2026-10-04，标题拆按钮 2026-10-06）。
  *
  * 这里钉六件事，都是组件里的分支、真机用例覆盖不到的：
  *
- * 1. **动作集恰好是那十个**（两个文档动作 + 模式切换 + 五个块级动作 + 查找 + 更多），
+ * 1. **动作集恰好是那十六个**（两个文档动作 + 模式切换 + 十一个块级动作 + 查找 + 更多），
  *    且**一个行内格式按钮都没有**。正反两面都要断言 —— 只断言「有 undo」对
  *    「顺手塞了个加粗按钮」同样成立。
  * 2. **块级动作与行内动作的分界线是「无选区时还有没有意义」**：块级作用于光标所在行，
@@ -23,7 +23,7 @@ import { localeManager } from '../src/platform.js';
  * 3. **surface 切换按钮的图标与 `aria-pressed` 出自同一个表达式**（判据 36）。
  *    分成两个表达式时，两处各自都对、合起来矛盾，这种 bug 单看一处永远发现不了。
  * 4. **块级按钮的按下态与禁用从 `formatState` 派生**，与「格式」菜单的 ✓ / 灰同源。
- * 5. **两个下拉的开关**：点条目要执行并关闭；点锚点按钮是「关」不是「关了又开」
+ * 5. **「更多」那个下拉的开关**：点条目要执行并关闭；点锚点按钮是「关」不是「关了又开」
  *    （`ContextMenu` 的 `anchorRef` 就是为这条加的）。
  * 6. **只读降级**（P0-5）：写动作（含块级）禁用、读 / 视图动作保留，且整条栏**仍然渲染**
  *    —— 蓝图 §19 要的是「降级」，不是「隐藏」。
@@ -45,14 +45,20 @@ const t = (key: string): string => translate(localeManager.locale, key);
 /**
  * 工具栏的全部动作，按 DOM 顺序。
  *
- * 中间五个块级动作**手抄一份而不是从 `BLOCK_FORMAT_TOOLBAR` 推** —— 用推导写的话，
+ * 中间十一个块级动作**手抄一份而不是从 `BLOCK_FORMAT_TOOLBAR` 推** —— 用推导写的话，
  * 表里少一项、顺序变了，这里都跟着变，等于没断言。这一条要的正是「表变了就得有人来看一眼」。
  */
 const ACTIONS = [
   'undo',
   'redo',
   'toggle-surface',
-  'format.heading',
+  'format.paragraph',
+  'format.heading-1',
+  'format.heading-2',
+  'format.heading-3',
+  'format.heading-4',
+  'format.heading-5',
+  'format.heading-6',
   'format.quote',
   'format.bullet-list',
   'format.ordered-list',
@@ -201,7 +207,7 @@ describe('编辑器常驻工具栏', () => {
     vi.restoreAllMocks();
   });
 
-  it('动作集恰好是这十个', async () => {
+  it('动作集恰好是这十六个', async () => {
     await render();
     expect(actions()).toEqual([...ACTIONS]);
   });
@@ -211,7 +217,13 @@ describe('编辑器常驻工具栏', () => {
 
     // 正面：块级动作无选区时作用于**光标所在行**，常驻永远有效。
     for (const action of [
-      'format.heading',
+      'format.paragraph',
+      'format.heading-1',
+      'format.heading-2',
+      'format.heading-3',
+      'format.heading-4',
+      'format.heading-5',
+      'format.heading-6',
       'format.quote',
       'format.bullet-list',
       'format.ordered-list',
@@ -249,7 +261,9 @@ describe('编辑器常驻工具栏', () => {
       ['format.quote', true],
       ['format.ordered-list', false],
       ['format.task-list', false],
-      ['format.heading', false]
+      ['format.paragraph', false],
+      ['format.heading-1', false],
+      ['format.heading-6', false]
     ] as const) {
       const el = button(action)!;
       expect(el.getAttribute('aria-pressed'), action).toBe(String(pressed));
@@ -259,65 +273,27 @@ describe('编辑器常驻工具栏', () => {
     }
   });
 
-  it('标题按钮不被「正文」点亮 —— 段落上它不该亮，否则等于恒亮', async () => {
-    // 「正文」也是标题下拉的成员，把它算进按下态的话，任何段落都会让按钮亮着 ——
-    // 而「亮」是这一栏唯一的「当前是什么」提示，恒真等于没有。
+  it('标题与正文各亮各的 —— 拆成七枚之后，段落上只有「正文」亮', async () => {
+    // 拆按钮之前，这一组要专门把「正文」排除在按下态之外，否则任何段落都会让它亮着。
+    // 现在每级各占一格，那条约束换成了「一格只被它自己那一级点亮」。
     await render('source', false, blockState({ leaf: 'paragraph' }));
-    expect(button('format.heading')!.getAttribute('aria-pressed')).toBe('false');
+    expect(button('format.paragraph')!.getAttribute('aria-pressed')).toBe('true');
+    expect(button('format.heading-1')!.getAttribute('aria-pressed')).toBe('false');
 
     await render('source', false, blockState({ leaf: 'heading-4' }));
-    expect(button('format.heading')!.getAttribute('aria-pressed')).toBe('true');
-    expect(button('format.heading')!.className.includes('nexus-toolbar-button-on')).toBe(true);
+    expect(button('format.heading-4')!.getAttribute('aria-pressed')).toBe('true');
+    expect(button('format.heading-4')!.className.includes('nexus-toolbar-button-on')).toBe(true);
+    expect(button('format.heading-3')!.getAttribute('aria-pressed')).toBe('false');
+    expect(button('format.paragraph')!.getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('标题下拉：正文与标题 1–6，中间一条分组线，✓ 落在当前级别', async () => {
+  it('标题按钮：点一下就执行，不开下拉', async () => {
+    // 拆按钮之前这里是「点开下拉 → 点条目」两步。现在每级一个按钮，点一下就该走完，
+    // 且**不能**再弹出任何菜单 —— 留一个下拉分支在那里等于留一条没人走的路。
     await render('source', false, blockState({ leaf: 'heading-2' }));
-    expect(button('format.heading')!.getAttribute('aria-pressed')).toBe('true');
-
-    await click('[data-action="format.heading"]');
-    expect(
-      Array.from(container.querySelectorAll('[data-context-menu-item]')).map((el) =>
-        el.getAttribute('data-context-menu-item')
-      )
-    ).toEqual([
-      'format.paragraph',
-      'format.heading-1',
-      'format.heading-2',
-      'format.heading-3',
-      'format.heading-4',
-      'format.heading-5',
-      'format.heading-6'
-    ]);
-    expect(container.querySelectorAll('.nexus-context-menu-separator')).toHaveLength(1);
-
-    // ✓ 与 `aria-checked` 同源，且只有一项亮着
-    const checked = Array.from(
-      container.querySelectorAll('[data-context-menu-checkable]')
-    ).filter((el) => el.getAttribute('aria-checked') === 'true');
-    expect(checked.map((el) => el.getAttribute('data-context-menu-item'))).toEqual([
-      'format.heading-2'
-    ]);
-    expect(checked[0]!.textContent).toContain('✓');
-  });
-
-  it('标题下拉：点一项执行并关闭，回调收到的是命令 id', async () => {
-    await render();
-    await click('[data-action="format.heading"]');
-    await click('[data-context-menu-item="format.heading-3"]');
+    await click('[data-action="format.heading-3"]');
 
     expect(onBlockFormat).toHaveBeenCalledWith('format.heading-3');
-    expect(menu()).toBeNull();
-  });
-
-  it('标题下拉：再点锚点按钮是「关」，不是「关了又开」', async () => {
-    await render();
-    await click('[data-action="format.heading"]');
-    expect(menu()).not.toBeNull();
-
-    await pointerDownOn('[data-action="format.heading"]');
-    expect(menu()).not.toBeNull();
-
-    await click('[data-action="format.heading"]');
     expect(menu()).toBeNull();
   });
 
@@ -332,7 +308,13 @@ describe('编辑器常驻工具栏', () => {
 
     const markup = new Map<string, string>();
     for (const action of [
-      'format.heading',
+      'format.paragraph',
+      'format.heading-1',
+      'format.heading-2',
+      'format.heading-3',
+      'format.heading-4',
+      'format.heading-5',
+      'format.heading-6',
       'format.quote',
       'format.bullet-list',
       'format.ordered-list',
@@ -344,6 +326,8 @@ describe('编辑器常驻工具栏', () => {
       expect(svg, `${action} 没有图标`).not.toBeNull();
       markup.set(action, svg!.innerHTML);
     }
+    // 六枚标题共用同一个 `H`、只差右下角的数字，所以这条断言比拆按钮之前更吃紧：
+    // 两个数字的 path 写重了（比如 H1 与 H4）会在这里红。
     expect(new Set(markup.values()).size).toBe(markup.size);
   });
 
@@ -351,7 +335,9 @@ describe('编辑器常驻工具栏', () => {
     // `editable: false` + 不在代码块里 = 表格 / 公式 / `raw`：全禁。
     await render('source', false, blockState({ editable: false }));
     for (const action of [
-      'format.heading',
+      'format.paragraph',
+      'format.heading-1',
+      'format.heading-6',
       'format.quote',
       'format.bullet-list',
       'format.ordered-list',
@@ -362,7 +348,12 @@ describe('编辑器常驻工具栏', () => {
 
     // 代码块里也一样（只有「代码块」那一项可用，而它不在工具栏上）。
     await render('source', false, blockState({ editable: false, inCodeBlock: true }));
-    for (const action of ['format.heading', 'format.quote', 'format.bullet-list']) {
+    for (const action of [
+      'format.paragraph',
+      'format.heading-3',
+      'format.quote',
+      'format.bullet-list'
+    ]) {
       expect(button(action)!.disabled, action).toBe(true);
     }
   });
@@ -450,7 +441,9 @@ describe('编辑器常驻工具栏', () => {
     for (const action of [
       'undo',
       'redo',
-      'format.heading',
+      'format.paragraph',
+      'format.heading-1',
+      'format.heading-6',
       'format.quote',
       'format.bullet-list',
       'format.ordered-list',
@@ -481,7 +474,7 @@ describe('编辑器常驻工具栏', () => {
     expect(button('undo')!.title).toBe(t('editor.toolbar.readonly'));
     expect(button('redo')!.title).toBe(t('editor.toolbar.readonly'));
     expect(button('format.quote')!.title).toBe(t('editor.toolbar.readonly'));
-    expect(button('format.heading')!.title).toBe(t('editor.toolbar.readonly'));
+    expect(button('format.heading-1')!.title).toBe(t('editor.toolbar.readonly'));
     expect(button('more')!.title).toBe(t('editor.toolbar.readonly'));
 
     // 无障碍名字仍然是**动作**，不是原因 —— 屏幕阅读器读的是「撤销，已禁用」。

@@ -12,16 +12,22 @@ import {
 } from '../components/editor-icons.js';
 import {
   BulletListIcon,
-  HeadingIcon,
+  Heading1Icon,
+  Heading2Icon,
+  Heading3Icon,
+  Heading4Icon,
+  Heading5Icon,
+  Heading6Icon,
   OrderedListIcon,
+  ParagraphIcon,
   QuoteIcon,
   TaskListIcon
 } from '../components/format-icons.js';
 import {
   BLOCK_FORMAT_TOOLBAR,
-  blockFormatDropdownItems,
-  isBlockFormatEntryActive,
-  isBlockFormatEntryEnabled
+  findBlockFormatSpec,
+  isBlockFormatActionActive,
+  isBlockFormatActionEnabled
 } from './block-format-specs.js';
 
 export interface EditorToolbarProps {
@@ -57,7 +63,13 @@ export interface EditorToolbarProps {
  * 表里加了一项而这里没配图标会渲染成空白按钮（有用例钉住「每一项都配了图标」）。
  */
 const FORMAT_ICONS: Record<string, React.ReactNode> = {
-  'format.heading': HeadingIcon,
+  'format.paragraph': ParagraphIcon,
+  'format.heading-1': Heading1Icon,
+  'format.heading-2': Heading2Icon,
+  'format.heading-3': Heading3Icon,
+  'format.heading-4': Heading4Icon,
+  'format.heading-5': Heading5Icon,
+  'format.heading-6': Heading6Icon,
   'format.quote': QuoteIcon,
   'format.bullet-list': BulletListIcon,
   'format.ordered-list': OrderedListIcon,
@@ -97,8 +109,8 @@ function useDropdownAnchor(ref: React.RefObject<HTMLButtonElement | null>) {
 }
 
 /**
- * 编辑器常驻工具栏：`Undo · Redo | Source/WYSIWYG | Heading▾ · Quote · Bullet · Numbered ·
- * Task | Find … More`。
+ * 编辑器常驻工具栏：`Undo · Redo | Source/WYSIWYG | ¶ · H1–H6 · Quote · Bullet ·
+ * Numbered · Task | Find … More`。
  *
  * ## 为什么是一行「占位」而不是浮层
  *
@@ -122,8 +134,10 @@ function useDropdownAnchor(ref: React.RefObject<HTMLButtonElement | null>) {
  *
  * 这也是两个参考实现共同的选择：Markra 的行内格式只在**选中文本时**浮出。
  *
- * 蓝图 `:357`「常驻工具栏不堆叠完整编辑器按钮」并没有被违反：这里铺的是**高频子集**
- * （见 `BLOCK_FORMAT_TOOLBAR`），代码块 / 表格 / 分割线仍只在「格式」菜单里。
+ * 蓝图 `:357`「常驻工具栏不堆叠完整编辑器按钮」并没有被违反：这里铺的仍是**子集**，
+ * 代码块 / 表格 / 分割线仍只在「格式」菜单里。标题铺满六级是**有意的** —— 下拉把
+ * 「当前是哪一级」藏在一次点击后面，而这一栏的按下态就是「当前是什么」的唯一提示，
+ * 六级各占一格才能一眼看出光标停在哪一级。
  *
  * ## 纯展示 + 回调，不读 store
  *
@@ -138,8 +152,8 @@ function useDropdownAnchor(ref: React.RefObject<HTMLButtonElement | null>) {
  * 表现成「点了没反应」。所以在 `mousedown` 上 `preventDefault`，让按钮**不参与**焦点竞争。
  * 拦在 `click` 上没用 —— 那时已经换过手了。折叠三角那条是同一个坑。
  *
- * 两个下拉是这条的例外：菜单本身得拿焦点，键盘才走得动，所以它开的时候编辑器确实会失焦
- * —— 靠 `ContextMenu` 关闭时把焦点**还回来**（`Dialog` 也是这么做的）。
+ * 「更多」那个下拉是这条的例外：菜单本身得拿焦点，键盘才走得动，所以它开的时候编辑器
+ * 确实会失焦 —— 靠 `ContextMenu` 关闭时把焦点**还回来**（`Dialog` 也是这么做的）。
  *
  * ## 只读：降级，不是隐藏
  *
@@ -167,9 +181,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   const surfaceToVisual = surfaceKind === 'source';
   const surfaceLabel = t(surfaceToVisual ? 'surface.toVisual' : 'surface.toSource');
 
-  const headingButtonRef = useRef<HTMLButtonElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
-  const headingMenu = useDropdownAnchor(headingButtonRef);
   const moreMenu = useDropdownAnchor(moreButtonRef);
 
   /** 禁用时 `title` 换成原因 —— 灰按钮不带解释时用户只会反复点它。 */
@@ -227,62 +239,29 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
       <span className="nexus-editor-toolbar-separator" aria-hidden="true" />
 
-      {BLOCK_FORMAT_TOOLBAR.map((entry) => {
+      {BLOCK_FORMAT_TOOLBAR.map((id) => {
         // 按下态与禁用都出自 `formatState`，与「格式」菜单的 ✓ / 灰出自同一对函数 ——
         // 视觉与 `aria-pressed` 也是同一个布尔的两个用法（判据 36）。
-        const active = isBlockFormatEntryActive(entry, formatState);
-        const disabled = readOnly || !isBlockFormatEntryEnabled(entry, formatState);
-        const label = t(entry.labelKey);
-        const className = `nexus-toolbar-button${active ? ' nexus-toolbar-button-on' : ''}`;
-        const icon = FORMAT_ICONS[entry.id];
-
-        if (entry.kind === 'menu') {
-          return (
-            <React.Fragment key={entry.id}>
-              <button
-                ref={headingButtonRef}
-                type="button"
-                className={className}
-                data-action={entry.id}
-                title={titleFor(label)}
-                aria-label={label}
-                aria-haspopup="menu"
-                aria-expanded={headingMenu.anchor !== null}
-                aria-pressed={active}
-                aria-disabled={disabled}
-                disabled={disabled}
-                onClick={headingMenu.toggle}
-              >
-                {icon}
-              </button>
-              {headingMenu.anchor && (
-                <ContextMenu
-                  x={headingMenu.anchor.left}
-                  y={headingMenu.anchor.top}
-                  items={blockFormatDropdownItems(entry.ids, formatState, t, onBlockFormat)}
-                  onClose={headingMenu.close}
-                  label={label}
-                  anchorRef={headingButtonRef}
-                />
-              )}
-            </React.Fragment>
-          );
-        }
+        const spec = findBlockFormatSpec(id);
+        if (!spec) return null;
+        const active = isBlockFormatActionActive(spec, formatState);
+        const disabled = readOnly || !isBlockFormatActionEnabled(spec, formatState);
+        const label = t(spec.labelKey);
 
         return (
           <button
-            key={entry.id}
+            key={id}
             type="button"
-            className={className}
-            data-action={entry.id}
+            className={`nexus-toolbar-button${active ? ' nexus-toolbar-button-on' : ''}`}
+            data-action={id}
             title={titleFor(label)}
             aria-label={label}
             aria-pressed={active}
             aria-disabled={disabled}
             disabled={disabled}
-            onClick={() => onBlockFormat(entry.id)}
+            onClick={() => onBlockFormat(id)}
           >
-            {icon}
+            {FORMAT_ICONS[id]}
           </button>
         );
       })}

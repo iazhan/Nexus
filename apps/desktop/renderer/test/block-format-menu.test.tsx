@@ -7,10 +7,8 @@ import { MenuBar, type MenuBarItem } from '../src/MenuBar.js';
 import {
   BLOCK_FORMAT_SPECS,
   BLOCK_FORMAT_TOOLBAR,
-  blockFormatDropdownItems,
   blockFormatMenuItems,
-  findBlockFormatSpec,
-  isBlockFormatEntryActive
+  findBlockFormatSpec
 } from '../src/editor/block-format-specs.js';
 import { createSlashCommandHost } from '../src/editor/slash-commands.js';
 import { SELECTION_ACTION_SPECS } from '../src/editor/SelectionToolbar.js';
@@ -34,8 +32,10 @@ import { EMPTY_BLOCK_FORMAT_STATE } from '@nexus/editor';
  *    这种不一致单看事务层或单看菜单都发现不了。
  * 3. **两语文案都在**：菜单项只拿 `labelKey`，缺键时 `t()` 把键名原样返回，
  *    界面上会漏出 `cmd.heading2` 这种噪音 —— 而它不是缺键、不是空值，没有任何东西会报错。
- * 4. **常驻工具栏只铺高频子集**，且**正反两面都断言**：子集里的 id 都真实存在，
+ * 4. **常驻工具栏只铺子集**，且**正反两面都断言**：子集里的 id 都真实存在，
  *    代码块 / 表格 / 分割线确实没被铺上去（蓝图 `:357`「不堆叠完整编辑器按钮」）。
+ *    标题是七枚平铺的按钮（正文 + 标题 1–6），于是工具栏的 id 序列正好是「格式」菜单的
+ *    前 11 项 —— 这条前缀关系就是「同源」在这一层的表达。
  *
  * `apps/desktop/test/**` 与 `renderer/test/**` 都不进 typecheck，类型只靠 esbuild 转译。
  */
@@ -158,18 +158,16 @@ describe('`/` 面板与「格式」菜单同源（P2-2）', () => {
 });
 
 /**
- * 常驻工具栏上的块级动作（2026-10-04）。**只铺高频子集**，但子集里的每一项都必须是
- * 同一张表里的那一项 —— 「同源」在这里同样是结构性的，不是靠自觉。
+ * 常驻工具栏上的块级动作（2026-10-04；2026-10-06 标题拆成七枚平铺按钮）。
+ * **只铺子集**，但子集里的每一项都必须是同一张表里的那一项 —— 「同源」在这里同样是
+ * 结构性的，不是靠自觉。
  *
- * 这一层要守的是**两个方向**：正向（工具栏引用的 id 都真实存在、`button` 项的标签
- * 不另起一套说法）、反向（代码块 / 表格 / 分割线确实**没**被铺进常驻栏）。
- * 只断言正向的话，「顺手把 14 项全铺上」照样绿 —— 而那正是蓝图 `:357` 反对的。
+ * 这一层要守的是**两个方向**：正向（工具栏引用的 id 都真实存在）、反向（代码块 / 表格 /
+ * 分割线确实**没**被铺进常驻栏）。只断言正向的话，「顺手把 14 项全铺上」照样绿 ——
+ * 而那正是蓝图 `:357` 反对的。
  */
 describe('块级动作表 → 常驻工具栏的投影', () => {
-  const ids = BLOCK_FORMAT_TOOLBAR.flatMap((entry) => entry.ids);
-  const headingEntry = BLOCK_FORMAT_TOOLBAR.find((entry) => entry.kind === 'menu')!;
-  const dropdownIds = (state: Parameters<typeof blockFormatMenuItems>[0]) =>
-    blockFormatDropdownItems(headingEntry.ids, state, t, () => {}).filter((item) => !item.separator);
+  const ids = [...BLOCK_FORMAT_TOOLBAR];
   const menuIds = () =>
     blockFormatMenuItems(EMPTY_BLOCK_FORMAT_STATE, t, () => {})
       .filter((item) => !item.separator)
@@ -181,27 +179,11 @@ describe('块级动作表 → 常驻工具栏的投影', () => {
     }
   });
 
-  it('`button` 项的 id / labelKey 与它那条 spec 逐字相同', () => {
-    for (const entry of BLOCK_FORMAT_TOOLBAR.filter((e) => e.kind === 'button')) {
-      const spec = findBlockFormatSpec(entry.ids[0]!)!;
-      expect(entry.id, `${entry.id} 的 id 与命令 id 不一致`).toBe(spec.id);
-      expect(entry.labelKey, `${entry.id} 另写了一套标签`).toBe(spec.labelKey);
-      expect(entry.ids).toEqual([spec.id]);
-    }
-  });
-
   it('没有同一个动作被铺两次', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('恰好是「标题下拉 + 引用 + 三个列表」，覆盖 10 项', () => {
-    expect(BLOCK_FORMAT_TOOLBAR.map((entry) => entry.kind)).toEqual([
-      'menu',
-      'button',
-      'button',
-      'button',
-      'button'
-    ]);
+  it('恰好是「正文 + 标题 1–6 + 引用 + 三个列表」，覆盖 11 项', () => {
     expect(ids).toEqual([
       'format.paragraph',
       'format.heading-1',
@@ -224,63 +206,25 @@ describe('块级动作表 → 常驻工具栏的投影', () => {
   });
 
   it('每一项的标签键在两本词典里都存在', () => {
-    for (const entry of BLOCK_FORMAT_TOOLBAR) {
-      expect(hasMessage('zh-CN', entry.labelKey), `${entry.id} 缺中文文案`).toBe(true);
-      expect(hasMessage('en-US', entry.labelKey), `${entry.id} 缺英文文案`).toBe(true);
+    for (const id of ids) {
+      const labelKey = findBlockFormatSpec(id)!.labelKey;
+      expect(hasMessage('zh-CN', labelKey), `${id} 缺中文文案`).toBe(true);
+      expect(hasMessage('en-US', labelKey), `${id} 缺英文文案`).toBe(true);
     }
   });
 
-  it('标题下拉的命令 id 与「格式」菜单的前 7 项逐字相同（同源）', () => {
-    expect(dropdownIds(EMPTY_BLOCK_FORMAT_STATE).map((item) => item.id)).toEqual(menuIds().slice(0, 7));
+  it('工具栏的 id 序列就是「格式」菜单的前 11 项，顺序也一致（同源）', () => {
+    // 拆按钮之前这里断言的是「标题下拉的命令 id 与菜单前 7 项逐字相同」。现在工具栏
+    // 直接铺 id，同源就表达成「它是同一张表的前缀」—— 顺序漂了会红。
+    expect(menuIds().slice(0, ids.length)).toEqual(ids);
   });
 
-  it('标题下拉的标签与菜单项逐字相同', () => {
-    expect(dropdownIds(EMPTY_BLOCK_FORMAT_STATE).map((item) => item.label)).toEqual(
-      blockFormatMenuItems(EMPTY_BLOCK_FORMAT_STATE, t, () => {})
-        .filter((item) => !item.separator)
-        .slice(0, 7)
-        .map((item) => item.label)
-    );
-  });
-
-  it('标题下拉的分组线与菜单一致：正文与标题之间恰好一条，且在第二位', () => {
-    const list = blockFormatDropdownItems(headingEntry.ids, EMPTY_BLOCK_FORMAT_STATE, t, () => {});
-    expect(list.filter((item) => item.separator)).toHaveLength(1);
-    expect(list[1]?.separator).toBe(true);
-    expect(list[0]?.separator).toBeUndefined();
-    expect(list.at(-1)?.separator).toBeUndefined();
-  });
-
-  it('下拉里的 ✓ 与菜单同源，且只有一个', () => {
-    const state = { leaf: 'heading-3' as const, quoted: false, editable: true, inCodeBlock: false };
-    expect(dropdownIds(state).filter((item) => item.active).map((item) => item.id)).toEqual([
-      'format.heading-3'
-    ]);
-  });
-
-  it('标题按钮**不被「正文」点亮** —— 否则它在任何段落上都亮着，等于没有', () => {
-    expect(headingEntry.activeIds).toBeDefined();
-    expect(headingEntry.activeIds).not.toContain('format.paragraph');
-    // 子集关系：`activeIds` 只能从 `ids` 里挑，不能凭空写一个不存在的命令
-    for (const id of headingEntry.activeIds!) expect(headingEntry.ids).toContain(id);
-
-    const state = (leaf: string | null) => ({
-      leaf: leaf as never,
-      quoted: false,
-      editable: true,
-      inCodeBlock: false
-    });
-    expect(isBlockFormatEntryActive(headingEntry, state('paragraph')), '正文上不该亮').toBe(false);
-    expect(isBlockFormatEntryActive(headingEntry, state('heading-2')), '标题 2 上该亮').toBe(true);
-    expect(isBlockFormatEntryActive(headingEntry, state(null)), '类型不一致时不该亮').toBe(false);
-  });
-
-  it('没有 `activeIds` 的条目按全部 `ids` 判 —— 引用 / 列表那四个', () => {
-    const state = { leaf: null, quoted: true, editable: true, inCodeBlock: false };
-    for (const entry of BLOCK_FORMAT_TOOLBAR.filter((e) => e.kind === 'button')) {
-      expect(entry.activeIds, `${entry.id} 不该有 activeIds`).toBeUndefined();
-      expect(isBlockFormatEntryActive(entry, state), entry.id).toBe(entry.id === 'format.quote');
-    }
+  it('每一项的标签与菜单项逐字相同', () => {
+    const menuLabels = blockFormatMenuItems(EMPTY_BLOCK_FORMAT_STATE, t, () => {})
+      .filter((item) => !item.separator)
+      .slice(0, ids.length)
+      .map((item) => item.label);
+    expect(ids.map((id) => t(findBlockFormatSpec(id)!.labelKey))).toEqual(menuLabels);
   });
 });
 
