@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
   MarkdownDocumentSession,
   createSessionEditorView,
   readOnlyCompartment,
+  setDropIndicatorEffect,
   EditorState
 } from '../src/index.js';
 
@@ -139,6 +140,58 @@ describe('Block Drag Handle UI & PointerEvent Drag/Drop Integration', () => {
     handle.destroy();
   });
 
+  // 4b. 拖动中源块被标出来 —— 这是「正在拖哪一块」唯一可见的线索，松手必须清掉
+  it('marks the dragged source block and clears it on release', () => {
+    const source = '# Heading 1\n\nParagraph text\n\n# Heading 2';
+    const session = new MarkdownDocumentSession(source);
+    const handle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'test-drag-source-highlight',
+      surfaceKind: 'visual'
+    });
+
+    expect(handle.view.dom.querySelector('.cm-visual-drag-source')).toBeNull();
+
+    const firstHandle = handle.view.dom.querySelector('.cm-visual-drag-handle') as HTMLElement;
+    firstHandle.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 7 })
+    );
+
+    const marked = handle.view.dom.querySelectorAll('.cm-visual-drag-source');
+    expect(marked.length).toBe(1);
+    expect(marked[0]!.textContent).toContain('Heading 1');
+
+    window.dispatchEvent(
+      new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 7 })
+    );
+    expect(handle.view.dom.querySelector('.cm-visual-drag-source')).toBeNull();
+
+    handle.destroy();
+  });
+
+  // 4c. 多行块：范围内**每一行**都要标上，漏行会让高亮断成几截
+  it('marks every line of a multi-line dragged block', () => {
+    const source = '```js\nconst a = 1;\nconst b = 2;\n```\n\nTail';
+    const session = new MarkdownDocumentSession(source);
+    const handle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'test-drag-source-multiline',
+      surfaceKind: 'visual'
+    });
+
+    const firstHandle = handle.view.dom.querySelector('.cm-visual-drag-handle') as HTMLElement;
+    firstHandle.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 8 })
+    );
+
+    // 代码块四行（含围栏）全部命中
+    expect(handle.view.dom.querySelectorAll('.cm-visual-drag-source').length).toBe(4);
+
+    handle.destroy();
+  });
+
   // 5. pointermove does not modify source or revision
   it('does NOT modify canonical source or bump revision during pointermove', () => {
     const source = '# Heading 1\n\n# Heading 2';
@@ -195,7 +248,7 @@ describe('Block Drag Handle UI & PointerEvent Drag/Drop Integration', () => {
   });
 
   // 7. Root container: drag non-adjacent blocks reorders correctly
-  it('reorders non-adjacent blocks in root container on drop', () => {
+  it('moves a non-adjacent block down in root container on drop', () => {
     const source = '# 1\n\n# 2\n\n# 3';
     const session = new MarkdownDocumentSession(source);
     const handle = createSessionEditorView({
@@ -213,7 +266,8 @@ describe('Block Drag Handle UI & PointerEvent Drag/Drop Integration', () => {
     handle3.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: 1 }));
     handle3.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 1 }));
 
-    expect(session.getSnapshot().source).toBe('# 3\n\n# 2\n\n# 1');
+    // 移动语义：# 2 上移一位，而不是与 # 3 对调（交换会给 `# 3 / # 2 / # 1`）。
+    expect(session.getSnapshot().source).toBe('# 2\n\n# 3\n\n# 1');
     expect(session.getSnapshot().revision).toBe(1);
 
     handle.destroy();
@@ -264,7 +318,7 @@ describe('Block Drag Handle UI & PointerEvent Drag/Drop Integration', () => {
     handle3.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: 1 }));
     handle3.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 1 }));
 
-    expect(session.getSnapshot().source).toBe('- Item 3\n- Item 2\n- Item 1');
+    expect(session.getSnapshot().source).toBe('- Item 2\n- Item 3\n- Item 1');
     expect(session.getSnapshot().revision).toBe(1);
 
     handle.destroy();
@@ -678,7 +732,88 @@ describe('Block Drag Handle UI & PointerEvent Drag/Drop Integration', () => {
     handle.destroy();
   });
 
-  // 24. Dynamic readOnly: updates handle disabled class and cancels active drag
+  // 24. Drop indicator placement: the line lands on the boundary implied by the target block
+  // and side, and a blank line between two blocks always gets the centred variant.
+  it('places the drop indicator on the boundary line implied by the target block and side', () => {
+    // lines: 0 Paragraph 1 / 1 (blank) / 2 Paragraph 2 / 3 (blank) / 4 - Item A / 5 - Item B
+    const source = 'Paragraph 1\n\nParagraph 2\n\n- Item A\n- Item B';
+    const session = new MarkdownDocumentSession(source);
+    const handle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'test-drop-placement',
+      surfaceKind: 'visual'
+    });
+
+    const place = (blockFrom: number, blockTo: number, side: 'before' | 'after') => {
+      handle.view.dispatch({
+        effects: setDropIndicatorEffect.of({ blockFrom, blockTo, side })
+      });
+      const lines = Array.from(handle.view.dom.querySelectorAll('.cm-line'));
+      const index = lines.findIndex((line) =>
+        line.classList.contains('cm-visual-drop-target')
+      );
+      const element = lines[index];
+      const where = (['top', 'bottom', 'mid'] as const).find((candidate) =>
+        element?.classList.contains(`cm-visual-drop-target-${candidate}`)
+      );
+      return { index, where };
+    };
+
+    // 空行两侧是**同一个插入位** —— `after 段落一` 与 `before 段落二` 必须落在同一行、同一方位。
+    expect(place(0, 11, 'after')).toEqual({ index: 1, where: 'mid' });
+    expect(place(13, 24, 'before')).toEqual({ index: 1, where: 'mid' });
+
+    // 块前是空行 → 画在空行正中。
+    expect(place(26, 34, 'before')).toEqual({ index: 3, where: 'mid' });
+
+    // 相邻列表项之间没有空行 → 贴边：before 画目标块顶边、after 画末行底边。
+    expect(place(35, 43, 'before')).toEqual({ index: 5, where: 'top' });
+    expect(place(26, 34, 'after')).toEqual({ index: 4, where: 'bottom' });
+
+    // 末块之后再无内容 → 底边（不会溢出到不存在的下一行）。
+    expect(place(35, 43, 'after')).toEqual({ index: 5, where: 'bottom' });
+
+    handle.destroy();
+  });
+
+  // 25. The side is decided by which half of the target block the pointer is in.
+  it('picks before or after from the pointer position within the target block', () => {
+    const source = 'Paragraph A\n\nParagraph B';
+    const session = new MarkdownDocumentSession(source);
+    const handle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'test-drop-side',
+      surfaceKind: 'visual'
+    });
+
+    const handles = handle.view.dom.querySelectorAll('.cm-visual-drag-handle');
+    const sourceHandle = handles[0] as HTMLElement;
+    const targetHandle = handles[1] as HTMLElement;
+
+    // happy-dom 没有布局，`coordsAtPos` 恒返回 null。把目标块钉在 y ∈ [100, 140]，
+    // 于是 120 是分界：110 落在上半、130 落在下半。
+    vi.spyOn(handle.view, 'coordsAtPos').mockReturnValue({ top: 100, bottom: 140, left: 0, right: 0 });
+
+    const dragTo = (clientY: number) => {
+      sourceHandle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1 }));
+      targetHandle.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: 1, clientY }));
+      targetHandle.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 1, clientY }));
+    };
+
+    // 上半 → 插到 B 前面。A 本来就在 B 前面，所以是空操作。
+    dragTo(110);
+    expect(session.getSnapshot().source).toBe(source);
+
+    // 下半 → 插到 B 后面。
+    dragTo(130);
+    expect(session.getSnapshot().source).toBe('Paragraph B\n\nParagraph A');
+
+    handle.destroy();
+  });
+
+  // 26. Dynamic readOnly: updates handle disabled class and cancels active drag
   it('updates drag handle disabled state and cancels active drag when readOnly is toggled dynamically', () => {
     const source = 'Paragraph 1\n\nParagraph 2';
     const session = new MarkdownDocumentSession(source);

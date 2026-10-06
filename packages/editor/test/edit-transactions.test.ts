@@ -821,9 +821,9 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
     expect(tx?.userEvent).toBe('select.block');
   });
 
-  it('reorders blocks by swapping their source ranges via a single Markdown transaction', () => {
+  it('moves a block through a single Markdown transaction and selects it at its new position', () => {
     const source = '# Heading 1\n\nParagraph text\n\n- Item 1\n- Item 2';
-    // Reorder block 0 (Heading) and block 1 (Paragraph)
+    // Move block 0 (Heading) to index 1
     const tx = createReorderBlockTransaction(source, 0, 1);
     expect(tx).not.toBeNull();
 
@@ -831,9 +831,10 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
     const snapshot = session.dispatch(tx!);
 
     expect(snapshot.source).toBe('Paragraph text\n\n# Heading 1\n\n- Item 1\n- Item 2');
+    // 选区跟着**被移动的那一块**走 —— 不是留在原位、也不是跳到别的块上。
     expect(snapshot.selection).toEqual({
-      anchor: 0,
-      head: 'Paragraph text'.length
+      anchor: 'Paragraph text\n\n'.length,
+      head: 'Paragraph text\n\n# Heading 1'.length
     });
     expect(tx?.userEvent).toBe('block.reorder');
 
@@ -1038,7 +1039,7 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
     // # A  \n\n\nParagraph with two trailing spaces  \n\n\n- Item A
     const source = '# A  \n\n\nParagraph with two trailing spaces  \n\n\n- Item A';
 
-    // 1. Adjacent move: swap block 0 (# A  ) and block 1 (Paragraph with two trailing spaces  )
+    // 1. Adjacent move: move block 0 (# A  ) down to index 1 (Paragraph with two trailing spaces  )
     const txAdj = createReorderBlockTransaction(source, 0, 1);
     expect(txAdj).not.toBeNull();
     const sessionAdj = new MarkdownDocumentSession(source);
@@ -1046,13 +1047,13 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
 
     expect(snapAdj.source).toBe('Paragraph with two trailing spaces  \n\n\n# A  \n\n\n- Item A');
 
-    // 2. Non-adjacent move: swap block 0 and block 2 across multiple gaps
+    // 2. Non-adjacent move: move block 0 to index 2 — the middle block shifts up, it does not swap
     const txNonAdj = createReorderBlockTransaction(source, 0, 2);
     expect(txNonAdj).not.toBeNull();
     const sessionNonAdj = new MarkdownDocumentSession(source);
     const snapNonAdj = sessionNonAdj.dispatch(txNonAdj!);
 
-    expect(snapNonAdj.source).toBe('- Item A\n\n\nParagraph with two trailing spaces  \n\n\n# A  ');
+    expect(snapNonAdj.source).toBe('Paragraph with two trailing spaces  \n\n\n- Item A\n\n\n# A  ');
 
     // 3. CRLF support
     const sourceCRLF = '# A  \r\n\r\n\r\nParagraph with two trailing spaces  \r\n\r\n\r\n- Item A';
@@ -1228,29 +1229,64 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
       const source = '# Block 1\n\n# Block 2';
       const p1 = source.indexOf('# Block 1');
       const p2 = source.indexOf('# Block 2');
-      const tx = createReorderBlockToPositionTransaction(source, p1, p2);
+      const tx = createReorderBlockToPositionTransaction(source, p1, p2, 'after');
       expect(tx).not.toBeNull();
       const session = new MarkdownDocumentSession(source);
       const snap = session.dispatch(tx!);
       expect(snap.source).toBe('# Block 2\n\n# Block 1');
     });
 
-    it('reorders non-adjacent blocks in root container', () => {
+    it('moves the source block to the end of the container without disturbing the middle blocks', () => {
       const source = '# A\n\n# B\n\n# C';
       const pA = source.indexOf('# A');
       const pC = source.indexOf('# C');
-      const tx = createReorderBlockToPositionTransaction(source, pA, pC);
+      const tx = createReorderBlockToPositionTransaction(source, pA, pC, 'after');
       expect(tx).not.toBeNull();
       const session = new MarkdownDocumentSession(source);
       const snap = session.dispatch(tx!);
-      expect(snap.source).toBe('# C\n\n# B\n\n# A');
+      // 交换语义会给出 `# C\n\n# B\n\n# A` —— 中间那块不动、两端对调。移动语义下 B 上移一位。
+      expect(snap.source).toBe('# B\n\n# C\n\n# A');
+    });
+
+    it('places the source block before the target when side is before', () => {
+      const source = '# A\n\n# B\n\n# C';
+      const pA = source.indexOf('# A');
+      const pC = source.indexOf('# C');
+      const tx = createReorderBlockToPositionTransaction(source, pA, pC, 'before');
+      expect(tx).not.toBeNull();
+      const session = new MarkdownDocumentSession(source);
+      const snap = session.dispatch(tx!);
+      expect(snap.source).toBe('# B\n\n# A\n\n# C');
+    });
+
+    it('returns null when side points at the slot the block already occupies', () => {
+      const source = '# A\n\n# B\n\n# C';
+      const pA = source.indexOf('# A');
+      const pB = source.indexOf('# B');
+      const pC = source.indexOf('# C');
+      // A 已经在 B 之前；C 已经在 B 之后 —— 两侧都是空操作。
+      expect(createReorderBlockToPositionTransaction(source, pA, pB, 'before')).toBeNull();
+      expect(createReorderBlockToPositionTransaction(source, pC, pB, 'after')).toBeNull();
+    });
+
+    it('carries the source block own gap and invents no separator characters', () => {
+      const source = '# A\n\n\n# B\n\n# C';
+      const pA = source.indexOf('# A');
+      const pC = source.indexOf('# C');
+      const tx = createReorderBlockToPositionTransaction(source, pA, pC, 'after');
+      expect(tx).not.toBeNull();
+      const session = new MarkdownDocumentSession(source);
+      const snap = session.dispatch(tx!);
+      // 三换行那个 gap 跟着 A 走到末尾；总换行数不变（5 个），没有凭空合成字符。
+      expect(snap.source).toBe('# B\n\n# C\n\n\n# A');
+      expect(snap.source.split('\n').length).toBe(source.split('\n').length);
     });
 
     it('reorders blocks within blockquote container', () => {
       const source = '> Paragraph 1\n>\n> Paragraph 2';
       const p1 = source.indexOf('Paragraph 1');
       const p2 = source.indexOf('Paragraph 2');
-      const tx = createReorderBlockToPositionTransaction(source, p1, p2);
+      const tx = createReorderBlockToPositionTransaction(source, p1, p2, 'after');
       expect(tx).not.toBeNull();
       const session = new MarkdownDocumentSession(source);
       const snap = session.dispatch(tx!);
@@ -1261,18 +1297,18 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
       const source = '- Item 1\n- Item 2\n- Item 3';
       const p1 = source.indexOf('Item 1');
       const p3 = source.indexOf('Item 3');
-      const tx = createReorderBlockToPositionTransaction(source, p1, p3);
+      const tx = createReorderBlockToPositionTransaction(source, p1, p3, 'after');
       expect(tx).not.toBeNull();
       const session = new MarkdownDocumentSession(source);
       const snap = session.dispatch(tx!);
-      expect(snap.source).toBe('- Item 3\n- Item 2\n- Item 1');
+      expect(snap.source).toBe('- Item 2\n- Item 3\n- Item 1');
     });
 
     it('reorders nested blockquotes and lists', () => {
       const source = '> - Parent\n>   - Nested 1\n>   - Nested 2';
       const p1 = source.indexOf('Nested 1');
       const p2 = source.indexOf('Nested 2');
-      const tx = createReorderBlockToPositionTransaction(source, p1, p2);
+      const tx = createReorderBlockToPositionTransaction(source, p1, p2, 'after');
       expect(tx).not.toBeNull();
       const session = new MarkdownDocumentSession(source);
       const snap = session.dispatch(tx!);
@@ -1283,23 +1319,23 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
       const source = '# Heading\n\n> Quote block';
       const pHeading = source.indexOf('# Heading');
       const pQuote = source.indexOf('Quote block');
-      expect(createReorderBlockToPositionTransaction(source, pHeading, pQuote)).toBeNull();
-      expect(createReorderBlockToPositionTransaction(source, pQuote, pHeading)).toBeNull();
+      expect(createReorderBlockToPositionTransaction(source, pHeading, pQuote, 'after')).toBeNull();
+      expect(createReorderBlockToPositionTransaction(source, pQuote, pHeading, 'after')).toBeNull();
     });
 
     it('returns null (no-op) when source or target is in a blank gap', () => {
       const source = 'Block 1\n\nBlock 2';
       const p1 = source.indexOf('Block 1');
       const gapPos = source.indexOf('\n\n') + 1;
-      expect(createReorderBlockToPositionTransaction(source, p1, gapPos)).toBeNull();
-      expect(createReorderBlockToPositionTransaction(source, gapPos, p1)).toBeNull();
+      expect(createReorderBlockToPositionTransaction(source, p1, gapPos, 'after')).toBeNull();
+      expect(createReorderBlockToPositionTransaction(source, gapPos, p1, 'after')).toBeNull();
     });
 
     it('returns null (no-op) when source and target refer to the same block', () => {
       const source = 'Block 1\n\nBlock 2';
       const p1 = source.indexOf('Block 1');
       const p1End = p1 + 3;
-      expect(createReorderBlockToPositionTransaction(source, p1, p1End)).toBeNull();
+      expect(createReorderBlockToPositionTransaction(source, p1, p1End, 'after')).toBeNull();
     });
 
     it('preserves exact source formatting: trailing spaces, multiple empty lines, CRLF, EOF, CJK, Emoji', () => {
@@ -1307,7 +1343,7 @@ describe('Edit Transactions: Block Selection and Block Reorder', () => {
       const p1 = source.indexOf('段落一');
       const p2 = source.indexOf('段落二');
       const sel = { anchor: p1 + 2, head: p1 + 2 };
-      const tx = createReorderBlockToPositionTransaction(source, p1, p2, sel);
+      const tx = createReorderBlockToPositionTransaction(source, p1, p2, 'after', sel);
       expect(tx).not.toBeNull();
       const session = new MarkdownDocumentSession(source, sel);
       const snap = session.dispatch(tx!);

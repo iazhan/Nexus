@@ -1340,7 +1340,7 @@ describe('P1-04R Visual semantic closure', () => {
     const sourceParent = document.createElement('div');
     const sourceHandle = createSessionEditorView({ session: mounted.session, surfaceId: 'hr-reorder-source', surfaceKind: 'source', parent: sourceParent });
     try {
-      const transaction = createReorderBlockToPositionTransaction(source, source.indexOf('***'), source.indexOf('After'));
+      const transaction = createReorderBlockToPositionTransaction(source, source.indexOf('***'), source.indexOf('After'), 'after');
       assert(transaction);
       mounted.session.dispatch(transaction);
       expect(mounted.session.getSnapshot().source).toBe(expected);

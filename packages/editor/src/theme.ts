@@ -94,16 +94,68 @@ export const nexusBaseTheme = EditorView.theme({
     right: "-10px",
     width: "10px"
   },
-  ".cm-line:hover > .cm-visual-drag-handle, .cm-visual-drag-handle:focus-within, .cm-visual-drag-handle.is-dragging": {
+  ".cm-line:hover > .cm-visual-drag-handle, .cm-visual-drag-handle:focus-within": {
     opacity: "0.5"
   },
   ".cm-visual-drag-handle:hover": {
     opacity: "1",
     color: "var(--nexus-text-primary)"
   },
+  // 拖动中手柄**一直可见**。它原先和 hover 共用一条 0.5 的规则 —— 按住不放时与悬停
+  // 长得一模一样，用户看不出「已经拿起来了」。`grabbing` 与基础样式的 `grab` 配对。
+  ".cm-visual-drag-handle.is-dragging": {
+    opacity: "1",
+    color: "var(--nexus-accent-text)",
+    cursor: "grabbing"
+  },
   ".cm-visual-drag-handle.disabled": {
     cursor: "not-allowed",
     opacity: "0 !important"
+  },
+  // 正在被拖动的源块：**整体压暗**，表示「这块已经被拿起来了」。
+  //
+  // 为什么是 opacity 而不是底色：代码块、引用块、公式块、表格各有自己的背景与边框，
+  // 再叠一层底色会看起来像坏掉；透明度对任何块都成立，且不碰任何既有配色。
+  //
+  // 过渡走宿主的 `--nx-motion-*`（`App.css` 的 `:root` 提供），带兜底是因为本包是独立
+  // 依赖、测试与别的宿主不一定注入这两个变量。**不写裸值**：散落的时长与曲线迟早漂开。
+  ".cm-visual-drag-source": {
+    opacity: "0.4",
+    transition: "opacity var(--nx-motion-fast, 120ms) var(--nx-motion-ease, ease)"
+  },
+  // 放置指示器：一条横线，表示「松手后源块会落到这个边界上」。
+  //
+  // **线的方位由 side 决定**（`resolveDropIndicatorLine` 算出装饰哪一行 + 哪个方位类）：
+  //
+  // - `-top` / `-bottom`：边界两侧都是块正文，线贴边画 —— `before` 画目标块首行顶边、
+  //   `after` 画末行底边。相邻的列表项之间就是这一种。
+  // - `-mid`：边界紧邻一条空行（`.cm-block-gap`），线画在那条空行的**垂直中间**。
+  //   这不是美化：「落在块 A 之后」与「落在块 B 之前」（A、B 之间有空行）是**同一个插入位**，
+  //   移动语义下结果完全相同；若各自贴边画，线会在两行之间跳 20 多像素，看起来像两个落点。
+  //
+  // 用 `background-image` 渐变，不用 `border-top` / `border-bottom`（会占位、把行内容推走 2px），
+  // 也不用 `::before` / `::after`（`.cm-line` 的两个伪元素已被代码块行号
+  // `attr(data-code-line-number)` 与引用内代码块的底纹占用，撞上就把它们顶掉）。
+  //
+  // **刻意不加过渡**：它跟着指针逐帧改目标行，带过渡会让它追不上指针、看起来发飘。
+  // 会动的只有源块那一处（拿起来 / 放下）。
+  ".cm-visual-drop-target-top": {
+    backgroundImage:
+      "linear-gradient(to bottom, var(--nexus-accent-indicator) 0 2px, transparent 2px)"
+  },
+  ".cm-visual-drop-target-bottom": {
+    backgroundImage:
+      "linear-gradient(to top, var(--nexus-accent-indicator) 0 2px, transparent 2px)"
+  },
+  // 空行上的线画在正中：`50%` 让那 2px 落在行盒垂直中点。起点与另两条一致 ——
+  // 刻意不用 `background-origin: content-box`（虽然段间距 > 0 时中线更准），否则这条会从
+  // 内容盒左缘起算、比贴边那两条右移一个 `.cm-line` 的 `padding-left`，指针跨过
+  // 有空行 / 无空行的边界时线会横着跳一下。
+  ".cm-visual-drop-target-mid": {
+    backgroundImage: "linear-gradient(var(--nexus-accent-indicator), var(--nexus-accent-indicator))",
+    backgroundSize: "100% 2px",
+    backgroundPosition: "0 50%",
+    backgroundRepeat: "no-repeat"
   },
   ".cm-marker-inline-math": {
     color: "var(--nexus-accent-text)",

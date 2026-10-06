@@ -89,8 +89,9 @@ export {
 } from './edit/block-select.js';
 
 export {
-  reorderSiblingBlocks,
+  moveSiblingBlock,
   createReorderBlockAtPositionTransaction,
   createReorderBlockTransaction,
   createReorderBlockToPositionTransaction
 } from './edit/block-reorder.js';
+export type { DropSide } from './edit/block-reorder.js';

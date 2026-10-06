@@ -2,6 +2,7 @@ import {
   StateField,
   RangeSetBuilder,
   type Extension,
+  type Text,
   EditorSelection,
   StateEffect,
   Facet
@@ -25,7 +26,8 @@ import {
 import {
   findDeepestBlockAtPos,
   getContentEnd,
-  createReorderBlockToPositionTransaction
+  createReorderBlockToPositionTransaction,
+  type DropSide
 } from './edit-transactions.js';
 import type { MarkdownDocumentSession } from './document-session.js';
 import type { MarkdownSelection } from './types.js';
@@ -246,12 +248,60 @@ export const visualDragHandleField = StateField.define<DecorationSet>({
 });
 
 /**
- * 设置/清除放置指示器位置的状态效果。
+ * 放置指示器的载荷：目标块的首末位置 + 落在它的哪一侧。
+ *
+ * 传**块**而不是一个位置，是因为指示线要落在「块与块之间的边界」上，而那条边界可能
+ * 落在块顶、块底、或者紧邻的那条空行里 —— 由 `resolveDropIndicatorLine` 统一算出来。
  */
-export const setDropIndicatorEffect = StateEffect.define<number | null>();
+export interface DropIndicator {
+  blockFrom: number;
+  blockTo: number;
+  side: DropSide;
+}
+
+export const setDropIndicatorEffect = StateEffect.define<DropIndicator | null>();
+
+/** 指示线装饰哪一行，以及画在这一行的哪个方位。 */
+type DropIndicatorPlacement = { pos: number; where: 'top' | 'bottom' | 'mid' };
 
 /**
- * 放置指示器 StateField，在放置目标行显示 .cm-visual-drop-target 顶边蓝线。
+ * 把「目标块 + 侧别」解析成「装饰哪一行、画在什么方位」。
+ *
+ * 边界两侧都是块正文时线贴边画（`before` 画目标块首行顶边、`after` 画末行底边）；
+ * **有一侧是空行时一律画在那条空行的正中**。后半条不是美化：`after 块 A` 与 `before 块 B`
+ * 在 A、B 之间有空行时是**同一个插入位**（移动语义下结果完全相同），若各自贴边画，
+ * 线会在两行之间跳 20 多像素，看起来像两个不同的落点。
+ */
+function resolveDropIndicatorLine(doc: Text, target: DropIndicator): DropIndicatorPlacement {
+  const firstLine = doc.lineAt(target.blockFrom);
+  // `blockTo` 是**内容末尾之后**那一位（`getContentEnd` 剥掉了尾随换行），所以它可能正好落在
+  // 换行符上 —— 而那个位置归属哪一行是有歧义的。往回一位取最后一个内容字符，落点就确定了。
+  const lastLine = doc.lineAt(Math.max(target.blockFrom, target.blockTo - 1));
+
+  if (target.side === 'before') {
+    if (firstLine.number > 1) {
+      const previous = doc.line(firstLine.number - 1);
+      if (previous.text.trim() === '') {
+        return { pos: previous.from, where: 'mid' };
+      }
+    }
+    return { pos: firstLine.from, where: 'top' };
+  }
+
+  if (lastLine.number < doc.lines) {
+    const next = doc.line(lastLine.number + 1);
+    if (next.text.trim() === '') {
+      return { pos: next.from, where: 'mid' };
+    }
+  }
+  return { pos: lastLine.from, where: 'bottom' };
+}
+
+/**
+ * 放置指示器 StateField，在边界那一行画 `.cm-visual-drop-target` 蓝线。
+ *
+ * 方位类名三个：`-top` / `-bottom` / `-mid`（判据见 `resolveDropIndicatorLine`）。
+ * 逐行 `Decoration.line` 而不是跨行 mark —— 同源块高亮那条理由。
  */
 export const visualDropIndicatorField = StateField.define<DecorationSet>({
   create() {
@@ -263,12 +313,59 @@ export const visualDropIndicatorField = StateField.define<DecorationSet>({
         if (effect.value === null) {
           return Decoration.none;
         }
-        const line = tr.state.doc.lineAt(effect.value);
+        const placement = resolveDropIndicatorLine(tr.state.doc, effect.value);
         return Decoration.set([
-          Decoration.line({ class: 'cm-visual-drop-target' }).range(line.from)
+          Decoration.line({
+            class: `cm-visual-drop-target cm-visual-drop-target-${placement.where}`
+          }).range(placement.pos)
         ]);
       }
     }
+    if (tr.docChanged || tr.state.readOnly) {
+      return Decoration.none;
+    }
+    return decorations;
+  },
+  provide: (field) => EditorView.decorations.from(field)
+});
+
+/**
+ * 设置/清除「正在拖动的源块」范围的状态效果。
+ */
+export const setDragSourceEffect = StateEffect.define<{ from: number; to: number } | null>();
+
+/**
+ * 源块高亮 StateField：拖动期间给源块覆盖的**每一行**加 `.cm-visual-drag-source`。
+ *
+ * 只负责「源块自己长什么样」—— 它是被拿起来的那个，所以整体压暗；
+ * 落到哪里由 `visualDropIndicatorField` 画。
+ *
+ * 逐行 `Decoration.line` 而不是一个跨行 `Decoration.mark`：跨行 mark 只给**有字符的行**
+ * 生成 span，块内的空行拿不到，高亮会断成几截（同 `.cm-marker-block-math-band` 那条）。
+ */
+export const visualDragSourceField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(decorations, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setDragSourceEffect)) {
+        if (effect.value === null) {
+          return Decoration.none;
+        }
+        const { from, to } = effect.value;
+        const builder = new RangeSetBuilder<Decoration>();
+        let pos = from;
+        for (;;) {
+          const line = tr.state.doc.lineAt(pos);
+          builder.add(line.from, line.from, Decoration.line({ class: 'cm-visual-drag-source' }));
+          if (line.to >= to) break;
+          pos = line.to + 1;
+        }
+        return builder.finish();
+      }
+    }
+    // 文档一变或转只读，源块范围就失效了（与放置指示器同一条兜底）。
     if (tr.docChanged || tr.state.readOnly) {
       return Decoration.none;
     }
@@ -287,6 +384,31 @@ export const sessionFacet = Facet.define<MarkdownDocumentSession, MarkdownDocume
 export interface DragTarget {
   pos: number;
   targetFrom: number;
+  targetTo: number;
+  side: DropSide;
+}
+
+/**
+ * 指针落在目标块的哪一半 —— 上半 = `before`（插到它前面），下半 = `after`（插到它后面）。
+ *
+ * 分界取**整块**的垂直中点（首行 top 与末行 bottom 的中间），不是某一行的中点：
+ * 多行块（代码块、松列表项）里指针在行间上下移时，用行中点会让 side 来回抖。
+ *
+ * 量不出几何时（块没被布局过）取 `after`。这个兜底只在拿不到布局的场合生效 ——
+ * 目标块能被指针命中就说明它在视口里，正常浏览器里 `coordsAtPos` 不会失败。
+ * 取 `after` 而不是 `before`：**「拖到某一块上 ⇒ 落到它下面」这个方向必须能成事**，
+ * 兜底成 `before` 会把它悄悄变成空操作（源块本来就在目标块前面）。
+ */
+function resolveDropSide(
+  view: EditorView,
+  event: PointerEvent,
+  from: number,
+  to: number
+): DropSide {
+  const head = view.coordsAtPos(from);
+  const tail = view.coordsAtPos(to);
+  if (!head || !tail) return 'after';
+  return event.clientY < (head.top + tail.bottom) / 2 ? 'before' : 'after';
 }
 
 /**
@@ -351,9 +473,14 @@ export function resolveDragTarget(
   if (targetCtx.parent !== sourceCtx.parent) return null;
   if (targetCtx.node === sourceCtx.node || targetCtx.index === sourceCtx.index) return null;
 
+  const targetFrom = targetCtx.node.range.from;
+  const targetTo = getContentEnd(source, targetCtx.node.range);
+
   return {
     pos: candidatePos,
-    targetFrom: targetCtx.node.range.from
+    targetFrom,
+    targetTo,
+    side: resolveDropSide(view, event, targetFrom, targetTo)
   };
 }
 
@@ -365,7 +492,7 @@ interface ActiveDragSession {
   startedRevision: number;
   startedSource: string;
   startedSelection: MarkdownSelection;
-  targetPos: number | null;
+  target: DragTarget | null;
   view: EditorView;
 }
 
@@ -408,20 +535,27 @@ class VisualDragPluginValue {
 
       handleEl.classList.add('is-dragging');
 
+      const sourceRange = {
+        from: sourceCtx.node.range.from,
+        to: getContentEnd(source, sourceCtx.node.range)
+      };
+
       this.activeSession = {
         pointerId: event.pointerId,
         handleElement: handleEl,
         sourcePos: from,
-        sourceRange: {
-          from: sourceCtx.node.range.from,
-          to: getContentEnd(source, sourceCtx.node.range)
-        },
+        sourceRange,
         startedRevision: snapshot.revision,
         startedSource: snapshot.source,
         startedSelection: snapshot.selection,
-        targetPos: null,
+        target: null,
         view: this.view
       };
+
+      // 源块高亮**只在这里设一次** —— 它不随指针移动而变，放进 pointermove 是白跑。
+      this.view.dispatch({
+        effects: setDragSourceEffect.of({ from: sourceRange.from, to: sourceRange.to })
+      });
 
       this.setupWindowListeners();
     };
@@ -480,13 +614,14 @@ class VisualDragPluginValue {
       const source = this.session!.getSnapshot().source;
       const target = resolveDragTarget(this.view, event, session.sourcePos, session.handleElement, source);
 
-      if (target !== null) {
-        session.targetPos = target.targetFrom;
-        this.view.dispatch({ effects: setDropIndicatorEffect.of(target.targetFrom) });
-      } else {
-        session.targetPos = null;
-        this.view.dispatch({ effects: setDropIndicatorEffect.of(null) });
-      }
+      session.target = target;
+      this.view.dispatch({
+        effects: setDropIndicatorEffect.of(
+          target
+            ? { blockFrom: target.targetFrom, blockTo: target.targetTo, side: target.side }
+            : null
+        )
+      });
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -505,29 +640,27 @@ class VisualDragPluginValue {
       }
 
       const source = this.session!.getSnapshot().source;
-      let dropTargetPos = savedSession.targetPos;
+      let target = savedSession.target;
 
-      if (dropTargetPos === null) {
-        const resolved = resolveDragTarget(
+      if (target === null) {
+        target = resolveDragTarget(
           this.view,
           event,
           savedSession.sourcePos,
           savedSession.handleElement,
           source
         );
-        if (resolved) {
-          dropTargetPos = resolved.targetFrom;
-        }
       }
 
-      if (dropTargetPos === null || dropTargetPos === savedSession.sourcePos) {
+      if (target === null || target.targetFrom === savedSession.sourcePos) {
         return;
       }
 
       const tx = createReorderBlockToPositionTransaction(
         source,
         savedSession.sourcePos,
-        dropTargetPos,
+        target.targetFrom,
+        target.side,
         savedSession.startedSelection
       );
 
@@ -591,7 +724,10 @@ class VisualDragPluginValue {
       this.windowCleanup = null;
     }
     if (dispatchEffect) {
-      this.view.dispatch({ effects: setDropIndicatorEffect.of(null) });
+      // 两个一起清：源块高亮与放置指示器是同一次拖动的两端，留一个下来就是幽灵状态。
+      this.view.dispatch({
+        effects: [setDropIndicatorEffect.of(null), setDragSourceEffect.of(null)]
+      });
     }
   }
 
@@ -626,6 +762,7 @@ export function createVisualDragExtension(session?: MarkdownDocumentSession): Ex
   return [
     visualDragHandleField,
     visualDropIndicatorField,
+    visualDragSourceField,
     session ? sessionFacet.of(session) : [],
     visualDragPlugin
   ];
