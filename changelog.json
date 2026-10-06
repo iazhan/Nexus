@@ -129,5 +129,40 @@
         "en": "Add logging: what happens while the app runs is written to a log file you can attach to a bug report. Settings can raise or lower how much is recorded, and open the log folder."
       }
     ]
+  },
+  "0.80.0": {
+    "date": "2026-10-06",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "工具栏的标题不再是下拉：正文与标题 1–6 各占一格，点一下就改型，当前停在哪一级一眼能看出来。",
+        "en": "Headings in the toolbar are no longer a dropdown: paragraph and headings 1–6 each get their own button, one click to apply, and the current level is visible at a glance."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "外部改动与本地改动可以逐块合并了：有共同祖先时逐块给出建议，四选（保留本地 / 采用磁盘 / 两侧都留 / 丢弃）后走正常保存路径。",
+        "en": "Merge external and local edits block by block: when a common ancestor exists the app suggests a choice for each block, and the result goes through the normal save path."
+      },
+      {
+        "type": "feat",
+        "scope": "markdown",
+        "zh": "新增 `==高亮==` 行内标记。",
+        "en": "Add the `==highlight==` inline mark."
+      },
+      {
+        "type": "fix",
+        "scope": "editor",
+        "zh": "修好 CRLF 文档里空行高度塌成 0、行号挤在一起的问题。",
+        "en": "Fix blank lines in CRLF documents collapsing to zero height, which made the gutter numbers pile up."
+      },
+      {
+        "type": "fix",
+        "scope": "markdown",
+        "zh": "修好嵌套列表之后的块被重复写一遍，以及带脚注定义的笔记被解析成坏链接的问题。",
+        "en": "Fix blocks after nested lists being written twice, and footnotes being parsed into broken links."
+      }
+    ]
   }
 }

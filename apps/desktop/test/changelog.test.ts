@@ -443,7 +443,7 @@ describe('更新日志 · 仓库里那份文件', () => {
 
   it('已发布过的版本都补了日志 —— 发版时手写，这里守住别漏', () => {
     const versions = new Set(readBundledChangelog(repoRoot).map((release) => release.version));
-    for (const version of ['0.64.0', '0.68.0', '0.70.0', '0.73.0', '0.74.0', '0.75.0']) {
+    for (const version of ['0.64.0', '0.68.0', '0.70.0', '0.73.0', '0.74.0', '0.75.0', '0.80.0']) {
       expect(versions.has(version)).toBe(true);
     }
   });
