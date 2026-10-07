@@ -124,6 +124,13 @@ describe('Desktop UI & Standards Review Fixes', () => {
   // 工作区模式渲染，这里的 App 是轻量模式启动的。判据现在由 `renderer/test/activity-bar.test.tsx`
   // 直接渲染活动栏组件来守（顺带守住了「切不动时禁用」与「不混进活动入口清单」两件事）。
 
+  /**
+   * 「文件」菜单里那几项工作区入口的哨兵。
+   *
+   * 分两段断言：**有 `id` 的按 `data-menu-item` 找**，没有 `id` 的才按文案找。
+   * 全文案匹配在这里已经不可靠了 —— 「打开最近的工作区」也含「工作区」三个字，
+   * 按正则挑第一条会命中错的那一条（这条用例原先就是这么找的，加了新项之后必红）。
+   */
   it('verifies MenuBar File menu includes workspace and folder actions', async () => {
     root.render(React.createElement(App));
     await waitForAppReady();
@@ -138,11 +145,19 @@ describe('Desktop UI & Standards Review Fixes', () => {
 
     const dropdown = container.querySelector('.nexus-menu-dropdown');
     expect(dropdown).not.toBeNull();
+
+    const itemIds = Array.from(dropdown!.querySelectorAll('.nexus-menu-item')).map((el) =>
+      el.getAttribute('data-menu-item')
+    );
+    // 三个「工作区」入口一个都不能少：打开文件夹、打开最近的工作区、在工作区中打开。
+    expect(itemIds).toContain('open-folder');
+    expect(itemIds).toContain('open-recent-workspace');
+    expect(itemIds).toContain('open-in-workspace');
+
+    // 下面两项还没有 `id`，仍按文案守 —— 文案本身也是这一条要盯的东西。
     const itemTexts = Array.from(dropdown!.querySelectorAll('.nexus-menu-item')).map((el) =>
       el.textContent?.trim()
     );
-
-    expect(itemTexts.some((t) => t?.includes('Workspace') || t?.includes('工作区'))).toBe(true);
     expect(itemTexts.some((t) => t?.includes('Containing Folder') || t?.includes('所在文件夹'))).toBe(true);
     expect(itemTexts.some((t) => t?.includes('File Explorer') || t?.includes('文件管理器'))).toBe(true);
   });

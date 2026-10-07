@@ -5,17 +5,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { App } from '../src/App.js';
 
 /**
- * 「打开工作区」这条链的**渲染进程那一半**。
+ * 「打开 / 切换工作区」这条链的**渲染进程那一半**。
  *
- * 这一半只能在 happy-dom 里渲染整个 `App` 来测：那两条入口（欢迎态的「打开文件夹」、
- * 菜单里的「在工作区中打开」）都要弹**原生**目录选择框或走整条状态切换链，
- * 真机用例（CDP）点不到对话框，拿不到后面的状态。主进程那一半（授权 + 记回落目标）
- * 在 `workspace-mode.test.ts` 里从桥上调 `openWorkspace` 验。
+ * 这一半只能在 happy-dom 里渲染整个 `App` 来测：那几条入口（欢迎态的「打开文件夹」、
+ * 菜单里的「打开文件夹…」「打开最近的工作区 ▸」「在工作区中打开」）都要弹**原生**目录
+ * 选择框或走整条状态切换链，真机用例（CDP）点不到对话框，拿不到后面的状态。
+ * 主进程那一半（授权 + 记回落目标）在 `workspace-mode.test.ts` 里从桥上调 `openWorkspace` 验。
  *
  * ## 为什么两半必须分开，不能只留一半
  *
  * 直接从桥上调 `openWorkspace` **不会**让界面切到工作区 —— 切状态发生在
- * `App.handleOpenWorkspace` 里（两条入口共用的那一层）。
+ * `App.handleOpenWorkspace` 里（所有入口共用的那一层）。
  * 于是：只测桥会漏掉「点了没反应」，只测渲染会漏掉「没真的授权」。
  *
  * ## 「在工作区中打开」的两种状态
@@ -24,11 +24,18 @@ import { App } from '../src/App.js';
  * - **还没有工作区** → 调桥，把文档**所在的目录**开成工作区（下面第一条）；
  * - **已经在工作区里** → **不调桥**（再按文档所在目录开一次会把根收窄到那个子目录），
  *   只做定位（下面第二条）。
+ *
+ * ## 三个「开工作区」的入口，一个动作
+ *
+ * 欢迎态那枚按钮、菜单的「打开文件夹…」、命令面板的 `open-folder` 都走
+ * `handleOpenWorkspace`（不给路径 = 弹框）。「打开最近的工作区 ▸」给它一个路径，
+ * 是同一个函数的另一档。
  */
 
 const nexusStub = {
   getLaunchContext: vi.fn(),
   openWorkspace: vi.fn(),
+  listRecentWorkspaces: vi.fn().mockResolvedValue([]),
   openFile: vi.fn(),
   readFile: vi.fn().mockResolvedValue(''),
   writeFile: vi.fn().mockResolvedValue(undefined),
@@ -98,6 +105,9 @@ describe('打开工作区：渲染进程那一半', () => {
     }));
     nexusStub.listIndexedDocuments.mockResolvedValue([]);
     nexusStub.listWorkspaceDirectories.mockResolvedValue([]);
+    // 上面那些 `mockResolvedValue` 会跨用例残留（`mockClear` 只清调用记录），
+    // 所以每一条都显式复位 —— 否则前一条设的「最近工作区」会漏到下一条里。
+    nexusStub.listRecentWorkspaces.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -135,24 +145,71 @@ describe('打开工作区：渲染进程那一半', () => {
   }
 
   /**
-   * 点菜单里的某一项。
+   * 展开「文件」菜单。找不到那个按钮时把 DOM 打出来 —— 比「点了个 null」好查得多。
    *
-   * 菜单项**没有 `data-*` 锚点**，只能按文案找 —— 所以两种语言都试一遍：
-   * 断言英文文案会让用例在中文机器上红，反过来也一样。
+   * **已经开着就直接返回**：菜单是点一下开、再点一下关，无脑点第二遍会把它关掉，
+   * 而调用方（比如「先等列表到位，再点子项」）并不知道它此刻是开是关。
    */
-  async function clickMenuItem(pattern: RegExp): Promise<void> {
+  async function openFileMenu(): Promise<void> {
+    if (container.querySelector('[data-menu="file"] .nexus-menu-dropdown')) return;
+
     const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('.nexus-menu-bar-button')).find(
       (element) => /^(File|文件)$/.test(element.textContent?.trim() ?? '')
     );
     if (!trigger) throw new Error(`找不到「文件」菜单：${container.innerHTML}`);
     trigger.click();
     await new Promise((resolve) => setTimeout(resolve, 30));
+  }
 
-    const item = Array.from(container.querySelectorAll<HTMLButtonElement>('.nexus-menu-item')).find(
-      (element) => pattern.test(element.textContent?.trim() ?? '')
-    );
-    if (!item) throw new Error(`找不到菜单项 ${pattern}`);
+  /**
+   * 点「文件」菜单里的一项。
+   *
+   * **按 `data-menu-item` 找，不按文案**：文案跟着语言变（下面这批用例原本两种语言各试一遍），
+   * 而「打开最近的工作区」里也含「工作区」三个字 —— 按正则找会命中错的那一条，
+   * 表现成「点了没反应」。菜单项的 `id` 是为此加的锚点。
+   */
+  async function clickFileMenuItem(id: string): Promise<void> {
+    await openFileMenu();
+    const item = container.querySelector<HTMLButtonElement>(`.nexus-menu-item[data-menu-item="${id}"]`);
+    if (!item) throw new Error(`找不到菜单项 ${id}：${container.innerHTML}`);
     item.click();
+  }
+
+  /**
+   * 展开「文件 → 打开最近的工作区」那一层，返回二级里的项。
+   *
+   * 二级是**点父项**展开的（真机上是悬停，`pointerenter` 在这里不好派发，
+   * 而点父项与悬停走的是同一个状态）。
+   */
+  async function openRecentSubmenu(): Promise<HTMLButtonElement[]> {
+    await openFileMenu();
+    const parent = container.querySelector<HTMLButtonElement>(
+      '.nexus-menu-item[data-menu-item="open-recent-workspace"]'
+    );
+    if (!parent) throw new Error(`找不到「打开最近的工作区」：${container.innerHTML}`);
+    parent.click();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.nexus-menu-submenu .nexus-menu-item')
+    );
+  }
+
+  /**
+   * 等「打开最近的工作区」那一项从禁用变成可用 —— **它就是「列表拉回来了」的信号**。
+   *
+   * 列表是挂载后异步拉的（菜单是同步渲染的，拿不到就只能禁用），所以点菜单之前要等它。
+   * 用这一项自己的 `disabled` 而不是猜一个延时：延时是「看起来好了」，这个是真的好了。
+   */
+  async function waitForRecentReady(timeoutMs = 5000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const item = container.querySelector<HTMLButtonElement>(
+        '.nexus-menu-item[data-menu-item="open-recent-workspace"]'
+      );
+      if (item && !item.disabled) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error('等待最近工作区列表超时');
   }
 
   describe('欢迎态：点「打开文件夹」', () => {
@@ -198,7 +255,7 @@ describe('打开工作区：渲染进程那一半', () => {
       root.render(React.createElement(App));
       await waitForEditor();
 
-      await clickMenuItem(/Workspace|工作区/);
+      await clickFileMenuItem('open-in-workspace');
 
       await waitForSelector('.nexus-activity-bar');
 
@@ -215,7 +272,7 @@ describe('打开工作区：渲染进程那一半', () => {
       root.render(React.createElement(App));
       await waitForEditor();
 
-      await clickMenuItem(/Workspace|工作区/);
+      await clickFileMenuItem('open-in-workspace');
       await new Promise((resolve) => setTimeout(resolve, 80));
 
       expect(nexusStub.openWorkspace).toHaveBeenCalledTimes(1);
@@ -256,7 +313,7 @@ describe('打开工作区：渲染进程那一半', () => {
 
       // 菜单项此刻必须是**可用的**：从前它在工作区里被禁用，而那时恰恰是用户最想问
       // 「这个文件在工作区里哪儿」的时候。
-      await clickMenuItem(/Workspace|工作区/);
+      await clickFileMenuItem('open-in-workspace');
       await new Promise((resolve) => setTimeout(resolve, 80));
 
       expect(nexusStub.openWorkspace).not.toHaveBeenCalled();
@@ -264,6 +321,86 @@ describe('打开工作区：渲染进程那一半', () => {
       expect(
         container.querySelector('[data-relative-path="notes/a.md"]')?.getAttribute('data-selected')
       ).toBe('true');
+    });
+  });
+
+  /**
+   * 「打开 / 切换工作区」的两条菜单入口。
+   *
+   * 这一组是**渲染进程那一半**：真机用例点不到原生目录选择框，而「最近的工作区」那层
+   * 子菜单的数据来自主进程（`listRecentWorkspaces`）—— 两边各测一半，合起来才算覆盖。
+   *
+   * 「打开文件夹」在工作区模式下**也留着**是重点：它从前只在欢迎态出现，于是已经在
+   * 工作区里的人根本没有换一个的办法。所以这里用的是 `WORKSPACE_LAUNCH` 而不是裸启动。
+   */
+  describe('菜单：打开文件夹 / 打开最近的工作区', () => {
+    beforeEach(() => {
+      nexusStub.getLaunchContext.mockResolvedValue(WORKSPACE_LAUNCH);
+    });
+
+    it('「打开文件夹…」在工作区里也可点，且**不带路径**调桥（目录由主进程弹框给）', async () => {
+      root.render(React.createElement(App));
+      await waitForSelector('.nexus-workspace-sidebar[data-phase="ready"]');
+
+      await clickFileMenuItem('open-folder');
+
+      expect(nexusStub.openWorkspace).toHaveBeenCalledTimes(1);
+      expect(nexusStub.openWorkspace.mock.calls[0]?.[0]).toBeUndefined();
+    });
+
+    it('一个都没记过时那一项**禁用**，而不是从菜单里消失', async () => {
+      nexusStub.listRecentWorkspaces.mockResolvedValue([]);
+
+      root.render(React.createElement(App));
+      await waitForSelector('.nexus-workspace-sidebar[data-phase="ready"]');
+      await openFileMenu();
+
+      const item = container.querySelector<HTMLButtonElement>(
+        '.nexus-menu-item[data-menu-item="open-recent-workspace"]'
+      );
+      // 位置忽有忽无比灰着一格更难理解 —— 用户下次找它得先猜它为什么不在。
+      expect(item).not.toBeNull();
+      expect(item?.disabled).toBe(true);
+    });
+
+    it('列出主进程给的那一列（顺序原样），点一条就带着那个路径开', async () => {
+      nexusStub.listRecentWorkspaces.mockResolvedValue(['D:/notes', 'E:/second']);
+      nexusStub.openWorkspace.mockResolvedValue('E:/second');
+
+      root.render(React.createElement(App));
+      await waitForSelector('.nexus-workspace-sidebar[data-phase="ready"]');
+      await openFileMenu();
+      await waitForRecentReady();
+
+      const entries = await openRecentSubmenu();
+      expect(entries.map((el) => el.textContent)).toEqual(['D:/notes', 'E:/second']);
+
+      entries[1]!.click();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      // 带着**被点的那一条**去开，不是列表里的第一条。
+      expect(nexusStub.openWorkspace).toHaveBeenCalledTimes(1);
+      expect(nexusStub.openWorkspace.mock.calls[0]?.[0]).toBe('E:/second');
+      // 开完菜单要收掉，不留一层展开的菜单挡在界面上。
+      expect(container.querySelector('.nexus-menu-dropdown')).toBeNull();
+    });
+
+    it('开完之后重新拉一次列表 —— 刚开的那个要立刻出现在里面', async () => {
+      nexusStub.listRecentWorkspaces.mockResolvedValue(['D:/notes']);
+      nexusStub.openWorkspace.mockResolvedValue('E:/second');
+
+      root.render(React.createElement(App));
+      await waitForSelector('.nexus-workspace-sidebar[data-phase="ready"]');
+      await openFileMenu();
+      await waitForRecentReady();
+
+      const before = nexusStub.listRecentWorkspaces.mock.calls.length;
+
+      await clickFileMenuItem('open-folder');
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      // 不刷新的话，这一次开的工作区要等下次启动才出现在「打开最近的工作区」里。
+      expect(nexusStub.listRecentWorkspaces.mock.calls.length).toBeGreaterThan(before);
     });
   });
 });

@@ -105,6 +105,10 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.openWorkspace, rootPath);
   },
 
+  listRecentWorkspaces: (): Promise<string[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.listRecentWorkspaces);
+  },
+
   openExternal: (url: string): Promise<boolean> => {
     return ipcRenderer.invoke(IPC_CHANNELS.openExternal, url);
   },

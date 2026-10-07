@@ -31,7 +31,7 @@ export interface RemappableAction {
  * 可重映射的动作。**顺序即设置页的显示顺序**，按使用频率排（保存 / 新建 / 打开在前）。
  *
  * 不在这里的命令就是**没有默认快捷键**的命令（`toggle-theme` / `toggle-locale` /
- * `open-in-workspace`）—— 它们能正常执行，只是初始没有绑定任何组合键。
+ * `open-in-workspace` / `open-folder`）—— 它们能正常执行，只是初始没有绑定任何组合键。
  */
 export const REMAPPABLE_ACTIONS: readonly RemappableAction[] = [
   { id: 'save', labelKey: 'cmd.save', defaultSpec: 'Mod-S' },
@@ -54,7 +54,7 @@ export const REMAPPABLE_ACTIONS: readonly RemappableAction[] = [
   // `Mod-E` 对着参考实现定的（OpenKnowledge 的 `format-inline-code` 就是 ⌘E / Ctrl E）。
   // 「清除格式」刻意**不在这里**：它没有公认的组合键，硬塞一个不如让工具栏按钮独占入口 ——
   // 没有默认键的命令仍是正常命令（`format.clear-formatting` 照常注册、工具栏照常调用），
-  // 只是不出现在这张可重映射表里，与 `toggle-theme` / `open-in-workspace` 同类。
+  // 只是不出现在这张可重映射表里，与 `toggle-theme` / `open-in-workspace` / `open-folder` 同类。
   { id: 'format.inline-code', labelKey: 'cmd.inlineCode', defaultSpec: 'Mod-E' },
   // `Mod-Alt-K` 对着参考实现定（Markra 的 `insertLink` 就是 `CmdOrCtrl+Alt+K`，
   // `apps/desktop/src/runtime/tauri/menu.ts`）。**不能取 `Mod-K`** —— 那是命令面板

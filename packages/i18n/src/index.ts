@@ -643,6 +643,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'surface.toVisual': 'Switch to Visual (Mod-M)',
     'surface.toSource': 'Switch to Source (Mod-M)',
     'cmd.openFile': 'Open File',
+    'cmd.openFolder': 'Open Folder…',
+    // 这一项下面挂的**子项不是文案**，是工作区路径原文，所以字典里只有这一行标题。
+    // 别给它加「最近 1」「最近 2」这类键 —— 路径必须逐字显示，否则同名不同盘的库没法区分。
+    'cmd.openRecentWorkspace': 'Open Recent Workspace',
     'cmd.save': 'Save',
     'cmd.saveAs': 'Save As',
     'cmd.toggleTheme': 'Toggle Theme',
@@ -1447,6 +1451,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'surface.toVisual': '切换到富文本 (Mod-M)',
     'surface.toSource': '切换到源码 (Mod-M)',
     'cmd.openFile': '打开文件',
+    'cmd.openFolder': '打开文件夹…',
+    // 子项是工作区路径原文，不是文案 —— 理由见英文侧那一行。
+    'cmd.openRecentWorkspace': '打开最近的工作区',
     'cmd.save': '保存',
     'cmd.saveAs': '另存为',
     'cmd.toggleTheme': '切换主题',

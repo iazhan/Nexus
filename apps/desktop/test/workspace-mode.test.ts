@@ -139,7 +139,8 @@ describe('workspace 模式启动', () => {
    *
    * 落盘那一份 `recent-workspace.json` 是这条用例独有的价值：主进程在这里是**重新读**磁盘
    * 那份再合并写入的，不是拿启动时那份快照（否则会把本次会话里已经改过的开关覆盖回去）——
-   * 这条路径别处都验不到。
+   * 这条路径别处都验不到。它同时是「打开最近的工作区」菜单的数据源，所以末尾顺带验了
+   * 那条只读通道答的就是刚记下的那个目录。
    */
   it('从桥上调 openWorkspace：授权该目录、能读它下面的文件、并记成下次的回落目标', async () => {
     activeApp = await launchElectronApp();
@@ -165,9 +166,13 @@ describe('workspace 模式启动', () => {
 
     const recorded = JSON.parse(
       fs.readFileSync(path.join(app.userDataDir, RECENT_WORKSPACE_FILE), 'utf8')
-    ) as { workspaceRoot?: unknown; restoreLastWorkspace?: unknown };
-    expect(recorded.workspaceRoot).toBe(picked);
+    ) as { workspaceRoots?: unknown; restoreLastWorkspace?: unknown };
+    expect(recorded.workspaceRoots).toEqual([picked]);
     // 写这一份时不能把已经落盘的开关冲掉。
     expect(recorded.restoreLastWorkspace).toBe(true);
+
+    // 同一份落盘也是「打开最近的工作区」菜单的数据源。这一条顺带证了那条通道
+    // **只读不授权**：它答的就是刚记下的那个目录。
+    expect(await app.evaluate<string[]>(`window.nexus.listRecentWorkspaces()`)).toEqual([picked]);
   });
 });

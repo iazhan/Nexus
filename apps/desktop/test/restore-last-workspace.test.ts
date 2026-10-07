@@ -48,7 +48,7 @@ describe('启动时恢复上次工作区', () => {
   });
 
   /** 读主进程那份落盘。文件还没出现时返回 `null` —— 启动是异步的，要轮询。 */
-  function readState(): { restoreLastWorkspace?: unknown; workspaceRoot?: unknown } | null {
+  function readState(): { restoreLastWorkspace?: unknown; workspaceRoots?: unknown } | null {
     try {
       return JSON.parse(
         fs.readFileSync(path.join(userDataDir, RECENT_WORKSPACE_FILE), 'utf8')
@@ -56,6 +56,11 @@ describe('启动时恢复上次工作区', () => {
     } catch {
       return null;
     }
+  }
+
+  /** 落盘那份里记着的工作区列。形状不对时给空数组 —— 断言要报的是「没记上」而不是类型错。 */
+  function rootsOf(state: Record<string, unknown>): unknown[] {
+    return Array.isArray(state.workspaceRoots) ? state.workspaceRoots : [];
   }
 
   async function waitForState(
@@ -83,7 +88,7 @@ describe('启动时恢复上次工作区', () => {
     });
 
     // 记下来了，而且**开关是默认的开**：这一项默认开，所以落盘那份也应该是开的。
-    const recorded = await waitForState((state) => state.workspaceRoot === vault);
+    const recorded = await waitForState((state) => rootsOf(state).includes(vault));
     expect(recorded.restoreLastWorkspace).toBe(true);
 
     // ── 关掉它，确认「记录」与「要不要恢复」是两件事 ─────────────────────────────
@@ -96,7 +101,7 @@ describe('启动时恢复上次工作区', () => {
     })()`);
 
     const disabled = await waitForState((state) => state.restoreLastWorkspace === false);
-    expect(disabled.workspaceRoot).toBe(vault);
+    expect(rootsOf(disabled)).toEqual([vault]);
 
     // ── 再打开（走真实的设置 → 订阅 → 推送 → 落盘那条链）────────────────────────
     await first.evaluate(`(() => {
@@ -106,7 +111,7 @@ describe('启动时恢复上次工作区', () => {
 
     const enabled = await waitForState((state) => state.restoreLastWorkspace === true);
     // 打开开关**不该**把已经记下的目录弄丢 —— 落盘那份是两个字段一起写的。
-    expect(enabled.workspaceRoot).toBe(vault);
+    expect(rootsOf(enabled)).toEqual([vault]);
 
     // ── 等第一次启动把索引建完、把锁放掉，再关应用 ────────────────────────────────
     //

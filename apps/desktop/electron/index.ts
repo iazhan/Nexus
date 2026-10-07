@@ -42,7 +42,9 @@ import {
 import {
   applyRecentWorkspace,
   EMPTY_RECENT_WORKSPACE,
+  listRecentWorkspaces,
   readRecentWorkspace,
+  recordRecentWorkspace,
   writeRecentWorkspace
 } from './recent-workspace.js';
 import { IndexStore } from './index-store.js';
@@ -245,16 +247,16 @@ const launchContext: LaunchContext = applyRecentWorkspace(
 logInfo('[Nexus Shell] Initialized launch context:', launchContext);
 
 /**
- * 记下这次的工作区，供**下一次**启动恢复。
+ * 记下这次的工作区，供**下一次**启动恢复，也供「打开最近的工作区」菜单显示。
  *
  * 与「要不要恢复」分开：设置关着时照样记。这样用户之后打开那一项，上次的工作区立刻能用 ——
  * 若只在设置开着时才记，用户会看到「打开了设置，但它要等下一次进工作区才有用」。
  */
 if (recentWorkspaceDir && launchContext.workspaceRoot) {
-  writeRecentWorkspace(recentWorkspaceDir, {
-    ...startupState,
-    workspaceRoot: launchContext.workspaceRoot
-  });
+  writeRecentWorkspace(
+    recentWorkspaceDir,
+    recordRecentWorkspace(startupState, launchContext.workspaceRoot)
+  );
 }
 
 /**
@@ -1769,9 +1771,9 @@ ipcMain.handle(IPC_CHANNELS.openFile, async (event, filePath?: string) => {
  * 打开一个工作区：给了路径就用它，没给就弹目录选择框。取消返回 `null`。
  *
  * 授权在 `FileService.openWorkspace` 里做；这里补上它做不到的那一半 —— 把结果记成
- * 「下次启动的回落目标」。**重读**文件再写，而不是用模块加载时那份 `startupState`：
- * 后者是启动那一刻的快照，而「用户刚刚打开了哪个目录」发生在之后，两者之间渲染进程
- * 已经同步过一次设置 —— 拿旧快照覆盖会把那次同步抹掉。
+ * 「下次启动的回落目标」与「最近工作区」的第一项。**重读**文件再写，而不是用模块加载时
+ * 那份 `startupState`：后者是启动那一刻的快照，而「用户刚刚打开了哪个目录」发生在之后，
+ * 两者之间渲染进程已经同步过一次设置 —— 拿旧快照覆盖会把那次同步抹掉。
  */
 ipcMain.handle(IPC_CHANNELS.openWorkspace, async (event, rootPath: unknown) => {
   if (rootPath !== undefined && rootPath !== null && typeof rootPath !== 'string') {
@@ -1786,12 +1788,29 @@ ipcMain.handle(IPC_CHANNELS.openWorkspace, async (event, rootPath: unknown) => {
 
   session.workspaceRoot = root;
   if (recentWorkspaceDir) {
-    writeRecentWorkspace(recentWorkspaceDir, {
-      ...readRecentWorkspace(recentWorkspaceDir),
-      workspaceRoot: root
-    });
+    writeRecentWorkspace(
+      recentWorkspaceDir,
+      recordRecentWorkspace(readRecentWorkspace(recentWorkspaceDir), root)
+    );
   }
   return root;
+});
+
+/**
+ * 菜单「打开最近的工作区」要的那一列。**最近的在前**，已经不存在的目录已剔除
+ * （剔除的理由见 `listRecentWorkspaces`）。
+ *
+ * 与 `openWorkspace` 分成两条：这一条是**只读**的，不授权任何目录。合成一条会让
+ * 「只是要显示一个列表」变成一次潜在的授权动作。
+ *
+ * `userData` 取不到时返回空数组（`recentWorkspaceDir` 为 `null`）—— 与那一整套功能
+ * 的处理一致：它只影响便利，不该让界面出错。
+ */
+ipcMain.handle(IPC_CHANNELS.listRecentWorkspaces, (): string[] => {
+  if (!recentWorkspaceDir) return [];
+  return listRecentWorkspaces(readRecentWorkspace(recentWorkspaceDir), (targetPath) => {
+    return classifyLaunchPath(targetPath) === 'directory';
+  });
 });
 
 ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, url: unknown) => {
@@ -2160,8 +2179,8 @@ ipcMain.handle(IPC_CHANNELS.syncHostSettings, async (_event, payload: unknown) =
   // 理由见 `host-settings.ts` 与 `recent-workspace.ts` 两处的头注释。
   if (recentWorkspaceDir && 'restoreLastWorkspace' in patch) {
     writeRecentWorkspace(recentWorkspaceDir, {
-      restoreLastWorkspace: patch.restoreLastWorkspace === true,
-      workspaceRoot: readRecentWorkspace(recentWorkspaceDir).workspaceRoot
+      ...readRecentWorkspace(recentWorkspaceDir),
+      restoreLastWorkspace: patch.restoreLastWorkspace === true
     });
   }
 });

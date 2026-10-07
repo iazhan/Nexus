@@ -70,6 +70,17 @@ export const IPC_CHANNELS = {
    * 用户下次启动回到旧目录而不知道发生了什么。
    */
   openWorkspace: 'nexus:open-workspace',
+  /**
+   * 最近打开过的工作区，**最近的在前**，已经不在磁盘上的那些已剔除。菜单用它建子菜单。
+   *
+   * 与 `openWorkspace` 分开而不是复用它：这一条**只读**，不授权任何目录。合并的话
+   * 「只是想画一个列表」就成了一次潜在的授权动作。
+   *
+   * 剔除不存在的目录是主进程的责任，渲染进程做不到（它没有 `fs`），而且**必须**做 ——
+   * `authorizeWorkspace` 不 stat 目录，打开一个已经不在的路径会**成功**切进一个空工作区，
+   * 用户看到的是「打开了，但是空的」。详细取舍见 `electron/recent-workspace.ts`。
+   */
+  listRecentWorkspaces: 'nexus:list-recent-workspaces',
   authorizeWorkspace: 'nexus:authorize-workspace',
   scanWorkspace: 'nexus:scan-workspace',
   getWorkspaceRoots: 'nexus:get-workspace-roots',

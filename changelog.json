@@ -181,5 +181,22 @@
         "en": "Tabs that overflow the tab bar can be scrolled with the vertical mouse wheel, and the clipped side fades out."
       }
     ]
+  },
+  "0.84.0": {
+    "date": "2026-10-07",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "「文件」菜单新增「打开文件夹…」与「打开最近的工作区」，不用重启就能换一个工作区；命令面板里也有「打开文件夹…」。",
+        "en": "Add \"Open Folder…\" and \"Open Recent Workspace\" to the File menu, so you can switch workspaces without restarting. The command palette gets \"Open Folder…\" too."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "记住最近打开的 8 个工作区，最近的排在前面；已经不在磁盘上的那些（比如拔掉的移动盘）不会出现在菜单里，启动时也会跳过它们继续往下找。",
+        "en": "Remember the last 8 workspaces, most recent first. Ones that are no longer on disk — an unplugged drive, say — are left out of the menu and skipped on launch."
+      }
+    ]
   }
 }

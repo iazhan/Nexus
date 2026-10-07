@@ -1102,6 +1102,35 @@ export const App: React.FC = () => {
   const openingWorkspaceRef = useRef(false);
 
   /**
+   * 「文件 → 打开最近的工作区」里那一列，**最近的在前**。
+   *
+   * 数据源是主进程（它落盘、也只有它知道哪些目录还在），这里只缓存一份给菜单渲染用 ——
+   * 菜单是同步渲染的，没法在展开的那一刻去 await 一个列表。
+   *
+   * 刷新只有两个时机：挂载时一次，以及每次**成功打开工作区之后**。列表本来也只在这两种
+   * 时刻变（都是用户自己开的工作区）；磁盘上的目录被删是外部事件，晚一次刷新看到也算对，
+   * 而主进程那边已经把它从列表里剔掉了。
+   */
+  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
+
+  /**
+   * 拉一次最近工作区列表。**失败一律当空列表** —— 它只决定菜单里多不多一层子项，
+   * 拿不到就不显示那一层，不该让界面进错误态、更不该拦着启动。
+   */
+  const refreshRecentWorkspaces = useCallback(async (): Promise<void> => {
+    try {
+      const list = await window.nexus?.listRecentWorkspaces?.();
+      setRecentWorkspaces(Array.isArray(list) ? list : []);
+    } catch {
+      setRecentWorkspaces([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRecentWorkspaces();
+  }, [refreshRecentWorkspaces]);
+
+  /**
    * 打开一个工作区。不给路径就弹目录选择框（与「打开文件」同形）。
    *
    * 与 `handleOpenFile` 的两点不同：
@@ -1113,21 +1142,27 @@ export const App: React.FC = () => {
    * 「在工作区中打开」开完工作区还要定位文件 —— 工作区没开成却去定位，会定位到
    * 上一个工作区里去。
    */
-  const handleOpenWorkspace = useCallback(async (rootPath?: string): Promise<string | null> => {
-    if (openingWorkspaceRef.current) return null;
-    openingWorkspaceRef.current = true;
-    try {
-      const root = await window.nexus?.openWorkspace?.(rootPath);
-      if (!root) return null;
-      setWorkspaceRoot(root);
-      return root;
-    } catch (err: unknown) {
-      console.error('Open workspace failed:', err);
-      return null;
-    } finally {
-      openingWorkspaceRef.current = false;
-    }
-  }, []);
+  const handleOpenWorkspace = useCallback(
+    async (rootPath?: string): Promise<string | null> => {
+      if (openingWorkspaceRef.current) return null;
+      openingWorkspaceRef.current = true;
+      try {
+        const root = await window.nexus?.openWorkspace?.(rootPath);
+        if (!root) return null;
+        setWorkspaceRoot(root);
+        // 主进程刚把这一条记成最近的第一项，菜单那份缓存要跟上 —— 不刷新的话，
+        // 这一次开的工作区要等下次启动才出现在「打开最近的工作区」里。
+        void refreshRecentWorkspaces();
+        return root;
+      } catch (err: unknown) {
+        console.error('Open workspace failed:', err);
+        return null;
+      } finally {
+        openingWorkspaceRef.current = false;
+      }
+    },
+    [refreshRecentWorkspaces]
+  );
 
   /**
    * 「在工作区中打开」——菜单与命令面板共用的那一个动作。
@@ -2129,6 +2164,14 @@ export const App: React.FC = () => {
         execute: handleOpenFile
       }),
       commandRegistry.registerCommand({
+        id: 'open-folder',
+        titleKey: 'cmd.openFolder',
+        // 不给默认快捷键，与 `open-in-workspace` 同类：目录选择没有公认的组合键
+        // （VS Code 是两段式 `Ctrl-K Ctrl-O`，这里没有那种机制），硬占一个不如
+        // 让菜单与命令面板做入口 —— 命令仍然可搜、可执行。
+        execute: () => void handleOpenWorkspace()
+      }),
+      commandRegistry.registerCommand({
         id: 'save',
         titleKey: 'cmd.save',
         shortcut: DEFAULT_SHORTCUTS['save'],
@@ -2350,7 +2393,7 @@ export const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       unsubs.forEach(u => u());
     };
-  }, [handleOpenFile, saveAs, saveFile, resolvedTheme, setTheme, modeSwitchable, locale, setLocale, openSettingsWindow]);
+  }, [handleOpenFile, handleOpenWorkspace, saveAs, saveFile, resolvedTheme, setTheme, modeSwitchable, locale, setLocale, openSettingsWindow]);
 
   // Conflict resolution actions
   const handleReloadExternal = useCallback(async () => {
@@ -2805,6 +2848,36 @@ export const App: React.FC = () => {
             shortcut: shortcutLabel('open-file'),
             onSelect: () => void handleOpenFile()
           },
+          /**
+           * 「打开文件夹」＝换一个工作区。与欢迎态那枚「打开文件夹…」、命令面板的
+           * `open-folder` 是**同一个动作**（都走 `handleOpenWorkspace`）——
+           * 三条入口同源，不各写一份。
+           *
+           * **工作区模式下也留着**：这里正是「切换工作区」的入口，而它从前只在欢迎态
+           * 出现 —— 于是已经在工作区里的人根本没有换一个的办法。
+           */
+          {
+            label: t('cmd.openFolder'),
+            id: 'open-folder',
+            onSelect: () => void handleOpenWorkspace()
+          },
+          /**
+           * 最近的工作区。`submenu` 由主进程那一列直接投影出来 —— 每一项的文案就是**完整
+           * 路径**（同名不同盘的库靠它区分），长了由 CSS 截断，完整值在 `title` 里。
+           *
+           * 空的时候**禁用而不是隐藏**：菜单项的位置忽有忽无，比灰着一格更难理解。
+           */
+          {
+            label: t('cmd.openRecentWorkspace'),
+            id: 'open-recent-workspace',
+            disabled: recentWorkspaces.length === 0,
+            submenu: recentWorkspaces.map((root) => ({
+              label: root,
+              title: root,
+              onSelect: () => void handleOpenWorkspace(root)
+            }))
+          },
+          { label: '', separator: true },
           {
             label: t('cmd.save'),
             shortcut: shortcutLabel('save'),
@@ -2822,6 +2895,7 @@ export const App: React.FC = () => {
           { label: '', separator: true },
           {
             label: t('cmd.openInWorkspace'),
+            id: 'open-in-workspace',
             // 「在工作区中打开」＝把当前文档放进工作区上下文，并**在树里定位到它**。
             // 两种状态都收在这个结果上，所以菜单这一项只在「没有文档」时禁用 ——
             // 与命令面板的 `isEnabled` 是同一个判据，改一处必须改另一处。
@@ -2929,6 +3003,11 @@ export const App: React.FC = () => {
       workspaceRoot,
       handleNewFile,
       handleOpenFile,
+      // 「打开文件夹」直接走 `handleOpenWorkspace`：它是「换一个工作区」这个动作本身，
+      // 与欢迎态那枚按钮、命令面板那条命令是同一份实现。
+      handleOpenWorkspace,
+      // 「打开最近的工作区」那层子菜单由它投影出来，列表一变菜单就得重投影。
+      recentWorkspaces,
       // 「在工作区中打开」不再直接调 `handleOpenWorkspace`：它现在是一个
       // 「开工作区 + 定位」的复合动作，菜单与命令面板共用，依赖换成那一个。
       openInWorkspace,

@@ -71,6 +71,14 @@ export interface NexusBridge {
    */
   openWorkspace: (rootPath?: string) => Promise<string | null>;
   /**
+   * 最近打开过的工作区，**最近的在前**。菜单「打开最近的工作区」用它建子菜单。
+   *
+   * 只读：它不授权任何目录。里面**不会有已经不在磁盘上的路径** —— 剔除在主进程做，
+   * 因为渲染进程没有 `fs`，而打开一个不存在的目录不会报错、只会切进一个空工作区。
+   * 拿到的可能是空数组（从没打开过工作区，或那些目录都不在了），界面要能处理。
+   */
+  listRecentWorkspaces: () => Promise<string[]>;
+  /**
    * 用系统默认程序打开外部链接（http/https/mailto）。
    * 返回 `false` 表示协议不在白名单内、URL 非法，或系统调用失败。
    */
