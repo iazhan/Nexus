@@ -156,6 +156,8 @@ describe('Source 面图片：渲染 + 就地改地址', () => {
     const app = activeApp;
 
     await app.waitForIndexReady();
+    // 2026-10-14 起重开软件默认折叠树，notes/ 里的 note.md 要先把目录展开才上树
+    await app.expandAllTreeDirectories();
     await openFromTree(app, 'note.md');
     await ensureSourceSurface(app);
 

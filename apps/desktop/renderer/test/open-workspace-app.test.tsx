@@ -306,10 +306,17 @@ describe('打开工作区：渲染进程那一半', () => {
       root.render(React.createElement(App));
       await waitForSelector('.nexus-workspace-sidebar[data-phase="ready"]');
 
-      // 先打开树里那个文档，才有「当前文档」可言
+      // 先打开树里那个文档，才有「当前文档」可言。
+      // 树默认是折叠的（2026-10-14 起），所以先把 `notes/` 点开。
+      const folder = (await waitForSelector('[data-relative-path="notes"]')) as HTMLElement;
+      folder.click();
       const row = (await waitForSelector('[data-relative-path="notes/a.md"]')) as HTMLElement;
       row.click();
-      await waitForEditor();
+      // 等**文档真的开出来了**再点菜单项：项Enabled 判的是 `filePath`，而它与顶栏
+      // 文件名是同一次渲染出来的。等 `.nexus-filename` 而不用 `waitForEditor()`：
+      // 这条链用不到编辑器视图（只问「这个文件在工作区哪儿」），等 CM6 挂完是白等 ——
+      // 整文件并行跑起来时那几秒正好把 5s 的用例预算吃穿。
+      await waitForSelector('.nexus-filename');
 
       // 菜单项此刻必须是**可用的**：从前它在工作区里被禁用，而那时恰恰是用户最想问
       // 「这个文件在工作区里哪儿」的时候。

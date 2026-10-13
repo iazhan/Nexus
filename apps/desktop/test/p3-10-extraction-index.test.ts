@@ -96,6 +96,9 @@ describe('P3-10 附件文本提取：被引用的附件进全文索引', () => {
     await app.click('.nexus-activity-icon[data-activity="workspace"]');
     await app.waitForIndexReady();
 
+    // 2026-10-14 起重开软件默认折叠树，docs/ 里的附件行要先把目录展开才上屏
+    await app.expandAllTreeDirectories();
+
     // 语言钉死成 en-US，界面断言才不依赖「默认是哪个」
     await app.evaluate(`(() => { window.nexusLocale.setLocale('en-US'); return true; })()`);
 

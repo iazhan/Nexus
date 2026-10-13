@@ -139,12 +139,14 @@ describe('删除文件', () => {
     const app = activeApp;
 
     await app.waitForIndexReady();
-    // 顶层目录默认展开，所以 dma.md 也看得见
+    // 2026-10-14 起重开软件默认折叠树，第一屏只有顶层行。
     expect(
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('.nexus-tree-name')).map((el) => el.textContent)`
       )
-    ).toEqual(['notes', 'dma.md', 'root.md']);
+    ).toEqual(['notes', 'root.md']);
+    // 目录里的 dma.md 要先把目录展开才上树
+    await app.expandAllTreeDirectories();
 
     /* ① 默认档位（回收站）。开**两个**文档，好验「删完那个标签页也收了」——
        标签栏在只剩一个文档时不渲染（`TabBar` 直接 `return null`），所以只开一个就无从判断。 */

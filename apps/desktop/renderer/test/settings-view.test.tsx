@@ -1363,6 +1363,24 @@ describe('设置视图 · 通用（自动保存延迟 / 外部修改 / 启动恢
     expect(container.querySelector('[data-field="general.externalChange"]')).not.toBeNull();
   });
 
+  it('「启动时恢复上次打开的文档」在通用分组里，默认开、可关', () => {
+    renderSettings('general');
+
+    const field = container.querySelector('[data-field="general.restoreTabs"]');
+    expect(field).not.toBeNull();
+    const input = container.querySelector<HTMLElement>(
+      '[data-field-input="general.restoreTabs"]'
+    );
+    // 默认开：这是用户明确要的行为（与「恢复上次的工作区」是一对）
+    expect(input?.getAttribute('aria-checked')).toBe('true');
+
+    act(() => input?.click());
+
+    expect(settings.get('general.restoreTabs')).toBe(false);
+    // 复位，别漏到后面的用例（存档是单例的缓存）
+    settings.set('general.restoreTabs', true);
+  });
+
   it('自动保存延迟默认 800，改值立刻写进存档', () => {
     renderSettings('general');
 

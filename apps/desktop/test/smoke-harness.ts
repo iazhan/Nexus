@@ -799,6 +799,21 @@ export class ElectronAppInstance {
   }
 
   /**
+   * 展开文件树里的**所有**目录 —— 点工具栏那枚「全部展开」。
+   *
+   * 2026-10-14 起树的默认展开集合是**空集**（重开软件第一屏是折叠的，见
+   * `defaultExpandedDirectories` 的注释）。真机用例要用某个目录里的文件时先调它：
+   * 按名字一层层点目录行当然也行，但那要求每个用例自己知道测试工作区的目录结构，
+   * 而「全部展开」一步到位、与目录长什么样无关。
+   *
+   * 只在**全折叠**时调它是展开；已经全展开时再点会全部收起（那是按钮自己的语义，
+   * 这里不绕开它 —— 用例不会那么用）。
+   */
+  public async expandAllTreeDirectories(): Promise<void> {
+    await this.click('.nexus-workspace-toolbar [data-action="toggle-expand"]');
+  }
+
+  /**
    * 把编辑器内容整篇换成给定源码，光标回到开头并聚焦。
    *
    * ## 为什么用 dispatch 而不是模拟按键

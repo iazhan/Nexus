@@ -785,6 +785,32 @@ export const RESTORE_LAST_WORKSPACE_FIELD: FieldDef = {
 };
 
 /**
+ * 启动时恢复上次开着的**文档**。
+ *
+ * 与 `general.restoreLastWorkspace` 并列放在这一组：两条一起才构成「接着上次的地方
+ * 继续」—— 只恢复库不恢复文档，用户看到的还是空编辑器，而那条链的任何一环断了
+ * 都会表现成「恢复功能坏了」。区分在于执行方：库由主进程在**第一个渲染进程存在之前**
+ * 接回，文档纯由渲染进程接回（`workspace/session-persistence.ts`）。
+ *
+ * 默认**开**（见 `store.ts` 里那一条的注释）。未命名文档与已经不在盘上的文件
+ * 恢复不了，静默跳过 —— 启动时弹「有 2 个文件没能恢复」是在为便利功能道歉。
+ */
+export const RESTORE_TABS_FIELD: FieldDef = {
+  id: 'general.restoreTabs',
+  section: 'general',
+  labelKey: 'settings.general.restoreTabs',
+  descriptionKey: 'settings.general.restoreTabsDescription',
+  keywords: ['启动', '打开', '恢复', '上次', '标签', '文档', 'startup', 'launch', 'restore', 'reopen', 'tabs', 'documents', 'session'],
+  control: 'toggle',
+  accessor: {
+    read: () => String(settings.get('general.restoreTabs')),
+    write: (value) => settings.set('general.restoreTabs', value === 'true'),
+    subscribe: (listener) => settings.subscribe('general.restoreTabs', listener)
+  },
+  menu: false
+};
+
+/**
  * 当前版本 + 检查更新。**只读值 + 一个动作**，两半说的是同一件事：「你装的是什么、
  * 有没有更新的」。它住在 `about` 组，而**不是 `general`**：通用那一栏里其余每一项都是
  * 「你可以改什么」，只有这一项是「你现在装的是什么」—— 混在一起时，用户找版本号得先猜。
@@ -1648,6 +1674,7 @@ export const FIELDS: readonly FieldDef[] = [
   AUTO_SAVE_DELAY_FIELD,
   EXTERNAL_CHANGE_FIELD,
   RESTORE_LAST_WORKSPACE_FIELD,
+  RESTORE_TABS_FIELD,
   FONT_FAMILY_FIELD,
   FONT_SIZE_FIELD,
   LINE_HEIGHT_FIELD,

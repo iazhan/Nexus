@@ -170,7 +170,10 @@ describe('重命名文件与引用回写', () => {
     const app = activeApp;
 
     await app.waitForIndexReady();
-    // 两段都在：笔记树里有 notes/dma.md，附件区里有 assets/logo.png
+    // 2026-10-14 起重开软件默认折叠树：notes/ 与 assets/ 里的文件要先把目录展开才上树。
+    // 两轮改名的目标（notes/dma.md、assets/logo.png）都在子目录里，所以先全部展开。
+    await app.expandAllTreeDirectories();
+    // 两段都在：笔记树里有 notes/dma.md，附件在 assets/ 下
     expect(
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('.nexus-tree-name')).map((el) => el.textContent)`

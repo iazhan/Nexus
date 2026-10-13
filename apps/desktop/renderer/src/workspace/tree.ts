@@ -195,17 +195,20 @@ export function collectDirectoryPaths(nodes: readonly FileTreeNode[]): string[] 
 }
 
 /**
- * 默认展开的目录集合：只有顶层。
+ * 默认展开的目录集合：**空集**（2026-10-14 改，从前是「只有顶层」）。
  *
- * 全部展开在稍大的库里会淹掉整个面板，全部折叠又要点很多次才看到内容 ——
- * 顶层展开是两者之间最省事的默认值。
+ * 为什么从「展开顶层」改成「全折叠」：软件重开时用户看到的第一屏不该是一棵
+ * 替他猜好的树。稍大一点的库里顶层就有七八个目录，自动展开会把面板占满，
+ * 而用户此刻想找的文件八成不在第一层 —— 结果是每次启动都要先手动收起一遍。
+ * 折叠态才是中性的起点：想看哪儿点哪儿，代价只是多一次点击。
+ *
+ * 代价说清楚：**只影响第一次拿到树的那一刻**。之后用户的展开状态由侧栏自己记住
+ * （`expansionInitialized` 之后不再覆盖），「全部展开 / 收起」按钮照旧管全部目录。
+ * 另外，启动时恢复的文档会定位到它所在的那一行（见 `App` 的会话恢复）——
+ * 那条路径上的祖先目录照样会展开，所以「开着的文档在树里找不到」不会发生。
  */
-export function defaultExpandedDirectories(tree: readonly FileTreeNode[]): Set<string> {
-  const expanded = new Set<string>();
-  for (const node of tree) {
-    if (node.type === 'directory') expanded.add(node.relativePath);
-  }
-  return expanded;
+export function defaultExpandedDirectories(_tree: readonly FileTreeNode[]): Set<string> {
+  return new Set<string>();
 }
 
 /**

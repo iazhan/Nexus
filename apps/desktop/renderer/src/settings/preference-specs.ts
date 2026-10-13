@@ -128,6 +128,21 @@ export const EXTERNAL_CHANGE_STORAGE_KEY = 'nexus-external-change';
 export const RESTORE_LAST_WORKSPACE_STORAGE_KEY = 'nexus-restore-last-workspace';
 
 /**
+ * 启动时恢复上次开着的**文档**（标签页）。
+ *
+ * 与 `restoreLastWorkspace` 是一对：那个把**工作区根**接回来（主进程执行，
+ * 值要在第一个渲染进程存在之前就能读），这个把**根里开着的文档**接回来
+ * （纯渲染进程执行，见 `workspace/session-persistence.ts`）。
+ *
+ * 两者互不依赖也互不代替：关了「恢复工作区」而留着「恢复文档」时，启动落到欢迎态，
+ * 快照的根对不上，文档自然也不恢复 —— 不存在「文档恢复到上一个工作区里去」的状态。
+ *
+ * 默认**开**：这是用户明确要的行为，而「开着的文档下次还在」与
+ * 「开着的库下次还在」是同一件事的两半，只做一半会让人以为功能坏了。
+ */
+export const RESTORE_TABS_STORAGE_KEY = 'nexus-restore-tabs';
+
+/**
  * 工作区树里是否显示**图片**。
  *
  * **这一项不是设置项，是视图状态。** `files.*` 那一组的共同点是「影响磁盘行为」

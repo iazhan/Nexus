@@ -242,5 +242,22 @@
         "en": "The workspace sidebar header now has a “Switch workspace” button: it opens “Switch workspace…” plus the list of recently opened workspaces, with your current root checked. Switching used to be possible only from the File menu or the command palette."
       }
     ]
+  },
+  "0.84.5": {
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "重开软件时自动恢复上次的工作区和开着的文档：通用设置里新增「启动时恢复上次打开的文档」（默认开启），关掉它就只恢复工作区、不恢复标签页。恢复出的活动文档会在折叠的文件树里自动展开所在目录并选中，不会「文档开着却在树里看不见」。",
+        "en": "Relaunching now restores your last workspace and the documents you had open. A new “Restore documents on launch” setting (on by default) lives in General; turn it off to restore only the workspace and no tabs. The restored active document reveals and selects itself in the file tree, so an open document is never invisible in the tree."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "文件树重开后默认全部折叠，第一屏只列顶层；恢复的文档仍会自动展开并选中。目录多的工作区启动时不再一屏铺满。",
+        "en": "The file tree now starts fully collapsed, showing only top-level entries. Restored documents still reveal and select themselves. Workspaces with many directories no longer open to a wall of files."
+      }
+    ]
   }
 }

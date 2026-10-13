@@ -12,6 +12,7 @@ import {
   buildDocumentLink,
   countDocumentCharacters,
   documentTitleOf,
+  documentTypeForPath,
   expandAttachmentName,
   formatAttachmentReference,
   isViewerDocumentType,
@@ -76,6 +77,13 @@ import type { FileTreeNode } from './workspace/tree.js';
 import { parseDeleteMode } from './settings/preference-specs.js';
 import type { RenameFileResult } from '../../ipc/channels.js';
 import { WorkspaceStore, hasUnsavedChanges } from './workspace/store.js';
+import {
+  clearSessionSnapshot,
+  readSessionSnapshot,
+  sameWorkspaceRoot,
+  writeSessionSnapshot,
+  type SessionSnapshot
+} from './workspace/session-persistence.js';
 import { TabBar } from './workspace/TabBar.js';
 import { WorkspaceSidebar } from './workspace/WorkspaceSidebar.js';
 import { WorkspaceEmpty } from './workspace/WorkspaceEmpty.js';
@@ -666,6 +674,55 @@ export const App: React.FC = () => {
     const directory = getDocumentDirectory(filePath);
     if (directory) lastDocumentDirectoryRef.current = directory;
   }, [filePath]);
+
+  /**
+   * 「上次开着的文档」落盘（2026-10-14）。
+   *
+   * ## 为什么是 effect 而不是在每次开关标签页时手工调
+   *
+   * 开关标签页的路有七八条（侧栏、快速打开、链接跳转、wikilink、恢复自己…）。
+   * 每条后面挂一次写盘，漏一条的症状是「那种方式关掉的文档下次不恢复」——
+   * 而这种 bug 没有报错、只在重启后显形。挂在整个 snapshot 上，一条都不漏。
+   *
+   * ## 为什么恢复之前不许写
+   *
+   * 恢复过程中 store 一度是空的，写上去就把上一份快照擦了。恢复失败要靠它兜底，
+   * 崩在恢复中途更要靠它下次重试。`sessionRestoreDoneRef` 就是这道闸：
+   * 它只在「启动恢复已经尝试过（或本次启动没有可恢复的东西）」之后置位。
+   */
+  const sessionRestoreDoneRef = useRef(false);
+
+  // 走 `useSettingValue` 而不是 `settings.get`：在设置窗口关掉它时这边要跟着动
+  // （把存档擦掉），`get` 是内存读，不会触发重渲染。
+  const restoreTabsEnabled = useSettingValue('general.restoreTabs');
+
+  useEffect(() => {
+    // 闸还没开（启动恢复进行中）或不在工作区里（轻量模式没有可恢复的会话）—— 不写。
+    if (!sessionRestoreDoneRef.current) return;
+    if (workspaceRoot === null) return;
+
+    if (!restoreTabsEnabled) {
+      // 用户关掉了它：连存档一起清掉。留着的话将来再打开，恢复出来的是
+      // 关掉之前那一份 —— 用户以为关掉期间的一切都没被记，其实记着。
+      clearSessionSnapshot();
+      return;
+    }
+
+    const snapshot: SessionSnapshot = {
+      root: workspaceRoot,
+      // 未命名文档（还没有路径）无从恢复，不进存档。
+      entries: workspaceSnapshot.documents
+        .filter((document) => document.filePath !== null)
+        .map((document) => ({
+          path: document.filePath as string,
+          page: document.kind === 'viewer' ? document.viewerPage : null
+        })),
+      // 活动的是未命名文档时记 `null`：恢复完激活不到东西，落回「最后打开的那个」。
+      activePath: store.getActive()?.filePath ?? null
+    };
+
+    writeSessionSnapshot(snapshot);
+  }, [workspaceRoot, workspaceSnapshot, store, restoreTabsEnabled]);
 
   /** 状态栏字数的显隐。走 `useSettingValue` 而不是 `settings.get`：后者不会在改设置时重渲染。 */
   const showCharacterCount = useSettingValue('editor.wordCount');
@@ -1311,6 +1368,70 @@ export const App: React.FC = () => {
     // 见 `applyRename` 里那段「先卸后改盘」。
   }, [activeEditor, filePath, session, updateSaveState, watchRevision]);
 
+  /**
+   * 把上次开着的文档接回来（2026-10-14）。
+   *
+   * 只由 `loadDocument` 的 workspace 分支在**启动那一次**调用 —— 会话中途换工作区
+   * 不恢复（那时用户明确要的是换个地方看，不是把上一个工作区的标签页搬过来）。
+   *
+   * ## 三条边界，缺一条都不动
+   *
+   * 1. 设置开着（`general.restoreTabs`）；
+   * 2. 快照读得出来、字段都合法；
+   * 3. 快照的根与**这一次**的工作区根是同一个目录。
+   *
+   * 第 3 条挡的是「恢复工作区」关着、而用户手动开了另一个库的情形 ——
+   * 那份快照属于上一个库，接过来就是把文档开到别处去了。
+   *
+   * ## 逐条恢复，坏的跳过
+   *
+   * 一个文件被删了、改名了、换成不支持的格式了，都不该让剩下的恢复不了。
+   * 失败只进 console：启动时为便利功能弹错误，是在向用户道歉一件他没要求过的事。
+   */
+  const restoreSessionTabs = useCallback(
+    async (root: string) => {
+      try {
+        const saved = readSessionSnapshot();
+        if (saved === null || !sameWorkspaceRoot(saved.root, root)) return;
+        if (!restoreTabsEnabled) return;
+
+        for (const entry of saved.entries) {
+          try {
+            // 类型**从路径现判**，不信任快照里存的类型：文件可能已经被换成另一种格式，
+            // 按旧类型恢复会把 PDF 交给 Markdown 会话（或反过来）。
+            const type = documentTypeForPath(entry.path);
+            if (type !== null && isViewerDocumentType(type)) {
+              openViewerDocumentAt(entry.path, type, entry.page ?? undefined);
+              continue;
+            }
+            if (type !== 'markdown') continue;
+            if (!window.nexus?.openFile) return;
+            const fileDoc = await window.nexus.openFile(entry.path);
+            // 主进程读不到就跳过：文件不在了是常态（外部删的），不是错误。
+            if (!fileDoc) continue;
+            applyOpenedDocument(fileDoc);
+          } catch (err) {
+            console.warn('恢复上次打开的文档失败:', entry.path, err);
+          }
+        }
+
+        if (saved.activePath !== null) {
+          const target = store.findDocumentByPath(saved.activePath);
+          if (target) store.activate(target.id);
+          // 树此刻是折叠的（默认展开 ＝ 空集，见 `defaultExpandedDirectories`）。
+          // 不定位的话「开着的文档在树里看不见」—— 那一行连 DOM 都不存在，
+          // 高亮类无处可挂。定位只展开活动文档的祖先，不是把整棵树摊开。
+          setWorkspaceReveal({ path: saved.activePath });
+        }
+      } finally {
+        // 无论恢复到什么程度（含「什么都没有」），闸都要打开 —— 否则本次会话
+        // 永远不会再写快照，下一次重启恢复的会是上上一次的内容。
+        sessionRestoreDoneRef.current = true;
+      }
+    },
+    [applyOpenedDocument, openViewerDocumentAt, restoreTabsEnabled, store, setWorkspaceReveal]
+  );
+
   // Document loader
   const loadDocument = useCallback(async () => {
     const requestId = ++loadRequestIdRef.current;
@@ -1338,6 +1459,8 @@ export const App: React.FC = () => {
 
       // Handle unsupported file paths
       if (ctx.unsupportedPath) {
+        // 没有工作区、也不会有恢复 —— 闸在这里就打开（见 `sessionRestoreDoneRef`）。
+        sessionRestoreDoneRef.current = true;
         setStatus('error');
         setErrorMessage(
           t('file.unsupportedDetail', { path: ctx.unsupportedPath })
@@ -1353,10 +1476,22 @@ export const App: React.FC = () => {
         setWorkspaceRoot(ctx.workspaceRoot);
         initialContentRef.current = '';
         setStatus('ready');
+        if (ctx.workspaceRoot === null) {
+          // 欢迎态：本次启动没有可恢复的东西，闸直接打开。
+          sessionRestoreDoneRef.current = true;
+        } else {
+          // 上次开着的文档由这里接回来；闸在恢复尝试结束后打开。
+          // 根由主进程刚从回落目标里确认过，与快照比对在 `restoreSessionTabs` 里。
+          void restoreSessionTabs(ctx.workspaceRoot);
+        }
         return;
       }
 
       // viewer 模式：PDF / DOCX / 图片等非 Markdown 文档。
+      //
+      // 从这里往下都不是 workspace 模式，不存在「启动恢复」，闸直接打开 ——
+      // 之后用户「在工作区中打开」换过来的库照样要写快照（闸只挡启动那一瞬）。
+      sessionRestoreDoneRef.current = true;
       // 只读查看，不进可编辑会话 —— 这几类文档没有「source 与投影」的二分。
       // P3-05 起它开成**一个正常的标签页**（`kind: 'viewer'`），只是不读内容：
       // 真正的渲染器由 `ViewerSurface` 按类型查表决定，P3-06 起逐个接入。
@@ -1398,7 +1533,7 @@ export const App: React.FC = () => {
       setErrorMessage(message);
       setStatus('error');
     }
-  }, [openViewerDocumentAt, store]);
+  }, [openViewerDocumentAt, restoreSessionTabs, store]);
 
   useEffect(() => {
     isMountedRef.current = true;

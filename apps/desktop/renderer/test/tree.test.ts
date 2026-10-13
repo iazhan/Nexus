@@ -154,17 +154,15 @@ describe('收集目录路径', () => {
 });
 
 describe('默认展开', () => {
-  it('只展开顶层目录', () => {
+  it('默认全部折叠（2026-10-14 从「只展开顶层」改过来）', () => {
     const tree = buildFileTree({
       documents: [doc('a/b/c.md')],
       directories: [dir('a'), dir('a/b'), dir('top')]
     });
 
-    const expanded = defaultExpandedDirectories(tree);
-    // `top` 与 `a` 是顶层，`a/b` 不是
-    expect(expanded.has('top')).toBe(true);
-    expect(expanded.has('a')).toBe(true);
-    expect(expanded.has('a/b')).toBe(false);
+    // 重开软件时第一屏是一棵折叠的树 —— 顶层与深层目录一视同仁地收着。
+    // 「展开顶层」是旧默认，改它的理由见 `defaultExpandedDirectories` 的注释。
+    expect(defaultExpandedDirectories(tree).size).toBe(0);
   });
 });
 

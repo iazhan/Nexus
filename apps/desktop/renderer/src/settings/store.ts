@@ -84,6 +84,7 @@ import {
   PDF_PAGE_LAYOUT_DEFAULT,
   PDF_PAGE_LAYOUT_STORAGE_KEY,
   RESTORE_LAST_WORKSPACE_STORAGE_KEY,
+  RESTORE_TABS_STORAGE_KEY,
   WORKSPACE_SHOW_IMAGES_STORAGE_KEY,
   GRAPH_HIDDEN_TYPES_STORAGE_KEY,
   GRAPH_MODE_DEFAULT,
@@ -340,6 +341,16 @@ export const SETTING_DEFS = {
    * `electron/recent-workspace.ts` 的头注释。改动这一项要连主进程一起看。
    */
   'general.restoreLastWorkspace': toggleSettingOn(RESTORE_LAST_WORKSPACE_STORAGE_KEY),
+
+  /**
+   * 启动时恢复上次开着的文档。与 `general.restoreLastWorkspace` 是一对，见
+   * `preference-specs.ts` 里 `RESTORE_TABS_STORAGE_KEY` 的注释。
+   *
+   * 「认不出的值当**开**」（`toggleSettingOn`）：一个 corrupt 的字节让用户丢掉
+   * 上次开着的文档，比多恢复几个标签页更烦人。真正的兜底在上层 —— 快照读不动、
+   * 根对不上、文件没了，恢复那一步自己会跳过。
+   */
+  'general.restoreTabs': toggleSettingOn(RESTORE_TABS_STORAGE_KEY),
 
   'editor.fontSize': numberSetting(EDITOR_FONT_SIZE),
   'editor.lineHeight': numberSetting(EDITOR_LINE_HEIGHT),

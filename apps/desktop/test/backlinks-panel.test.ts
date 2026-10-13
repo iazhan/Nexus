@@ -72,6 +72,8 @@ describe('反向链接', () => {
 
     // 等索引建好 —— 反向链接依赖它
     await app.waitForIndexReady();
+    // 2026-10-14 起树默认折叠，`notes/dma.md` 要先把目录展开才点得到
+    await app.expandAllTreeDirectories();
 
     // 打开**被链接**的那篇（dma）
     expect(await openFileByName(app, 'dma')).toBe(true);

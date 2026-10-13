@@ -344,6 +344,13 @@ describe('工作区侧栏：单树 + 工具栏', () => {
         directories: [dir('notes'), dir('assets')]
       });
 
+      // 默认全部折叠（2026-10-14 起）：第一屏只有顶层行，子内容要点了才出来
+      expect(rows().map((row) => row.relativePath)).toEqual(['assets', 'notes', 'root.md']);
+
+      // 展开两层之后，附件与笔记按目录结构混排在同一棵树里
+      await click('[data-relative-path="assets"]');
+      await click('[data-relative-path="notes"]');
+
       expect(rows().map((row) => row.relativePath)).toEqual([
         'assets',
         'assets/logo.png',
@@ -370,7 +377,12 @@ describe('工作区侧栏：单树 + 工具栏', () => {
         directories: [dir('notes'), dir('notes/deep')]
       });
 
-      // 默认只展开顶层：`notes` 开着、`notes/deep` 收着
+      // 默认全部折叠：两层目录都收着，`a.md` 不在树里
+      expect(rows().map((row) => row.relativePath)).not.toContain('notes/deep/a.md');
+
+      // 点顶层只把它**下面那层**放出来 —— 折叠是一层层收的，不一次摊到底
+      await click('[data-relative-path="notes"]');
+      expect(rows().map((row) => row.relativePath)).toContain('notes/deep');
       expect(rows().map((row) => row.relativePath)).not.toContain('notes/deep/a.md');
 
       await click('[data-relative-path="notes/deep"]');
@@ -499,15 +511,14 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       expect(toolbarButton('toggle-expand')).toBeNull();
     });
 
-    it('默认只有顶层展开，所以按钮显示「全部展开」', async () => {
+    it('默认全部折叠，所以按钮显示「全部展开」', async () => {
       await renderSidebar({
         documents: [doc('a/b/c.md'), doc('top.md')],
         directories: [dir('a'), dir('a/b')]
       });
 
-      // 顶层 `a` 开着（所以 `a/b` 这一行看得见），但 `a/b` 自己是收着的 ——
-      // 它下面的 `a/b/c.md` 不在树里。
-      expect(rows().map((row) => row.relativePath)).toEqual(['a', 'a/b', 'top.md']);
+      // 两层目录都收着 —— 顶层行看得见（它们不是内容），`a/b/c.md` 不在树里
+      expect(rows().map((row) => row.relativePath)).toEqual(['a', 'top.md']);
       expect(toolbarButton('toggle-expand')?.getAttribute('data-expanded')).toBe('false');
     });
 
@@ -530,7 +541,7 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
       await click('.nexus-toolbar-button[data-action="toggle-expand"]');
 
-      // 收起之后只剩顶层那一层
+      // 收起之后只剩顶层目录行
       expect(rows().map((row) => row.relativePath)).toEqual(['a', 'top.md']);
       expect(toolbarButton('toggle-expand')?.getAttribute('data-expanded')).toBe('false');
     });
@@ -544,6 +555,9 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
       // 此刻 `assets/` 不在可见树里，但它仍然是树里的一层
       expect(rows().map((row) => row.relativePath)).toEqual(['a.md']);
+      // 默认就是全折叠，所以先「全部展开」再「全部收起」—— 要验的是收起那一下
+      // 管到了看不见的目录，而不是默认状态本身。
+      await click('.nexus-toolbar-button[data-action="toggle-expand"]');
       await click('.nexus-toolbar-button[data-action="toggle-expand"]');
 
       // 把图片放出来：`assets/` 回来了，而且**是收着的**
@@ -585,6 +599,8 @@ describe('工作区侧栏：单树 + 工具栏', () => {
         directories: [dir('notes')]
       });
 
+      // 默认折叠：先把装着它的那一层展开，点得到那一行
+      await click('[data-relative-path="notes"]');
       await click('[data-relative-path="notes/a.md"]');
       await click('.nexus-toolbar-button[data-action="new-file"]');
 
@@ -807,8 +823,8 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
     it('展开**每一层**祖先 —— 只展开直接父目录的话那一行仍然不在 DOM 里', async () => {
       await renderSidebar(nested);
-      // 默认只展开顶层：`a` 开着、`a/b` 收着，所以目标行还不存在
-      expect(rows().map((row) => row.relativePath)).toEqual(['a', 'a/b', 'top.md']);
+      // 默认全部折叠：`a` 收着，所以目标行还不存在
+      expect(rows().map((row) => row.relativePath)).toEqual(['a', 'top.md']);
 
       await reveal('/vault/a/b/c.md');
 
@@ -834,6 +850,8 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
     it('在视野**下方**时按最小距离上滚（只对齐到边界，不顶到正中）', async () => {
       await renderSidebar(nested);
+      // 默认折叠，两层目录都要先点开，目标行才在 DOM 里
+      await click('[data-relative-path="a"]');
       await click('[data-relative-path="a/b"]');
       // 容器可视区是 0..200，目标行在 500..520 ⇒ 差 320
       const readScrollTop = stubRevealGeometry('a/b/c.md', {
@@ -850,6 +868,8 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
     it('在视野**上方**时往回滚', async () => {
       await renderSidebar(nested);
+      // 默认折叠，两层目录都要先点开，目标行才在 DOM 里
+      await click('[data-relative-path="a"]');
       await click('[data-relative-path="a/b"]');
       // 树已经滚到 500，目标行落在可视区**上边界之外**（负的 top 就是「在视野上方」）
       // ⇒ 往回 100
@@ -866,6 +886,8 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
     it('**已经在视野里时一动不动** —— 否则每次定位都会把树莫名挪一下', async () => {
       await renderSidebar(nested);
+      // 默认折叠，两层目录都要先点开，目标行才在 DOM 里
+      await click('[data-relative-path="a"]');
       await click('[data-relative-path="a/b"]');
       const readScrollTop = stubRevealGeometry('a/b/c.md', {
         viewTop: 0,

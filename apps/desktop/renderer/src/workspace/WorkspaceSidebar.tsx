@@ -373,8 +373,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [expansionInitialized, setExpansionInitialized] = useState(false);
 
-  // 首次拿到文档时套用默认展开（只展开顶层）。之后**不覆盖**用户的展开状态 ——
-  // 索引刷新会重建 tree，如果每次都重置展开，用户刚展开的目录会莫名收起来。
+  // 首次拿到文档时套用默认展开（全部折叠，见 `defaultExpandedDirectories`）。之后
+  // **不覆盖**用户的展开状态 —— 索引刷新会重建 tree，如果每次都重置展开，
+  // 用户刚展开的目录会莫名收起来。
   useEffect(() => {
     if (expansionInitialized || tree.length === 0) return;
     setExpanded(defaultExpandedDirectories(tree));
@@ -435,7 +436,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   const toggleExpandAll = useCallback(() => {
     setExpanded((previous) => {
       const everyExpanded = directoryPaths.every((path) => previous.has(path));
-      // 收起时整份清空而不是逐个删：空集合就是「只有顶层展开」的起点，
+      // 收起时整份清空而不是逐个删：空集合就是「全部折叠」的起点，
       // 而逐个删会把「用户手动展开过、后来又收起来的中间态」留在集合里。
       return everyExpanded ? new Set<string>() : new Set(directoryPaths);
     });

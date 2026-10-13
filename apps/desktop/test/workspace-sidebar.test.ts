@@ -64,8 +64,11 @@ describe('工作区侧栏', () => {
     const items = await app.evaluate<string[]>(
       `Array.from(document.querySelectorAll('.nexus-tree-name')).map((el) => el.textContent)`
     );
-    // 顶层目录默认展开，所以 notes 和它里面的 dma.md 都在；目录排在文件前面，且不含 .txt
-    expect(items).toEqual(['notes', 'dma.md', 'root.md']);
+    // 2026-10-14 起重开软件默认折叠树：第一屏只有顶层行，目录排在文件前面
+    expect(items).toEqual(['notes', 'root.md']);
+
+    // 全部展开，notes/ 里的 dma.md 才上树 —— 下面点的是它
+    await app.expandAllTreeDirectories();
 
     // 还没打开任何文件：不应有编辑器
     expect(await app.evaluate<number>(`document.querySelectorAll('.cm-content').length`)).toBe(0);

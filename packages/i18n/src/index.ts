@@ -364,6 +364,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.general.restoreLastWorkspace': 'Reopen the last workspace on start',
     'settings.general.restoreLastWorkspaceDescription':
       'When the app starts with no folder, open the one you used last. Takes effect the next time the app starts.',
+    'settings.general.restoreTabs': 'Reopen the documents I had open',
+    'settings.general.restoreTabsDescription':
+      'On start, reopen the documents that were open in this workspace last time — in the same order, with the last active one selected. Unsaved edits are not kept: each document comes back as it was last saved. Takes effect the next time the app starts.',
     'settings.about.version': 'Version',
     'settings.about.openUpdateAction': 'Open the update window',
     'settings.about.tagline': 'A local-first knowledge base for plain Markdown files.',
@@ -1184,6 +1187,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'settings.general.restoreLastWorkspace': '启动时恢复上次的工作区',
     'settings.general.restoreLastWorkspaceDescription':
       '应用不带目录启动时，直接打开上次用过的那个工作区。下次启动生效。',
+    'settings.general.restoreTabs': '启动时恢复上次打开的文档',
+    'settings.general.restoreTabsDescription':
+      '启动时把这个工作区里上次开着的文档重新打开 —— 顺序不变，最后编辑的那个保持选中。未保存的改动不会保留：每个文档都按上次保存时的内容回来。下次启动生效。',
     'settings.about.version': '当前版本',
     'settings.about.openUpdateAction': '打开更新窗口',
     'settings.about.tagline': '本地优先的知识库，正文就是普通的 Markdown 文件。',

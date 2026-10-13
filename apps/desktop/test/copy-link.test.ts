@@ -224,6 +224,8 @@ describe('复制链接（工作区树右键）', () => {
     const app = activeApp;
 
     await app.waitForIndexReady();
+    // 2026-10-14 起重开软件默认折叠树，目录里的文档要先把目录展开才上树。
+    await app.expandAllTreeDirectories();
     // 三篇都在树上。用 `arrayContaining` 而不是逐位比对：排序规则（大小写、区域）会变，
     // 而「这三行在不在」才是这条用例的前提。
     expect(

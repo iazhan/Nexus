@@ -96,6 +96,19 @@ describe('P3-09 附件管理：单树里的附件与元数据', () => {
     await app.evaluate(`(() => { window.nexusLocale.setLocale('en-US'); return true; })()`);
     await app.waitForSelector('.nexus-workspace-toolbar', 15000);
 
+    /* 2026-10-14 起重开软件默认折叠树（`defaultExpandedDirectories` 返回空集）——
+       子目录里的行上不了屏。下面那张快照要能列出 `notes/dma.md`、`assets/logo.png`，
+       所以先全部展开；「一键展开/收起」那一轮就从全展开的对面重新做往返。 */
+    const treePaths = () =>
+      app.evaluate<string[]>(
+        `Array.from(document.querySelectorAll('.nexus-workspace-sidebar [data-relative-path]'))
+          .map((row) => row.getAttribute('data-relative-path') ?? '')`
+      );
+    expect(await treePaths()).toEqual(
+      expect.not.arrayContaining(['notes/dma.md', 'notes/deep', 'assets/logo.png'])
+    );
+    await app.expandAllTreeDirectories();
+
     const view = await app.evaluate<{
       sectionCount: number;
       rows: Array<{
@@ -182,9 +195,10 @@ describe('P3-09 附件管理：单树里的附件与元数据', () => {
 
     // ---- 一键展开 / 收起 ----
     //
-    // 默认只展开顶层，所以 `notes/deep` 这一行看得见、它下面的 `a.md` 看不见。
+    // 快照拍在「全部展开」之后，所以两层都在；下面用工具栏按钮做一轮收起/展开的往返，
+    // 而往返的起点（全展开）正是为了迁就后面点 `assets/logo.png` 那一格。
     expect(byPath.has('notes/deep')).toBe(true);
-    expect(byPath.has('notes/deep/a.md')).toBe(false);
+    expect(byPath.has('notes/deep/a.md')).toBe(true);
 
     const clickToolbar = (action: string) =>
       app.evaluate<boolean>(`(() => {
@@ -193,20 +207,8 @@ describe('P3-09 附件管理：单树里的附件与元数据', () => {
         button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         return true;
       })()`);
-    const treePaths = () =>
-      app.evaluate<string[]>(
-        `Array.from(document.querySelectorAll('.nexus-workspace-sidebar [data-relative-path]'))
-          .map((row) => row.getAttribute('data-relative-path') ?? '')`
-      );
 
-    expect(await clickToolbar('toggle-expand')).toBe(true);
-    await app.waitForFunction(
-      `document.querySelector('.nexus-toolbar-button[data-action="toggle-expand"]')
-        ?.getAttribute('data-expanded') === 'true'`,
-      15000
-    );
-    expect(await treePaths()).toContain('notes/deep/a.md');
-
+    // 起点是全展开（开头为迁就快照点过一次），所以第一击是「全部收起」。
     expect(await clickToolbar('toggle-expand')).toBe(true);
     await app.waitForFunction(
       `document.querySelector('.nexus-toolbar-button[data-action="toggle-expand"]')
@@ -226,6 +228,7 @@ describe('P3-09 附件管理：单树里的附件与元数据', () => {
         ?.getAttribute('data-expanded') === 'true'`,
       15000
     );
+    expect(await treePaths()).toContain('notes/deep/a.md');
 
     // ---- 只读：没在新建/改名时，侧栏没有任何输入控件 ----
     expect(view.inlineEditors).toBe(0);

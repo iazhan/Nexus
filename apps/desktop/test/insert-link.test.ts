@@ -211,6 +211,8 @@ describe('插入链接（Ctrl+Alt+K → 选目标 → 写进正文 → 点开）
     const app = activeApp;
 
     await app.waitForIndexReady();
+    // 2026-10-14 起重开软件默认折叠树，notes/ 里的文档要先把目录展开才上树
+    await app.expandAllTreeDirectories();
     await openRow(app, 'deep.md');
     await app.waitForSelector('.nexus-editor-toolbar', 10000);
 
@@ -256,6 +258,7 @@ describe('插入链接（Ctrl+Alt+K → 选目标 → 写进正文 → 点开）
     const app = activeApp;
 
     await app.waitForIndexReady();
+    await app.expandAllTreeDirectories();
     await openRow(app, 'deep.md');
     await app.waitForSelector('.nexus-editor-toolbar', 10000);
 
