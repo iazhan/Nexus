@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SettingsWindow } from '../src/settings/SettingsWindow.js';
 import { readWindowRole } from '../src/window-role.js';
-import { settings } from '../src/platform.js';
 
 /**
  * 设置窗口：角色分派 + 窗口外壳。
