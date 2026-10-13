@@ -640,8 +640,8 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'window.maximize': 'Maximize',
     'window.restore': 'Restore Down',
     'window.close': 'Close',
-    'surface.toVisual': 'Switch to Visual (Mod-M)',
-    'surface.toSource': 'Switch to Source (Mod-M)',
+    'surface.toVisual': 'Switch to Visual',
+    'surface.toSource': 'Switch to Source',
     'cmd.openFile': 'Open File',
     'cmd.openFolder': 'Open Folder…',
     // 这一项下面挂的**子项不是文案**，是工作区路径原文，所以字典里只有这一行标题。
@@ -1448,8 +1448,8 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'window.maximize': '最大化',
     'window.restore': '向下还原',
     'window.close': '关闭',
-    'surface.toVisual': '切换到富文本 (Mod-M)',
-    'surface.toSource': '切换到源码 (Mod-M)',
+    'surface.toVisual': '切换到富文本',
+    'surface.toSource': '切换到源码',
     'cmd.openFile': '打开文件',
     'cmd.openFolder': '打开文件夹…',
     // 子项是工作区路径原文，不是文案 —— 理由见英文侧那一行。

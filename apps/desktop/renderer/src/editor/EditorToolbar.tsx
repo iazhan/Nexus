@@ -1,6 +1,8 @@
 import React, { useCallback, useRef, useState } from 'react';
 import type { BlockFormatState, EditorSurfaceKind } from '@nexus/editor';
+import { formatShortcut } from '@nexus/command';
 import { useLocale } from '../hooks.js';
+import { resolveShortcut } from '../keybindings.js';
 import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu.js';
 import {
   CodeIcon,
@@ -181,6 +183,16 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   const surfaceToVisual = surfaceKind === 'source';
   const surfaceLabel = t(surfaceToVisual ? 'surface.toVisual' : 'surface.toSource');
 
+  /**
+   * 提示框带上**当前生效**的快捷键，按平台显示（Windows 是 `Ctrl+M`，Apple 是 `⌘M`）。
+   * 快捷键不进 i18n 文案：同一个键位表还要服务菜单与命令面板，三处各写一个字面量的话，
+   * 用户在设置里改了绑定，只有一处跟得上。用户取消绑定时不画括号那一截。
+   */
+  const surfaceSpec = resolveShortcut('toggle-surface');
+  const surfaceTitle = surfaceSpec
+    ? `${surfaceLabel} (${formatShortcut(surfaceSpec)})`
+    : surfaceLabel;
+
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const moreMenu = useDropdownAnchor(moreButtonRef);
 
@@ -229,7 +241,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         type="button"
         className="nexus-toolbar-button"
         data-action="toggle-surface"
-        title={surfaceLabel}
+        title={surfaceTitle}
         aria-label={surfaceLabel}
         aria-pressed={!surfaceToVisual}
         onClick={onToggleSurface}

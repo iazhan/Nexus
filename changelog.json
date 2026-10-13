@@ -198,5 +198,16 @@
         "en": "Remember the last 8 workspaces, most recent first. Ones that are no longer on disk — an unplugged drive, say — are left out of the menu and skipped on launch."
       }
     ]
+  },
+  "0.84.1": {
+    "date": "2026-10-13",
+    "changes": [
+      {
+        "type": "fix",
+        "scope": "desktop",
+        "zh": "工具栏「切换到富文本 / 切换到源码」的提示改成按平台显示真实快捷键 —— Windows 上是 Ctrl+M，不再显示按不下去的 Mod-M；用户在设置里改绑或取消绑定后，提示跟着变。",
+        "en": "The toolbar tooltip for switching between Visual and Source now shows the real shortcut for the platform — Ctrl+M on Windows instead of a non-functional Mod-M. It follows rebinding or unbinding done in Settings."
+      }
+    ]
   }
 }
