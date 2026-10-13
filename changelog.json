@@ -227,8 +227,8 @@
       {
         "type": "feat",
         "scope": "editor",
-        "zh": "富文本模式下， 这样的转义序列现在只显示转义后的字符 —— 写 30*30 看到的就是 30*30，反斜杠不再泄露。光标移进转义符时会还原成 *，就地可改；这只是显示层，文档内容一个字节都没动。",
-        "en": "In Visual mode, escaped characters like * now render as the character alone — typing 30*30 shows 30*30 and the backslash no longer leaks through. Moving the cursor onto the escape reveals * for editing. This is display-only: your document is unchanged."
+        "zh": "富文本模式下，`\\*` 这样的转义序列现在只显示转义后的字符 —— 写 30\\*30 看到的就是 30*30，反斜杠不再泄露。光标移进转义符时会还原成 `\\*`，就地可改；这只是显示层，文档内容一个字节都没动。",
+        "en": "In Visual mode, escaped characters like `\\*` now render as the character alone — typing 30\\*30 shows 30*30 and the backslash no longer leaks through. Moving the cursor onto the escape reveals `\\*` for editing. This is display-only: your document is unchanged."
       }
     ]
   }
