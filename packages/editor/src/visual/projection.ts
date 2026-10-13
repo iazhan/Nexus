@@ -190,7 +190,19 @@ export function buildVisualProjection(
   }
 
   function walkInline(inlineNode: MarkdownInlineNode): void {
-    if (inlineNode.type === 'bold') {
+    if (inlineNode.type === 'text' && inlineNode.escaped) {
+      // 转义序列（`\*`）在富文本下只藏反斜杠：转义后的字符本来就是**真实文本**，
+      // 与 CommonMark 的渲染结果一致（转义符的意义就是「这个字符按字面显示」）。
+      // 只替换反斜杠那一个字符 —— 整段替换会把正文吞进 widget，光标就进不来了；
+      // 光标落入范围（揭示态）时不放装饰，`\*` 就地可改。
+      if (!isNodeRevealed(inlineNode.range)) {
+        ranges.push({
+          from: inlineNode.range.from,
+          to: inlineNode.range.from + 1,
+          decoration: Decoration.replace({ widget: new DelimiterWidget('\\', false) })
+        });
+      }
+    } else if (inlineNode.type === 'bold') {
       const delim = inlineNode.raw.startsWith('**') ? '**' : (inlineNode.raw.startsWith('__') ? '__' : '**');
       const isRevealed = isNodeRevealed(inlineNode.range);
       ranges.push({

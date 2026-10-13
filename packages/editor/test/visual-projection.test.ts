@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
+import { EditorSelection } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import {
   MarkdownDocumentSession,
+  buildVisualProjection,
   createSessionEditorState,
   createSessionEditorView,
   setEditorReadOnly,
@@ -79,7 +81,12 @@ describe('Visual surface projection', () => {
     expect(checkboxWidgets[0]?.from).toBe(realTaskFrom);
   });
 
-  it('does not hide escaped markdown delimiters like \\*literal\\*', () => {
+  /**
+   * 转义序列在富文本下只藏反斜杠：`\*literal\*` 显示成 `*literal*`，`*` 仍是真实文本
+   * （光标落得进去、输入即编辑）—— 与 CommonMark 的渲染结果一致。定界符 `**` 的替换
+   * 照常，两条规则互不打扰。
+   */
+  it('hides only the backslash of escaped delimiters like \\*literal\\*', () => {
     const source = '\\*literal\\*\n\n**bold**';
     const session = new MarkdownDocumentSession(source);
     const state = createSessionEditorState({
@@ -95,13 +102,64 @@ describe('Visual surface projection', () => {
       }
     });
 
-    // Must NOT replace the escaped \*
-    expect(replacedRanges.some((r) => r.text.includes('\\*'))).toBe(false);
-    expect(replacedRanges.some((r) => r.from === 0 || r.from === 1)).toBe(false);
+    // 两个反斜杠各被替换成零宽 widget；转义后的 `*` 一个都不动
+    expect(replacedRanges.filter((r) => r.text === '\\')).toEqual([
+      { from: 0, to: 1, text: '\\' },
+      { from: 9, to: 10, text: '\\' }
+    ]);
+    expect(replacedRanges.some((r) => r.from === 1 && r.to === 2)).toBe(false);
 
-    // Should replace ** for bold
+    // `**bold**` 的两对定界符照常替换
     const boldIndex = source.indexOf('**bold**');
     expect(replacedRanges.some((r) => r.from === boldIndex)).toBe(true);
+    expect(replacedRanges.some((r) => r.from === boldIndex + 6)).toBe(true);
+  });
+
+  /**
+   * 光标落入转义范围时还原 `\*`：与其它定界符同一套揭示判据（严格落在范围内）。
+   * 未揭示态永远藏反斜杠 —— 这条同时钉住「聚焦但不选中」不泄露。
+   */
+  it('光标落入转义范围时还原反斜杠', () => {
+    // `30\*30`：反斜杠在 2，转义后的 `*` 在 3，转义范围是 [2, 4)
+    const source = '30\\*30';
+
+    const revealed = buildVisualProjection(source, EditorSelection.single(3), true);
+    const revealedWidgets: Array<{ from: number; to: number }> = [];
+    revealed.between(0, source.length, (from, to) => revealedWidgets.push({ from, to }));
+    expect(revealedWidgets).toEqual([]);
+
+    // 同一个光标位置，没聚焦 → 照常藏反斜杠
+    const unfocused = buildVisualProjection(source, EditorSelection.single(3), false);
+    const hiddenWidgets: Array<{ from: number; to: number }> = [];
+    unfocused.between(0, source.length, (from, to) => hiddenWidgets.push({ from, to }));
+    expect(hiddenWidgets).toEqual([{ from: 2, to: 3 }]);
+
+    // 光标在范围外也藏
+    const outside = buildVisualProjection(source, EditorSelection.single(1), true);
+    const outsideWidgets: Array<{ from: number; to: number }> = [];
+    outside.between(0, source.length, (from, to) => outsideWidgets.push({ from, to }));
+    expect(outsideWidgets).toEqual([{ from: 2, to: 3 }]);
+  });
+
+  it('富文本下 30\\*30 显示成 30*30，文档本身仍是 30\\*30', () => {
+    const source = '30\\*30';
+    const session = new MarkdownDocumentSession(source);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const handle = createSessionEditorView({
+      parent,
+      session,
+      surfaceId: 'visual-escape-dom',
+      surfaceKind: 'visual'
+    });
+
+    // 反斜杠被替换成零宽 widget，行里剩下的文本就是 30*30
+    expect(handle.view.dom.querySelector('.cm-line')?.textContent).toBe('30*30');
+    // 视觉层只是装饰，源码一个字节都没动
+    expect(handle.view.state.doc.toString()).toBe(source);
+
+    handle.destroy();
+    document.body.removeChild(parent);
   });
 
   it('does not cross-pair adjacent formatting spans like **one** **two**', () => {
