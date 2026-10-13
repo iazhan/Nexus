@@ -70,7 +70,6 @@ describe('窗口角色', () => {
 
 describe('设置窗口外壳', () => {
   beforeEach(() => {
-    settings.set('settings.lastSection', 'appearance');
     stubBridge();
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -81,7 +80,6 @@ describe('设置窗口外壳', () => {
     act(() => root.unmount());
     container.remove();
     delete (window as unknown as { nexus?: unknown }).nexus;
-    settings.set('settings.lastSection', 'appearance');
   });
 
   it('标记自己是设置窗口，并装上设置本体', () => {

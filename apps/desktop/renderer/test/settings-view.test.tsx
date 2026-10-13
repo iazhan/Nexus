@@ -2935,7 +2935,6 @@ describe('设置分组状态', () => {
 
   beforeEach(() => {
     latest = null;
-    settings.set('settings.lastSection', 'appearance');
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -2947,22 +2946,21 @@ describe('设置分组状态', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    settings.set('settings.lastSection', 'appearance');
   });
 
-  it('切分组写进 settings.lastSection', () => {
+  /**
+   * 落点不跨窗口生命周期：打开设置永远从默认分组起步，上次停在哪不作数。
+   * 反向判据（切得动）与「查询串指定」在下面那个 describe 里。
+   */
+  it('不记录上次停在哪 —— 重新挂载就回默认分组', () => {
     act(() => latest?.selectSection('editor'));
-
     expect(latest?.section).toBe('editor');
-    expect(settings.get('settings.lastSection')).toBe('editor');
-    expect(localStorage.getItem('nexus-settings-section')).toBe('editor');
-  });
 
-  it('存档里是认不出的分组时回落到默认分组', () => {
-    // 直接 set 会被 store 的订阅驱动重渲染 —— 放进 act 才不会刷更新警告。
-    act(() => {
-      settings.set('settings.lastSection', 'nonsense');
-    });
+    // 重新挂载（等价于关掉设置窗口再打开）。React 19 的 root 卸载后不能再渲染，
+    // 所以新建一个 root，而不是原地重渲染（那不会重建 state）。
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
 
     expect(latest?.section).toBe('appearance');
   });
@@ -2992,7 +2990,6 @@ describe('设置分组的查询串落点', () => {
 
   beforeEach(() => {
     latest = null;
-    settings.set('settings.lastSection', 'appearance');
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -3002,28 +2999,24 @@ describe('设置分组的查询串落点', () => {
     act(() => root.unmount());
     container.remove();
     window.history.replaceState({}, '', '/');
-    settings.set('settings.lastSection', 'appearance');
   });
 
-  it('查询串指定分组时落在该分组，并写进存档', () => {
+  it('查询串指定分组时落在该分组', () => {
     renderWith('?window=settings&section=plugins');
 
     expect(latest?.section).toBe('plugins');
-    // 写进存档：下次打开设置停在这一组，与「在左栏点了一下」是同一种效果。
-    expect(settings.get('settings.lastSection')).toBe('plugins');
   });
 
-  it('查询串是认不出的分组时回落存档 —— 不把用户丢进一个空页', () => {
-    settings.set('settings.lastSection', 'editor');
+  it('查询串是认不出的分组时回落默认分组 —— 不把用户丢进一个空页', () => {
     renderWith('?window=settings&section=nonsense');
 
-    expect(latest?.section).toBe('editor');
+    expect(latest?.section).toBe('appearance');
   });
 
   /**
    * 反面：查询串的落点**只消费一次**。
    *
-   * 留着它一直压着存档的话，用户接下来点任何分组都点不动（URL 没变），
+   * 留着它一直压着内存状态的话，用户接下来点任何分组都点不动（URL 没变），
    * 而症状是「左栏点了没反应」—— 这条用例专门守这个。
    */
   it('查询串的落点只消费一次 —— 之后点别的分组切得动', () => {
@@ -3033,7 +3026,6 @@ describe('设置分组的查询串落点', () => {
     act(() => latest?.selectSection('data'));
 
     expect(latest?.section).toBe('data');
-    expect(settings.get('settings.lastSection')).toBe('data');
   });
 });
 

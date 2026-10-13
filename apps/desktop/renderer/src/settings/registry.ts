@@ -203,14 +203,14 @@ export const SECTIONS: readonly SectionDef[] = [
   }
 ];
 
-/** 默认落点，也是 `settings.lastSection` 存档不可解读时的回落值。 */
+/** 默认落点：不带 `?section=` 打开设置窗口时停在这一组。 */
 export const DEFAULT_SECTION_ID: SectionId = 'appearance';
 
 export function sectionById(id: SectionId): SectionDef | undefined {
   return SECTIONS.find((section) => section.id === id);
 }
 
-/** 存档里可能是旧的分组 id，用它校验成员资格 —— 不校验 `availability`，`sync` 那组也进得去（看空态）。 */
+/** 查询串里可能是旧的分组 id，用它校验成员资格 —— 不校验 `availability`，`sync` 那组也进得去（看空态）。 */
 export function isSectionId(id: string): id is SectionId {
   return SECTIONS.some((section) => section.id === id);
 }

@@ -209,5 +209,16 @@
         "en": "The toolbar tooltip for switching between Visual and Source now shows the real shortcut for the platform — Ctrl+M on Windows instead of a non-functional Mod-M. It follows rebinding or unbinding done in Settings."
       }
     ]
+  },
+  "0.84.2": {
+    "date": "2026-10-13",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "设置窗口不再记住上次停在哪一组：打开就是外观分组，或从插件面板「在设置中管理」跳过来的那一组。切分组仍然当场生效，只是不跨窗口保留。",
+        "en": "The Settings window no longer remembers which group you were last on: it opens on Appearance, or on the group requested by “Manage in Settings” from the plugins panel. Switching groups still works instantly — it just is not kept across windows."
+      }
+    ]
   }
 }

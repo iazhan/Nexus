@@ -316,7 +316,7 @@ export type WindowRole = 'main' | 'settings' | 'theme' | 'update';
  * 改一处漏一处不会有任何东西报错，症状只是「跳转打开了设置窗口却停在旧分组」。
  *
  * **取值不在这里校验**：合法值域是渲染进程的 `SectionId`，主进程不认识它。认不出的值
- * 由渲染进程忽略、回落 `settings.lastSection` —— 与 `readWindowRole()` 的「认不出的值
+ * 由渲染进程忽略、回落默认分组 —— 与 `readWindowRole()` 的「认不出的值
  * 一律当主窗口」同一个方向：宁可停在默认分组，也不要把用户丢进一个空页。
  */
 export const SETTINGS_SECTION_PARAM = 'section';

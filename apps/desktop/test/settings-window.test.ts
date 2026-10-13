@@ -706,8 +706,8 @@ describe('设置窗口', () => {
     const mainBaseWidth = await stableWidth();
 
     await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
-    // 窗口会停在存档里的上次分组（第 ⑤ 步点过 `data`），而缩放字段在外观分组 ——
-    // 不切分组就等字段，等的是「当前内容区里永远不出现的节点」。
+    // 重开的窗口落在默认分组（外观），缩放字段正在外观分组 —— 点一下导航只是确认落点，
+    // 不依赖「上次停在哪」。
     await app.click('.nexus-settings-nav [data-section="appearance"]');
     await app.waitForSelector('[data-field-input="appearance.uiZoom"]', 10000);
     await app.evaluate(
@@ -751,11 +751,11 @@ describe('设置窗口', () => {
       (await app.pageTargets()).filter((t) => t.url.includes(SETTINGS_WINDOW_URL_MARKER)).length
     ).toBe(1);
 
-    // 还原字号、藏起来的读数与上次停留的分组：Electron 的 user-data-dir **没有按用例隔离**，
+    // 还原字号、藏起来的读数与界面缩放档位：Electron 的 user-data-dir **没有按用例隔离**，
     // 留一个 18px 或「状态栏少一项」在存档里，会让后面任何读它的用例从「别人改过的状态」起步。
     // 走 `localStorage` 直接清，不绕 UI。
     await app.evaluate(
-      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-settings-section'); localStorage.removeItem('nexus-ui-zoom'); localStorage.removeItem('nexus-ignore-rules'); localStorage.removeItem('nexus-status-bar-hidden'); localStorage.removeItem('nexus-chrome-hidden');`
+      `localStorage.removeItem('nexus-editor-font-size'); localStorage.removeItem('nexus-editor-code-block-line-numbers'); localStorage.removeItem('nexus-editor-table-layout'); localStorage.removeItem('nexus-ui-zoom'); localStorage.removeItem('nexus-ignore-rules'); localStorage.removeItem('nexus-status-bar-hidden'); localStorage.removeItem('nexus-chrome-hidden');`
     );
   }, 120000);
 });

@@ -3,7 +3,6 @@ import { DEFAULT_THEME_CHOICE, THEME_STORAGE_KEY, type UserTheme } from '@nexus/
 import { SETTING_DEFS, SettingsStore } from '../src/settings/store.js';
 import { applyOverrides, applyThemeChoice, applyUserTheme, settings, themeManager } from '../src/platform.js';
 
-const LAST_SECTION_KEY = SETTING_DEFS['settings.lastSection'].storageKey;
 const USER_THEME_KEY = SETTING_DEFS['appearance.userThemes'].storageKey;
 
 /** 默认预设的两个显式模式。存档里一律是 `<预设>@<模式>`。 */
@@ -40,16 +39,13 @@ describe('设置存储 · 读初值', () => {
   it('没有存档时用 fallback', () => {
     const store = new SettingsStore();
     expect(store.get('appearance.theme')).toBe(DEFAULT_THEME_CHOICE);
-    expect(store.get('settings.lastSection')).toBe('appearance');
   });
 
   it('有存档时用存档', () => {
     localStorage.setItem(THEME_STORAGE_KEY, DARK);
-    localStorage.setItem(LAST_SECTION_KEY, 'editor');
 
     const store = new SettingsStore();
     expect(store.get('appearance.theme')).toBe(DARK);
-    expect(store.get('settings.lastSection')).toBe('editor');
   });
 
   /**
@@ -86,11 +82,6 @@ describe('设置存储 · 读初值', () => {
   it('认不出的值原样留着 —— 静默改掉会让用户以为选择丢了', () => {
     localStorage.setItem(THEME_STORAGE_KEY, 'no-such-theme');
     expect(new SettingsStore().get('appearance.theme')).toBe('no-such-theme');
-  });
-
-  it('空白字符串当作没有值', () => {
-    localStorage.setItem(LAST_SECTION_KEY, '   ');
-    expect(new SettingsStore().get('settings.lastSection')).toBe('appearance');
   });
 
   /**
@@ -184,18 +175,18 @@ describe('设置存储 · 广播', () => {
   it('只通知同一个 path 的订阅者', () => {
     const store = new SettingsStore();
     let themeHits = 0;
-    let sectionHits = 0;
+    let fontSizeHits = 0;
     store.subscribe('appearance.theme', () => {
       themeHits += 1;
     });
-    store.subscribe('settings.lastSection', () => {
-      sectionHits += 1;
+    store.subscribe('editor.fontSize', () => {
+      fontSizeHits += 1;
     });
 
-    store.set('settings.lastSection', 'editor');
+    store.set('editor.fontSize', 16);
 
     expect(themeHits).toBe(0);
-    expect(sectionHits).toBe(1);
+    expect(fontSizeHits).toBe(1);
   });
 
   it('退订后不再收到通知', () => {

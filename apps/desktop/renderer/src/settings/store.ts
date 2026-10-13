@@ -125,9 +125,6 @@ function defineSetting<T>(def: SettingDef<T>): SettingDef<T> {
   return def;
 }
 
-/** 设置页默认落在哪个分组。值域归 P4-02 的 `SectionId` 校验，store 只保证「非空字符串」。 */
-const DEFAULT_SECTION = 'appearance';
-
 /**
  * 数值项的样板：夹取规则只在 `preference-specs.ts` 写一份，这里只负责接上。
  * 十来个外观 / 行为项里有四个是数值，各写一遍 parse 必然有一处漏夹。
@@ -244,13 +241,6 @@ export const SETTING_DEFS = {
     // 旧存档存的是主题**类型**（`dark` / `light`）或裸方案 id，`normalizeThemeChoice` 接住它们。
     // 迁移必须留在这里：preload 与 renderer 共用同一份规则，各写一遍就会「先按 A 画一帧、起来再跳 B」。
     parse: normalizeThemeChoice,
-    serialize: (value) => value
-  }),
-  // 纯新项、没有历史包袱，用它验证「非枚举、不需要迁移」的路径。
-  'settings.lastSection': defineSetting<string>({
-    storageKey: 'nexus-settings-section',
-    fallback: DEFAULT_SECTION,
-    parse: (raw) => (raw !== null && raw.trim() !== '' ? raw : DEFAULT_SECTION),
     serialize: (value) => value
   }),
   /**
