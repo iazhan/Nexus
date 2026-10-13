@@ -77,3 +77,19 @@ export function showActivity(state: ActivityState, id: ActivityId): ActivityStat
   if (state.activeId === id && state.panelOpen) return state;
   return { activeId: id, panelOpen: true };
 }
+
+/**
+ * 图谱这一屏是不是正占着**主区**（编辑区的位置）。
+ *
+ * 图谱不是侧栏面板（2026-10-14 起）：窄栏里 cytoscape 级别的图展不开，所以它搬到
+ * 主区，侧栏同时留在文件树上 —— 图里点开的文档要有地方去，而文件树是导航的主入口。
+ * 因此「图谱」这个图标按下时同时改变两处：主区换成图谱，侧栏换成文件树。
+ *
+ * 判据是 `activeId && panelOpen` 而不是只看 `activeId`：图标的高亮用的就是这一对
+ * （见 `ActivityBar.tsx`），所以「灯亮着 ⇔ 图在主区」。收起面板（快捷键或再点一次图标）
+ * 等于关掉图谱视图，编辑区回来 —— 两者必须同时发生，否则会出现「图还在、灯灭了」
+ * 或者「灯亮着、图没了」的自相矛盾。
+ */
+export function isGraphViewActive(state: ActivityState): boolean {
+  return state.activeId === 'graph' && state.panelOpen;
+}

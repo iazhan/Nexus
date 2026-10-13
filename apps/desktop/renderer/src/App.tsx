@@ -115,6 +115,7 @@ import {
 import { ActivityBar } from './shell/ActivityBar.js';
 import {
   INITIAL_ACTIVITY_STATE,
+  isGraphViewActive,
   showActivity,
   toggleActivity,
   type ActivityId
@@ -645,6 +646,40 @@ export const App: React.FC = () => {
   // 订阅 store。返回值用来驱动重渲染，文档列表从它取。
   const workspaceSnapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const activeDocument = store.getActive();
+
+  /**
+   * 图谱视图：图谱占着**主区**（编辑区的位置），侧栏同时留在文件树上。
+   *
+   * 判据（`activeId === 'graph' && panelOpen`）在 `isGraphViewActive` 里，
+   * 与活动栏图标高亮同一对条件 —— 灯亮 ⇔ 图在主区。收下面板或切到别的图标，
+   * 编辑区就回来。
+   *
+   * 只在工作区模式成立：轻量模式没有活动栏（见下面 JSX），也就没有这一屏。
+   */
+  const graphViewActive =
+    status === 'ready' && workspaceRoot !== null && isGraphViewActive(activity);
+
+  /**
+   * 图谱让位给「打开文档」：主区一旦有文档要显示，图谱就退场。
+   *
+   * 用 effect 而不是在每个 `onOpenFile` 调用点补一句：打开文档的路有七八条
+   * （树、Ctrl+O、搜索、标签、反向链接、图自己、链接跳转……），漏一条的症状是
+   * 「点了节点、文档开了、界面却什么都没变」。而**判据**本来就该是「活动文档换了」——
+   * 那是「主区该显示文档了」的唯一信号。
+   *
+   * 只在图谱视图里跑（早退），且只认「换成另一篇」：`null → null`（关掉最后一个
+   * 标签页）不退场，那时主区空着，留给图谱正合适。
+   */
+  const previousActivePathRef = useRef<string | null>(activeDocument?.filePath ?? null);
+  useEffect(() => {
+    const current = activeDocument?.filePath ?? null;
+    const previous = previousActivePathRef.current;
+    previousActivePathRef.current = current;
+    if (!graphViewActive) return;
+    if (current !== null && current !== previous) {
+      setActivity((state) => showActivity(state, 'workspace'));
+    }
+  }, [activeDocument?.filePath, graphViewActive]);
 
   /**
    * 兜底 session：只在 `status === 'ready'` 之前被引用。
@@ -3412,7 +3447,11 @@ export const App: React.FC = () => {
               它会被 CSS 里的 display 覆盖。 */}
           <div
             className={`nexus-panel-slot${
-              activity.activeId === 'workspace' ? '' : ' nexus-panel-slot-hidden'
+              // 图谱视图里侧栏**留在文件树上**：图搬到主区了，侧栏再挂一份图谱就是两个
+              // 画布、两份索引查询；而文件树是导航的主入口，图里点开的文档也要靠它去别处。
+              activity.activeId === 'workspace' || graphViewActive
+                ? ''
+                : ' nexus-panel-slot-hidden'
             }`}
           >
             <WorkspaceSidebar
@@ -3479,19 +3518,9 @@ export const App: React.FC = () => {
               focusTag={tagFocus}
             />
           </div>
-          <div
-            className={`nexus-panel-slot${
-              activity.activeId === 'graph' ? '' : ' nexus-panel-slot-hidden'
-            }`}
-          >
-            {/* 图谱来自索引（磁盘内容），编辑后用 documentRevision 触发重读 */}
-            <GraphPanel
-              activeFilePath={filePath}
-              onOpenFile={handleOpenWorkspaceFile}
-              onCreateMissingLink={createMissingLinkDocument}
-              revision={documentRevision}
-            />
-          </div>
+          {/* 图谱不在侧栏里占位：它是**主区**视图（见 `graphViewActive`），
+              从「图谱」图标按下那一刻起画在主区。这里曾经是它的侧栏槽位，
+              留着会在图谱视图里同时挂两份画布。 */}
           <div
             className={`nexus-panel-slot${
               activity.activeId === 'history' ? '' : ' nexus-panel-slot-hidden'
@@ -3520,6 +3549,23 @@ export const App: React.FC = () => {
       )}
 
       <main className="nexus-main-content">
+      {/* 图谱视图：主区整块换成图谱，编辑区（连标签栏、工具栏、空态一起）不画。
+          文档仍然开着、状态一样不少的 —— 只是这一屏不显示它们，切回任一别的入口
+          （再点一次「图谱」图标、点开一篇文档）编辑区原样回来。
+
+          为什么不保留标签栏：图谱要的是「一屏图」；而切换标签这个动作本身就等于
+          「换一篇文档」，那时主区该回去显示文档（见上面那个退场 effect），
+          留着一条 mostly 点了就退场的栏只会让人以为它能「在图和文档之间切」。 */}
+      {graphViewActive ? (
+        <GraphPanel
+          variant="main"
+          activeFilePath={filePath}
+          onOpenFile={handleOpenWorkspaceFile}
+          onCreateMissingLink={createMissingLinkDocument}
+          revision={documentRevision}
+        />
+      ) : (
+      <>
       {/* 标签栏挂在编辑区容器**内部**：它只该横跨编辑区，不该延伸到活动栏和侧栏上方。
           放在这里还有个好处 —— 侧栏展开/收起时标签栏宽度自动跟着变，不需要额外同步。
 
@@ -3655,6 +3701,8 @@ export const App: React.FC = () => {
             className="nexus-editor-full"
           />
         </ErrorBoundary>
+      )}
+      </>
       )}
       </main>
       </div>

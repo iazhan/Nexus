@@ -259,5 +259,16 @@
         "en": "The file tree now starts fully collapsed, showing only top-level entries. Restored documents still reveal and select themselves. Workspaces with many directories no longer open to a wall of files."
       }
     ]
+  },
+  "0.84.6": {
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "点左侧栏的「图谱」图标，图谱现在占满编辑区：编辑区连同标签栏、工具栏一起让位，侧栏同时留在文件树上。在图谱里点节点打开文档、或再点一次「图谱」图标，都会退回编辑区。窄侧栏里展不开的图终于有地方铺开了。",
+        "en": "Clicking Graph in the activity bar now expands the graph into the main content area: the editor, tab bar, and toolbar step aside while the sidebar stays on the file tree. Opening a document from the graph — or clicking Graph again — takes you back to the editor. The graph finally has room to spread out."
+      }
+    ]
   }
 }

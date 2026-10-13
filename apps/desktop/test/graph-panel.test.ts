@@ -19,6 +19,11 @@ import {
  *
  * **只启动一次 Electron**（一次 ~7s），四个场景共享同一个实例 —— 它们之间没有状态冲突：
  * 缩放/悬停/拖拽都不改索引，只有「打开文档」会换掉活动文档，而那恰好是最后一个场景要用的前提。
+ *
+ * 2026-10-14 起图谱占**主区**，而「在图谱里打开一篇文档」会让图谱退场（主区要显示文档）。
+ * 于是「图一直在」这条默认假设不成立了：凡是在打开过文档之后还要与画布对话的用例，
+ * 都得先 `ensureGraphVisible()` 把它切回主区。切回去之后面板是**重新挂载**的，
+ * 视图状态由 `graph-view-state` 落盘撑着（这正是 `graph-persistence.test.ts` 那条）。
  */
 describe('图谱面板', () => {
   let tempDir: string;
@@ -31,6 +36,26 @@ describe('图谱面板', () => {
     x: number;
     y: number;
   }
+
+  /**
+   * 确保图谱在主区；已经被文档挤走了就再点一次活动栏图标。
+   *
+   * 判据用 `.nexus-main-content .nexus-graph-canvas` 而不是裸 `.nexus-graph-canvas`：
+   * 后者在图谱搬去主区之前也能命中侧栏里那一份，看不出「这一屏到底有没有图」。
+   */
+  const ensureGraphVisible = async (): Promise<void> => {
+    const present = await app.evaluate<boolean>(
+      `!!document.querySelector('.nexus-main-content .nexus-graph-canvas')`
+    );
+    if (present) return;
+    await app.click('.nexus-activity-icon[data-activity="graph"]');
+    await app.waitForSelector('.nexus-main-content .nexus-graph-canvas', 20000);
+    // 重新挂载之后要先查一次图、算一次布局，hitmap 里才有坐标可读
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-hitmap')?.dataset.screenNodes !== '[]'`,
+      20000
+    );
+  };
 
   const readScreenNodes = () =>
     app
@@ -261,6 +286,7 @@ describe('图谱面板', () => {
       只是点不中。所以断言必须走「读投影坐标 → 在那个位置点 → 打开的是对的文档」整条链，
       用布局坐标去点是不成立的（缩放后它本来就不对）。
     */
+    await ensureGraphVisible();
     expect((await readView()).scale).toBe(1);
 
     // 以画布中心为锚点放大
@@ -279,11 +305,15 @@ describe('图谱面板', () => {
     );
     expect((await readView()).scale).toBeGreaterThan(1.5);
 
-    // 滚轮不该把侧栏一起滚掉 —— 这条守的是「原生非 passive 监听」那个实现选择
-    const sidebarScrolled = await app.evaluate<number>(
-      `document.querySelector('.nexus-workspace-sidebar')?.scrollTop ?? 0`
-    );
-    expect(sidebarScrolled).toBe(0);
+    // 滚轮不该把任何祖先容器一起滚掉 —— 这条守的是「原生非 passive 监听」那个实现选择。
+    // 图谱 2026-10-14 起在主区，所以祖先从侧栏变成了主区；两边一起断言，免得
+    // 「换了位置就没人守这条」。
+    const scrolled = await app.evaluate<{ main: number; sidebar: number }>(`(() => ({
+      main: document.querySelector('.nexus-main-content')?.scrollTop ?? 0,
+      sidebar: document.querySelector('.nexus-workspace-sidebar')?.scrollTop ?? 0
+    }))()`);
+    expect(scrolled.main).toBe(0);
+    expect(scrolled.sidebar).toBe(0);
 
     // 双击空白取景，把被推出视口的节点带回来
     await app.evaluate(`(() => {
@@ -322,7 +352,11 @@ describe('图谱面板', () => {
 
       这条守的是一个从图谱落地起就存在的 bug：判据拿节点的**相对路径**去比 App 传下来的
       **绝对路径**，永远不相等。这里用的是主进程给的真实绝对路径，所以能抓到它。
+
+      图谱此刻已经退场（主区要显示刚打开的文档），所以先把它切回主区再看高亮 ——
+      顺带也验了「以一篇活动文档重新进入图谱」这条路。
     */
+    await ensureGraphVisible();
     const activeId = await app.evaluate<string>(
       `document.querySelector('.nexus-graph-hitmap')?.dataset.activeNode ?? ''`
     );
@@ -334,12 +368,15 @@ describe('图谱面板', () => {
     /*
       接线验收：控制条 → 查询参数 → 主进程裁剪 → 面板重画。
       裁剪算法本身在 `apps/desktop/test/index-store.test.ts` 的「图谱的范围与筛选」里逐条验过，
-      这里只证明**这条线接上了** —— 上一批用例结束时活动文档是 a.md（第 3 个用例打开的）。
+      这里只证明**这条线接上了** —— 上一条用例结束时活动文档是 a.md（在图谱里点开的）。
     */
     const active = await app.evaluate<string>(
       `document.querySelector('.nexus-filename')?.textContent ?? ''`
     );
     expect(active).toBe('a.md');
+
+    // 上一条在图谱里打开了文档，图谱已经退场 —— 先切回主区才谈得上点控制条
+    await ensureGraphVisible();
 
     await app.click('.nexus-graph-chip[data-scope="current"]');
     await app.waitForFunction(
@@ -360,6 +397,7 @@ describe('图谱面板', () => {
 
   it('拖动节点不会顺手把文档打开', async () => {
     // 少了「移动超过容差就不算点击」这条，拖完一个节点会把用户从图谱里踢进编辑器
+    await ensureGraphVisible();
     const nodes = await readScreenNodes();
     const target = byName(nodes, 'c.md');
     const viewBefore = await readView();
@@ -409,6 +447,8 @@ describe('图谱面板', () => {
         c.md          0   1
         lonely.md     0   0
     */
+    await ensureGraphVisible();
+
     const listItems = () =>
       app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('.nexus-graph-list .nexus-backlink-item')).map((el) => el.textContent)`
@@ -457,6 +497,7 @@ describe('图谱面板', () => {
   }, INDEXED_TEST_TIMEOUT_MS);
 
   it('拖空白处平移画布，缩放不变', async () => {
+    await ensureGraphVisible();
     const viewBefore = await readView();
 
     // 从画布左下角往右下拖 —— 那里没有节点

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   INITIAL_ACTIVITY_STATE,
   collapseActivity,
+  isGraphViewActive,
   showActivity,
   toggleActivity,
   type ActivityState
@@ -98,6 +99,24 @@ describe('活动栏状态', () => {
     it('**已经就是这样时返回同一个引用** —— 否则每次定位都多一次无谓的重渲染', () => {
       const already: ActivityState = { activeId: 'workspace', panelOpen: true };
       expect(showActivity(already, 'workspace')).toBe(already);
+    });
+  });
+
+  describe('isGraphViewActive（图谱这一屏占不占主区）', () => {
+    it('图谱展开中才算 —— 与图标高亮同一对条件', () => {
+      const onGraph: ActivityState = { activeId: 'graph', panelOpen: true };
+      expect(isGraphViewActive(onGraph)).toBe(true);
+    });
+
+    it('面板收起时不算：灯灭了，图也该从主区退场', () => {
+      // 「图还在、灯灭了」与「灯亮着、图没了」都是自相矛盾，所以这两个字段必须一起判。
+      const collapsed: ActivityState = { activeId: 'graph', panelOpen: false };
+      expect(isGraphViewActive(collapsed)).toBe(false);
+    });
+
+    it('停在别的面板上不算', () => {
+      expect(isGraphViewActive({ activeId: 'workspace', panelOpen: true })).toBe(false);
+      expect(isGraphViewActive(INITIAL_ACTIVITY_STATE)).toBe(false);
     });
   });
 });

@@ -1614,6 +1614,28 @@ button.nexus-outline-toggle:hover {
 }
 
 /*
+  图谱占**主区**时的两处调配：标题升一档（侧栏那 13px 是给窄栏的，主区里显小），
+  控件改成一行铺开（侧栏版竖着堆，理由是那边的宽度只够换行）。
+  画布与交互一律不变 —— `.nexus-graph-body` 是 flex: 1，给多大盒子撑多大。
+*/
+.nexus-graph[data-variant='main'] .nexus-sidebar-header {
+  padding: 14px 16px;
+  font-size: 15px;
+}
+
+.nexus-graph[data-variant='main'] .nexus-graph-controls {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.nexus-graph[data-variant='main'] .nexus-graph-list-modes {
+  padding: 0 16px 12px;
+}
+
+/*
   图谱控制条：范围 + 类型筛选。
   放在头部与画布之间，宽度受限（侧栏可窄到 ~180px），所以 chip 会换行 —— 不换行的话
   类型一多就把画布挤没了。

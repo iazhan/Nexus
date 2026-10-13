@@ -37,6 +37,25 @@ describe('图谱断链', () => {
       .evaluate<string>(`document.querySelector('.nexus-graph-hitmap')?.dataset.screenNodes ?? '[]'`)
       .then((raw) => JSON.parse(raw) as ScreenNode[]);
 
+  /**
+   * 确保图谱在主区；被文档挤走了就再点一次活动栏图标。
+   *
+   * 2026-10-14 起图谱占主区，而「点断链新建并打开文档」会让图谱退场 —— 上一条用例
+   * 正好做了这件事，所以这一条开头必须先把图谱切回来。
+   */
+  const ensureGraphVisible = async (): Promise<void> => {
+    const present = await app.evaluate<boolean>(
+      `!!document.querySelector('.nexus-main-content .nexus-graph-canvas')`
+    );
+    if (present) return;
+    await app.click('.nexus-activity-icon[data-activity="graph"]');
+    await app.waitForSelector('.nexus-main-content .nexus-graph-canvas', 20000);
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-hitmap')?.dataset.screenNodes !== '[]'`,
+      20000
+    );
+  };
+
   beforeAll(async () => {
     tempDir = createTempDir('nexus-graph-missing-');
     workspace = path.join(tempDir, 'vault');
@@ -107,6 +126,9 @@ describe('图谱断链', () => {
   }, INDEXED_TEST_TIMEOUT_MS);
 
   it('建完之后图上不再有断链节点', async () => {
+    // 上一条把新建的文档打开了，图谱已经退场 —— 先切回主区
+    await ensureGraphVisible();
+
     // 新建会把索引版本顶上去，图谱重取 —— 那个点应该变成普通文档节点
     await app.waitForFunction(
       `JSON.parse(document.querySelector('.nexus-graph-hitmap').dataset.screenNodes)

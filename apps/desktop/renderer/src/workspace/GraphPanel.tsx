@@ -28,6 +28,17 @@ import {
 } from './graph-view.js';
 
 export interface GraphPanelProps {
+  /**
+   * 图谱落在哪一区。
+   *
+   * - `sidebar`：老位置，活动栏的窄面板（默认）。
+   * - `main`：主区（编辑区的位置，2026-10-14 起默认由「图谱」图标切进去）。
+   *
+   * 只改外观（标题字号、控件排布），画布与交互完全同一套：`.nexus-graph-body`
+   * 是 `flex: 1`，给多大盒子就撑多大；尺寸变化由 ResizeObserver 接住，
+   * 布局有 150ms 防抖。所以宽区不需要第二份实现。
+   */
+  variant?: 'sidebar' | 'main';
   /** 当前活动文档的绝对路径，用于高亮它的节点 */
   activeFilePath: string | null;
   onOpenFile: (filePath: string) => void;
@@ -234,7 +245,8 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   activeFilePath,
   onOpenFile,
   onCreateMissingLink,
-  revision
+  revision,
+  variant = 'sidebar'
 }) => {
   const { t } = useLocale();
   /*
@@ -993,7 +1005,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   }, [activeFilePath, graph.nodes, positionById, size.width, size.height]);
 
   return (
-    <div className="nexus-graph">
+    <div className="nexus-graph" data-variant={variant}>
       <div className="nexus-sidebar-header">
         <span className="nexus-sidebar-root">{t('activity.graph')}</span>
         {/* 计数是**画布上**的节点数；清单视图里那个数由各自的列表回答，这里不重复 */}
