@@ -280,7 +280,7 @@ describe('图谱面板', () => {
     );
   }, INDEXED_TEST_TIMEOUT_MS);
 
-  it('滚轮缩放：锚点不动、侧栏不跟着滚、缩放后仍点得中', async () => {
+  it('滚轮缩放：锚点不动、主区不跟着滚、缩放后仍点得中', async () => {
     /*
       「缩放后仍点得中」是投影写反时**唯一**会露馅的地方：画面看起来完全正常，
       只是点不中。所以断言必须走「读投影坐标 → 在那个位置点 → 打开的是对的文档」整条链，
@@ -305,15 +305,13 @@ describe('图谱面板', () => {
     );
     expect((await readView()).scale).toBeGreaterThan(1.5);
 
-    // 滚轮不该把任何祖先容器一起滚掉 —— 这条守的是「原生非 passive 监听」那个实现选择。
-    // 图谱 2026-10-14 起在主区，所以祖先从侧栏变成了主区；两边一起断言，免得
-    // 「换了位置就没人守这条」。
-    const scrolled = await app.evaluate<{ main: number; sidebar: number }>(`(() => ({
-      main: document.querySelector('.nexus-main-content')?.scrollTop ?? 0,
-      sidebar: document.querySelector('.nexus-workspace-sidebar')?.scrollTop ?? 0
+    // 滚轮不该把主区容器一起滚掉 —— 这条守的是「原生非 passive 监听」那个实现选择。
+    // 图谱 2026-10-14 起在主区，所以那个可被误滚的祖先从侧栏变成了主区；
+    // 侧栏在图谱视图里整块隐藏（`display: none`），量它的 scrollTop 恒为 0，没有守护价值。
+    const scrolled = await app.evaluate<{ main: number }>(`(() => ({
+      main: document.querySelector('.nexus-main-content')?.scrollTop ?? 0
     }))()`);
     expect(scrolled.main).toBe(0);
-    expect(scrolled.sidebar).toBe(0);
 
     // 双击空白取景，把被推出视口的节点带回来
     await app.evaluate(`(() => {

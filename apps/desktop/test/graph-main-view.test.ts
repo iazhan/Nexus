@@ -22,10 +22,10 @@ import {
  *    编辑器都不画了。happy-dom 那层（`renderer/test/graph-main-view.test.tsx`）验的是
  *    「React 树换了分支」，这里验的是**真窗口里的盒子**——CSS 一改（比如主区忘了
  *    `overflow: hidden`）就只有这边会红。
- * 2. **侧栏留在文件树上**：图搬走了，侧栏不能空着 —— 用户在图里点开的文档、
- *    以及「去别处看看」，都要靠文件树。
- * 3. **点节点打开文档后退场**：主区一旦有文档要显示，图谱就让位。这条同时是
- *    「图谱不会把自己变成一潭死水」的保证：点了节点看得见文档。
+ * 2. **侧栏整块隐藏**：图要的是「一屏图」。侧栏虽然还挂载着（切回来不用重跑索引），
+ *    但 slot 挂 hidden 类、由 CSS 收起；这里顺带盯住它没有变成空白或第二份图谱。
+ * 3. **点节点打开文档后退场**：主区一旦有文档要显示，图谱就让位，侧栏跟着回来。
+ *    这条同时是「图谱不会把自己变成一潭死水」的保证：点了节点看得见文档。
  *
  * **一个文件只启动一次 Electron**（同文件第二次启动会卡在 `Runtime.enable` 不返回）。
  * 两条用例按顺序共用一次启动：第一条切进图谱，第二条在图谱里点节点。
@@ -61,7 +61,7 @@ describe('图谱占编辑区', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('点「图谱」图标：编辑区整块让位，图谱进主区，侧栏留在文件树', async () => {
+  it('点「图谱」图标：编辑区整块让位，图谱进主区，侧栏整块隐藏', async () => {
     // 前置条件：现在还是编辑区那一屏（空态），树上有两篇笔记
     await app.waitForSelector('[data-relative-path="a.md"]', 20000);
     expect(
@@ -89,12 +89,18 @@ describe('图谱占编辑区', () => {
       )
     ).toBe(true);
 
-    // 侧栏还在，而且留在文件树上（不是空白，也不是第二份图谱）
+    // 侧栏整块隐藏：slot 挂 hidden 类（可见性归 CSS，真机上 `display: none`），
+    // 侧栏里也没有第二份图谱 —— 挂载保留是刻意的（切回来不用重跑索引）
     expect(
       await app.evaluate<boolean>(
-        `document.querySelector('.nexus-activity-panel .nexus-workspace-sidebar') !== null &&
-         document.querySelector('.nexus-activity-panel .nexus-graph') === null &&
-         !!document.querySelector('[data-relative-path="a.md"]')`
+        `(() => {
+           const slot = document.querySelector('.nexus-activity-panel .nexus-workspace-sidebar')
+             ?.closest('.nexus-panel-slot');
+           return slot !== null &&
+             slot.classList.contains('nexus-panel-slot-hidden') &&
+             getComputedStyle(slot).display === 'none' &&
+             document.querySelector('.nexus-activity-panel .nexus-graph') === null;
+         })()`
       )
     ).toBe(true);
 
@@ -141,6 +147,21 @@ describe('图谱占编辑区', () => {
     ).toBe('a.md');
     expect(
       await app.evaluate<boolean>(`document.querySelector('.nexus-main-content .nexus-graph') === null`)
+    ).toBe(true);
+
+    // 侧栏跟着回到文件树：hidden 类摘掉、灯亮在工作区图标上
+    expect(
+      await app.evaluate<boolean>(
+        `(() => {
+           const slot = document.querySelector('.nexus-activity-panel .nexus-workspace-sidebar')
+             ?.closest('.nexus-panel-slot');
+           return slot !== null &&
+             !slot.classList.contains('nexus-panel-slot-hidden') &&
+             getComputedStyle(slot).display !== 'none' &&
+             document.querySelector('.nexus-activity-icon[data-activity="workspace"]')
+               ?.getAttribute('aria-pressed') === 'true';
+         })()`
+      )
     ).toBe(true);
   }, INDEXED_TEST_TIMEOUT_MS);
 });

@@ -419,7 +419,14 @@ export const App: React.FC = () => {
   }, []);
 
   const handleActivitySelect = useCallback((id: ActivityId) => {
-    setActivity((previous) => toggleActivity(previous, id));
+    setActivity((previous) =>
+      // 图谱是**主区**视图，所以它的第二次点击是「退出图谱」而不是「收面板」：
+      // 走 `toggleActivity` 的话 `activeId` 会留在 `'graph'` 上，结果是编辑区回来了、
+      // 侧栏却不知道该回哪一屏。退出统一回文件树，和「打开文档时退场」同一个终点。
+      isGraphViewActive(previous) && id === 'graph'
+        ? showActivity(previous, 'workspace')
+        : toggleActivity(previous, id)
+    );
   }, []);
 
   /** 树上的右键：只记「哪个节点 + 鼠标在哪」，菜单项在渲染时现算。 */
@@ -648,7 +655,7 @@ export const App: React.FC = () => {
   const activeDocument = store.getActive();
 
   /**
-   * 图谱视图：图谱占着**主区**（编辑区的位置），侧栏同时留在文件树上。
+   * 图谱视图：图谱占着**主区**（编辑区的位置），侧栏整体隐藏。
    *
    * 判据（`activeId === 'graph' && panelOpen`）在 `isGraphViewActive` 里，
    * 与活动栏图标高亮同一对条件 —— 灯亮 ⇔ 图在主区。收下面板或切到别的图标，
@@ -3447,11 +3454,10 @@ export const App: React.FC = () => {
               它会被 CSS 里的 display 覆盖。 */}
           <div
             className={`nexus-panel-slot${
-              // 图谱视图里侧栏**留在文件树上**：图搬到主区了，侧栏再挂一份图谱就是两个
-              // 画布、两份索引查询；而文件树是导航的主入口，图里点开的文档也要靠它去别处。
-              activity.activeId === 'workspace' || graphViewActive
-                ? ''
-                : ' nexus-panel-slot-hidden'
+              // 图谱视图里侧栏**整块隐藏**：图要的是「一屏图」，侧栏并排挤在一千多
+              // 像素里换不来多少信息。退出图谱（打开文档、或再点一次图标）时侧栏
+              // 跟着回来，所以「图里点开的文档要去哪儿」不成问题。
+              activity.activeId === 'workspace' ? '' : ' nexus-panel-slot-hidden'
             }`}
           >
             <WorkspaceSidebar

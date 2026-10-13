@@ -270,5 +270,16 @@
         "en": "Clicking Graph in the activity bar now expands the graph into the main content area: the editor, tab bar, and toolbar step aside while the sidebar stays on the file tree. Opening a document from the graph — or clicking Graph again — takes you back to the editor. The graph finally has room to spread out."
       }
     ]
+  },
+  "0.84.7": {
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "图谱占用编辑区期间，左侧栏现在整体隐藏，只留图谱一屏；退出图谱（打开文档或再点一次「图谱」图标）时侧栏自动回到文件树。以往图谱与文件树并排，两边都挤在一千多像素里。",
+        "en": "The sidebar now hides entirely while the graph owns the editor area, leaving the graph a full screen. Exiting the graph (opening a document or clicking the “Graph” icon again) brings the file tree back. Previously the graph and file tree split the width between them."
+      }
+    ]
   }
 }

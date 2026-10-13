@@ -14,9 +14,9 @@ import type { WorkspaceGraph } from '@nexus/core';
  *
  * 三条判据，对应这个功能的三个面：
  *
- * 1. **切进去**：点「图谱」图标 → 编辑区整块不画（连标签栏），主区换成图谱；
- *    侧栏**留在文件树上**（图里点开的文档要有地方去，而文件树是导航主入口）。
- * 2. **打开文档就退场**：图谱视图里点开树上的文件 → 编辑区回来。漏了这条的症状是
+ * 1. **切进去**：点「图谱」图标 → 编辑区整块不画（连标签栏），主区换成图谱，
+ *    侧栏**整块隐藏**（图要的是「一屏图」）。
+ * 2. **打开文档就退场**：图谱视图里打开文档 → 编辑区与侧栏一起回来。漏了这条的症状是
  *    「点了文件、文档开了、界面却什么都没变」—— 而打开文档的路有七八条，
  *    所以判据是「活动文档换了」这一件事，不是某个回调。
  * 3. **再点一次图标就退场**：收起面板等于关掉图谱视图，编辑区回来。
@@ -132,12 +132,12 @@ describe('图谱视图：图谱占编辑区', () => {
     for (const spy of Object.values(nexusStub)) spy.mockClear();
   });
 
-  it('点「图谱」图标：编辑区整块让位，主区换成图谱，侧栏留在文件树', async () => {
+  it('点「图谱」图标：编辑区整块让位，主区换成图谱，侧栏整块隐藏', async () => {
     root.render(React.createElement(App));
     await waitForSelector('.nexus-workspace-sidebar[data-phase="ready"]');
 
     // 前置条件：现在还是编辑区（空态），树上有那一篇笔记
-    const row = await waitForSelector('[data-relative-path="a.md"]');
+    await waitForSelector('[data-relative-path="a.md"]');
 
     (await waitForSelector('.nexus-activity-icon[data-activity="graph"]')).click();
 
@@ -154,9 +154,16 @@ describe('图谱视图：图谱占编辑区', () => {
     expect(container.querySelector('.nexus-editor-toolbar')).toBeNull();
     expect(container.querySelector('.cm-content')).toBeNull();
 
-    // 侧栏**还在**，而且留在文件树上 —— 图里点开的文档、以及去别处，都靠它
-    expect(container.querySelector('.nexus-workspace-sidebar')).not.toBeNull();
-    expect(container.querySelector('[data-relative-path="a.md"]')).not.toBeNull();
+    // 侧栏整块隐藏：slot 挂 hidden 类，可见性归 CSS。工作区侧栏**仍然挂载**
+    // （保留挂载是刻意的：切回来不用重跑索引），只是不显示；侧栏里也没有第二份图谱。
+    expect(container.querySelector('.nexus-activity-panel .nexus-workspace-sidebar')).not.toBeNull();
+    expect(
+      container
+        .querySelector('.nexus-activity-panel .nexus-workspace-sidebar')
+        ?.closest('.nexus-panel-slot')
+        ?.classList.contains('nexus-panel-slot-hidden')
+    ).toBe(true);
+    expect(container.querySelector('.nexus-activity-panel .nexus-graph')).toBeNull();
 
     // 灯亮 ⇔ 图在主区（`aria-pressed` 由 `activeId && panelOpen` 派生）
     expect(
@@ -164,17 +171,16 @@ describe('图谱视图：图谱占编辑区', () => {
         .querySelector('.nexus-activity-icon[data-activity="graph"]')
         ?.getAttribute('aria-pressed')
     ).toBe('true');
-    // 树上的行还在手边（这句只在上面那句不为空时才有意义，防呆）
-    expect(row.getAttribute('data-relative-path')).toBe('a.md');
   }, 15000);
 
-  it('图谱视图里点开树上的文档：编辑区回来，图谱退场', async () => {
+  it('图谱视图里打开文档：编辑区与侧栏一起回来，图谱退场', async () => {
     root.render(React.createElement(App));
     await waitForSelector('.nexus-workspace-sidebar[data-phase="ready"]');
     (await waitForSelector('.nexus-activity-icon[data-activity="graph"]')).click();
     await waitForSelector('.nexus-graph-canvas');
 
-    // 在图谱视图里从侧栏点开那一篇 —— 这正是「图里点开的文档要有地方去」那条路
+    // 在图谱视图里打开那一篇。树虽然被隐藏（`display: none`）但仍挂载着，
+    // happy-dom 不应用 CSS，所以这一击照样走到打开链上；要验的正是这条退场路径。
     (await waitForSelector('[data-relative-path="a.md"]')).click();
 
     // 编辑区回来了，图谱整块卸载。
@@ -182,15 +188,21 @@ describe('图谱视图：图谱占编辑区', () => {
     // 图谱视图期间也「在」。用**树上的选中态**当「文档开了」的判据。
     await waitForGone('.nexus-graph');
     await waitForSelector('[data-relative-path="a.md"][data-selected="true"]');
-    // 侧栏跟着回到「选中的是工作区」这一屏
+    // 侧栏跟着回到「选中的是工作区」这一屏（既亮了灯，也去掉了 hidden）
     expect(
       container
         .querySelector('.nexus-activity-icon[data-activity="workspace"]')
         ?.getAttribute('aria-pressed')
     ).toBe('true');
+    expect(
+      container
+        .querySelector('.nexus-activity-panel .nexus-workspace-sidebar')
+        ?.closest('.nexus-panel-slot')
+        ?.classList.contains('nexus-panel-slot-hidden')
+    ).toBe(false);
   }, 15000);
 
-  it('再点一次「图谱」图标（收起面板）也退场：编辑区回来', async () => {
+  it('再点一次「图谱」图标：连侧栏一起回到文件树', async () => {
     root.render(React.createElement(App));
     await waitForSelector('.nexus-workspace-sidebar[data-phase="ready"]');
     (await waitForSelector('.nexus-activity-icon[data-activity="graph"]')).click();
@@ -201,6 +213,18 @@ describe('图谱视图：图谱占编辑区', () => {
     await waitForGone('.nexus-graph');
     // 没有文档可显示，所以主区回到空态 —— 那正是图谱让位前的样子
     await waitForSelector('.nexus-workspace-empty');
+    // 侧栏跟着回来：退出图谱的终点是文件树，不是「灯灭了、侧栏还不知道回哪」
+    expect(
+      container
+        .querySelector('.nexus-activity-icon[data-activity="workspace"]')
+        ?.getAttribute('aria-pressed')
+    ).toBe('true');
+    expect(
+      container
+        .querySelector('.nexus-activity-panel .nexus-workspace-sidebar')
+        ?.closest('.nexus-panel-slot')
+        ?.classList.contains('nexus-panel-slot-hidden')
+    ).toBe(false);
   }, 15000);
 
   it('没进图谱视图时主区是编辑区（默认状态，防止派生值恒真）', async () => {
