@@ -3300,6 +3300,9 @@ export const App: React.FC = () => {
               onCreateRequestHandled={clearPendingCreate}
               revealRequest={workspaceReveal}
               onRevealHandled={clearWorkspaceReveal}
+              recentWorkspaces={recentWorkspaces}
+              onSwitchWorkspace={() => void handleOpenWorkspace()}
+              onOpenRecentWorkspace={(root) => void handleOpenWorkspace(root)}
             />
           </div>
           <div

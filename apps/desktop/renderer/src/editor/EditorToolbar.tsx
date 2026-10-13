@@ -1,9 +1,10 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import type { BlockFormatState, EditorSurfaceKind } from '@nexus/editor';
 import { formatShortcut } from '@nexus/command';
 import { useLocale } from '../hooks.js';
 import { resolveShortcut } from '../keybindings.js';
 import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu.js';
+import { useDropdownAnchor } from '../components/use-dropdown-anchor.js';
 import {
   CodeIcon,
   EyeIcon,
@@ -92,23 +93,6 @@ const preserveEditorFocus = (event: React.MouseEvent) => {
   if (event.button !== 0) return;
   event.preventDefault();
 };
-
-/** 下拉锚点。量不到（还没排版）时返回 `null` —— 开在 (0,0) 闪一下比不开更糟。 */
-function useDropdownAnchor(ref: React.RefObject<HTMLButtonElement | null>) {
-  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null);
-
-  const toggle = useCallback(() => {
-    setAnchor((current) => {
-      if (current) return null;
-      const rect = ref.current?.getBoundingClientRect();
-      return rect ? { left: rect.left, top: rect.bottom + 4 } : null;
-    });
-  }, [ref]);
-
-  const close = useCallback(() => setAnchor(null), []);
-
-  return { anchor, toggle, close };
-}
 
 /**
  * 编辑器常驻工具栏：`Undo · Redo | Source/WYSIWYG | ¶ · H1–H6 · Quote · Bullet ·

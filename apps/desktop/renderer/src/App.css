@@ -2235,6 +2235,15 @@ button.nexus-outline-toggle:hover {
   font-weight: 500;
 }
 
+/* 头部右端：文件数 + 「切换工作区」按钮。**收成一组**而不是让按钮直接当 flex 子项 ——
+   文件数会随索引变化时有时无，按钮的位置不能跟着它抖。 */
+.nexus-sidebar-header-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .nexus-sidebar-count {
   flex: 0 0 auto;
   font-size: 12px;

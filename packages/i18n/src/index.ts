@@ -69,6 +69,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     // 裸启动的欢迎态：工作区模式、还没定目录。这是「双击图标」看到的第一屏。
     'workspace.welcomeNote': 'Choose a folder to open as your workspace.',
     'workspace.openFolder': 'Open Folder…',
+    // 侧栏头部的「切换工作区」下拉。按钮标题与菜单 aria-label 共用；
+    // 菜单里的最近工作区列表由调用方给路径，不进字典。
+    'workspace.switchWorkspace': 'Switch workspace…',
     'workspace.indexing': 'Indexing workspace…',
     'workspace.indexFailed': 'Failed to build the index',
     // 索引建完了，但有文件没处理成（读不动、或文本提取失败）。**不是整块失败** ——
@@ -914,6 +917,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     // 裸启动的欢迎态：工作区模式、还没定目录。这是「双击图标」看到的第一屏。
     'workspace.welcomeNote': '选一个文件夹作为工作区。',
     'workspace.openFolder': '打开文件夹…',
+    // 侧栏头部的「切换工作区」下拉。按钮标题与菜单 aria-label 共用；
+    // 菜单里的最近工作区列表由调用方给路径，不进字典。
+    'workspace.switchWorkspace': '切换工作区…',
     'workspace.indexing': '正在建立索引…',
     'workspace.indexFailed': '建立索引失败',
     'workspace.indexPartialFailure': '有 {count} 个文件没能建立索引。',

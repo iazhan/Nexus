@@ -78,6 +78,11 @@ export interface ContextMenuItem {
    */
   active?: boolean;
   /**
+   * 悬浮提示。**只在文案被截断 / 缩写时给**（如「最近的工作区」显示目录名、
+   * 完整路径进 title）—— 与 `label` 重复的 title 只是噪声。
+   */
+  title?: string;
+  /**
    * 分组分隔线。`id` / `label` / `onSelect` 在这类项上都不参与渲染。
    *
    * 与 `MenuBarItem` 的 `separator` 是同一个概念、同一种写法 —— 同一份块类型列表
@@ -246,6 +251,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             role={checkable ? 'menuitemradio' : 'menuitem'}
             {...(checkable ? { 'aria-checked': item.active } : {})}
             tabIndex={-1}
+            title={item.title}
             className={`nexus-context-menu-item${item.danger ? ' nexus-context-menu-item-danger' : ''}${
               item.active ? ' nexus-context-menu-item-checked' : ''
             }`}

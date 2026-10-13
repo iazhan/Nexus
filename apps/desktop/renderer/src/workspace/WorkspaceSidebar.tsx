@@ -2,7 +2,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { IndexedDocument, WorkspaceDirectoryEntry } from '@nexus/core';
 import { useLocale } from '../hooks.js';
 import { hostSettingsSynced } from '../host-settings.js';
-import { ChevronIcon, FolderRowIcon, RetryIcon, fileRowIcon } from '../components/workspace-icons.js';
+import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu.js';
+import { useDropdownAnchor } from '../components/use-dropdown-anchor.js';
+import {
+  ChevronIcon,
+  FolderRowIcon,
+  RetryIcon,
+  SwitchWorkspaceIcon,
+  fileRowIcon
+} from '../components/workspace-icons.js';
 import { InlineRename } from './InlineRename.js';
 import { NewEntryInput } from './NewEntryInput.js';
 import { extractionNoteOf } from './attachments.js';
@@ -107,6 +115,27 @@ export interface WorkspaceSidebarProps {
    */
   revealRequest?: { path: string } | null;
   onRevealHandled?: () => void;
+
+  // ---- 切换工作区（2026-10-14）----
+  /**
+   * 「切换工作区」菜单里的**最近工作区列表**，最近的在前。
+   *
+   * 数据源是主进程（`listRecentWorkspaces`，它落盘、也知道哪些目录还在），
+   * 这里只负责渲染 —— 与文件菜单那一列同一个来源，不另拉一份。
+   *
+   * 为什么不在这里自己 `await`：菜单是**同步**点开的，等一次 IPC 再画会让按钮
+   * 「按下去没反应」；侧栏本来也不该持有「主进程的持久状态」。
+   */
+  recentWorkspaces?: readonly string[];
+  /**
+   * 菜单第一项：弹目录选择框、换一个工作区。
+   *
+   * 不给路径 ＝ 走选择框，与欢迎态那枚「打开文件夹…」、命令面板的 `open-folder`
+   * 是**同一个动作**（App 的 `handleOpenWorkspace`）—— 三条入口同源。
+   */
+  onSwitchWorkspace?: () => void;
+  /** 菜单里的某一项**最近**工作区（不是选择框，是直接切过去）。 */
+  onOpenRecentWorkspace?: (root: string) => void;
 }
 
 type IndexPhase = 'indexing' | 'ready' | 'error';
@@ -148,6 +177,16 @@ interface CreatingState {
   kind: 'file' | 'folder';
   parentRelativePath: string | null;
   parentPath: string;
+}
+
+/**
+ * 工作区根的**显示名**：路径的最后一段（目录名）。
+ *
+ * 两种分隔符都要切：Windows 的 `\` 与 POSIX 的 `/`（根可能是命令行传进来的）。
+ * 兜底用整条路径 —— 空目录名的路径（如 `D:\`）切成空串比不切更难认。
+ */
+function workspaceDisplayName(rootPath: string): string {
+  return rootPath.replace(/^.*[\\/]/, '') || rootPath;
 }
 
 /**
@@ -193,7 +232,10 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   createRequest,
   onCreateRequestHandled,
   revealRequest,
-  onRevealHandled
+  onRevealHandled,
+  recentWorkspaces,
+  onSwitchWorkspace,
+  onOpenRecentWorkspace
 }) => {
   const { t } = useLocale();
   const [documents, setDocuments] = useState<IndexedDocument[]>([]);
@@ -529,6 +571,47 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
       ? t('workspace.toolbar.deleteDirectoryHint')
       : t('workspace.toolbar.deleteNeedsSelection');
 
+  // ---- 切换工作区菜单（2026-10-14）----
+  //
+  // 入口为什么在**侧栏头部**而不是工具栏那一行：工具栏已经有 6 个 24px 的平铺按钮，
+  // 而面板最小宽度 160px —— 再挤一个只会让最后几个溢出到看不见的地方。头部这行
+  // 是文字 + 两个小尺寸元素，放得下一枚图标按钮，而且它就挨着「当前是哪个工作区」
+  // 那一行文字 —— 切换工作区与「我在哪个工作区里」是同一个问题的两面。
+  //
+  // 菜单内容：第一项走目录选择框（与文件菜单的「打开文件夹…」同源），
+  // 分隔线之后是最近工作区列表。**当前所在的根也在这列里**（主进程开一个就记一个），
+  // 用 ✓ 标出来 —— 列表里找不到自己所在的那一项，会让人以为切到别处去了。
+  const switchButtonRef = useRef<HTMLButtonElement | null>(null);
+  const switchMenu = useDropdownAnchor(switchButtonRef);
+
+  const switchWorkspaceItems = useMemo((): ContextMenuItem[] => {
+    const recent = recentWorkspaces ?? [];
+    const items: ContextMenuItem[] = [
+      {
+        id: 'switch-workspace',
+        label: t('workspace.switchWorkspace'),
+        onSelect: () => onSwitchWorkspace?.()
+      }
+    ];
+
+    if (recent.length > 0) {
+      items.push({ id: 'recent-separator', label: '', separator: true });
+      for (const root of recent) {
+        items.push({
+          id: `recent-${root}`,
+          // 显示目录名、完整路径进 title：一列绝对路径会把下拉撑到面板宽的好几倍，
+          // 而用户认的是目录名（同名不同盘才需要看全路径，那正是 title 的用处）。
+          label: workspaceDisplayName(root),
+          title: root,
+          active: root === rootPath,
+          onSelect: () => onOpenRecentWorkspace?.(root)
+        });
+      }
+    }
+
+    return items;
+  }, [recentWorkspaces, rootPath, onSwitchWorkspace, onOpenRecentWorkspace, t]);
+
   /**
    * 新建行的重名预检。
    *
@@ -722,7 +805,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     </ul>
   );
 
-  const rootName = rootPath.replace(/^.*[\\/]/, '') || rootPath;
+  const rootName = workspaceDisplayName(rootPath);
   const isEmptyWorkspace = tree.length === 0;
   const isFilteredToEmpty = !isEmptyWorkspace && visibleTree.length === 0;
 
@@ -730,12 +813,42 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     <aside className="nexus-workspace-sidebar" data-phase={phase} aria-label={t('workspace.title')}>
       <div className="nexus-sidebar-header" title={rootPath}>
         <span className="nexus-sidebar-root">{rootName}</span>
-        {phase === 'ready' && (
-          <span className="nexus-sidebar-count">
-            {t('workspace.fileCount', { count: String(documents.length) })}
-          </span>
-        )}
+        <span className="nexus-sidebar-header-end">
+          {phase === 'ready' && (
+            <span className="nexus-sidebar-count">
+              {t('workspace.fileCount', { count: String(documents.length) })}
+            </span>
+          )}
+          {/* 没接 `onSwitchWorkspace` 时整枚按钮不渲染：点开是一个只有一个空项的
+              菜单，比没有按钮更难解释。单元测试与别的复用场景因此看不到它。 */}
+          {onSwitchWorkspace && (
+            <button
+              ref={switchButtonRef}
+              type="button"
+              className="nexus-toolbar-button"
+              data-action="switch-workspace"
+              title={t('workspace.switchWorkspace')}
+              aria-label={t('workspace.switchWorkspace')}
+              aria-haspopup="menu"
+              aria-expanded={switchMenu.anchor !== null}
+              onClick={switchMenu.toggle}
+            >
+              {SwitchWorkspaceIcon}
+            </button>
+          )}
+        </span>
       </div>
+
+      {switchMenu.anchor && onSwitchWorkspace && (
+        <ContextMenu
+          x={switchMenu.anchor.left}
+          y={switchMenu.anchor.top}
+          items={switchWorkspaceItems}
+          onClose={switchMenu.close}
+          label={t('workspace.switchWorkspace')}
+          anchorRef={switchButtonRef}
+        />
+      )}
 
       {/* 部分文件没能建索引。**与下面那三个 `.nexus-sidebar-note` 不同**：它们出现时树是不画的，
           这一条相反 —— 树照常画，它只是在树上面加一行「有几条没成」。

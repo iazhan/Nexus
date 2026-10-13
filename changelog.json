@@ -231,5 +231,16 @@
         "en": "In Visual mode, escaped characters like `\\*` now render as the character alone — typing 30\\*30 shows 30*30 and the backslash no longer leaks through. Moving the cursor onto the escape reveals `\\*` for editing. This is display-only: your document is unchanged."
       }
     ]
+  },
+  "0.84.4": {
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "工作区侧栏头部多了一枚「切换工作区」按钮：点开是「切换工作区…」加最近打开过的工作区列表（当前所在的根打 ✓）。以前换工作区只能走文件菜单或命令面板，侧栏里没有任何入口。",
+        "en": "The workspace sidebar header now has a “Switch workspace” button: it opens “Switch workspace…” plus the list of recently opened workspaces, with your current root checked. Switching used to be possible only from the File menu or the command palette."
+      }
+    ]
   }
 }

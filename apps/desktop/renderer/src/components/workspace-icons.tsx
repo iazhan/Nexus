@@ -58,6 +58,20 @@ export const NewFileIcon = (
   </svg>
 );
 
+/**
+ * 切换工作区：一枚文件夹 + 向右的箭头。
+ *
+ * 侧栏里与工作区有关的形状全是文件夹（新建文件夹、目录行），所以在文件夹上加一个
+ * 「出去」的箭头来读作「换到别的工作区去」—— 只画 ⇄ 的话在这个语境里读不出
+ * 「换的是什么」。箭头与文件夹分两条 path 画：14px 下叠在一枚里会糊。
+ */
+export const SwitchWorkspaceIcon = (
+  <svg {...TOOLBAR_PROPS}>
+    <path d="M3 7a2 2 0 0 1 2-2h3.6l1.8 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    <path d="M13.5 10.5h7M17.5 7.5l3 3-3 3" />
+  </svg>
+);
+
 /** 新建文件夹：文件夹 + 加号。 */
 export const NewFolderIcon = (
   <svg {...TOOLBAR_PROPS}>
