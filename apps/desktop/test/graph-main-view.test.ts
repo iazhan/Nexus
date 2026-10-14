@@ -68,6 +68,11 @@ describe('图谱占编辑区', () => {
       await app.evaluate<boolean>(`!!document.querySelector('.nexus-workspace-empty')`)
     ).toBe(true);
 
+    // 记下让位前主区的宽度，后面验「那块空间真的归图谱了」
+    const mainWidthBefore = await app.evaluate<number>(
+      `document.querySelector('.nexus-main-content').getBoundingClientRect().width`
+    );
+
     await app.click('.nexus-activity-icon[data-activity="graph"]');
 
     // 图谱进了主区，而且是「主区」那一版外观
@@ -89,20 +94,40 @@ describe('图谱占编辑区', () => {
       )
     ).toBe(true);
 
-    // 侧栏整块隐藏：slot 挂 hidden 类（可见性归 CSS，真机上 `display: none`），
-    // 侧栏里也没有第二份图谱 —— 挂载保留是刻意的（切回来不用重跑索引）
+    // 侧栏整块让位：slot 挂 hidden 类（真机上 `display: none`），
+    // **连面板容器一起**（宽度类 `-open` 决定 flex-basis）—— 只藏内容会让
+    // 那 240px 顶着白边，图谱拿不到这块空间。侧栏里也没有第二份图谱；
+    // 挂载保留是刻意的（切回来不用重跑索引）。
+    //
+    // 宽度是**过渡**出来的（`flex-basis` 有 160ms 动画），所以要等它落定，
+    // 不能立刻量 —— 量到中间值会以为「没让位」。收完后还剩 1px，那是容器
+    // 常驻的 `border-right: 1px solid transparent`（直接切边框会让动画末尾跳一下）。
+    await app.waitForFunction(
+      `document.querySelector('.nexus-activity-panel')?.getBoundingClientRect().width <= 1`,
+      15000
+    );
     expect(
       await app.evaluate<boolean>(
         `(() => {
+           const panel = document.querySelector('.nexus-activity-panel');
            const slot = document.querySelector('.nexus-activity-panel .nexus-workspace-sidebar')
              ?.closest('.nexus-panel-slot');
            return slot !== null &&
              slot.classList.contains('nexus-panel-slot-hidden') &&
              getComputedStyle(slot).display === 'none' &&
-             document.querySelector('.nexus-activity-panel .nexus-graph') === null;
+             !panel.classList.contains('nexus-activity-panel-open') &&
+             document.querySelector('.nexus-activity-panel .nexus-graph') === null &&
+             document.querySelector('.nexus-panel-resizer') === null;
          })()`
       )
     ).toBe(true);
+
+    // 用户视角的那条：那块空间真的归图谱了 —— 主区比图谱进来之前宽出接近一个面板
+    expect(
+      await app.evaluate<number>(
+        `document.querySelector('.nexus-main-content').getBoundingClientRect().width`
+      )
+    ).toBeGreaterThan(mainWidthBefore - 1 + 150);
 
     // 灯亮 ⇔ 图在主区
     expect(
@@ -149,15 +174,23 @@ describe('图谱占编辑区', () => {
       await app.evaluate<boolean>(`document.querySelector('.nexus-main-content .nexus-graph') === null`)
     ).toBe(true);
 
-    // 侧栏跟着回到文件树：hidden 类摘掉、灯亮在工作区图标上
+    // 侧栏跟着回到文件树：hidden 类摘掉、宽度类还回来、灯亮在工作区图标上。
+    // 宽度同样是过渡回来的，等它落定（判据用「够宽」而不是「> 0」，
+    // 否则动画刚起步的那一刻也算过）
+    await app.waitForFunction(
+      `document.querySelector('.nexus-activity-panel')?.getBoundingClientRect().width > 100`,
+      5000
+    );
     expect(
       await app.evaluate<boolean>(
         `(() => {
+           const panel = document.querySelector('.nexus-activity-panel');
            const slot = document.querySelector('.nexus-activity-panel .nexus-workspace-sidebar')
              ?.closest('.nexus-panel-slot');
            return slot !== null &&
              !slot.classList.contains('nexus-panel-slot-hidden') &&
              getComputedStyle(slot).display !== 'none' &&
+             panel.classList.contains('nexus-activity-panel-open') &&
              document.querySelector('.nexus-activity-icon[data-activity="workspace"]')
                ?.getAttribute('aria-pressed') === 'true';
          })()`

@@ -1,6 +1,6 @@
 {
   "name": "@nexus/command",
-  "version": "0.84.7",
+  "version": "0.84.8",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

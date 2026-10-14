@@ -3431,12 +3431,16 @@ export const App: React.FC = () => {
       {status === 'ready' && workspaceRoot && (
         <div
           className={`nexus-activity-panel${
-            activity.panelOpen ? ' nexus-activity-panel-open' : ''
+            // 图谱视图里**连面板容器一起让位**（不只是内容）：宽度来自
+            // `nexus-activity-panel-open`，留着它图谱就拿不到那 240px。
+            // 退场（打开文档 / 再点一次图标）时条件恢复，宽度平滑过渡回来。
+            !graphViewActive && activity.panelOpen ? ' nexus-activity-panel-open' : ''
           }`}
           style={{ '--nx-panel-width': `${panelWidth}px` } as React.CSSProperties}
         >
-          {/* 拖拽把手：只在展开时挂载，收起状态下没有可拖的东西 */}
-          {activity.panelOpen && (
+          {/* 拖拽把手：只在面板真的占着宽度时挂载 —— 图谱视图下面板宽度为 0，
+              把手会孤零零地贴在编辑区边缘 */}
+          {!graphViewActive && activity.panelOpen && (
             <div
               className={`nexus-panel-resizer${
                 isResizing ? ' nexus-panel-resizer-active' : ''

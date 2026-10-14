@@ -281,5 +281,16 @@
         "en": "The sidebar now hides entirely while the graph owns the editor area, leaving the graph a full screen. Exiting the graph (opening a document or clicking the “Graph” icon again) brings the file tree back. Previously the graph and file tree split the width between them."
       }
     ]
+  },
+  "0.84.8": {
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "fix",
+        "scope": "desktop",
+        "zh": "修上一条留下的白边：图谱占用编辑区时，侧栏只藏了内容，那一条两百多像素的空白仍在原地，图谱并没有真正铺满。现在连面板宽度与拖拽把手一起收起，退出图谱时平滑地还回来。",
+        "en": "Fixes the blank strip left by the previous change: hiding the sidebar's contents kept its 240px column in place, so the graph never really filled the window. The panel width and resize handle now collapse along with it, and slide back when you leave the graph."
+      }
+    ]
   }
 }

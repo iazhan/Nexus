@@ -165,6 +165,13 @@ describe('图谱视图：图谱占编辑区', () => {
     ).toBe(true);
     expect(container.querySelector('.nexus-activity-panel .nexus-graph')).toBeNull();
 
+    // 宽度也一起让出来：`-open` 决定 flex-basis（= 用户设的面板宽度），
+    // 少了这一条容器会顶着 240px 白边，图谱拿不到那块空间
+    expect(container.querySelector('.nexus-activity-panel')?.classList.contains('nexus-activity-panel-open')).toBe(
+      false
+    );
+    expect(container.querySelector('.nexus-panel-resizer')).toBeNull();
+
     // 灯亮 ⇔ 图在主区（`aria-pressed` 由 `activeId && panelOpen` 派生）
     expect(
       container
@@ -188,7 +195,8 @@ describe('图谱视图：图谱占编辑区', () => {
     // 图谱视图期间也「在」。用**树上的选中态**当「文档开了」的判据。
     await waitForGone('.nexus-graph');
     await waitForSelector('[data-relative-path="a.md"][data-selected="true"]');
-    // 侧栏跟着回到「选中的是工作区」这一屏（既亮了灯，也去掉了 hidden）
+    // 侧栏跟着回到「选中的是工作区」这一屏（既亮了灯，也去掉了 hidden，
+    // 面板容器的宽度类也跟着回来 —— 那 240px 是图让出来的，退场就要还回去）
     expect(
       container
         .querySelector('.nexus-activity-icon[data-activity="workspace"]')
@@ -200,6 +208,9 @@ describe('图谱视图：图谱占编辑区', () => {
         ?.closest('.nexus-panel-slot')
         ?.classList.contains('nexus-panel-slot-hidden')
     ).toBe(false);
+    expect(container.querySelector('.nexus-activity-panel')?.classList.contains('nexus-activity-panel-open')).toBe(
+      true
+    );
   }, 15000);
 
   it('再点一次「图谱」图标：连侧栏一起回到文件树', async () => {
@@ -225,6 +236,9 @@ describe('图谱视图：图谱占编辑区', () => {
         ?.closest('.nexus-panel-slot')
         ?.classList.contains('nexus-panel-slot-hidden')
     ).toBe(false);
+    expect(container.querySelector('.nexus-activity-panel')?.classList.contains('nexus-activity-panel-open')).toBe(
+      true
+    );
   }, 15000);
 
   it('没进图谱视图时主区是编辑区（默认状态，防止派生值恒真）', async () => {
