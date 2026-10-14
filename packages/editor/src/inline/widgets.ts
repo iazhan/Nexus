@@ -381,7 +381,18 @@ export class WikiLinkWidget extends WidgetType {
     public readonly to: number,
     public readonly raw: string,
     public readonly target: string,
-    public readonly alias?: string
+    public readonly alias?: string,
+    /**
+     * 这个 widget 身上有搜索命中吗。**是投影层补的高亮代理** —— CM 的
+     * `cm-searchMatch` mark 落在 `Decoration.replace` 的 range 上时 DOM 里不会
+     * 出现那个 class（真机实测：视觉面搜 `[[wiki锚点目标]]` 的内容 0 处高亮、
+     * 源码面 1 处），被替换的 widget 「搜到了但看不见」。命中态由投影层
+     * （`buildVisualProjection` 的 `searchHits` 入参）查好传进来。
+     *
+     * **必须进 `eq()`**：CM 的 `findWidget` 命中就复用旧 DOM、连 `updateDOM` 都不调，
+     * 不进身份的话「刚查到它 / 刚取消查询」在画面上都不动。同 `handled` 那条判据。
+     */
+    public readonly searchHit: boolean = false
   ) {
     super();
   }
@@ -396,6 +407,12 @@ export class WikiLinkWidget extends WidgetType {
     span.dataset.wikilinkTarget = this.target;
     span.setAttribute('role', 'link');
     span.setAttribute('tabindex', '-1');
+    // 搜索命中的可见代理：与正文里的 `cm-searchMatch` 同一个黄底 token，
+    // 让「这个链接里有你要找的词」和普通命中长得一样。
+    if (this.searchHit) {
+      span.classList.add('cm-search-hit-shadow');
+      span.dataset.searchHit = 'true';
+    }
     if (this.alias) {
       span.textContent = this.alias;
       span.title = this.target;
@@ -420,7 +437,8 @@ export class WikiLinkWidget extends WidgetType {
       other.to === this.to &&
       other.raw === this.raw &&
       other.target === this.target &&
-      other.alias === this.alias
+      other.alias === this.alias &&
+      other.searchHit === this.searchHit
     );
   }
 

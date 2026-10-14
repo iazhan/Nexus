@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -76,9 +77,8 @@ describe('P1-04R Semantic Closure Electron Smoke Test', () => {
     const filename = await activeApp.getText('.nexus-filename');
     expect(filename).toContain('测试文档.md');
 
-    // 3. Switch to Visual mode
-    await activeApp.click('[data-action="toggle-surface"]');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 10000);
+    // 3. Switch to Visual mode（初始面跟随设置项，可能本来就是 Visual）
+    await ensureSurface(activeApp, 'visual');
 
     // 4. Verify relative image successfully loads with naturalWidth > 0
     await activeApp.waitForFunction(

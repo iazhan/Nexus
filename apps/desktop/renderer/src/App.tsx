@@ -25,7 +25,8 @@ import {
 } from '@nexus/core';
 import {
   MarkdownDocumentSession,
-  openSearchPanel,
+  openFindPanel,
+  openReplacePanel,
   handleVisualModB,
   handleVisualModI,
   handleVisualModStrike,
@@ -110,6 +111,7 @@ import {
   CHROME_VISIBILITY,
   disabledMembers,
   isCapabilityDisabled,
+  resolveEditorSurface,
   STATUS_BAR_METRICS
 } from './settings/preference-specs.js';
 import { ActivityBar } from './shell/ActivityBar.js';
@@ -524,7 +526,30 @@ export const App: React.FC = () => {
    * 会完全静默——用户分不清是"链接坏了"还是"这个功能没做"。
    */
   const [linkError, setLinkError] = useState<string | null>(null);
-  const [surfaceKind, setSurfaceKind] = useState<EditorSurfaceKind>('source');
+  /**
+   * 编辑器当前面（源码 / 富文本）。
+   *
+   * **初值由 `editor.openMode` 求出来**（见 `resolveEditorSurface`）：`visual` / `source`
+   * 两档是「每次启动都回到同一个面」，`remember` 是「跟着上次走」。只在启动时求一次 ——
+   * 中途换面是用户当下的选择，不该被下一次打开文件推翻。
+   *
+   * 之后每次换面都写回 `editor.surface`，那是 `remember` 档读的那个值。
+   */
+  const [surfaceKind, setSurfaceKind] = useState<EditorSurfaceKind>(() =>
+    resolveEditorSurface(settings.get('editor.openMode'), settings.get('editor.surface'))
+  );
+
+  /**
+   * 换面的**唯一入口**：快捷键、工具栏、命令面板都走这里。
+   *
+   * 不直接 `setSurfaceKind` 是刻意的：漏掉写回就等于 `remember` 档记不住东西，
+   * 而那种漏法只在「切面 → 重启」这条路上显形。
+   */
+  const handleSurfaceChange = useCallback((next: EditorSurfaceKind) => {
+    setSurfaceKind(next);
+    settings.set('editor.surface', next);
+  }, []);
+
   const [selection, setSelection] = useState<EditorSelectionInfo>({
     line: 1,
     column: 1,
@@ -564,7 +589,6 @@ export const App: React.FC = () => {
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const initialContentRef = useRef('');
-  const savingContentRef = useRef<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
@@ -1014,12 +1038,7 @@ export const App: React.FC = () => {
         if (!window.nexus?.writeFile) {
           throw new Error('writeFile bridge is unavailable');
         }
-        savingContentRef.current = currentSource;
-        try {
-          await window.nexus.writeFile(filePath, currentSource);
-        } finally {
-          savingContentRef.current = null;
-        }
+        await window.nexus.writeFile(filePath, currentSource);
 
         // 写入期间可能发生新编辑；此时旧快照已落盘，但不能把当前文档标记为已保存。
         const sourceStillCurrent = session.getSnapshot().source === currentSource;
@@ -1340,59 +1359,74 @@ export const App: React.FC = () => {
       const unsub = window.nexus.watchFile(filePath, async (watchEvent) => {
         if (!isMountedRef.current) return;
 
-        if (watchEvent.type === 'deleted' || watchEvent.type === 'renamed') {
-          updateSaveState('deleted');
-        } else if (watchEvent.type === 'error') {
+        if (watchEvent.type === 'error') {
           setSaveError(watchEvent.message);
           updateSaveState('error');
-        } else if (watchEvent.type === 'changed') {
-          // 自身保存触发的 watcher 可能先于 IPC 完成返回。确认磁盘内容与本次保存
-          // 的快照一致后忽略该事件，避免把 saving 瞬间误判为外部冲突。
-          if (saveStateRef.current === 'saving' && savingContentRef.current !== null) {
-            try {
-              const freshContent = await window.nexus?.readFile?.(filePath);
-              if (freshContent === savingContentRef.current) return;
-            } catch (readErr) {
-              console.error('Failed to verify file during save:', readErr);
-              setSaveError(String(readErr));
-              updateSaveState('error');
-              return;
-            }
-            updateSaveState('external-changed');
-            return;
-          }
+          return;
+        }
 
-          // Only auto-reload if document is completely clean and saved
-          const isDocClean =
-            (saveStateRef.current === 'saved' || saveStateRef.current === 'clean' || saveStateRef.current === 'readonly') &&
-            initialContentRef.current === session.getSnapshot().source;
-
-          // 关掉自动重载后**一律提示**，干净文档也提示 —— 否则「始终提示」在干净文档上
-          // 等于没生效（那时它和 smart 走的是同一条路）。
-          const autoReload = settings.get('general.externalChange') === 'smart';
-
-          if (autoReload && isDocClean && window.nexus?.readFile) {
-            try {
-              const freshContent = await window.nexus.readFile(filePath);
-              // 应用自己的 writeFile 同样会唤醒这个 watcher。内容与当前文档完全一致时
-              // 说明没有任何外部修改，必须直接忽略：整篇 replaceSource 会把光标映射到
-              // 文档末尾，表现为自动保存后光标跳到文件尾部。
-              if (freshContent === session.getSnapshot().source) {
-                return;
-              }
-              initialContentRef.current = freshContent;
-              session.replaceSource(freshContent);
-              updateSaveState('clean');
-            } catch (readErr) {
-              console.error('Failed to reload changed file:', readErr);
-              setSaveError(String(readErr));
-              updateSaveState('error');
-            }
-          } else {
-            // 有本地未持久化内容（保存中 / 保存失败 / 已 dirty）时也走这里：必须进入冲突保护路径。
-            updateSaveState('external-changed');
+        /**
+         * 「文件没了」与「内容变了」都先落到**一次读盘**上。
+         *
+         * watcher 报的是这个路径上发生了事，而我们真正关心的是**这个路径上现在是什么**：
+         * 原子替换（我们自己的保存就是「目标→备份→临时→目标」）在目录层面留下一串
+         * rename，光看事件类型必然把「自己换了一份文件」误判成「文件被外部删掉了」——
+         * 那正是「拖一下块的位置就弹『文件已被外部删除或移动』」的来历。
+         *
+         * 一次读盘同时回答了两个问题：文件还在不在、内容是不是我们要的。
+         */
+        let fresh: string | null = null;
+        let readError: unknown = null;
+        if (window.nexus?.readFile) {
+          try {
+            fresh = await window.nexus.readFile(filePath);
+          } catch (err) {
+            readError = err;
           }
         }
+        if (!isMountedRef.current) return;
+
+        if (fresh === null) {
+          // 读不出来就是真没了。只有事件本身说「删了」时才落到删除态 —— 一条 `changed`
+          // 读到不存在多半是替换过程中的瞬时状态，等下一个事件就好，不必抢先判死。
+          if (watchEvent.type === 'deleted') {
+            updateSaveState('deleted');
+          } else if (readError) {
+            console.error('Failed to verify changed file:', readError);
+          }
+          return;
+        }
+
+        const currentSource = session.getSnapshot().source;
+        if (fresh === currentSource) {
+          // 盘上就是文档现在的样子 —— 没有任何外部改动可言。我们自己的每一次保存都
+          // 必然走到这里（写完盘 watcher 一定会响一次），所以这一条必须排在冲突判定
+          // 之前。顺带把之前误报的「被删除」收回去。
+          initialContentRef.current = fresh;
+          if (saveStateRef.current === 'deleted') updateSaveState('saved');
+          return;
+        }
+
+        // 盘上的内容和文档不一样 —— 真有外部改动了。
+        const isDocClean =
+          (saveStateRef.current === 'saved' ||
+            saveStateRef.current === 'clean' ||
+            saveStateRef.current === 'readonly') &&
+          initialContentRef.current === currentSource;
+
+        // 关掉自动重载后**一律提示**，干净文档也提示 —— 否则「始终提示」在干净文档上
+        // 等于没生效（那时它和 smart 走的是同一条路）。
+        const autoReload = settings.get('general.externalChange') === 'smart';
+
+        if (autoReload && isDocClean) {
+          initialContentRef.current = fresh;
+          session.replaceSource(fresh);
+          updateSaveState('clean');
+          return;
+        }
+
+        // 有本地未持久化内容（保存中 / 保存失败 / 已 dirty）时也走这里：必须进入冲突保护路径。
+        updateSaveState('external-changed');
       });
       unwatchRef.current = unsub;
     } catch (err) {
@@ -2379,7 +2413,7 @@ export const App: React.FC = () => {
         id: 'toggle-surface',
         titleKey: 'cmd.toggleSurface',
         shortcut: DEFAULT_SHORTCUTS['toggle-surface'],
-        execute: () => setSurfaceKind((prev) => (prev === 'source' ? 'visual' : 'source'))
+        execute: () => handleSurfaceChange(surfaceKind === 'source' ? 'visual' : 'source')
       }),
       commandRegistry.registerCommand({
         id: 'find',
@@ -2388,7 +2422,7 @@ export const App: React.FC = () => {
         isEnabled: () => Boolean(activeViewRef.current),
         execute: () => {
           const view = activeViewRef.current;
-          if (view) openSearchPanel(view);
+          if (view) openFindPanel(view);
         }
       }),
       commandRegistry.registerCommand({
@@ -2398,7 +2432,7 @@ export const App: React.FC = () => {
         isEnabled: () => Boolean(activeViewRef.current),
         execute: () => {
           const view = activeViewRef.current;
-          if (view) openSearchPanel(view);
+          if (view) openReplacePanel(view);
         }
       }),
       /**
@@ -2570,7 +2604,7 @@ export const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       unsubs.forEach(u => u());
     };
-  }, [handleOpenFile, handleOpenWorkspace, saveAs, saveFile, resolvedTheme, setTheme, modeSwitchable, locale, setLocale, openSettingsWindow]);
+  }, [handleOpenFile, handleOpenWorkspace, saveAs, saveFile, resolvedTheme, setTheme, modeSwitchable, locale, setLocale, openSettingsWindow, surfaceKind, handleSurfaceChange]);
 
   // Conflict resolution actions
   const handleReloadExternal = useCallback(async () => {
@@ -2588,6 +2622,42 @@ export const App: React.FC = () => {
   const handleKeepLocal = useCallback(() => {
     updateSaveState('dirty');
   }, [updateSaveState]);
+
+  /**
+   * 「被删除」横幅上的「重新读取」。
+   *
+   * 三种结果各自落到**已有**的状态上，不新造状态：
+   * - 读得到、内容与缓冲区一致 → 文件其实没变（多半是我们自己换文件时报错了），收回已保存；
+   * - 读得到、内容不一样 → 文件回来了但换了一份，交给冲突横幅 —— 那里才有「合并…」；
+   * - 读不到 → 文件确实不在了，横幅留着，用户还能走另外两条路。
+   */
+  const handleRereadAfterDelete = useCallback(async () => {
+    if (!filePath || !window.nexus?.readFile) return;
+    let content: string;
+    try {
+      content = await window.nexus.readFile(filePath);
+    } catch (err) {
+      console.error('Failed to re-read deleted file:', err);
+      return;
+    }
+    if (content === session.getSnapshot().source) {
+      initialContentRef.current = content;
+      updateSaveState('saved');
+      return;
+    }
+    updateSaveState('external-changed');
+  }, [filePath, session, updateSaveState]);
+
+  /**
+   * 「写回原位置」：把缓冲区的内容重新写到原来的路径上，把文件重建出来。
+   *
+   * 走 `saveFile` 而不是直接 `writeFile` —— 串行化、`initialContentRef` 的更新、
+   * 失败落到保存错误横幅，都是保存那条路已经有的行为。`saveFile` 开头那道
+   * 「`saved` 就直接返回」的短路不会挡住这里：此刻状态是 `deleted`。
+   */
+  const handleWriteBackDeleted = useCallback(() => {
+    void saveFile({ immediate: true });
+  }, [saveFile]);
 
   /**
    * 冲突态下探一次「账本里有没有祖先」，决定横幅上画不画「合并…」。
@@ -3373,13 +3443,36 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* External Deleted/Renamed Banner */}
+      {/* External Deleted Banner */}
+      {/* 三条出路，与冲突横幅同一套排布（文字 + 动作行）：
+          - 重新读取：文件可能只是被换了一下（我们自己的原子替换就会报出这种事），
+            或者被用户挪出去又挪了回来；
+          - 写回原位置：文件真没了，但缓冲区里还有内容 —— 直接把它重建出来；
+          - 另存为：不想写回原处（或原处不可写）时的退路。
+          「合并」在这里没有意义：磁盘上已经没有被合并的那一侧。文件回来了但内容不同时，
+          上面那条「重新读取」会把它转成冲突横幅，那里才给合并入口。 */}
       {saveState === 'deleted' && (
-        <div className="nexus-warning-banner" role="alert">
-          <span>{t('banner.deleted')}</span>
-          <button type="button" className="nexus-banner-saveas-btn" onClick={saveAs}>
-            {t('cmd.saveAs')}
-          </button>
+        <div className="nexus-conflict-banner" role="alert">
+          <span className="nexus-conflict-text">{t('banner.deleted')}</span>
+          <div className="nexus-conflict-actions">
+            <button
+              type="button"
+              className="nexus-banner-reread-btn"
+              onClick={() => void handleRereadAfterDelete()}
+            >
+              {t('banner.deletedReread')}
+            </button>
+            <button
+              type="button"
+              className="nexus-banner-writeback-btn"
+              onClick={handleWriteBackDeleted}
+            >
+              {t('banner.deletedWriteBack')}
+            </button>
+            <button type="button" className="nexus-banner-saveas-btn" onClick={saveAs}>
+              {t('cmd.saveAs')}
+            </button>
+          </div>
         </div>
       )}
 

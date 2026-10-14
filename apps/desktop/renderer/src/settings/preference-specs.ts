@@ -412,6 +412,47 @@ export const EDITOR_TABLE_LAYOUT_OPTIONS: ReadonlyArray<{ value: string; labelKe
 export const EDITOR_TABLE_LAYOUT_DEFAULT = 'auto';
 
 /**
+ * 打开 Markdown 时进哪个面。
+ *
+ * 三项而不是两项：`remember` 与两个「始终」是正交的两件事 —— 前者的意思是「跟着我上次的
+ * 选择走」，后两者是「每次启动都回到同一个面」。只给两项的话，「我就是要每次都进源码」没法表达。
+ *
+ * 默认 `visual`：打开一份 Markdown，十有八九是来看或改内容的，富文本面直接给出成品观感；
+ * 要写语法的用户切一次源码、把这一项改成 `remember` 就固定下来了。
+ *
+ * **只在启动时求值一次**：文档中途换面是用户当下的选择，不该被「再打开一个文件」推翻 ——
+ * 否则切面开关在 `visual` / `source` 下等于点不动。
+ */
+export const EDITOR_OPEN_MODE_OPTIONS: ReadonlyArray<{ value: string; labelKey: string }> = [
+  { value: 'visual', labelKey: 'settings.editor.openMode.visual' },
+  { value: 'source', labelKey: 'settings.editor.openMode.source' },
+  { value: 'remember', labelKey: 'settings.editor.openMode.remember' }
+];
+
+export const EDITOR_OPEN_MODE_DEFAULT = 'visual';
+
+export const EDITOR_OPEN_MODE_STORAGE_KEY = 'nexus-editor-open-mode';
+
+/**
+ * 上次用的那个面。**总是写，只在 `remember` 时读** —— 这样从「记住上次」切到「始终富文本」
+ * 再切回来，那个「上次」还是上次，不会因为中途用过别的档位就被清掉。
+ */
+export const EDITOR_SURFACE_STORAGE_KEY = 'nexus-editor-surface';
+
+/** 启动时该进哪个面。两个入参都来自存档，因此都不假定合法。 */
+export function resolveEditorSurface(
+  openMode: string,
+  rememberedSurface: string
+): 'source' | 'visual' {
+  // 两个「始终」档直接把档位名当答案用 —— 值域与面名刻意取了同一组词，
+  // 少一层映射也就少一处可能对不上的地方。
+  if (openMode === 'source' || openMode === 'visual') return openMode;
+  // `remember`（以及任何认不出的值）：跟着上次走；一次都没记过就与默认档一致。
+  if (rememberedSurface === 'source' || rememberedSurface === 'visual') return rememberedSurface;
+  return EDITOR_OPEN_MODE_DEFAULT;
+}
+
+/**
  * 外部修改文档时的处理方式。
  *
  * `smart`（默认）＝改版前的行为：**文档没有未保存改动**时自动重载，有改动才提示冲突。

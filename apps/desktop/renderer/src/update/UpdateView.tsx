@@ -112,17 +112,31 @@ export const UpdateView: React.FC = () => {
   const hasUpdate = phase === 'available' || phase === 'downloading' || phase === 'downloaded';
 
   /**
-   * 「从当前版本显示到最新版本」—— 默认只留比当前版本**新**的那些。
+   * 「从当前版本显示到**要更新到的那个版本**」—— 下界是当前版本，上界是 `latest`。
    *
-   * 用 `compareVersions` 而不是字符串比较：`0.10.0` 在字符串序里小于 `0.9.0`，
-   * 而它实际更新。判据与主进程共用同一份实现（`ipc/channels.ts`）。
+   * 上界那一条不是装饰。`changelog.json` 的键**只应该是发布过的版本**（一次发布一个键，
+   * 见 `.workbuddy-ai/memory/pitfalls.md` 判据 90），但这条不变量靠人守 —— 一旦有人把开发
+   * 期间的版本号写进去，界面上就会冒出一串「0.84.1 / 0.84.2 / 0.84.3 …」，而用户根本装不到
+   * 那些版本（2026-10-14 实测过一次）。「不可能被更新到一个没发布过的版本」是**能自己算出来**
+   * 的：比 `latest` 还新的条目一律不画。数据对了它不生效，数据漂了它兜住。
+   *
+   * 上界对「显示全部历史版本」同样成立 —— 那个开关管的是「要不要往前翻」，不是「要不要看未来」。
+   * `latest` 未知（更新器还没检查过）时**不加**上界：把列表清空会把「还没查」显示成
+   * 「没有更新内容」，那是更糟的错。
+   *
+   * 用 `compareVersions` 而不是字符串比较：`0.10.0` 在字符串序里小于 `0.9.0`，而它实际更新。
+   * 判据与主进程共用同一份实现（`ipc/channels.ts`）。
    */
   const releases = useMemo(() => {
     if (!changelog) return [];
+    const latest = state?.latest;
+    const ceiling = latest
+      ? changelog.filter((release) => compareVersions(release.version, latest) <= 0)
+      : changelog;
     const current = state?.current;
-    if (showAll || !current) return changelog;
-    return changelog.filter((release) => compareVersions(release.version, current) > 0);
-  }, [changelog, showAll, state?.current]);
+    if (showAll || !current) return ceiling;
+    return ceiling.filter((release) => compareVersions(release.version, current) > 0);
+  }, [changelog, showAll, state?.current, state?.latest]);
 
   const guard = useCallback(async (action: () => Promise<unknown> | undefined) => {
     setBusy(true);

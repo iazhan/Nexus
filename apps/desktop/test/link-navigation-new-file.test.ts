@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -77,17 +78,6 @@ describe('Ctrl+N 新建文档与 Ctrl+左键链接跳转', () => {
     }
     activeApp = null;
   });
-
-  /** 确保当前 surface 是目标；已经是就不动（多切一次会改变滚动等状态）。 */
-  async function ensureSurface(app: ElectronAppInstance, target: string): Promise<void> {
-    const current = await app.evaluate<string | null>(
-      `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
-    );
-    if (current === target) return;
-
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
-  }
 
   async function snapshot(app: ElectronAppInstance): Promise<AppSnapshot> {
     return app.evaluate<AppSnapshot>(`(() => {

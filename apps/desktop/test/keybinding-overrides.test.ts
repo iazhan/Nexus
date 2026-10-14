@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   MAIN_WINDOW_URL_MARKER,
   SETTINGS_WINDOW_URL_MARKER,
   type ElectronAppInstance
@@ -33,9 +34,11 @@ describe('快捷键覆盖', () => {
   const RESET = `window.nexusSettings.set('keybindings.overrides', {})`;
 
   const SURFACE_KIND = `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`;
-  const HAS_SEARCH = `Boolean(document.querySelector('.cm-search'))`;
+  // 查找面板是**自绘**的（`packages/editor/src/search-panel.ts`），容器是 `.nexus-find`
+  // 而不是 CM 内置面板的 `.cm-search`。
+  const HAS_SEARCH = `Boolean(document.querySelector('.nexus-find'))`;
   const CLOSE_SEARCH = `(() => {
-    const button = document.querySelector('.cm-search button[name=close]');
+    const button = document.querySelector('.nexus-find button[name=close]');
     if (button) button.click();
     return true;
   })()`;
@@ -72,6 +75,8 @@ describe('快捷键覆盖', () => {
     fs.writeFileSync(docPath, '# 标题\n\n正文一行。\n', 'utf-8');
     app = await launchElectronApp({ filePath: docPath });
     await app.waitForSelector('.cm-content', 20000);
+    // 三条用例都从 Source 面起手；初始面跟随「打开 Markdown 时的模式」设置项。
+    await ensureSurface(app, 'source');
     await app.evaluate(RESET);
   }, 120000);
 
@@ -127,7 +132,7 @@ describe('快捷键覆盖', () => {
 
     // 默认绑定：事件从编辑器内部派发，宿主开面板。
     await app.evaluate(dispatchIntoEditor('f', { ctrl: true }));
-    await app.waitForSelector('.cm-search', 10000);
+    await app.waitForSelector('.nexus-find', 10000);
 
     // 改绑到 `Mod-Shift-F`，再归零。
     await app.evaluate(
@@ -144,7 +149,7 @@ describe('快捷键覆盖', () => {
 
     // 新键生效，且事件同样从编辑器内部派发 —— 证明是宿主接住了，不是编辑器恰好没拦。
     await app.evaluate(dispatchIntoEditor('f', { ctrl: true, shift: true }));
-    await app.waitForSelector('.cm-search', 10000);
+    await app.waitForSelector('.nexus-find', 10000);
 
     await app.evaluate(CLOSE_SEARCH);
     await app.evaluate(RESET);
@@ -165,7 +170,10 @@ describe('快捷键覆盖', () => {
     );
 
     await app.attachToWindow(MAIN_WINDOW_URL_MARKER);
-    await waitForSurface('source');
+    // reload 之后 surface 回到默认档，先等编辑器出来再归位到 Source，
+    // 否则后面「按 Mod-M 什么都不该发生」的断言没有起点。
+    await app.waitForSelector('.cm-content', 15000);
+    await ensureSurface(app, 'source');
 
     // 主窗口的 `keybindingTable()` 是按引用缓存的 —— 少了对面那次重解析，这里仍会读旧表。
     await app.dispatchKey('m', { ctrl: true });

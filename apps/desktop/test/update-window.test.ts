@@ -150,7 +150,9 @@ describe('更新窗口', () => {
     //    先等它落定（远端那次拉取最长 8s 超时），否则下面数的卡片数会在拉取回来的瞬间变。
     await app.waitForSelector('[data-changelog-state="ready"]', 25000);
 
-    //    默认只画**比当前版本新**的那些，所以当前版本 0.73.0 那张卡片一开始不在。
+    //    默认只画**比当前版本新**的那些，所以 `0.73.0`（一个已发布但早于当前版本的键）
+    //    一开始不在。这里刻意挑一个**已发布**的版本号：它一直留在 `changelog.json` 里，
+    //    不像未发布的版本号那样会被人从文件里清掉，于是这条断言不会随着数据整理而失效。
     expect(
       await app.evaluate<number>(`document.querySelectorAll('[data-release="0.73.0"]').length`)
     ).toBe(0);

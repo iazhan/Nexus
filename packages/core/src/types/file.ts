@@ -110,6 +110,18 @@ export interface IndexedDocument {
   extractionStatus: ExtractionStatus;
 }
 
+/**
+ * 搜索结果的一段上下文。
+ *
+ * `from` / `to` 是命中词在 `text` 里的起止偏移（右开），界面据此高亮；没有命中时为 `-1`
+ * —— 命中可能来自标题，正文里并不出现那个词。
+ */
+export interface SearchSnippet {
+  text: string;
+  from: number;
+  to: number;
+}
+
 /** 全文检索命中的一条结果。 */
 export interface SearchHit {
   documentId: number;
@@ -125,6 +137,8 @@ export interface SearchHit {
   type: DocumentType;
   /** 与 `IndexedDocument.extractionStatus` 同义，见那里的说明。 */
   extractionStatus: ExtractionStatus;
+  /** 命中处的上下文片段。空串表示这篇没有可摘的正文（理论上只有索引库旧于片段这一层时）。 */
+  snippet: SearchSnippet;
 }
 
 /** 一次工作区索引的结果统计。 */
@@ -346,9 +360,14 @@ export interface DiffLine {
 
 /**
  * 文件监听事件，错误也通过事件显式传递给调用方。
+ *
+ * 只有两种「变了」：`changed` = 这个路径上的内容变了（包括被换成了另一份文件），
+ * `deleted` = 这个路径上已经没有文件了。**刻意没有 `renamed`** —— 改名离开这个路径
+ * 就是 `deleted`，改名换进来就是 `changed`，而「同一个路径上换了一份文件」是
+ * 原子保存的常态（我们自己写盘就是），把它报成改名会让上层弹出「文件已被外部删除」。
  */
 export type FileWatchEvent =
-  | { type: 'changed' | 'renamed' | 'deleted'; path: string }
+  | { type: 'changed' | 'deleted'; path: string }
   | { type: 'error'; path: string; message: string; code?: string };
 
 /** 文件监听回调。 */

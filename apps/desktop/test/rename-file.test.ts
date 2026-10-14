@@ -235,10 +235,13 @@ describe('重命名文件与引用回写', () => {
 
     /* ④ 打开着的 root.md 被回写了，界面必须跟着换内容，而不是报「被外部修改」。
          那两个横幅都出现过一次就说明收尾漏了（`external-changed` 是自动重载没跟上，
-         `deleted` 是旧 watcher 把我们自己的改名当成了删除）。 */
+         `deleted` 是旧 watcher 把我们自己的改名当成了删除）。
+
+         判据取**编辑器文档**而不是 `.cm-content` 的文本：富文本面把 `[[dma2]]`
+         投影成 wikilink widget，字面量不在正文文本里。 */
     await waitFor(
       app,
-      `document.querySelector('.cm-content')?.textContent?.includes('[[dma2]]') === true`,
+      `window.nexusActiveView?.state.doc.toString().includes('[[dma2]]') === true`,
       '编辑器里显示新链接'
     );
     expect(await app.evaluate<boolean>(`!!document.querySelector('.nexus-conflict-banner')`)).toBe(

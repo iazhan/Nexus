@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   INDEXED_TEST_TIMEOUT_MS,
   type ElectronAppInstance
 } from './smoke-harness.js';
@@ -102,15 +103,8 @@ describe('Source 面图片：渲染 + 就地改地址', () => {
     throw new Error(`标题栏没有变成 ${name}`);
   }
 
-  /** 默认就是 Source 面；已经在了就不动（多切一次会重置滚动与光标）。 */
-  async function ensureSourceSurface(app: ElectronAppInstance): Promise<void> {
-    const current = await app.evaluate<string | null>(
-      `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
-    );
-    if (current === 'source') return;
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector('[data-surface-kind="source"]', 20000);
-  }
+  /** 归位到 Source 面；已经在了就不动（多切一次会重置滚动与光标）。 */
+  const ensureSourceSurface = (app: ElectronAppInstance) => ensureSurface(app, 'source');
 
   /** 按 `data-path` 点列表项。用 DOM 派发而不是按坐标点：面板是绝对定位的，坐标不稳。 */
   async function clickPickerItem(app: ElectronAppInstance, dataPath: string): Promise<void> {

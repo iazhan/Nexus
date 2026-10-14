@@ -6,6 +6,7 @@ import { countDocumentCharacters } from '@nexus/core';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -100,8 +101,7 @@ describe('编辑器显示设置', () => {
     await app.evaluate(RESET_SETTINGS);
 
     // 表格只在可视化投影里有节点。
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector('[data-surface-kind="visual"]', 20000);
+    await ensureSurface(app, 'visual');
     await app.waitForSelector('.cm-visual-table', 20000);
 
     const readLayout = `getComputedStyle(document.querySelector('.cm-visual-table')).tableLayout`;

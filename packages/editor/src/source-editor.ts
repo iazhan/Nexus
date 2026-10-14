@@ -3,12 +3,17 @@ import { EditorView, lineNumbers, keymap } from '@codemirror/view';
 export { EditorView } from '@codemirror/view';
 export { EditorState } from '@codemirror/state';
 import { history } from '@codemirror/commands';
-import { search } from '@codemirror/search';
 import { autocompletion } from '@codemirror/autocomplete';
 import { markdown } from '@codemirror/lang-markdown';
+import { highlightSelectionMatches } from '@codemirror/search';
 import { getCodeLanguage } from './code-highlight.js';
 
 import { editorKeybindings } from './keymaps.js';
+import {
+  searchPanelExtension,
+  searchPanelLocaleEffect,
+  searchPhrasesExtension
+} from './search-panel.js';
 import { createMarkdownCompletionSource } from './completions.js';
 import { markdownMarkersField, blockGapField } from './markdown-markers.js';
 import { getEditorTheme } from './theme.js';
@@ -64,7 +69,13 @@ export function getSourceEditorExtensions(config: SourceEditorConfig = {}): Exte
 
   extensions.push(
 
-    search({ top: true }),
+    searchPanelExtension,
+    searchPhrasesExtension(config.locale ?? 'zh-CN'),
+
+    // 选中一段文本时，全文相同内容跟着垫一层 selection-bg 底色 —— 选中词「还有几处」
+    // 不再要靠打开查找面板才知道。装在搜索扩展旁边是因为两者共享同一套底色 token
+    // （`theme.ts` 的 `.cm-selectionMatch` / `.cm-searchMatch`），配色要一起看。
+    highlightSelectionMatches(),
 
     markdown({
       codeLanguages: getCodeLanguage
@@ -165,15 +176,20 @@ export function setEditorThemeConfig(view: EditorView, _theme: 'light' | 'dark')
 
 /**
  * Reconfigures the locale of an existing EditorView.
+ *
+ * 翻成两件事一起做：浮层文案（`editorLocaleFacet`）与 CodeMirror 自己的
+ * 查找 / 替换面板（`searchPhraseCompartment`）。少后面那半的话，切换语言只换了
+ * 行内浮层，面板上的字还是上一个语言的 —— 而用户正是在「把界面切成中文」的时候
+ * 才会发现面板上写着 Find。
  */
 export function setEditorLocale(view: EditorView, locale: string): void {
   view.dispatch({
     effects: [
-      editorLocaleCompartment.reconfigure(editorLocaleFacet.of(locale))
+      editorLocaleCompartment.reconfigure(editorLocaleFacet.of(locale)),
+      searchPanelLocaleEffect(locale)
     ]
   });
 }
-
 /**
  * Reconfigures the line-number gutter of an existing EditorView.
  *

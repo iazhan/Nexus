@@ -46,6 +46,246 @@ export const nexusBaseTheme = EditorView.theme({
   "&.cm-focused .cm-selectionBackground, ::selection": {
     backgroundColor: "var(--nexus-selection-bg) !important"
   },
+
+  // 查找 / 替换与「选中即高亮」的底色。CM 自带的是写死的十六位色，且不分主题 ——
+  // 这里换成与主题联动的 token，两个用途刻意分开：搜出来的命中与 `==x==` 文档高亮
+  // 同族（`bg-highlight` 黄），选中词与系统选区同族（`selection-bg` 蓝紫）——
+  // 用户对「选中的东西是什么颜色」已有认知，全文相同词延续它比另娶一色好懂。
+  //
+  // 第三条是 **CM 自带的防叠显规则**（嵌套在 searchMatch 里的 selectionMatch 透明）：
+  // 选中词与查询词相同时，一个 span 上同时落两个 class；没有这条，后应用的底色
+  // 会盖掉前一个，「刚才是黄底怎么变紫了」没有解释。覆盖前两条时不能顺手删它。
+  ".cm-searchMatch": {
+    backgroundColor: "var(--nexus-bg-highlight)"
+  },
+  // 当前跳到的那一处用 accent 描边而不是换底色：底色只有「又一档黄」可走，
+  // 而 accent-indicator 正是「图形级当前项」的既有口径（设置里当前项同款手法：
+  // 选中感由底色 + accent 边框给，不把文字也染色）。
+  ".cm-searchMatch-selected": {
+    backgroundColor: "var(--nexus-bg-highlight)",
+    outline: "1.5px solid var(--nexus-accent-indicator)",
+    outlineOffset: "-1px"
+  },
+  ".cm-selectionMatch": {
+    backgroundColor: "var(--nexus-selection-bg)"
+  },
+  ".cm-searchMatch .cm-selectionMatch": {
+    backgroundColor: "transparent"
+  },
+  // 被投影 widget 整块替换的区间的命中代理（`WikiLinkWidget.searchHit`）：
+  // CM 的 `cm-searchMatch` mark 落在 replace range 上不落 DOM，widget 自己画。
+  // 用与正文命中同一个黄底，两种命中在用户眼里是同一种东西。
+  ".cm-search-hit-shadow": {
+    backgroundColor: "var(--nexus-bg-highlight)",
+    borderRadius: "2px"
+  },
+
+  // ---- 查找面板：右上角悬浮卡片 ----
+  //
+  // 面板是自绘的（`search-panel.ts` 的 `NexusFindPanel`），CM 对它没有任何默认样式
+  // （`.cm-panel.cm-search` 那条只匹配内置面板），所以这里是从零画一张卡片。
+  // 两件事必须一起做，少一件面板就会「占流」或盖出死区：
+  //
+  // 1. `.cm-panels` 默认是 `position: sticky; left: 0; right: 0` —— 它**占文档流**，
+  //    把正文往下挤。改成 absolute 贴到编辑器右上角，正文才不被推走。定位基准是
+  //    `.cm-editor`（CM baseTheme 给它 `position: relative !important`），不必另加包裹层。
+  // 2. 容器设 `pointer-events: none`。它横向铺满编辑器（卡片靠 `margin-left: auto` 右对齐），
+  //    不设就会在整条顶部盖出一片点不动的死区。卡片自己再设回 `auto`。
+  //
+  // 这两条的选择器都是 `.cm-panels.cm-panels-top`：CM 的主题构造会给每个 key 前面接上
+  // 主题类名，所以实际是 `.ͼX .cm-panels.cm-panels-top`（0,3,0），压得住 baseTheme 的
+  // `.ͼL .cm-panels-top`（0,2,0）—— 不必动用 `!important`。
+  ".cm-panels.cm-panels-top": {
+    position: "absolute",
+    top: "8px",
+    left: "8px",
+    right: "8px",
+    bottom: "auto",
+    border: "none",
+    backgroundColor: "transparent",
+    pointerEvents: "none"
+  },
+  ".nexus-find": {
+    pointerEvents: "auto",
+    // 靠右：容器铺满编辑器，卡片自己缩到「内容宽度上限」。
+    marginLeft: "auto",
+    // 右侧让开滚动条。容器贴的是 `.cm-editor` 的右边缘，而滚动条就在那里面 ——
+    // 不让开卡片会压住滚动条的上半截。值由面板现量（`NexusFindPanel.syncGutter`），
+    // 覆盖层滚动条的平台量出来是 0，本来也不用让。
+    marginRight: "var(--nexus-find-gutter, 0px)",
+    // 上限里也要把那段让位减掉：容器窄的时候 `100%` 会把卡片顶出去、又压回滚动条上。
+    width: "min(calc(100% - var(--nexus-find-gutter, 0px)), 420px)",
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    padding: "6px",
+    border: "1px solid var(--nexus-border-default)",
+    borderRadius: "6px",
+    backgroundColor: "var(--nexus-bg-surface)",
+    color: "var(--nexus-text-primary)",
+    // 阴影从**主题的正文色**派生，不写死黑色 —— 与 `.cm-inline-edit-popover` 同一个理由：
+    // 深色主题下 `--nexus-text-primary` 是近白的，那一圈浅色晕就是「浮起来」的读法；
+    // 写死 `rgba(0,0,0,.16)` 在深色底上等于没有阴影。
+    boxShadow: "0 8px 24px color-mix(in oklab, var(--nexus-text-primary) 18%, transparent)",
+    fontFamily: "var(--font-family)",
+    fontSize: "12px",
+    lineHeight: "1.4"
+  },
+  ".nexus-find-row": {
+    display: "flex",
+    alignItems: "center",
+    gap: "2px"
+  },
+  // 放大镜。与替换行的占位块同宽，于是两行的输入框左边对齐。
+  ".nexus-find-leading": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "20px",
+    flexShrink: "0",
+    color: "var(--nexus-text-muted)"
+  },
+  // 替换行行首的占位块，宽度对齐查找行的折叠按钮（22px）—— 少那 2px 两行就错开。
+  ".nexus-find-placeholder": {
+    flexShrink: "0",
+    width: "22px"
+  },
+  ".nexus-find svg": {
+    display: "block",
+    width: "14px",
+    height: "14px"
+  },
+  ".nexus-find-input": {
+    flex: "1 1 auto",
+    minWidth: "0",
+    height: "26px",
+    boxSizing: "border-box",
+    padding: "0 6px",
+    border: "1px solid var(--nexus-border-subtle)",
+    borderRadius: "4px",
+    // 输入框退回 `canvas`（卡片是 `surface`）：凹进去一格，与卡片分得开。
+    backgroundColor: "var(--nexus-bg-canvas)",
+    color: "var(--nexus-text-primary)",
+    fontFamily: "inherit",
+    fontSize: "12px",
+    outline: "none"
+  },
+  ".nexus-find-input:focus": {
+    borderColor: "var(--nexus-accent-solid)"
+  },
+  // 计数。`tabular-nums` 让「1/9 → 10/9」时按钮列不跟着抖；颜色走 muted，
+  // 它是辅助信息，不该比输入框抢眼。
+  ".nexus-find-count": {
+    flexShrink: "0",
+    minWidth: "3.4em",
+    padding: "0 4px",
+    color: "var(--nexus-text-muted)",
+    fontSize: "11px",
+    fontVariantNumeric: "tabular-nums",
+    textAlign: "right",
+    whiteSpace: "pre"
+  },
+  // 有查询但零命中：计数换成警示色。这是「搜了但没结果」的唯一视觉反馈 ——
+  // 面板不挡正文，用户不会自己发现「一处都没高亮」。
+  '.nexus-find[data-state="none"] .nexus-find-count': {
+    color: "var(--nexus-status-warning-text)"
+  },
+  // 图标按钮（上一个 / 下一个 / 关闭 / 折叠替换行）。方形无边框，悬停才出底。
+  ".nexus-find-icon": {
+    appearance: "none",
+    flexShrink: "0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "22px",
+    height: "22px",
+    padding: "0",
+    border: "none",
+    borderRadius: "4px",
+    backgroundColor: "transparent",
+    color: "var(--nexus-text-secondary)",
+    cursor: "pointer"
+  },
+  ".nexus-find-icon:hover:not(:disabled)": {
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    color: "var(--nexus-text-primary)"
+  },
+  ".nexus-find-icon:disabled": {
+    color: "var(--nexus-text-muted)",
+    opacity: "0.5",
+    cursor: "default"
+  },
+  // 三个开关（Aa / ab / .*）。等宽字体让它们同宽，不然 `.*` 比 `Aa` 窄一截、
+  // 三个按钮看起来没对齐。
+  ".nexus-find-switch": {
+    appearance: "none",
+    flexShrink: "0",
+    minWidth: "24px",
+    height: "22px",
+    padding: "0 4px",
+    border: "1px solid transparent",
+    borderRadius: "4px",
+    backgroundColor: "transparent",
+    color: "var(--nexus-text-secondary)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "11px",
+    lineHeight: "1",
+    cursor: "pointer"
+  },
+  ".nexus-find-switch:hover": {
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    color: "var(--nexus-text-primary)"
+  },
+  // **按下态必须看得出来** —— 三个开关是纯文字，没有勾选框可看，`aria-pressed` 是唯一依据。
+  // 底色 + 反色文字，与设置里「当前项」同一套口径。
+  '.nexus-find-switch[aria-pressed="true"]': {
+    backgroundColor: "var(--nexus-accent-solid)",
+    borderColor: "var(--nexus-accent-solid)",
+    color: "var(--nexus-accent-contrast)"
+  },
+  ".nexus-find-text": {
+    appearance: "none",
+    flexShrink: "0",
+    height: "22px",
+    padding: "0 8px",
+    border: "1px solid var(--nexus-border-subtle)",
+    borderRadius: "4px",
+    backgroundColor: "var(--nexus-bg-surface-hover)",
+    color: "var(--nexus-text-primary)",
+    fontFamily: "inherit",
+    fontSize: "12px",
+    lineHeight: "1",
+    cursor: "pointer",
+    whiteSpace: "nowrap"
+  },
+  ".nexus-find-text:hover:not(:disabled)": {
+    backgroundColor: "var(--nexus-bg-surface-active)"
+  },
+  ".nexus-find-text:disabled": {
+    color: "var(--nexus-text-muted)",
+    cursor: "default"
+  },
+  // 开关列与跳转按钮之间的一道竖线：左边是「怎么找」，右边是「跳到哪一处」。
+  ".nexus-find-separator": {
+    flexShrink: "0",
+    width: "1px",
+    height: "16px",
+    margin: "0 2px",
+    backgroundColor: "var(--nexus-border-subtle)"
+  },
+  // 替换行的显隐**用属性而不是删 DOM**：面板的 `update()` 只写属性、不重建结构，
+  // 焦点才不会在用户输入中途丢。
+  '.nexus-find[data-replace="closed"] .nexus-find-replace-row': {
+    display: "none"
+  },
+  // 只读文档没有替换：替换行与折叠按钮一起收起（点了也展不开，留着只会让人以为坏了）。
+  '.nexus-find[data-readonly="true"] .nexus-find-replace-row': {
+    display: "none"
+  },
+  '.nexus-find[data-readonly="true"] button[name="toggle-replace"]': {
+    display: "none"
+  },
   ".cm-gutters": {
     backgroundColor: "var(--nexus-bg-surface)",
     color: "var(--nexus-text-muted)",

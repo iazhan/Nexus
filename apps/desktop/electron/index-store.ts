@@ -12,6 +12,7 @@ import type {
   IndexedDocument,
   OrphanMode,
   SearchHit,
+  SearchSnippet,
   WikiLinkTarget,
   WorkspaceGraph
 } from '@nexus/core';
@@ -58,8 +59,11 @@ import type {
  * 注意这里**没有迁移脚本** —— 索引是派生数据，重建成本是几秒扫盘，
  * 而迁移脚本会长期背着「派生数据的格式」这个不该背的包袱（见文件头注释）。
  * 所以「schema v9 的 migration」在本项目里的含义就是「把版本号改掉」。
+ * v10：新增 `document_text` 表，存**未切分**的正文（Markdown 原文、附件提取出来的文本）。
+ * 不放进 `documents` 是为了让 `mapDocument` 与 `IndexedDocument` 少一处要维护的列 ——
+ * 它的职责只挂在全文检索上（见 `buildSearchSnippet`）。
  */
-const SCHEMA_VERSION = '9';
+const SCHEMA_VERSION = '10';
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -95,6 +99,16 @@ const SCHEMA_STATEMENTS = [
      body,
      tokenize='unicode61'
    )`,
+  // **未切分**的正文。FTS 里那份是按字切过的（`从 站 配 置`），拿来做「命中处
+  // 前后各摘一句」只会得到一串带空格的碎片 —— 那正是搜索结果里要展示的东西，
+  // 所以原文单独存一份。
+  //
+  // 不放进 `documents`：它只服务全文检索一个消费者，而 `documents` 的每一列都要被
+  // `mapDocument` 与 `IndexedDocument` 认领。分开存之后这两边互相不用改。
+  `CREATE TABLE IF NOT EXISTS document_text (
+     document_id INTEGER PRIMARY KEY,
+     body TEXT NOT NULL
+   )`,
   // 反向链接：某篇文档里出现了哪些 wikilink 目标。
   //
   // 存的是**归一化后的目标名**（切掉 `#锚点`、去掉 `.md`、转小写），不是解析出来的
@@ -129,6 +143,7 @@ const DROP_STATEMENTS = [
   `DROP TABLE IF EXISTS links`,
   `DROP TABLE IF EXISTS search_fts`,
   `DROP TABLE IF EXISTS documents`,
+  `DROP TABLE IF EXISTS document_text`,
   `DROP TABLE IF EXISTS meta`
 ];
 
@@ -208,6 +223,73 @@ export function buildMatchExpression(rawQuery: string): string | null {
     return `"${segmented.replace(/"/g, '""')}"`;
   }
   return segmented;
+}
+
+/** 片段里命中词前后各留多少字符。 */
+const SNIPPET_RADIUS = 48;
+/** 片段上限。命中词太长时先保它，再匀两侧。 */
+const SNIPPET_MAX = 160;
+
+/**
+ * 从**原始正文**里摘一段命中处的上下文。
+ *
+ * ## 为什么不「取前 N 个字符」
+ *
+ * 一条搜索命中可能来自文档任何位置。取开头等于给出「文档的第一句话」，
+ * 它对判断「这一篇说的正是我要找的吗」没有任何帮助。判据是**命中词本身**：
+ * 找到它，就取它前后各半句。
+ *
+ * ## 三条边界
+ *
+ * 1. **空白一律压成单个空格，一对一替换**（`\r\n` 也是一个字符换一个字符）——
+ *    片段常常横跨段落，带着换行进结果列表会撑高每一行；一对一保证 `from` / `to` 原样有效。
+ * 2. **没有命中时给开头几句**（`from` / `to` 为 `-1`）。命中可能来自标题 —— 标题不参与
+ *    片段检索，此时正文里找不到那个词，但不能因此不显示片段。
+ * 3. **多个词取最靠前那个**：查询是按短语匹配的，取第一个词能保证片段落在文档最靠前
+ *    的那处命中上，用户从上往下读是有顺序的。
+ *
+ * 命中判断用**大小写不敏感的 `indexOf`**，与 FTS 那边的 phrase 匹配故意不同 ——
+ * 那边要管分词与相邻性，这边只要在原文里定个位。两者不一致时以上这边的片段为准
+ * （它只影响「摘哪一段」，不影响「哪些文档被召回」）。
+ */
+export function buildSearchSnippet(body: string, query: string): SearchSnippet {
+  const terms = query.split(/\s+/).filter((term) => term.length > 0);
+  const haystack = body.toLowerCase();
+
+  let matchAt = -1;
+  let matchLength = 0;
+  for (const term of terms) {
+    const needle = term.toLowerCase();
+    const at = haystack.indexOf(needle);
+    if (at !== -1 && (matchAt === -1 || at < matchAt)) {
+      matchAt = at;
+      matchLength = needle.length;
+    }
+  }
+
+  if (matchAt === -1) {
+    return { text: collapse(body.slice(0, SNIPPET_MAX)), from: -1, to: -1 };
+  }
+
+  const radius = Math.max(0, Math.min(SNIPPET_RADIUS, Math.floor((SNIPPET_MAX - matchLength) / 2)));
+  const start = Math.max(0, matchAt - radius);
+  const end = Math.min(body.length, matchAt + matchLength + radius);
+  const ellipsisBefore = start > 0;
+  const ellipsisAfter = end < body.length;
+
+  const text =
+    (ellipsisBefore ? '…' : '') + collapse(body.slice(start, end)) + (ellipsisAfter ? '…' : '');
+
+  return {
+    text,
+    from: matchAt - start + (ellipsisBefore ? 1 : 0),
+    to: matchAt - start + matchLength + (ellipsisBefore ? 1 : 0)
+  };
+}
+
+/** 空白压成空格，**严格 1:1** —— 偏移因此原样有效。 */
+function collapse(text: string): string {
+  return text.replace(/\s/g, ' ');
 }
 
 /**
@@ -347,6 +429,7 @@ export class IndexStore {
    *
    * 同一事务里替换 FTS 行：先删旧的再插新的，避免同一文档留下两份索引。
    * 附件（非 Markdown）只写元数据，不碰 FTS —— 它没有可检索正文。
+   * 原始正文进 `document_text`，给搜索结果的上下文片段用（见 `buildSearchSnippet`）。
    */
   upsertDocument(input: UpsertDocumentInput, nowMs: number): number {
     return this.upsertDocuments([input], nowMs)[0] ?? 0;
@@ -412,6 +495,12 @@ export class IndexStore {
         segmentForIndex(input.body)
       ]);
 
+      this.db.run(
+        `INSERT INTO document_text(document_id, body) VALUES(?, ?)
+         ON CONFLICT(document_id) DO UPDATE SET body = excluded.body`,
+        [documentId, input.body]
+      );
+
       for (const link of input.links) {
         this.db.run(`INSERT OR IGNORE INTO links(source_id, target, anchor) VALUES(?, ?, ?)`, [
           documentId,
@@ -423,6 +512,10 @@ export class IndexStore {
       for (const tag of input.tags) {
         this.db.run(`INSERT OR IGNORE INTO tags(source_id, tag) VALUES(?, ?)`, [documentId, tag]);
       }
+    } else {
+      // 附件没有可检索正文，`document_text` 里也就不该留 —— 上一次它还是 Markdown
+      // （被改名换了扩展名）时写进去的原文会把片段挂到一份 PDF 上。
+      this.db.run(`DELETE FROM document_text WHERE document_id = ?`, [documentId]);
     }
 
     return documentId;
@@ -441,6 +534,7 @@ export class IndexStore {
         if (documentId <= 0) continue;
         this.db.run(`DELETE FROM search_fts WHERE rowid = ?`, [documentId]);
         this.db.run(`DELETE FROM documents WHERE id = ?`, [documentId]);
+        this.db.run(`DELETE FROM document_text WHERE document_id = ?`, [documentId]);
         removed += 1;
       }
       this.db.exec('COMMIT');
@@ -453,6 +547,10 @@ export class IndexStore {
 
   /**
    * 全文检索。空查询返回空数组（而不是全部文档）。
+   *
+   * 每条结果都带一段**上下文片段**（`snippet`）：从没进过 FTS 的原始正文里
+   * 在命中处前后各摘一段。判据是「命中在正文里的位置」，不是「前 N 个字符」——
+   * 后者在多文件的搜索结果里翻不出区别，而用户要的正是「它在哪儿提到了我搜的词」。
    */
   search(query: string, limit = 50): SearchHit[] {
     const matchExpression = buildMatchExpression(query);
@@ -461,9 +559,10 @@ export class IndexStore {
     const rows = this.db.all(
       `SELECT d.id AS id, d.path AS path, d.relative_path AS relative_path,
               d.name AS name, d.title AS title, d.type AS type,
-              d.extraction_status AS extraction_status
+              d.extraction_status AS extraction_status, t.body AS body_raw
          FROM search_fts f
          JOIN documents d ON d.id = f.rowid
+         LEFT JOIN document_text t ON t.document_id = d.id
         WHERE search_fts MATCH ?
         ORDER BY rank
         LIMIT ?`,
@@ -477,7 +576,8 @@ export class IndexStore {
       name: String(row.name),
       title: String(row.title),
       type: readDocumentType(row.type),
-      extractionStatus: readExtractionStatus(row.extraction_status)
+      extractionStatus: readExtractionStatus(row.extraction_status),
+      snippet: buildSearchSnippet(String(row.body_raw ?? ''), query)
     }));
   }
 
@@ -522,6 +622,15 @@ export class IndexStore {
           segmentForIndex(String(row?.title ?? '')),
           segmentForIndex(result.text)
         ]);
+        this.db.run(
+          `INSERT INTO document_text(document_id, body) VALUES(?, ?)
+           ON CONFLICT(document_id) DO UPDATE SET body = excluded.body`,
+          [documentId, result.text]
+        );
+      } else {
+        // 没有可检索正文时同样清掉原文 —— 否则「搜得到但打开什么都没有」
+        // 会变成「搜不到但片段还在」，两种说法完全相反。
+        this.db.run(`DELETE FROM document_text WHERE document_id = ?`, [documentId]);
       }
 
       this.db.exec('COMMIT');

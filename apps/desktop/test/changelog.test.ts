@@ -16,7 +16,7 @@ import {
   parseGithubReleases,
   readBundledChangelog
 } from '../electron/changelog.js';
-import type { ChangelogRelease } from '../ipc/channels.js';
+import { compareVersions, type ChangelogRelease } from '../ipc/channels.js';
 import { createTempDir } from './smoke-harness.js';
 
 /**
@@ -428,6 +428,83 @@ describe('更新日志 · 三层回落', () => {
 describe('更新日志 · 仓库里那份文件', () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
+  /**
+   * 仓库里打过 tag 的版本（去掉前导 `v`）。
+   *
+   * **直接读 `.git` 里的 ref，不起子进程。** 用 `git tag` 看着更自然，但本机沙箱里
+   * `execFileSync('git', …)` 会以 `EBUSY spawnSync git EBUSY` 失败 —— 失败被 `catch` 掉之后
+   * 守卫就成了一条**恒真**的断言：测试全绿，什么都没查。第一版就是这么写坏的（反向验证时
+   * 塞进一个未发布的键，测试照样绿）。读文件没有这层不确定性。
+   *
+   * tag 有两处存放，**两处都要读**：松散引用 `.git/refs/tags/<name>`，和打包后的
+   * `.git/packed-refs`（本仓库 36 个 tag：5 个松散、31 个在 packed-refs 里 —— 只读一处会漏）。
+   *
+   * **读不到就返回空数组**（导出源码包、没有 `.git`）：那时「有没有发布过」无从判断，
+   * 调用方见空数组就跳过 —— 与 `.githooks` 里那条「找不到 node 就跳过校验并放行」同一条纪律。
+   */
+  function releasedTags(): string[] {
+    const gitDir = resolveGitDir(repoRoot);
+    if (!gitDir) return [];
+
+    const names = new Set<string>();
+
+    const packed = path.join(gitDir, 'packed-refs');
+    if (fs.existsSync(packed)) {
+      for (const line of fs.readFileSync(packed, 'utf8').split('\n')) {
+        // `<sha> refs/tags/<name>`。`^<sha>` 行（附注 tag 指向的提交）与 `#` 注释天然不匹配。
+        const match = /^[0-9a-f]{40} refs\/tags\/(.+)$/.exec(line.trim());
+        if (match) names.add(match[1] ?? '');
+      }
+    }
+
+    const looseDir = path.join(gitDir, 'refs', 'tags');
+    if (fs.existsSync(looseDir)) {
+      for (const name of fs.readdirSync(looseDir)) names.add(name);
+    }
+
+    return [...names]
+      .map((name) => normalizeVersion(name))
+      .filter((version): version is string => version !== null);
+  }
+
+  /**
+   * `.git` 可能是目录，也可能是一个写着 `gitdir: <path>` 的文件（`git worktree`）。
+   * worktree 的 gitdir 只放这个 worktree 私有的东西，而 tag 是**公共引用** ——
+   * 要顺着 `commondir` 找到主仓库的 `.git`，否则这里读到零个 tag，守卫又静默跳过。
+   */
+  function resolveGitDir(root: string): string | null {
+    try {
+      const dotGit = path.join(root, '.git');
+      let gitDir = fs.statSync(dotGit).isDirectory()
+        ? dotGit
+        : path.resolve(
+            root,
+            /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'))?.[1]?.trim() ?? ''
+          );
+      if (!fs.existsSync(gitDir)) return null;
+
+      const common = path.join(gitDir, 'commondir');
+      if (fs.existsSync(common)) {
+        const raw = fs.readFileSync(common, 'utf8').trim();
+        if (raw) {
+          const shared = path.resolve(gitDir, raw);
+          if (fs.existsSync(shared)) gitDir = shared;
+        }
+      }
+
+      return gitDir;
+    } catch {
+      return null;
+    }
+  }
+
+  function currentVersion(): string {
+    const raw = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {
+      version?: unknown;
+    };
+    return String(raw.version);
+  }
+
   it('changelog.json 能解析，且每个条目至少有一种语言', () => {
     const releases = readBundledChangelog(repoRoot);
 
@@ -441,11 +518,55 @@ describe('更新日志 · 仓库里那份文件', () => {
     }
   });
 
-  it('已发布过的版本都补了日志 —— 发版时手写，这里守住别漏', () => {
-    const versions = new Set(readBundledChangelog(repoRoot).map((release) => release.version));
-    for (const version of ['0.64.0', '0.68.0', '0.70.0', '0.73.0', '0.74.0', '0.75.0', '0.80.0', '0.83.0', '0.84.0', '0.84.8']) {
-      expect(versions.has(version)).toBe(true);
-    }
+  /**
+   * **`changelog.json` 的键 = 发布过的版本。** 两个方向都守。
+   *
+   * 这条不变量整个更新窗口都建在它上面 —— `docs/update-about-redesign-plan.md` 里那段
+   * 「区间是 tag 到 tag，**未打 tag 的版本并入了下一次发布**」是设计前提，不是巧合。
+   * 而它此前没有任何东西在守，于是 2026-10-14 漂了：从 0.83.0 起，每个开发提交都顺手把
+   * 自己的版本号写进 changelog.json，用户从 0.80.0 更新到 0.84.8 时看到的是**十张卡片**
+   * （0.83.0 / 0.84.0 / … / 0.84.8），其中九张对应的版本他根本装不到。
+   *
+   * 判据是 `git tag`：本仓库「一次提交 = 一次版本推进」，版本号跑在 tag 前面，
+   * tag 是「这个版本真的发布过」的唯一落款。
+   *
+   * **这一条取代了原来那份手写哨兵列表**（`['0.64.0', …, '0.84.8']`）—— 那份清单自己也漂了
+   * （它当时列着 0.83.0 与 0.84.0，两个都没打过 tag）。凡「手工维护一份清单来守不变量」，
+   * 清单本身就会跟着漂；能推出来的就别手写。
+   */
+  it('changelog.json 的键 = 发布过的版本，两个方向都守', () => {
+    const tags = releasedTags();
+    if (tags.length === 0) return;
+
+    const released = new Set(tags);
+    const current = currentVersion();
+    const keys = readBundledChangelog(repoRoot).map((release) => release.version);
+
+    // 方向一：不许有没发布过的键。
+    // **当前版本是唯一的例外** —— 发版顺序是「推进版本 → 写双语条目 → 提交 → 打 tag」，
+    // 写条目那一刻 tag 还不存在，而那个键正是马上就要打上去的那一个。
+    const unreleased = keys.filter((version) => version !== current && !released.has(version));
+    expect(
+      unreleased,
+      `这些键没有对应的 tag，说明它们还没发布过。双语条目应该先攒在 ` +
+        `.workbuddy-ai/memory/pending-changelog.md 里，打 tag 时再整段搬进 changelog.json：` +
+        unreleased.join(', ')
+    ).toEqual([]);
+
+    // 方向二：不许漏。从**最老的键**起，每一个发布过的版本都得有键 ——
+    // 「覆盖区间」由文件自己定义，所以这里不需要写死一个起始版本号。
+    // 漏了的话更新窗口会回落到 GitHub 那层（英文、提交信息原文），用户看到一串英文。
+    const oldest = keys.reduce(
+      (min, version) => (compareVersions(version, min) < 0 ? version : min),
+      keys[0] ?? current
+    );
+    const missing = tags.filter(
+      (version) => compareVersions(version, oldest) >= 0 && !keys.includes(version)
+    );
+    expect(
+      missing,
+      `这些版本打过 tag 却没有双语条目。发版时手写，这里守住别漏：` + missing.join(', ')
+    ).toEqual([]);
   });
 
   /**

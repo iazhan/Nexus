@@ -626,6 +626,58 @@ describe('FileService & atomicWriteFile', () => {
       unsubscribe();
     });
 
+    /**
+     * 一次原子替换的目录层面动静（issue #2）。
+     *
+     * `atomicWriteFile` 在目标文件已存在且是 Windows 时走的是
+     * 「目标→备份、临时→目标、删备份」，两次 rename **都带着目标文件名** ——
+     * 所以 watcher 会一连收到好几个 `rename`。早先按最后那个事件的类型转发
+     * `renamed`，上层把它与 `deleted` 同等处理，于是「自己保存自己」会弹
+     * 「文件已被外部删除或移动」（富文本模式拖一下块就必然触发一次保存）。
+     *
+     * 判据：**路径上还有文件 ⇒ 只能是 `changed`**。
+     */
+    it('原子替换留下的一串 rename 不产生 renamed / deleted —— 报成 changed', async () => {
+      const filePath = path.join(tempDir, 'atomic-doc.md');
+      await fsPromises.writeFile(filePath, '# before', 'utf-8');
+
+      let capturedListener: ((eventType: string, filename: string | null) => void) | null = null;
+      const mockWatcher = new MockFSWatcher();
+
+      // 目标文件自始至终都在盘上：这不是删除，是同一条路径上换了一份内容。
+      const mockFsAdapter = createMockFsAdapter({
+        exists: async () => true,
+        watch: (_target, _opts, listener) => {
+          capturedListener = listener ?? null;
+          return mockWatcher;
+        }
+      });
+
+      const service = new FileService({
+        fsAdapter: mockFsAdapter,
+        allowedPaths: [filePath],
+        debounceMs: 10
+      });
+
+      const receivedEvents: FileWatchEvent[] = [];
+      const unsubscribe = service.watchFile(filePath, (event) => {
+        receivedEvents.push(event);
+      });
+
+      // 复刻一遍原子替换的三步：rename 到备份、tmp rename 到目标、删掉备份。
+      // 都在 debounce 窗口内，最后只剩一次去抖后的事件。
+      capturedListener!('rename', path.basename(filePath));
+      capturedListener!('rename', `.${path.basename(filePath)}.1.tmp`);
+      capturedListener!('rename', path.basename(filePath));
+      capturedListener!('rename', `.${path.basename(filePath)}.1.bak`);
+
+      await waitFor(() => receivedEvents.length === 1);
+
+      expect(receivedEvents[0]).toEqual({ type: 'changed', path: path.resolve(filePath) });
+
+      unsubscribe();
+    });
+
     it('unsubscribe 后 watcher 被关闭，且后续事件不再回调；多次 unsubscribe 保证幂等', async () => {
       const filePath = path.join(tempDir, 'unsub-test.md');
       await fsPromises.writeFile(filePath, '# Unsub Test', 'utf-8');

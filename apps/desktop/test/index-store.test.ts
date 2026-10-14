@@ -7,6 +7,7 @@ import { FileService } from '../electron/file-service.js';
 import {
   IndexStore,
   buildMatchExpression,
+  buildSearchSnippet,
   segmentForIndex
 } from '../electron/index-store.js';
 import { indexWorkspace } from '../electron/indexer.js';
@@ -113,6 +114,91 @@ describe('工作区索引', () => {
       expect(hits[0]?.title).toBe('EtherCAT 笔记');
 
       store.close();
+    });
+
+    it('命中的那一篇带上下文片段，命中词在片段里有偏移', async () => {
+      await writeDoc('a.md', '开篇先说一句别的，中间才提到 EtherCAT 从站需要 DC 时钟。');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+
+      const [hit] = store.search('从站');
+      expect(hit?.name).toBe('a.md');
+      // 片段必须落在**命中处**，不是文档开头 —— 否则十条结果之间分不出区别
+      expect(hit?.snippet.text).toContain('从站');
+      expect(hit!.snippet.from).toBeGreaterThan(0);
+      expect(hit!.snippet.text.slice(hit!.snippet.from, hit!.snippet.to)).toBe('从站');
+
+      store.close();
+    });
+
+    it('命中来自标题时正文里没有那个词 —— 只给片段，不高亮', async () => {
+      // 标题在 FTS 的另一列上，进得了检索，但摘片段的原文里可能一次都没出现它。
+      await writeDoc('从站配置.md', '正文通篇没有这两个字。');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+
+      const [hit] = store.search('从站');
+      expect(hit?.name).toBe('从站配置.md');
+      expect(hit?.snippet.from).toBe(-1);
+      expect(hit?.snippet.text).toContain('正文通篇没有这两个字');
+
+      store.close();
+    });
+  });
+
+  describe('上下文片段怎么摘', () => {
+    it('片段绕开命中词，前面后面各留一半', () => {
+      const body = '甲乙丙丁戊己庚辛壬癸'.repeat(12) + '目标词在这里';
+
+      const snippet = buildSearchSnippet(body, '目标词');
+
+      expect(snippet.text).toContain('目标词');
+      expect(snippet.from).toBeGreaterThan(0);
+      expect(snippet.to).toBe(snippet.from + 3);
+      // 前面有内容时补省略号 —— 否则读者不知道前面还有东西
+      expect(snippet.text.startsWith('…')).toBe(true);
+    });
+
+    it('命中在文档开头时前面不加省略号，后面还有内容就加', () => {
+      const body = '开头就命中目标词' + '后面的内容一直铺下去'.repeat(20);
+      const snippet = buildSearchSnippet(body, '目标词');
+      expect(snippet.text.startsWith('…')).toBe(false);
+      expect(snippet.text.endsWith('…')).toBe(true);
+    });
+
+    it('空白压成空格且严格 1:1 —— 偏移原样有效', () => {
+      // 片段常常横跨段落；带着换行进结果列表会撑高每一行
+      const snippet = buildSearchSnippet('第一段。\r\n\r\n第二段的命中词在这里。', '命中词');
+      expect(snippet.text).not.toContain('\n');
+      expect(snippet.text).not.toContain('\r');
+      expect(snippet.text.slice(snippet.from, snippet.to)).toBe('命中词');
+    });
+
+    it('多个词取最靠前那个 —— 用户从上往下读是有顺序的', () => {
+      const body = '先说后一个，再说前一个';
+      const snippet = buildSearchSnippet(body, '前一个 后一个');
+      expect(snippet.text.slice(snippet.from, snippet.to)).toBe('后一个');
+    });
+
+    it('大小写不敏感', () => {
+      const snippet = buildSearchSnippet('配置 ethercat 从站', 'EtherCAT');
+      expect(snippet.text.slice(snippet.from, snippet.to)).toBe('ethercat');
+    });
+
+    it('命中词本身超长时先保它，片段不会退化成空', () => {
+      // 半径按「上限 - 词长」对半分，词比上限还长时会折成 0 —— 此时片段就是这个
+      // 词本身，前面补省略号说明「前面还有内容」。
+      const long = 'x'.repeat(400);
+      const snippet = buildSearchSnippet(`前面${long}后面`, long);
+      expect(snippet.to - snippet.from).toBe(400);
+      expect(snippet.text).toContain(long);
+    });
+
+    it('取不到正文时给开头一段，不抛错', () => {
+      const snippet = buildSearchSnippet('', '从站');
+      expect(snippet).toEqual({ text: '', from: -1, to: -1 });
     });
   });
 

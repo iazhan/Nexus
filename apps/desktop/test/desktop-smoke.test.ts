@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -84,17 +85,6 @@ describe('Desktop Smoke Test (P1-04F)', () => {
       sharedApp = null;
     }
   });
-
-  /** 确保当前 surface 是目标；已经是就不动（多切一次会改变滚动等状态）。 */
-  async function ensureSurface(app: ElectronAppInstance, target: string): Promise<void> {
-    const current = await app.evaluate<string | null>(
-      `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
-    );
-    if (current === target) return;
-
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
-  }
 
   it('1. launches a Markdown file into Lightweight Mode within 2s, displaying filename', async () => {
     const testFile = path.join(tempDir, 'sample-launch.md');
@@ -424,7 +414,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     // Mod-F opens Search panel
     await activeApp.pressKey('f', { ctrl: true });
-    await activeApp.waitForSelector('.cm-search', 15000);
+    await activeApp.waitForSelector('.nexus-find', 15000);
   }, 25000);
 
   it('9. closes app and re-opens, verifying UTF-8 and CRLF preservation across restarts', async () => {
@@ -568,12 +558,9 @@ describe('Desktop Smoke Test (P1-04F)', () => {
     activeApp = await launchElectronApp({ filePath: plainDoc });
     await activeApp.waitForSelector('.cm-content', 15000);
 
-    // Source surface 不挂 widget，此时不该有任何加载
-    expect((await extensionState(activeApp)).requested).toEqual([]);
-
-    await activeApp.click('[data-action="toggle-surface"]');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
-    // 等投影真的跑完再断言，否则「还没投影」会被误判成「没有触发语法」
+    // 不管默认落在哪个面，都切到 Visual：判据是「投影跑过之后仍然一个扩展都不加载」。
+    await ensureSurface(activeApp, 'visual');
+    // 等投影真的跑完再断言，否则「还没投影」会被误判成「没有触发语法」。
     await activeApp.waitForFunction(
       `() => (document.querySelector('.cm-content')?.textContent || '').includes('普通段落')`,
       15000
@@ -591,8 +578,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     activeApp = await launchElectronApp({ filePath: mathDoc });
     await activeApp.waitForSelector('.cm-content', 15000);
-    await activeApp.click('[data-action="toggle-surface"]');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
+    await ensureSurface(activeApp, 'visual');
     // 真的渲染出公式（而不是退化成源码文本），才说明扩展加载成功
     await activeApp.waitForSelector('.cm-visual-block-math', 15000);
     await activeApp.waitForSelector('.katex', 15000);
@@ -610,8 +596,7 @@ describe('Desktop Smoke Test (P1-04F)', () => {
 
     activeApp = await launchElectronApp({ filePath: mermaidDoc });
     await activeApp.waitForSelector('.cm-content', 15000);
-    await activeApp.click('[data-action="toggle-surface"]');
-    await activeApp.waitForSelector('[data-surface-kind="visual"]', 15000);
+    await ensureSurface(activeApp, 'visual');
     await activeApp.waitForSelector('.cm-mermaid-preview svg', 15000);
 
     const state = await extensionState(activeApp);

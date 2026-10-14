@@ -8,6 +8,7 @@ import {
 import { isEditorComposing, setComposingEffect } from '../ime-composition.js';
 import { extensionHostFacet } from '../extensions.js';
 import { editorLocaleFacet } from '../source-editor.js';
+import { searchHitRangesField } from '../search-panel.js';
 import { subEditorLifecyclePlugin } from './sub-editor.js';
 import {
   DEFAULT_MERMAID_PREVIEW_SETTINGS,
@@ -39,7 +40,8 @@ export const visualProjectionField = StateField.define<DecorationSet>({
       locale,
       state.field(mermaidPreviewPinField, false),
       state.field(workspaceAssetsField, false),
-      state.facet(extensionHostFacet)
+      state.facet(extensionHostFacet),
+      state.field(searchHitRangesField, false) ?? null
     );
   },
   update(decorations, transaction) {
@@ -62,6 +64,11 @@ export const visualProjectionField = StateField.define<DecorationSet>({
     const mermaidPins = transaction.state.field(mermaidPreviewPinField, false);
     const mermaidPinsChanged =
       mermaidPins !== transaction.startState.field(mermaidPreviewPinField, false);
+    // 查询命中变了：被替换 widget 的命中态跟着变（widget 身份含 searchHit）。
+    // field 没装时（源码面）两边都是 undefined，identity 比较天然为 false。
+    const searchHits = transaction.state.field(searchHitRangesField, false) ?? null;
+    const searchHitsChanged =
+      searchHits !== (transaction.startState.field(searchHitRangesField, false) ?? null);
     // 启停变了：widget 该不该存在由宿主现问注册表决定，投影只需要重跑一遍。
     const capabilitiesChanged = transaction.effects.some((e) =>
       e.is(capabilitiesChangedEffect)
@@ -77,6 +84,7 @@ export const visualProjectionField = StateField.define<DecorationSet>({
       mermaidPinsChanged ||
       assetsChanged ||
       capabilitiesChanged ||
+      searchHitsChanged ||
       transaction.effects.some((e) => e.is(setComposingEffect) && !e.value)
     ) {
       if (isEditorComposing(transaction.state)) {
@@ -90,7 +98,8 @@ export const visualProjectionField = StateField.define<DecorationSet>({
         locale,
         mermaidPins,
         assets,
-        transaction.state.facet(extensionHostFacet)
+        transaction.state.facet(extensionHostFacet),
+        searchHits
       );
     }
     return decorations;

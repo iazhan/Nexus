@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   INDEXED_TEST_TIMEOUT_MS,
   type ElectronAppInstance
 } from './smoke-harness.js';
@@ -151,11 +152,10 @@ describe('插件面板', () => {
     await app.waitForSelector('.nexus-plugin-row', 10000);
     expect(await pluginStatus(app, 'nexus-math')).toBe('idle');
 
-    // 打开带公式的文档。Source 面不挂 widget，所以这一步本身不触发加载。
+    // 打开带公式的文档。文档按默认设置开在 Visual 面，投影一挂上就触发加载。
     expect(await openFileByName(app, 'formula.md')).toBe(true);
     await app.waitForSelector('.cm-content', 20000);
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector('[data-surface-kind="visual"]', 20000);
+    await ensureSurface(app, 'visual');
     // 行内公式的 widget（块级的是 `.cm-visual-block-math`，两者类名不同）
     await app.waitForSelector('.cm-visual-inline-math', 20000);
     // 公式真的渲染出来才说明扩展加载**完成**了，而不只是开始了

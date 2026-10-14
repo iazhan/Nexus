@@ -34,16 +34,39 @@ export const visualFocusPlugin = ViewPlugin.fromClass(
       const origFocus = view.focus.bind(view);
       view.focus = () => {
         origFocus();
-        if (!view.state.field(visualFocusField, false)) {
-          view.dispatch({ effects: setVisualFocusEffect.of(true) });
-        }
+        this.markFocused();
       };
     }
     onFocus = () => {
-      if (!this.view.state.field(visualFocusField, false)) {
-        this.view.dispatch({ effects: setVisualFocusEffect.of(true) });
-      }
+      this.markFocused();
     };
+    /**
+     * 把「聚焦了」写进 state。
+     *
+     * **必须容错「update 正在进行」**：查找 / 替换面板挂载时 CM 会
+     * `searchField.select()`（`@codemirror/search` 的 `SearchPanel.mount`），
+     * 那一下 focus 落在**打开面板那次事务内部**，此刻 dispatch 是非法的。
+     * 源码面不装这个插件，所以只有视觉面会踩到 —— 而 Markdown 的默认打开面
+     * 正是视觉面。处理与 `onBlur` 同一套：挪到微任务里补一次。
+     */
+    markFocused(): void {
+      const view = this.view;
+      if (view.state.field(visualFocusField, false)) return;
+
+      try {
+        view.dispatch({ effects: setVisualFocusEffect.of(true) });
+      } catch {
+        queueMicrotask(() => {
+          if (
+            view.dom.isConnected &&
+            view.dom.contains(document.activeElement) &&
+            !view.state.field(visualFocusField, false)
+          ) {
+            view.dispatch({ effects: setVisualFocusEffect.of(true) });
+          }
+        });
+      }
+    }
     onBlur = (event: FocusEvent) => {
       if (event.relatedTarget && this.view.dom.contains(event.relatedTarget as Node)) {
         return;

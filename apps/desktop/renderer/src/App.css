@@ -503,6 +503,8 @@ body {
 .nexus-conflict-reload-btn,
 .nexus-conflict-keep-btn,
 .nexus-conflict-merge-btn,
+.nexus-banner-reread-btn,
+.nexus-banner-writeback-btn,
 .nexus-banner-saveas-btn,
 .nexus-banner-dismiss-btn,
 .nexus-save-error-retry,
@@ -516,7 +518,10 @@ body {
   transition: background-color 0.15s ease;
 }
 
+/* 主推的出路是「写回原位置」：文件没了但缓冲区里还有内容，把它重建出来是用户此刻
+   最想要的那件事。「重新读取」只在文件真的回来了才有用，所以它是次要按钮。 */
 .nexus-conflict-reload-btn,
+.nexus-banner-writeback-btn,
 .nexus-save-error-retry {
   background-color: var(--nexus-accent-solid);
   color: var(--nexus-accent-contrast);
@@ -524,12 +529,14 @@ body {
 }
 
 .nexus-conflict-reload-btn:hover,
+.nexus-banner-writeback-btn:hover,
 .nexus-save-error-retry:hover {
   background-color: var(--nexus-accent-solid-hover);
 }
 
 .nexus-conflict-keep-btn,
 .nexus-conflict-merge-btn,
+.nexus-banner-reread-btn,
 .nexus-banner-saveas-btn,
 .nexus-banner-dismiss-btn,
 .nexus-save-error-saveas {
@@ -540,6 +547,7 @@ body {
 
 .nexus-conflict-keep-btn:hover,
 .nexus-conflict-merge-btn:hover,
+.nexus-banner-reread-btn:hover,
 .nexus-banner-saveas-btn:hover,
 .nexus-banner-dismiss-btn:hover,
 .nexus-save-error-saveas:hover {
@@ -2079,6 +2087,39 @@ button.nexus-outline-toggle:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 命中处的上下文片段。两行封顶 —— 它回答的是「这一篇哪儿提到了我搜的词」，
+   是**判断**用的，不是**阅读**用的；真要读，点进去打开文档。
+   `-webkit-line-clamp` 而不是按高度截断：字号可以变，两行不该跟着变。 */
+.nexus-search-hit-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--nexus-text-secondary);
+  overflow: hidden;
+}
+
+/* 命中词高亮。**不换底色、不换字色** —— 这两个都是主题 token，换个主题就可能
+   与片段正文撞成一团（而用户正在找的就是这个词）。改用文字权重 + 下划线：
+   它在任何底色上都看得出来，且与主题无关。 */
+.nexus-search-hit-mark {
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* 条目之间用分隔线而不是间距：侧栏底色与条目底色接近时间距分不出边界，
+   而这两个底色都来自主题 token，换个主题就可能撞在一起。 */
+.nexus-search-results > li + li {
+  border-top: 1px solid var(--nexus-border-subtle);
 }
 
 .nexus-plugins {

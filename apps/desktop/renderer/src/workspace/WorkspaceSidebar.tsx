@@ -278,8 +278,11 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     setPhase('indexing');
     setErrorMessage(null);
     setIndexErrors([]);
-    // 换工作区要把「默认展开」重新套一遍，否则新工作区的顶层目录全是收着的
+    // 换工作区要把「默认展开」重新套一遍，否则新工作区的顶层目录全是收着的。
+    // `expanded` 也一并清空：它是上一个工作区的路径，留着只会让同名目录在新工作区里
+    // 莫名其妙是开着的 —— 与 `selected` / `creating` 同一个理由，新工作区从干净状态起。
     setExpansionInitialized(false);
+    setExpanded(new Set<string>());
     setSelected(null);
     setCreating(null);
 
@@ -378,7 +381,10 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   // 用户刚展开的目录会莫名收起来。
   useEffect(() => {
     if (expansionInitialized || tree.length === 0) return;
-    setExpanded(defaultExpandedDirectories(tree));
+    // **并入而不是替换**：这个 effect 是被动排的 —— 树先可见、effect 后跑，那一下
+    // 窗口里点开的目录会被「替换」整份抹掉，表现成「点了没反应」。默认展开只当下限
+    // （当前是「全折叠」＝ 空集），用户已经开着的必须留着。
+    setExpanded((previous) => new Set([...defaultExpandedDirectories(tree), ...previous]));
     setExpansionInitialized(true);
   }, [tree, expansionInitialized]);
 

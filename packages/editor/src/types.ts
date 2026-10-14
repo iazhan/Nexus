@@ -85,6 +85,13 @@ export interface SourceEditorConfig {
    * 但来源不同：那两个读设置，这个由宿主从命令注册表投影出来。
    */
   slashCommands?: import('./completions.js').SlashCommandHost;
+  /**
+   * 界面语言。**只影响 CodeMirror 自己那部分文案**（查找 / 替换面板），
+   * 其余浮层走 `editorLocaleFacet`，两者同源同一个值。
+   *
+   * 编辑器包不读 localStorage —— 语言由宿主从命令注册表外部注入，见 `search-panel.ts`。
+   */
+  locale?: string;
   onChange?: (value: string) => void;
   onSelectionChange?: (selection: EditorSelectionInfo) => void;
 }

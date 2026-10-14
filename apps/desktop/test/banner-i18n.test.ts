@@ -17,6 +17,8 @@ import {
  *
  * 这里用「从外部删除文件」触发横幅：它不依赖写权限（icacls）或对话框，
  * 走的是同一条 fs.watch → saveState('deleted') → 横幅渲染的链路。
+ * 「已删除」横幅上现在有三个出口（重新读取 / 写回原位置 / 另存为），三个按钮的
+ * 文案一并在这里钉死 —— 按钮是新加的，文字忘记翻译正是这里要拦的那类回归。
  */
 describe('横幅文案跟随语言', () => {
   let tempDir: string;
@@ -46,31 +48,45 @@ describe('横幅文案跟随语言', () => {
     await app.evaluate(`(() => { window.nexusLocale.setLocale('en-US'); return true; })()`);
 
     fs.unlinkSync(docPath);
-    await app.waitForSelector('.nexus-warning-banner', 20000);
+    await app.waitForSelector('.nexus-conflict-banner', 20000);
 
     const bannerText = () =>
       app.evaluate<string>(
-        `document.querySelector('.nexus-warning-banner span')?.textContent ?? ''`
+        `document.querySelector('.nexus-conflict-banner .nexus-conflict-text')?.textContent ?? ''`
+      );
+    const rereadLabel = () =>
+      app.evaluate<string>(
+        `document.querySelector('.nexus-banner-reread-btn')?.textContent ?? ''`
+      );
+    const writeBackLabel = () =>
+      app.evaluate<string>(
+        `document.querySelector('.nexus-banner-writeback-btn')?.textContent ?? ''`
       );
     const saveAsLabel = () =>
       app.evaluate<string>(`document.querySelector('.nexus-banner-saveas-btn')?.textContent ?? ''`);
 
     // 用整串比对而不是 includes：只查关键字的话，「文案还是硬编码的中文」也会通过。
     await app.waitForFunction(
-      `() => (document.querySelector('.nexus-warning-banner span')?.textContent ?? '').startsWith('The file was deleted')`,
+      `() => (document.querySelector('.nexus-conflict-banner .nexus-conflict-text')?.textContent ?? '').startsWith('The file was deleted')`,
       20000
     );
     expect((await bannerText()).trim()).toBe(
-      'The file was deleted or moved outside Nexus. Use Save As now to avoid losing your work.'
+      'The file was deleted or moved outside Nexus. Re-read it if it is back, write your content back to the same path, or use Save As.'
     );
+    expect((await rereadLabel()).trim()).toBe('Re-read');
+    expect((await writeBackLabel()).trim()).toBe('Write Back');
     expect((await saveAsLabel()).trim()).toBe('Save As');
 
     await app.evaluate(`(() => { window.nexusLocale.setLocale('zh-CN'); return true; })()`);
     await app.waitForFunction(
-      `() => (document.querySelector('.nexus-warning-banner span')?.textContent ?? '').startsWith('文件已被外部删除')`,
+      `() => (document.querySelector('.nexus-conflict-banner .nexus-conflict-text')?.textContent ?? '').startsWith('文件已被外部删除')`,
       20000
     );
-    expect((await bannerText()).trim()).toBe('文件已被外部删除或移动。请尽快另存为以防数据丢失。');
+    expect((await bannerText()).trim()).toBe(
+      '文件已被外部删除或移动。文件回来了可以重新读取，也可以把当前内容写回原位置，或另存为。'
+    );
+    expect((await rereadLabel()).trim()).toBe('重新读取');
+    expect((await writeBackLabel()).trim()).toBe('写回原位置');
     expect((await saveAsLabel()).trim()).toBe('另存为');
 
     // 必须还原：locale 落在 localStorage 里，会跟着 userData 泄漏到后续所有用例。

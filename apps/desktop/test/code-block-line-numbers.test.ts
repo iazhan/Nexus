@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -49,8 +50,7 @@ describe('代码块行号开关', () => {
     activeApp = await launchElectronApp({ filePath: docPath });
     const app = activeApp;
     await app.waitForSelector('.cm-content', 20000);
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector('[data-surface-kind="visual"]', 20000);
+    await ensureSurface(app, 'visual');
     await app.waitForSelector('.cm-visual-code-content-line[data-code-line-number]', 20000);
 
     // 存档跨用例共享（Electron 的 user-data-dir 没按用例隔离），先显式归位再断言。

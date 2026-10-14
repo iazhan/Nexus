@@ -55,6 +55,7 @@ import {
   EDITOR_FONT_SIZE,
   EDITOR_LINE_HEIGHT,
   EDITOR_PARAGRAPH_SPACING,
+  EDITOR_OPEN_MODE_OPTIONS,
   EDITOR_TABLE_LAYOUT_OPTIONS,
   EXTERNAL_CHANGE_OPTIONS,
   LINK_FORMAT_OPTIONS,
@@ -1021,6 +1022,43 @@ export const TABLE_LAYOUT_FIELD: FieldDef = {
 };
 
 /**
+ * 打开 Markdown 时进哪个面。
+ *
+ * 用 `select` 而不是 `toggle`：这里有两个「始终」和一个「记住上次」，三态互斥，
+ * 一个开关装不下。文案要说清**它只在启动时生效** —— 否则用户会以为切一下面
+ * 就该被这一项掰回去，而那样切面开关在 `visual` / `source` 下等于点不动。
+ */
+export const OPEN_MODE_FIELD: FieldDef = {
+  id: 'editor.openMode',
+  section: 'editor',
+  labelKey: 'settings.editor.openMode',
+  descriptionKey: 'settings.editor.openModeDescription',
+  keywords: [
+    '打开',
+    '模式',
+    '富文本',
+    '源码',
+    '默认',
+    '记住',
+    'open',
+    'mode',
+    'wysiwyg',
+    'rich text',
+    'source',
+    'default',
+    'remember'
+  ],
+  control: 'select',
+  options: EDITOR_OPEN_MODE_OPTIONS,
+  accessor: {
+    read: () => settings.get('editor.openMode'),
+    write: (value) => settings.set('editor.openMode', value),
+    subscribe: (listener) => settings.subscribe('editor.openMode', listener)
+  },
+  menu: false
+};
+
+/**
  * 行号槽。
  *
  * 与 `editor.codeBlockLineNumbers` **不是一回事**，文案要能区分：这个是编辑器左侧那一列
@@ -1680,6 +1718,7 @@ export const FIELDS: readonly FieldDef[] = [
   LINE_HEIGHT_FIELD,
   PARAGRAPH_SPACING_FIELD,
   CONTENT_WIDTH_FIELD,
+  OPEN_MODE_FIELD,
   TABLE_LAYOUT_FIELD,
   LINE_NUMBERS_FIELD,
   CODE_BLOCK_LINE_NUMBERS_FIELD,

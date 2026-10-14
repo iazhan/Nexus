@@ -165,8 +165,8 @@
       }
     ]
   },
-  "0.83.0": {
-    "date": "2026-10-07",
+  "0.84.8": {
+    "date": "2026-10-14",
     "changes": [
       {
         "type": "feat",
@@ -179,12 +179,7 @@
         "scope": "desktop",
         "zh": "标签超出标签栏宽度时可纵向滚轮横滚，被挤出去的一侧渐隐提示。",
         "en": "Tabs that overflow the tab bar can be scrolled with the vertical mouse wheel, and the clipped side fades out."
-      }
-    ]
-  },
-  "0.84.0": {
-    "date": "2026-10-07",
-    "changes": [
+      },
       {
         "type": "feat",
         "scope": "desktop",
@@ -196,56 +191,31 @@
         "scope": "desktop",
         "zh": "记住最近打开的 8 个工作区，最近的排在前面；已经不在磁盘上的那些（比如拔掉的移动盘）不会出现在菜单里，启动时也会跳过它们继续往下找。",
         "en": "Remember the last 8 workspaces, most recent first. Ones that are no longer on disk — an unplugged drive, say — are left out of the menu and skipped on launch."
-      }
-    ]
-  },
-  "0.84.1": {
-    "date": "2026-10-13",
-    "changes": [
+      },
       {
         "type": "fix",
         "scope": "desktop",
         "zh": "工具栏「切换到富文本 / 切换到源码」的提示改成按平台显示真实快捷键 —— Windows 上是 Ctrl+M，不再显示按不下去的 Mod-M；用户在设置里改绑或取消绑定后，提示跟着变。",
         "en": "The toolbar tooltip for switching between Visual and Source now shows the real shortcut for the platform — Ctrl+M on Windows instead of a non-functional Mod-M. It follows rebinding or unbinding done in Settings."
-      }
-    ]
-  },
-  "0.84.2": {
-    "date": "2026-10-13",
-    "changes": [
+      },
       {
         "type": "feat",
         "scope": "desktop",
         "zh": "设置窗口不再记住上次停在哪一组：打开就是外观分组，或从插件面板「在设置中管理」跳过来的那一组。切分组仍然当场生效，只是不跨窗口保留。",
         "en": "The Settings window no longer remembers which group you were last on: it opens on Appearance, or on the group requested by “Manage in Settings” from the plugins panel. Switching groups still works instantly — it just is not kept across windows."
-      }
-    ]
-  },
-  "0.84.3": {
-    "date": "2026-10-13",
-    "changes": [
+      },
       {
         "type": "feat",
         "scope": "editor",
         "zh": "富文本模式下，`\\*` 这样的转义序列现在只显示转义后的字符 —— 写 30\\*30 看到的就是 30*30，反斜杠不再泄露。光标移进转义符时会还原成 `\\*`，就地可改；这只是显示层，文档内容一个字节都没动。",
         "en": "In Visual mode, escaped characters like `\\*` now render as the character alone — typing 30\\*30 shows 30*30 and the backslash no longer leaks through. Moving the cursor onto the escape reveals `\\*` for editing. This is display-only: your document is unchanged."
-      }
-    ]
-  },
-  "0.84.4": {
-    "date": "2026-10-14",
-    "changes": [
+      },
       {
         "type": "feat",
         "scope": "desktop",
         "zh": "工作区侧栏头部多了一枚「切换工作区」按钮：点开是「切换工作区…」加最近打开过的工作区列表（当前所在的根打 ✓）。以前换工作区只能走文件菜单或命令面板，侧栏里没有任何入口。",
         "en": "The workspace sidebar header now has a “Switch workspace” button: it opens “Switch workspace…” plus the list of recently opened workspaces, with your current root checked. Switching used to be possible only from the File menu or the command palette."
-      }
-    ]
-  },
-  "0.84.5": {
-    "date": "2026-10-14",
-    "changes": [
+      },
       {
         "type": "feat",
         "scope": "desktop",
@@ -257,62 +227,24 @@
         "scope": "desktop",
         "zh": "文件树重开后默认全部折叠，第一屏只列顶层；恢复的文档仍会自动展开并选中。目录多的工作区启动时不再一屏铺满。",
         "en": "The file tree now starts fully collapsed, showing only top-level entries. Restored documents still reveal and select themselves. Workspaces with many directories no longer open to a wall of files."
-      }
-    ]
-  },
-  "0.84.6": {
-    "date": "2026-10-14",
-    "changes": [
+      },
       {
         "type": "feat",
         "scope": "desktop",
         "zh": "点左侧栏的「图谱」图标，图谱现在占满编辑区：编辑区连同标签栏、工具栏一起让位，侧栏同时留在文件树上。在图谱里点节点打开文档、或再点一次「图谱」图标，都会退回编辑区。窄侧栏里展不开的图终于有地方铺开了。",
         "en": "Clicking Graph in the activity bar now expands the graph into the main content area: the editor, tab bar, and toolbar step aside while the sidebar stays on the file tree. Opening a document from the graph — or clicking Graph again — takes you back to the editor. The graph finally has room to spread out."
-      }
-    ]
-  },
-  "0.84.7": {
-    "date": "2026-10-14",
-    "changes": [
+      },
       {
         "type": "feat",
         "scope": "desktop",
         "zh": "图谱占用编辑区期间，左侧栏现在整体隐藏，只留图谱一屏；退出图谱（打开文档或再点一次「图谱」图标）时侧栏自动回到文件树。以往图谱与文件树并排，两边都挤在一千多像素里。",
         "en": "The sidebar now hides entirely while the graph owns the editor area, leaving the graph a full screen. Exiting the graph (opening a document or clicking the “Graph” icon again) brings the file tree back. Previously the graph and file tree split the width between them."
-      }
-    ]
-  },
-  "0.84.8": {
-    "date": "2026-10-14",
-    "changes": [
+      },
       {
         "type": "fix",
         "scope": "desktop",
         "zh": "修上一条留下的白边：图谱占用编辑区时，侧栏只藏了内容，那一条两百多像素的空白仍在原地，图谱并没有真正铺满。现在连面板宽度与拖拽把手一起收起，退出图谱时平滑地还回来。",
         "en": "Fixes the blank strip left by the previous change: hiding the sidebar's contents kept its 240px column in place, so the graph never really filled the window. The panel width and resize handle now collapse along with it, and slide back when you leave the graph."
-      }
-    ]
-  },
-  "0.84.9": {
-    "date": "2026-10-14",
-    "changes": [
-      {
-        "type": "feat",
-        "scope": "desktop",
-        "zh": "PDF 阅读器多了「拖动」工具：以前指针恒为文本选择，一张比窗口大的表格想挪一下看别处，只能去够滚动条。现在工具栏上「选择文本 / 拖动页面」两个按钮可切换，拖动模式下按住左键就能把页面推着走，光标也跟着变成手型；切到拖动会顺手清掉已有选区，免得底部那条引用栏一直挂着。",
-        "en": "The PDF viewer gained a pan tool: the pointer used to be locked to text selection, so moving around a table wider than the window meant reaching for the scrollbar. The toolbar now has a select/pan pair — in pan mode you drag the page with the left button and the cursor turns into a hand. Switching to pan also clears any existing selection, so the citation bar doesn't linger."
-      },
-      {
-        "type": "feat",
-        "scope": "desktop",
-        "zh": "PDF 阅读器的工具栏按钮从文字换成了图标（导航、上一页/下一页、缩小/放大、适合宽度、连续/单页）。九个汉字按钮排下来把工具栏撑得很长，而这些本来都是公认的手势。",
-        "en": "The PDF toolbar buttons are now icons instead of words — navigation, page turning, zoom, fit width, and the single/continuous toggle. Nine word buttons stretched the bar; these are gestures people already know."
-      },
-      {
-        "type": "feat",
-        "scope": "desktop",
-        "zh": "PDF 阅读器底部那条文件名去掉了：文件名在标签页上已经有了，省下的高度留给正文。",
-        "en": "Removed the file-name bar at the bottom of the PDF viewer — the name is already on the tab, and the space goes to the document instead."
       }
     ]
   }

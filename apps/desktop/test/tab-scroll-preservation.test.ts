@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   INDEXED_TEST_TIMEOUT_MS,
   type ElectronAppInstance
 } from './smoke-harness.js';
@@ -137,8 +138,13 @@ describe('标签页之间的滚动位置', () => {
     const app = activeApp;
     await app.waitForIndexReady();
 
-    /* ① 打开 alpha，滚到中段 */
+    // 下面的行号 / 亚行偏移断言按 Source 面的行高取，先归位到 Source。
+    // 初始面跟随「打开 Markdown 时的模式」设置项，不写死。
+    // **必须等第一篇文档打开之后**：工作区启动时没有文档，工具栏上的切换按钮还不存在。
     await openTreeFile(app, 'alpha.md');
+    await ensureSurface(app, 'source');
+
+    /* ① 打开 alpha，滚到中段 */
     await scrollToLine(app, '甲段第 120 行');
     const alphaAt120 = await probeViewport(app);
     // 前提：确实滚下去了，否则后面的断言恒真

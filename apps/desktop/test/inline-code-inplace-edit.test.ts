@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   readFileTolerant,
   type ElectronAppInstance
 } from './smoke-harness.js';
@@ -43,9 +44,8 @@ describe('Inline code in-place editing', () => {
     const app = activeApp;
     await app.waitForSelector('.cm-content', 15000);
 
-    // 应用默认挂在 Source surface，先切到 Visual
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector('[data-surface-kind="visual"]', 15000);
+    // 初始面跟随「打开 Markdown 时的模式」设置项，归位到 Visual
+    await ensureSurface(app, 'visual');
     await app.waitForSelector('.cm-visual-inline-code', 15000);
 
     // 反引号围栏 [10, 11) 与 [19, 20) 之外才是正文，光标必须落在正文里。

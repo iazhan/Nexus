@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -28,7 +29,8 @@ describe('Surface 切换保持滚动位置与光标', () => {
     fs.writeFileSync(docPath, '# 占位\n', 'utf-8');
 
     activeApp = await launchElectronApp({ filePath: docPath });
-    await activeApp.waitForSelector('[data-surface-kind="source"]', 20000);
+    await activeApp.waitForSelector('.cm-content', 20000);
+    await ensureSurface(activeApp, 'source');
   });
 
   afterAll(async () => {
@@ -47,17 +49,6 @@ describe('Surface 切换保持滚动位置与光标', () => {
     // 报出来的是「等 selector 超时」，看不出真正原因是状态没归零。
     await ensureSurface(activeApp, 'source');
   });
-
-  /** 确保当前 surface 是目标；已经是就不动（多切一次会改变 scrollTop 等状态）。 */
-  async function ensureSurface(app: ElectronAppInstance, target: string): Promise<void> {
-    const current = await app.evaluate<string | null>(
-      `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
-    );
-    if (current === target) return;
-
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
-  }
 
   interface ViewportProbe {
     surface: string | null;

@@ -1149,3 +1149,28 @@ export async function launchElectronApp(options: LaunchElectronOptions = {}): Pr
 
   return instance;
 }
+
+/**
+ * 确保当前 surface 是目标；已经是就不动。
+ *
+ * **不要假设启动后落在哪个面**：Markdown 的初始面由 `editor.openMode` 设置项决定
+ * （默认「始终富文本」），写死任何一边都会在该设置或默认值变化时集体超时。
+ * 多切一次还会改变滚动位置与光标，所以必须先读当前值、不一致才切。
+ */
+export async function ensureSurface(
+  app: ElectronAppInstance,
+  target: 'source' | 'visual'
+): Promise<void> {
+  // 先等编辑器出来。启动头几百毫秒 `data-surface-kind` 还没渲染，读到的 `null`
+  // 会让下面那次 toggle 把**初始面反着切过去**（默认面只有一面的时代这个竞态
+  // 恰好表现为「多切一次也没错」，改成跟随设置项之后就现形了）。
+  await app.waitForSelector('[data-surface-kind]', 20000);
+
+  const current = await app.evaluate<string | null>(
+    `document.querySelector('[data-surface-kind]')?.getAttribute('data-surface-kind') ?? null`
+  );
+  if (current === target) return;
+
+  await app.click('[data-action="toggle-surface"]');
+  await app.waitForSelector(`[data-surface-kind="${target}"]`, 20000);
+}

@@ -1006,6 +1006,15 @@ export class FileService {
 
   /**
    * 监听文件变更。过滤无关事件并提供去抖，unsubscribe 保证幂等且释放底座资源。
+   *
+   * ## 只有两种语义，由「路径上还有没有文件」决定
+   *
+   * `changed` = 这个路径上的内容变了（含「被换成了另一份文件」），`deleted` = 这个路径上
+   * 已经没有文件了。底层 fs 事件类型**不参与**判定 —— 监听的是父目录，而一次原子替换
+   * （目标→备份→临时→目标）会连着报好几个 `rename`，其中至少两个带着目标文件名；
+   * 按事件类型转发就等于把我们自己的保存报成「文件被外部删掉了」。
+   *
+   * 上层据此只需要处理两种情形：读盘看内容对不对，或者走「文件没了」那条恢复路径。
    */
   watchFile(filePath: string, listener: FileWatchListener): Unsubscribe {
     const normalizedPath = this.normalizePath(filePath);
@@ -1016,7 +1025,6 @@ export class FileService {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let isUnsubscribed = false;
     let watcher: FSWatcherLike | null = null;
-    let pendingEventType: 'changed' | 'renamed' | 'deleted' = 'changed';
 
     const triggerEvent = async () => {
       if (isUnsubscribed) return;
@@ -1039,10 +1047,17 @@ export class FileService {
         if (!fileExists) {
           listener({ type: 'deleted', path: normalizedPath });
         } else {
-          listener({
-            type: pendingEventType === 'renamed' ? 'renamed' : 'changed',
-            path: normalizedPath
-          });
+          // 事件类型由**这个路径上现在有没有文件**决定，不由底层报的是哪种 fs 事件决定。
+          //
+          // 目录 watcher 报出的 `rename` 有两种完全不同的来历：文件真被搬走了（那时
+          // `exists` 是 false，上面那条接住），或者**同一个路径上换了一份文件** ——
+          // 我们自己的原子写就是后者（Windows 上「目标→备份→临时→目标」全程都是
+          // rename，且两次都带着目标文件名）。
+          //
+          // 早先这里按底层事件原样转发 `renamed`，上层把它与 `deleted` 同等处理，
+          // 于是「自己保存自己」会弹「文件已被外部删除或移动」。对上层而言，
+          // 路径上还有文件就是「内容变了」，没有任何别的含义。
+          listener({ type: 'changed', path: normalizedPath });
         }
       } catch (err) {
         listener({
@@ -1053,7 +1068,7 @@ export class FileService {
       }
     };
 
-    const handleFsEvent = (eventType: string, filename: string | null) => {
+    const handleFsEvent = (_eventType: string, filename: string | null) => {
       if (isUnsubscribed) return;
 
       // 过滤目标文件：如果 filename 存在，必须与目标文件 basename 匹配
@@ -1067,11 +1082,9 @@ export class FileService {
         }
       }
 
-      if (eventType === 'rename') {
-        pendingEventType = 'renamed';
-      } else {
-        pendingEventType = 'changed';
-      }
+      // 底层报的是 `rename` 还是 `change` **不参与判定**：一次原子替换会连着报好几个
+      // `rename`（目标→备份、临时→目标都带目标文件名），靠它猜语义必然出错。
+      // 语义只在 `triggerEvent` 里由「路径上还有没有文件」决定。
 
       if (debounceTimer) {
         clearTimeout(debounceTimer);

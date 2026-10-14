@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -124,8 +125,7 @@ describe('Visual mode white-screen guard', () => {
     const app = activeApp;
 
     await app.waitForSelector('.cm-content', 20000);
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector('[data-surface-kind="visual"]', 20000);
+    await ensureSurface(app, 'visual');
 
     await assertNotWhiteScreened(app, trickyDocument);
 

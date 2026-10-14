@@ -29,6 +29,7 @@ import {
   type WorkspaceAssetEntry
 } from './visual-projection.js';
 import { sourceImageProjectionExtensions } from './source-image-projection.js';
+import { searchHitRangesExtension } from './search-panel.js';
 import { visualCommandsExtension } from './visual-commands.js';
 import { createVisualDragExtension } from './drag-handle.js';
 import {
@@ -416,7 +417,8 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
     theme: options.theme,
     lineNumbers: options.lineNumbers,
     spellCheck: options.spellCheck,
-    slashCommands: options.slashCommands
+    slashCommands: options.slashCommands,
+    locale: options.locale
   });
   const inlineEditOptions = {
     surfaceId: options.surfaceId,
@@ -440,6 +442,9 @@ export function createSessionEditorState(options: CreateSessionEditorStateOption
           : []),
         ...(options.linkNavigator ? [createLinkNavigationExtension(options.linkNavigator)] : []),
         ...visualProjectionExtensions,
+        // 查询命中 range：只视觉面需要（源码面 wiki 等是纯文本，CM 自己的高亮够用）。
+        // 视觉面被 `Decoration.replace` 换掉的 widget 照它查「身上有没有命中」。
+        searchHitRangesExtension,
         // 排在投影之后：标签是 mark 装饰，而投影里有 replace(widget)。同 from 时
         // mark 必须在 replace 之后 —— 顺序反了不是样式问题，是整窗崩。
         tagHighlightExtension

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -55,6 +56,8 @@ describe('长行软换行', () => {
     activeApp = await launchElectronApp({ filePath: docPath });
     const app = activeApp;
     await app.waitForSelector('.cm-content', 20000);
+    // 行号槽与软换行的几何按 Source 面取，先归位（初始面跟随设置项）。
+    await ensureSurface(app, 'source');
 
     // 1. 没有横向滚动条
     const scroller = await app.evaluate<{ scrollWidth: number; clientWidth: number }>(

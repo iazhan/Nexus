@@ -541,6 +541,55 @@ describe('更新窗口本体：更新日志', () => {
     ).toEqual(['0.10.0']);
   });
 
+  /**
+   * 上界：比「要更新到的那个版本」还新的条目一律不画。
+   *
+   * `changelog.json` 的键只应该是**发布过的**版本，但那条不变量靠人守 —— 2026-10-14 就是
+   * 这样漂的：从 0.83.0 起每个开发提交都把自己的版本号写进去，用户从 0.80.0 更新到 0.84.8
+   * 时看到十张卡片，其中九张对应的版本他根本装不到（判据 90）。
+   * 「不可能被更新到一个没发布过的版本」是能自己算出来的：比 `latest` 新的一律不画。
+   * 数据对了这条不生效，数据漂了它兜住。
+   *
+   * `latest` 未知时不加上界（「还没查」不能显示成「没有更新内容」）由上面那条
+   * 「默认只画比当前版本**新**的那些」覆盖 —— 它用的就是 `latest: null`。
+   */
+  it('比 latest 还新的条目（没发布过的版本）不画', async () => {
+    snapshot = state({ phase: 'available', current: '0.80.0', latest: '0.84.8' });
+    changelogAnswer = [
+      release('0.84.10', [entry()]),
+      release('0.84.9', [entry()]),
+      release('0.84.8', [entry()]),
+      release('0.80.0', [entry()])
+    ];
+    await render(<UpdateView />);
+
+    expect(
+      Array.from(container.querySelectorAll('[data-release]')).map((el) =>
+        el.getAttribute('data-release')
+      )
+    ).toEqual(['0.84.8']);
+  });
+
+  /** 「显示全部历史版本」翻的是**过去**，不是未来 —— 上界对两种模式都成立。 */
+  it('勾上「显示全部历史版本」也不会看到比 latest 更新的条目', async () => {
+    snapshot = state({ phase: 'available', current: '0.80.0', latest: '0.84.8' });
+    changelogAnswer = [
+      release('0.84.10', [entry()]),
+      release('0.84.8', [entry()]),
+      release('0.80.0', [entry()])
+    ];
+    await render(<UpdateView />);
+
+    const toggle = container.querySelector('.nexus-update-show-all input') as HTMLInputElement;
+    await act(async () => toggle.click());
+
+    expect(
+      Array.from(container.querySelectorAll('[data-release]')).map((el) =>
+        el.getAttribute('data-release')
+      )
+    ).toEqual(['0.84.8', '0.80.0']);
+  });
+
   it('条目缺当前语言时回落到另一种 —— 双语日志是渐进补全的，不能留空白', async () => {
     snapshot = state();
     changelogAnswer = [release('0.75.0', [entry({ zh: null, en: 'english only entry' })])];

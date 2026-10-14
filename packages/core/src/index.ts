@@ -107,6 +107,7 @@ export {
   type WorkspaceScanResult,
   type IndexedDocument,
   type SearchHit,
+  type SearchSnippet,
   type IndexWorkspaceResult,
   type GraphNode,
   type GraphDocumentNode,

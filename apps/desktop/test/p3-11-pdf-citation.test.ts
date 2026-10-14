@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   createTempDir,
   launchElectronApp,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 import { createPdf } from './fixtures/documents.js';
@@ -39,8 +40,7 @@ describe('P3-11 PDF citation loop', () => {
     })`);
     await app.evaluate(`window.nexus.writeFile(${JSON.stringify(notePath)},
       window.nexusSession.getSnapshot().source)`);
-    await app.click('[data-action="toggle-surface"]');
-    await app.waitForSelector('[data-surface-kind="visual"]', 15000);
+    await ensureSurface(app, 'visual');
     await app.mouseClick('.cm-visual-link', CTRL);
 
     await app.waitForSelector('.nexus-pdf-canvas', 30000);

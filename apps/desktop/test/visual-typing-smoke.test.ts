@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import {
   launchElectronApp,
   createTempDir,
+  ensureSurface,
   type ElectronAppInstance
 } from './smoke-harness.js';
 
@@ -191,9 +192,9 @@ describe('Visual surface per-character typing', () => {
       app = await launchElectronApp({ filePath: doc });
       await app.waitForSelector('.cm-content', 15000);
 
-      // 切到 Visual 并聚焦编辑器
-      await app.click('[data-action="toggle-surface"]');
-      await app.waitForSelector('[data-surface-kind="visual"]', 15000);
+      // 切到 Visual 并聚焦编辑器。初始面跟随「打开 Markdown 时的模式」设置项，
+      // 不能默认它停在 Source。
+      await ensureSurface(app, 'visual');
       await app.evaluate(`(() => {
         const view = window.nexusActiveView;
         if (!view) throw new Error('Active Visual EditorView unavailable');

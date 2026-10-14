@@ -17,6 +17,15 @@ const DEBOUNCE_MS = 200;
  * 查的是**索引**（磁盘状态），不是当前编辑器内容 —— 全文搜索本来就该覆盖整个工作区。
  * 中文按字切分在后端做（见 ADR-0002），这里只管把查询串原样递过去，
  * **不要**在渲染进程再切一次，否则两套切分逻辑迟早不一致。
+ *
+ * ## 每条结果三行：文件名 + 路径 + 命中处的上下文
+ *
+ * 前两行回答「是哪一篇」，第三行才是用户真正要的 —— **它在哪儿提到了我搜的词**。
+ * 片段在主进程侧已经摘好并给出了命中词偏移（见 `buildSearchSnippet`），这里只负责
+ * 把命中词套一层高亮：一段 100 多字里要不要高亮，决定了用户是「扫一眼」还是「逐行读」。
+ *
+ * 条目之间用分隔线而不是靠间距：侧栏底色与条目底色接近时，间距分不出边界，
+ * 而这两个底色都来自主题 token —— 换个主题就可能撞在一起，间距跟着一起失效。
  */
 export const SearchPanel: React.FC<SearchPanelProps> = ({ onOpenFile }) => {
   const { t } = useLocale();
@@ -95,7 +104,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ onOpenFile }) => {
       )}
 
       {phase === 'ready' && hits.length > 0 && (
-        <ul className="nexus-sidebar-list">
+        <ul className="nexus-sidebar-list nexus-search-results">
           {hits.map((hit) => (
             <li key={hit.documentId}>
               <button
@@ -116,6 +125,9 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ onOpenFile }) => {
                   )}
                 </span>
                 <span className="nexus-search-hit-path">{hit.relativePath}</span>
+                {hit.snippet.text.length > 0 && (
+                  <span className="nexus-search-hit-snippet">{highlightSnippet(hit)}</span>
+                )}
               </button>
             </li>
           ))}
@@ -124,3 +136,23 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ onOpenFile }) => {
     </div>
   );
 };
+
+/**
+ * 命中词套高亮。**偏移用主进程给的那一份**（`snippet.from` / `to`），这里不再搜一次 ——
+ * 再搜一次就得把「哪些词算命中」在渲染进程里再判一遍，而它与 FTS 的分词逻辑故意不同
+ * （见 `buildSearchSnippet`：那边管相邻性，这边只定个位）。
+ *
+ * `from === -1` 表示命中不在正文里（来自标题），整段就是普通片段，不高亮。
+ */
+function highlightSnippet(hit: SearchHit): React.ReactNode[] {
+  const { from, to } = hit.snippet;
+  if (from < 0 || to <= from) return [hit.snippet.text];
+
+  return [
+    hit.snippet.text.slice(0, from),
+    <mark className="nexus-search-hit-mark" key="snippet-mark">
+      {hit.snippet.text.slice(from, to)}
+    </mark>,
+    hit.snippet.text.slice(to)
+  ];
+}

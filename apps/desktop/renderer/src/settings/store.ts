@@ -51,6 +51,10 @@ import {
   EDITOR_FONT_SIZE,
   EDITOR_LINE_HEIGHT,
   EDITOR_PARAGRAPH_SPACING,
+  EDITOR_OPEN_MODE_DEFAULT,
+  EDITOR_OPEN_MODE_OPTIONS,
+  EDITOR_OPEN_MODE_STORAGE_KEY,
+  EDITOR_SURFACE_STORAGE_KEY,
   EDITOR_TABLE_LAYOUT_DEFAULT,
   EDITOR_TABLE_LAYOUT_OPTIONS,
   EDITOR_TABLE_LAYOUT_STORAGE_KEY,
@@ -392,6 +396,30 @@ export const SETTING_DEFS = {
     EDITOR_TABLE_LAYOUT_STORAGE_KEY,
     EDITOR_TABLE_LAYOUT_DEFAULT,
     EDITOR_TABLE_LAYOUT_OPTIONS.map((option) => option.value)
+  ),
+
+  /**
+   * 打开 Markdown 时进哪个面（源码 / 富文本）。见 `preference-specs.ts` 里那一段注释。
+   */
+  'editor.openMode': choiceSetting(
+    EDITOR_OPEN_MODE_STORAGE_KEY,
+    EDITOR_OPEN_MODE_DEFAULT,
+    EDITOR_OPEN_MODE_OPTIONS.map((option) => option.value)
+  ),
+
+  /**
+   * 上次用的那个面。**它不是设置项** —— `FIELDS` 里没有它，设置页与菜单都看不到，
+   * 就像 `workspace.showImages` 那样只借 `SettingsStore` 当「本机偏好」的统一入口。
+   *
+   * 总是写：`editor.openMode === 'remember'` 时才读它，但另一档位下用过源码面也该被记住，
+   * 否则来回切档位会丢掉「上次」。
+   */
+  'editor.surface': choiceSetting(
+    EDITOR_SURFACE_STORAGE_KEY,
+    // 回落值就是「从没记过」时的答案，与 `editor.openMode` 的默认档同向 ——
+    // 否则「记住上次」在两个方向上一次都没记过时会给出一个与默认档不同的面。
+    EDITOR_OPEN_MODE_DEFAULT,
+    ['source', 'visual']
   ),
 
   /**

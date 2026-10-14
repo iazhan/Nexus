@@ -37,6 +37,7 @@ function hit(relativePath: string, overrides: Partial<SearchHit> = {}): SearchHi
     title: name.replace(/\.[^.]+$/, ''),
     type: 'markdown',
     extractionStatus: 'none',
+    snippet: { text: '', from: -1, to: -1 },
     ...overrides
   };
 }
@@ -143,5 +144,53 @@ describe('搜索面板的类型徽标', () => {
 
     expect(readRows()).toEqual([]);
     expect(container.textContent).toContain('No matches');
+  });
+
+  it('每条结果带上下文片段，命中词套高亮', async () => {
+    // 这一条是 issue #3 的正题：只看文件名与路径，十条结果之间分不出区别，
+    // 用户必须一条条点开才知道哪一篇真说过这个词。
+    await search('EtherCAT', [
+      hit('notes/dma.md', {
+        snippet: {
+          text: '…总线上的 EtherCAT 从站需要配置 DC 时钟…',
+          from: 6,
+          to: 14
+        }
+      })
+    ]);
+
+    const snippet = container.querySelector('.nexus-search-hit-snippet');
+    expect(snippet?.textContent).toContain('EtherCAT');
+
+    const mark = snippet?.querySelector('.nexus-search-hit-mark');
+    expect(mark?.textContent).toBe('EtherCAT');
+  });
+
+  it('片段把命中的那个词烘出来 —— 偏移以外的部分原样留着', async () => {
+    const text = '前缀 EtherCAT 后缀';
+    await search('EtherCAT', [hit('notes/a.md', { snippet: { text, from: 3, to: 11 } })]);
+
+    const mark = container.querySelector('.nexus-search-hit-mark');
+    expect(mark?.textContent).toBe('EtherCAT');
+    // 高亮前后的文本必须原样在 DOM 里 —— 少了任何一段都说明切片切错了
+    const row = container.querySelector('.nexus-search-hit-snippet');
+    expect(row?.textContent).toBe(text);
+  });
+
+  it('来自标题的命中（没有正文偏移）不高亮，只给片段', async () => {
+    await search('从站', [
+      hit('notes/a.md', { snippet: { text: '正文里并没有这个词', from: -1, to: -1 } })
+    ]);
+
+    expect(container.querySelector('.nexus-search-hit-snippet')?.textContent).toBe(
+      '正文里并没有这个词'
+    );
+    expect(container.querySelector('.nexus-search-hit-mark')).toBeNull();
+  });
+
+  it('没有可摘正文的命中不出片段那一行', async () => {
+    await search('logo', [hit('assets/logo.png', { type: 'image' })]);
+
+    expect(container.querySelector('.nexus-search-hit-snippet')).toBeNull();
   });
 });

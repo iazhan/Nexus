@@ -10,6 +10,9 @@ import {
 import { findMarkdownMarkers } from '../markdown-markers.js';
 import { isMermaidLanguage } from '../extension-triggers.js';
 import type { ExtensionHost } from '../extensions.js';
+// 只取类型：`SearchHitRanges` 是 `search-panel.ts` 里那份 field 的值类型，
+// 这里用它做入参形状，运行时不需要那个模块（`import type` 编译后整条消失）。
+import type { SearchHitRanges } from '../search-panel.js';
 import {
   LinkWidget,
   ImageWidget,
@@ -84,7 +87,18 @@ export function buildVisualProjection(
    * 宿主不存在时传 `undefined`：那时 `handled` 恒 `false`，渲染走 fallback，与
    * `mountExtension` 的行为一致。
    */
-  host?: ExtensionHost
+  host?: ExtensionHost,
+  /**
+   * 当前查询命中的 range（`search-panel.ts` 的 `searchHitRangesField`）。
+   *
+   * **只喂给被 `Decoration.replace` 替换的 widget。** CM 的 `cm-searchMatch` mark
+   * 落在 replace range 上时 DOM 不出现那个 class（真机实测，见 `WikiLinkWidget`
+   * 的 `searchHit` 注释），widget 只能自己按这个表查「我身上有没有命中」并把
+   * 黄底画出来。纯文本区间有 CM 自己的高亮，用不到它。
+   *
+   * 传 `null` ＝ 当前没有有效查询，widget 一律按未命中渲染。
+   */
+  searchHits: SearchHitRanges | null = null
 ): DecorationSet {
   const ranges: ProjectionRange[] = [];
   const { root } = parseMarkdown(source);
@@ -556,6 +570,22 @@ export function buildVisualProjection(
           });
         }
       } else {
+        // 被整块替换的 widget 自己查「身上有没有命中」—— CM 的 searchMatch mark
+        // 落在 replace range 上不落 DOM，只能由 widget 补画。
+        let searchHit = false;
+        if (searchHits !== null) {
+          searchHits.between(
+            inlineNode.range.from,
+            inlineNode.range.to,
+            (hitFrom, hitTo) => {
+              if (hitFrom < inlineNode.range.to && hitTo > inlineNode.range.from) {
+                searchHit = true;
+                return false;
+              }
+              return undefined;
+            }
+          );
+        }
         ranges.push({
           from: inlineNode.range.from,
           to: inlineNode.range.to,
@@ -565,7 +595,8 @@ export function buildVisualProjection(
               inlineNode.range.to,
               inlineNode.raw,
               inlineNode.target,
-              inlineNode.alias
+              inlineNode.alias,
+              searchHit
             )
           })
         });
