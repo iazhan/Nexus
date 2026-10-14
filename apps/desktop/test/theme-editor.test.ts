@@ -126,7 +126,9 @@ describe('主题窗口', () => {
     await app.click('.nexus-activity-icon[data-activity="settings"]');
     await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
 
-    // ① 设置页里**不再内嵌编辑器**，只有一条通往主题窗口的入口行
+    // ① 设置页里**不再内嵌编辑器**，只有一条通往主题窗口的入口行。
+    // 默认落点是「通用」，入口行在外观分组 —— 显式点进去，不依赖默认落点。
+    await app.click('.nexus-settings-nav [data-section="appearance"]');
     await app.waitForSelector('[data-theme-open-window]', 10000);
     expect(await app.evaluate<boolean>(`!!document.querySelector('[data-theme-editor]')`)).toBe(false);
     expect(await app.evaluate<boolean>(`!!document.querySelector('[data-theme-seed]')`)).toBe(false);

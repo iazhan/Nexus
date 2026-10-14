@@ -142,6 +142,10 @@ describe('设置窗口', () => {
       false
     );
 
+    // ④ 以下操作的都是外观分组里的控件 —— 默认落点是「通用」，先点进去，
+    //    不依赖「窗口开在哪一组」
+    await app.click('.nexus-settings-nav [data-section="appearance"]');
+
     // ④ 在设置窗口改**模式**：`data-theme` 立刻变，存档写的是 `<预设>@<模式>`
     const resolved = await app.evaluate<string>(`document.documentElement.dataset.theme ?? ''`);
     const target = resolved === 'nexus-dark' ? 'nexus-light' : 'nexus-dark';
@@ -706,7 +710,7 @@ describe('设置窗口', () => {
     const mainBaseWidth = await stableWidth();
 
     await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
-    // 重开的窗口落在默认分组（外观），缩放字段正在外观分组 —— 点一下导航只是确认落点，
+    // 重开的窗口落在默认分组（通用），缩放字段在外观分组 —— 点一下导航只是确认落点，
     // 不依赖「上次停在哪」。
     await app.click('.nexus-settings-nav [data-section="appearance"]');
     await app.waitForSelector('[data-field-input="appearance.uiZoom"]', 10000);

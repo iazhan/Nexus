@@ -727,17 +727,25 @@ body {
   flex-direction: column;
 }
 
-/* 工具栏外观 PDF 与图片**共用**：两边做的是同一件事（缩放 + 视图动作），
-   各写一遍边框与 hover 迟早会漂。下面这些并列的选择器都是这个意思。 */
+/* ── 三条工具栏共用一套栏容器外观（2026-10-15 统一）──────────────────────
+   编辑器常驻栏 / PDF / 图片做的是同一层级的事（文档级动作），过去的形态各写一份：
+   编辑器 gap 2 + 背景画布，PDF 与图片 gap 8 + 背景表面（还高 6px 内边距）。
+   三处都挂在标签栏正下方，所以取**编辑器那一档**：背景 `bg-canvas`（与 `.nexus-tab-bar`
+   同色，三条栏连成一条文档头带）、高度 32（比标签栏的 34 轻一点 —— 它是「文档级动作」，
+   不是「哪些文档开着」）、gap 2、左右内边距 8。`border-bottom` 照旧由工具栏自己出：
+   它下面是内容区，那条线划的是「栏 → 内容」，与标签栏那条「栏 → 栏」是两回事。 */
+.nexus-editor-toolbar,
 .nexus-pdf-toolbar,
 .nexus-image-toolbar {
-  flex: none;
+  /* 不参与伸缩 —— 编辑区 / 舞台用剩下的高度，它自己固定 */
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 2px;
+  height: 32px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--nexus-border-subtle);
-  background-color: var(--nexus-bg-surface);
+  background-color: var(--nexus-bg-canvas);
   color: var(--nexus-text-secondary);
   font-size: 12px;
 }
@@ -796,81 +804,73 @@ body {
   color: var(--nexus-text-muted);
 }
 
-/* 工具栏的分隔线与四个「次要按钮」共用一个外观 —— 它们做的是同一层级的事
-   （切换视图），各自写一遍边框颜色迟早会漂。 */
+/* 工具栏的分隔线三类合一（2026-10-15）：编辑器 / PDF / 图片各写过一份，
+   现在同一条规则。给固定高度而不是 `align-self: stretch` —— 拉伸版会顶到上下边框，
+   看着像把这一栏切开了；`margin: 0 5px` 配 gap 2 才读出「分组」而不是「紧挨着」。 */
+.nexus-editor-toolbar-separator,
 .nexus-pdf-toolbar-divider,
 .nexus-image-toolbar-divider {
-  flex: none;
+  flex: 0 0 auto;
   width: 1px;
   height: 16px;
+  margin: 0 5px;
   background-color: var(--nexus-border-subtle);
 }
 
-/* 图片工具栏的按钮仍是「带框的文字按钮」：那边只有两个动作，写全称比两个箭头好认。
-   PDF 那边 2026-10-14 起换成了图标（见下面的 `.nexus-pdf-icon-button`），所以这里
-   不再和它并列 —— 两边已经不是同一套外观了，硬凑在一起只会让人以为它们还一样。 */
-.nexus-image-zoom-button,
-.nexus-image-fit-button {
-  flex: none;
-  padding: 2px 10px;
-  border: 1px solid var(--nexus-border-default);
-  border-radius: 4px;
-  background-color: var(--nexus-bg-surface);
-  color: var(--nexus-text-primary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.nexus-image-zoom-button:hover:not(:disabled),
-.nexus-image-fit-button:hover:not(:disabled) {
-  background-color: var(--nexus-bg-surface-hover);
-}
-
-.nexus-image-zoom-button:disabled,
-.nexus-image-fit-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-/* ── PDF 工具栏的图标按钮 ────────────────────────────────────────────────
-   24×24 的方块、无边框、透明底：图标自己就是主体，再套一层框会让一整条工具栏看起来
-   像一排小按钮墙。悬停给底色，`aria-pressed` 给强调色 —— 后者是必需的，不然
-   「侧栏开着」与「拖动工具选中」这两个状态在画面上完全看不出来。 */
-.nexus-pdf-icon-button {
-  flex: none;
-  display: inline-flex;
+/* ── 工具栏图标按钮三类合一（2026-10-15）────────────────────────────────
+   编辑器（含工作区侧栏、选区浮层）/ PDF / 图片的图标按钮共用 `.nexus-toolbar-button` 的形态：
+   24×24 的方块、无边框、透明底 —— 图标自己就是主体，再套一层框会让一整条工具栏看起来
+   像一排小按钮墙。悬停给底色，按下态给「底色 + 强调色」：`aria-pressed` 那一档是必需的，
+   不然「侧栏开着」「拖动工具选中」在画面上完全看不出来。
+   焦点环不能省：键盘走到这里时按钮里没有可见文字，环是唯一的位置提示。
+   用 `outline` 而不是改边框 —— 图标按钮没有边框可改。 */
+.nexus-toolbar-button,
+.nexus-pdf-icon-button,
+.nexus-image-icon-button {
+  display: flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 24px;
   height: 24px;
   padding: 0;
   border: none;
   border-radius: 4px;
-  background-color: transparent;
+  background: transparent;
   color: var(--nexus-text-secondary);
   cursor: pointer;
 }
 
-.nexus-pdf-icon-button:hover:not(:disabled) {
+.nexus-toolbar-button:hover:not(:disabled),
+.nexus-pdf-icon-button:hover:not(:disabled),
+.nexus-image-icon-button:hover:not(:disabled) {
   background-color: var(--nexus-bg-surface-hover);
   color: var(--nexus-text-primary);
 }
 
-/* 禁用态用「变淡」而不是另指定一个灰色：图标颜色本来就跟着主题走，
-   硬写一个灰会在某些主题下比正常态还显眼。 */
-.nexus-pdf-icon-button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.nexus-pdf-icon-button[aria-pressed='true'] {
+/* 开关类按钮的「已开启 / 已按下」态。底色表达「现在是什么」，图标表达「点它会变成什么」——
+   两者都要有：只换颜色的话，扫一眼分不清当前是开还是关。 */
+.nexus-toolbar-button-on,
+.nexus-toolbar-button[aria-pressed='true'],
+.nexus-pdf-icon-button[aria-pressed='true'],
+.nexus-image-icon-button[aria-pressed='true'] {
   background-color: var(--nexus-bg-surface-active);
   color: var(--nexus-accent-solid);
 }
 
-/* 焦点环不能省：键盘走到这里时按钮里没有可见文字，环是唯一的位置提示。
-   用 `outline` 而不是改边框 —— 图标按钮没有边框可改。 */
-.nexus-pdf-icon-button:focus-visible {
+/* 禁用态用「变淡」而不是另指定一个灰色：图标颜色本来就跟着主题走，
+   硬写一个灰会在某些主题下比正常态还显眼。 */
+.nexus-toolbar-button:disabled,
+.nexus-pdf-icon-button:disabled,
+.nexus-image-icon-button:disabled {
+  color: var(--nexus-text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.nexus-toolbar-button:focus-visible,
+.nexus-pdf-icon-button:focus-visible,
+.nexus-image-icon-button:focus-visible {
   outline: 2px solid var(--nexus-accent-solid);
   outline-offset: 1px;
 }
@@ -2480,65 +2480,10 @@ button.nexus-outline-toggle:hover {
   border-bottom: 1px solid var(--nexus-border-subtle);
 }
 
-.nexus-toolbar-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--nexus-text-secondary);
-  cursor: pointer;
-}
-
-.nexus-toolbar-button:hover:not(:disabled) {
-  background-color: var(--nexus-bg-surface-hover);
-  color: var(--nexus-text-primary);
-}
-
-/* 开关类按钮的「已开启」态。底色表达「现在是什么」，图标表达「点它会变成什么」——
-   两者都要有：只换图标的话，扫一眼分不清当前是开还是关。 */
-.nexus-toolbar-button-on {
-  color: var(--nexus-accent-indicator);
-}
-
-.nexus-toolbar-button:disabled {
-  color: var(--nexus-text-muted);
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* 编辑器工具栏（2026-10-03）。**与工作区侧栏那一栏共用 `.nexus-toolbar-button`** ——
-   同一个应用里两排图标按钮该长得一样，各留一套样式只会慢慢漂成两种。
-   位置：编辑区容器内的第一行、标签栏之上（见 App.tsx 里插槽处的注释）。
-   高度取 32 而不是标签栏的 34：这一栏是「文档级动作」，视觉上该比「哪些文档开着」轻一点。 */
-.nexus-editor-toolbar {
-  display: flex;
-  align-items: center;
-  /* 不参与伸缩 —— 编辑区用剩下的高度，它自己固定 */
-  flex: 0 0 auto;
-  gap: 2px;
-  height: 32px;
-  padding: 0 8px;
-  background-color: var(--nexus-bg-canvas);
-  border-bottom: 1px solid var(--nexus-border-subtle);
-}
-
-/* 分组之间的竖线。给固定高度而不是 `align-self: stretch` ——
-   拉伸版会顶到上下边框，看着像把这一栏切开了。 */
-.nexus-editor-toolbar-separator {
-  flex: 0 0 auto;
-  width: 1px;
-  height: 16px;
-  margin: 0 5px;
-  background-color: var(--nexus-border-subtle);
-}
-
-/* 「更多」推到最右端：它是溢出入口，挨着别的按钮会被当成「又一个普通动作」。 */
+/* 「更多」推到最右端：它是溢出入口，挨着别的按钮会被当成「又一个普通动作」。
+   编辑器工具栏的栏容器与按钮规则已并入上面「三条工具栏共用」那两段
+   （2026-10-15 起三处一套样式）；它的位置见 App.tsx 里插槽处的注释：标签栏**下方**，
+   且只对可编辑文档渲染。 */
 .nexus-editor-toolbar-spacer {
   flex: 1 1 auto;
 }

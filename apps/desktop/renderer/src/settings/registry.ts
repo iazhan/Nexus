@@ -204,8 +204,8 @@ export const SECTIONS: readonly SectionDef[] = [
   }
 ];
 
-/** 默认落点：不带 `?section=` 打开设置窗口时停在这一组。 */
-export const DEFAULT_SECTION_ID: SectionId = 'appearance';
+/** 默认落点：不带 `?section=` 打开设置窗口时停在这一组。取「通用」——常规项该是进门第一眼，不是外观。 */
+export const DEFAULT_SECTION_ID: SectionId = 'general';
 
 export function sectionById(id: SectionId): SectionDef | undefined {
   return SECTIONS.find((section) => section.id === id);

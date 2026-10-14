@@ -71,6 +71,17 @@ function entry(overrides: Partial<ChangelogEntry> = {}): ChangelogEntry {
   return { type: null, scope: null, zh: '改了点什么', en: null, ...overrides };
 }
 
+/**
+ * `getChangelog()` 的载荷。
+ *
+ * `tagged` 是**单独给的**：它是「哪些版本真的发布过」的权威信号（CI 编译中能看到最新版
+ * 内容靠的就是它），与日志里有哪些键是两件事。默认空数组 = 「tag 列表没拿到」——
+ * 那种情况下界面回落旧口径（`latest` 当上界），所以老用例一个个传空就行。
+ */
+function changelogOf(releases: ChangelogRelease[], tagged: readonly string[] = []): unknown {
+  return { releases, tagged };
+}
+
 function stubBridge(): void {
   calls = [];
   pushState = null;
@@ -335,7 +346,7 @@ describe('主窗口提示条：什么时候该出现', () => {
 describe('更新窗口本体：阶段与动作', () => {
   it('未打包：说明没有更新通道，且「检查更新」按不动', async () => {
     snapshot = state({ phase: 'unsupported' });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
 
     expect(container.querySelector('[data-update-phase]')?.getAttribute('data-update-phase')).toBe(
@@ -351,7 +362,7 @@ describe('更新窗口本体：阶段与动作', () => {
 
   it('有更新：多一行最新版本号，并给出「稍后 / 跳过」', async () => {
     snapshot = state({ phase: 'available', latest: '0.74.0' });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
 
     expect(text('[data-latest-version]')).toBe('0.74.0');
@@ -361,7 +372,7 @@ describe('更新窗口本体：阶段与动作', () => {
 
   it('下载中：画出进度条，「检查更新」按不动', async () => {
     snapshot = state({ phase: 'downloading', latest: '0.74.0', progress: 0.425 });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
 
     const bar = container.querySelector('.nexus-update-progress');
@@ -374,7 +385,7 @@ describe('更新窗口本体：阶段与动作', () => {
 
   it('下载完：主按钮变成「立即重启」', async () => {
     snapshot = state({ phase: 'downloaded', latest: '0.74.0', progress: 1 });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
 
     const primary = container.querySelector('.nexus-update-button-primary') as HTMLButtonElement;
@@ -388,7 +399,7 @@ describe('更新窗口本体：阶段与动作', () => {
 
   it('有未保存文档时拒绝重启，并说明原因 —— `false` 是正常路径不是异常', async () => {
     snapshot = state({ phase: 'downloaded', latest: '0.74.0', progress: 1 });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     installResult = false;
     await render(<UpdateView />);
 
@@ -403,7 +414,7 @@ describe('更新窗口本体：阶段与动作', () => {
 
   it('点「跳过」传的是**界面上显示的那个** latest，而不是主进程的当前值', async () => {
     snapshot = state({ phase: 'available', latest: '0.74.0' });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
 
     // 动作排的顺序是「稍后 / 跳过 / 主按钮」—— 次要动作在前，主按钮在最右。
@@ -415,7 +426,7 @@ describe('更新窗口本体：阶段与动作', () => {
 
   it('点「稍后」走稍后那条通道', async () => {
     snapshot = state({ phase: 'available', latest: '0.74.0' });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
 
     const buttons = container.querySelectorAll<HTMLButtonElement>('.nexus-update-actions button');
@@ -426,7 +437,7 @@ describe('更新窗口本体：阶段与动作', () => {
 
   it('「稍后 / 跳过」在没有更新时不出现 —— 那两个动作的前提是有个版本可以选', async () => {
     snapshot = state({ phase: 'up-to-date', latest: '0.73.0' });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
 
     expect(container.querySelectorAll('.nexus-update-actions button')).toHaveLength(1);
@@ -438,7 +449,7 @@ describe('更新窗口本体：阶段与动作', () => {
    */
   it('状态卡片的色调跟着阶段走', async () => {
     snapshot = state({ phase: 'up-to-date' });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
     expect(container.querySelector('.nexus-update-summary')?.getAttribute('data-tone')).toBe(
       'success'
@@ -457,7 +468,7 @@ describe('更新窗口本体：阶段与动作', () => {
    */
   it('主按钮在 DOM 里排最后 —— 焦点顺序跟着视觉顺序走', async () => {
     snapshot = state({ phase: 'available', latest: '0.74.0' });
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateView />);
 
     const buttons = Array.from(container.querySelectorAll('.nexus-update-actions button'));
@@ -487,7 +498,7 @@ describe('更新窗口本体：更新日志', () => {
 
   it('拿到了但没有更新的版本 → 与「拿不到」是两句不同的话', async () => {
     snapshot = state();
-    changelogAnswer = [release('0.70.0', [entry()])];
+    changelogAnswer = changelogOf([release('0.70.0', [entry()])]);
     await render(<UpdateView />);
 
     expect(container.querySelector('.nexus-update-changelog')?.getAttribute('data-changelog-state')).toBe(
@@ -499,11 +510,11 @@ describe('更新窗口本体：更新日志', () => {
 
   it('默认只画比当前版本**新**的那些', async () => {
     snapshot = state();
-    changelogAnswer = [
+    changelogAnswer = changelogOf([
       release('0.75.0', [entry()]),
       release('0.73.0', [entry()]),
       release('0.70.0', [entry()])
-    ];
+    ]);
     await render(<UpdateView />);
 
     expect(
@@ -515,7 +526,7 @@ describe('更新窗口本体：更新日志', () => {
 
   it('勾上「显示全部历史版本」就都画出来，取消勾选再收回去', async () => {
     snapshot = state();
-    changelogAnswer = [release('0.75.0', [entry()]), release('0.70.0', [entry()])];
+    changelogAnswer = changelogOf([release('0.75.0', [entry()]), release('0.70.0', [entry()])]);
     await render(<UpdateView />);
 
     const toggle = container.querySelector(
@@ -531,7 +542,7 @@ describe('更新窗口本体：更新日志', () => {
 
   it('比当前版本新不靠字符串比 —— 0.10.0 在字符串序里小于 0.9.0，而它实际更新', async () => {
     snapshot = state({ current: '0.9.0' });
-    changelogAnswer = [release('0.10.0', [entry()]), release('0.8.0', [entry()])];
+    changelogAnswer = changelogOf([release('0.10.0', [entry()]), release('0.8.0', [entry()])]);
     await render(<UpdateView />);
 
     expect(
@@ -542,25 +553,22 @@ describe('更新窗口本体：更新日志', () => {
   });
 
   /**
-   * 上界：比「要更新到的那个版本」还新的条目一律不画。
+   * 上界的**回落路径**：tag 列表没拿到时，仍旧以 `latest` 当上界。
    *
-   * `changelog.json` 的键只应该是**发布过的**版本，但那条不变量靠人守 —— 2026-10-14 就是
-   * 这样漂的：从 0.83.0 起每个开发提交都把自己的版本号写进去，用户从 0.80.0 更新到 0.84.8
-   * 时看到十张卡片，其中九张对应的版本他根本装不到（判据 90）。
-   * 「不可能被更新到一个没发布过的版本」是能自己算出来的：比 `latest` 新的一律不画。
-   * 数据对了这条不生效，数据漂了它兜住。
-   *
-   * `latest` 未知时不加上界（「还没查」不能显示成「没有更新内容」）由上面那条
-   * 「默认只画比当前版本**新**的那些」覆盖 —— 它用的就是 `latest: null`。
+   * `changelog.json` 的键只应该是**发布过的**版本，但那两条不变量（键别漂、tag 当上界）
+   * 一条靠人守、一条靠接口 —— 接口挂了口径要退回去，不能把「没查到」显示成「没有更新内容」。
+   * 2026-10-14 漂过：从 0.83.0 起每个开发提交都把自己的版本号写进去，用户从 0.80.0 更新到
+   * 0.84.8 时看到十张卡片，其中九张对应的版本他根本装不到（判据 90）。
+   * 主路径（按 tag 过滤）见下面几条，这里传的 `tagged` 是空的。
    */
-  it('比 latest 还新的条目（没发布过的版本）不画', async () => {
+  it('tag 列表没拿到时回落 latest 当上界 —— 比 latest 还新的条目不画', async () => {
     snapshot = state({ phase: 'available', current: '0.80.0', latest: '0.84.8' });
-    changelogAnswer = [
+    changelogAnswer = changelogOf([
       release('0.84.10', [entry()]),
       release('0.84.9', [entry()]),
       release('0.84.8', [entry()]),
       release('0.80.0', [entry()])
-    ];
+    ]);
     await render(<UpdateView />);
 
     expect(
@@ -573,11 +581,11 @@ describe('更新窗口本体：更新日志', () => {
   /** 「显示全部历史版本」翻的是**过去**，不是未来 —— 上界对两种模式都成立。 */
   it('勾上「显示全部历史版本」也不会看到比 latest 更新的条目', async () => {
     snapshot = state({ phase: 'available', current: '0.80.0', latest: '0.84.8' });
-    changelogAnswer = [
+    changelogAnswer = changelogOf([
       release('0.84.10', [entry()]),
       release('0.84.8', [entry()]),
       release('0.80.0', [entry()])
-    ];
+    ]);
     await render(<UpdateView />);
 
     const toggle = container.querySelector('.nexus-update-show-all input') as HTMLInputElement;
@@ -590,9 +598,116 @@ describe('更新窗口本体：更新日志', () => {
     ).toEqual(['0.84.8', '0.80.0']);
   });
 
+  /**
+   * **tag 当上界**（2026-10-15 起的主口径）。
+   *
+   * 只画打过 tag 的版本。上一条覆盖的是「tag 没拿到」时的回落，这一条覆盖主路径：
+   * `changelog.json` 的键 = 发布过的版本，这条不变量靠人守（判据 90），而 tag 是机器查得到的。
+   *
+   * `0.84.5` 是**没打过 tag 的漂移键**（开发期间顺手写进去的版本号）。它比 `latest` 旧，
+   * 旧口径（`≤ latest`）拦不住它 —— 只有「按 tag 过滤」拦得住。
+   */
+  it('只画打过 tag 的版本 —— 没打过 tag 的键一律不画', async () => {
+    snapshot = state({ phase: 'available', current: '0.80.0', latest: '0.85.0' });
+    changelogAnswer = changelogOf(
+      [
+        release('0.85.0', [entry()]),
+        release('0.84.5', [entry()]),
+        release('0.84.0', [entry()])
+      ],
+      ['0.85.0', '0.84.0']
+    );
+    await render(<UpdateView />);
+
+    expect(
+      Array.from(container.querySelectorAll('[data-release]')).map((el) =>
+        el.getAttribute('data-release')
+      )
+    ).toEqual(['0.85.0', '0.84.0']);
+  });
+
+  /** 上界对「显示全部历史版本」同样成立：翻的是过去，且只翻**真的存在过**的那些。 */
+  it('勾上「显示全部历史版本」也不翻出没打过 tag 的键', async () => {
+    snapshot = state({ phase: 'available', current: '0.80.0', latest: '0.85.0' });
+    changelogAnswer = changelogOf(
+      [
+        release('0.85.0', [entry()]),
+        release('0.84.5', [entry()]),
+        release('0.84.0', [entry()]),
+        release('0.83.0', [entry()])
+      ],
+      ['0.85.0', '0.84.0', '0.83.0']
+    );
+    await render(<UpdateView />);
+
+    const toggle = container.querySelector('.nexus-update-show-all input') as HTMLInputElement;
+    await act(async () => toggle.click());
+
+    expect(
+      Array.from(container.querySelectorAll('[data-release]')).map((el) =>
+        el.getAttribute('data-release')
+      )
+    ).toEqual(['0.85.0', '0.84.0', '0.83.0']);
+  });
+
+  /**
+   * **CI 编译中**：tag 打了、release 还没发，最新版的更新内容已经能看。
+   *
+   * 装着的还是 0.85.0（`latest` 也停在 0.85.0 —— 更新器只认 release），而 0.86.0 的 tag
+   * 已经在仓库里。等 release 才显示的话，「最新版 Updates 内容」要等流水线跑完才出现。
+   */
+  it('tag 已打、release 未发布：那一版的更新内容照样画', async () => {
+    snapshot = state({ phase: 'available', current: '0.85.0', latest: '0.85.0' });
+    changelogAnswer = changelogOf(
+      [release('0.86.0', [entry()]), release('0.85.0', [entry()]), release('0.80.0', [entry()])],
+      ['0.86.0', '0.85.0', '0.80.0']
+    );
+    await render(<UpdateView />);
+
+    expect(
+      Array.from(container.querySelectorAll('[data-release]')).map((el) =>
+        el.getAttribute('data-release')
+      )
+    ).toEqual(['0.86.0']);
+  });
+
+  /**
+   * 未打包构建（`phase === 'unsupported'`）：**当前版本自己就是即将发布那一版**。
+   *
+   * 这种构建不可能知道发布状态（没有更新通道），所以「`> current`」这条下界要给它开个口子 ——
+   * 否则 CI 编译期间打开更新窗口，看到的是「已是最新」而不是「这一版改了什么」。
+   * `0.86.0` 此时**还没打 tag**（版本推进到打 tag 之间那段时间），靠的是「外加 `current`」。
+   */
+  it('未打包构建：把当前版本自己那一张卡片也画出来', async () => {
+    snapshot = state({ phase: 'unsupported', current: '0.86.0', latest: null });
+    changelogAnswer = changelogOf(
+      [release('0.86.0', [entry()]), release('0.85.0', [entry()])],
+      ['0.85.0']
+    );
+    await render(<UpdateView />);
+
+    expect(
+      Array.from(container.querySelectorAll('[data-release]')).map((el) =>
+        el.getAttribute('data-release')
+      )
+    ).toEqual(['0.86.0']);
+  });
+
+  /** 反面：终端用户（已检查过、`current` 不领先）不会因为这条例外多出一张自己的卡。 */
+  it('终端用户不画自己那一张 —— 例外只给不可能知道发布状态的构建', async () => {
+    snapshot = state({ phase: 'up-to-date', current: '0.85.0', latest: '0.85.0' });
+    changelogAnswer = changelogOf(
+      [release('0.85.0', [entry()]), release('0.84.0', [entry()])],
+      ['0.85.0', '0.84.0']
+    );
+    await render(<UpdateView />);
+
+    expect(container.querySelectorAll('[data-release]')).toHaveLength(0);
+  });
+
   it('条目缺当前语言时回落到另一种 —— 双语日志是渐进补全的，不能留空白', async () => {
     snapshot = state();
-    changelogAnswer = [release('0.75.0', [entry({ zh: null, en: 'english only entry' })])];
+    changelogAnswer = changelogOf([release('0.75.0', [entry({ zh: null, en: 'english only entry' })])]);
     await render(<UpdateView />);
 
     expect(text('.nexus-update-entry-text')).toBe('english only entry');
@@ -601,7 +716,7 @@ describe('更新窗口本体：更新日志', () => {
   it('英文界面下同样回落', async () => {
     localeManager.setLocale('en-US');
     snapshot = state();
-    changelogAnswer = [release('0.75.0', [entry({ zh: '只有中文这一句', en: null })])];
+    changelogAnswer = changelogOf([release('0.75.0', [entry({ zh: '只有中文这一句', en: null })])]);
     await render(<UpdateView />);
 
     expect(text('.nexus-update-entry-text')).toBe('只有中文这一句');
@@ -609,7 +724,7 @@ describe('更新窗口本体：更新日志', () => {
 
   it('一个版本没有条目时明说，而不是画一片空白', async () => {
     snapshot = state();
-    changelogAnswer = [release('0.75.0', [])];
+    changelogAnswer = changelogOf([release('0.75.0', [])]);
     await render(<UpdateView />);
 
     expect(container.querySelector('.nexus-update-release-empty')).not.toBeNull();
@@ -617,12 +732,12 @@ describe('更新窗口本体：更新日志', () => {
 
   it('类型徽章只在**有译文**时画 —— 直接渲染会漏出 `update.type.xxx` 这种键名', async () => {
     snapshot = state();
-    changelogAnswer = [
+    changelogAnswer = changelogOf([
       release('0.75.0', [
         entry({ type: 'feat', zh: '有译文的类型' }),
         entry({ type: 'no-such-type', zh: '没有译文的类型' })
       ])
-    ];
+    ]);
     await render(<UpdateView />);
 
     const badges = container.querySelectorAll('.nexus-update-entry-type');
@@ -632,10 +747,10 @@ describe('更新窗口本体：更新日志', () => {
 
   it('从 GitHub 提交信息回落来的那一条要标出来源', async () => {
     snapshot = state();
-    changelogAnswer = [
+    changelogAnswer = changelogOf([
       release('0.75.0', [entry()], 'github'),
       release('0.70.0', [entry()], 'bundled')
-    ];
+    ]);
     await render(<UpdateView />);
 
     // 默认视图只剩 0.75.0，它就是那条 github 来源。
@@ -644,7 +759,7 @@ describe('更新窗口本体：更新日志', () => {
 
   it('内置来源不标 —— 只有「二手」的那些需要说明', async () => {
     snapshot = state();
-    changelogAnswer = [release('0.75.0', [entry()], 'bundled')];
+    changelogAnswer = changelogOf([release('0.75.0', [entry()], 'bundled')]);
     await render(<UpdateView />);
 
     expect(container.querySelectorAll('.nexus-update-release-source')).toHaveLength(0);
@@ -654,7 +769,7 @@ describe('更新窗口本体：更新日志', () => {
 describe('更新窗口外壳', () => {
   it('标记自己是更新窗口，并装上更新本体', async () => {
     snapshot = state();
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateWindow />);
 
     expect(container.querySelector('[data-window-role="update"]')).not.toBeNull();
@@ -663,7 +778,7 @@ describe('更新窗口外壳', () => {
 
   it('标题栏有自绘窗口按钮，关闭键走到桥上', async () => {
     snapshot = state();
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateWindow />);
 
     const buttons = container.querySelectorAll<HTMLButtonElement>(
@@ -677,7 +792,7 @@ describe('更新窗口外壳', () => {
 
   it('Escape 关窗', async () => {
     snapshot = state();
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateWindow />);
 
     pressEscape();
@@ -687,7 +802,7 @@ describe('更新窗口外壳', () => {
   /** 将来往日志里加弹层时，那道 `defaultPrevented` 判断才起作用 —— 少了它关弹层会顺带关窗。 */
   it('Escape 已被别处处理时不再关窗', async () => {
     snapshot = state();
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateWindow />);
 
     pressEscape(true);
@@ -696,7 +811,7 @@ describe('更新窗口外壳', () => {
 
   it('窗口骨架里没有主窗口的菜单栏与活动栏', async () => {
     snapshot = state();
-    changelogAnswer = [];
+    changelogAnswer = changelogOf([]);
     await render(<UpdateWindow />);
 
     expect(container.querySelector('.nexus-menu-bar')).toBeNull();

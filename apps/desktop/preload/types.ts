@@ -290,9 +290,9 @@ export interface NexusBridge {
    */
   installUpdateNow: () => Promise<boolean>;
   /**
-   * 更新日志（双语），按版本降序。
+   * 更新日志（双语），按版本降序，外加「哪些版本打过 tag」。
    *
-   * `null` = 一条都没拿到（三层回落全失败），与空数组不同 —— 见 `ChangelogResult`。
+   * `null` = 一条都没拿到（三层回落全失败），与空载荷不同 —— 见 `ChangelogResult`。
    */
   getChangelog: () => Promise<ChangelogResult>;
   /**
@@ -343,7 +343,7 @@ export interface NexusBridge {
    * 只从主窗口调用：设置界面自己不再提供「打开设置」的入口。
    *
    * `section` 是**要落在哪个分组**（如 `'plugins'`）。给了它，窗口会停在那一组
-   * （已开着时重新加载过去）；不给就停在外观（默认分组）。合法值域是渲染进程的
+   * （已开着时重新加载过去）；不给就停在通用（默认分组）。合法值域是渲染进程的
    * `SectionId`，这里只当字符串传 —— 主进程不认识分组，认不出的值由渲染进程忽略。
    */
   openSettingsWindow: (section?: string) => Promise<void>;

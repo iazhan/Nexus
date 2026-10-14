@@ -324,5 +324,34 @@
         "en": "In rich text mode, searching used to miss text that renders as a card — the contents of a [[wikilink]], for instance. The panel would report a match while the document showed no highlight at all, because that whole span is replaced by the card and the editor's own highlight has nowhere to land. The card now paints the match highlight itself."
       }
     ]
+  },
+  "0.86.0": {
+    "date": "2026-10-15",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "update",
+        "zh": "CI 编译期间也能在应用内看到最新版的更新内容：上界改判 git tag，不再等 release 发布。",
+        "en": "See the latest release notes while CI is still building: the changelog ceiling now keys off git tags instead of waiting for a release."
+      },
+      {
+        "type": "feat",
+        "scope": "settings",
+        "zh": "设置窗口默认打开「通用」分组，不再停在外观。",
+        "en": "The settings window now opens on General instead of Appearance."
+      },
+      {
+        "type": "feat",
+        "scope": "viewer",
+        "zh": "图片查看器工具栏换成图标按钮，与 PDF 阅读器对齐。",
+        "en": "The image viewer toolbar now uses icon buttons, matching the PDF reader."
+      },
+      {
+        "type": "feat",
+        "scope": "viewer",
+        "zh": "编辑器、PDF、图片三处工具栏统一为同一套栏容器与按钮外观。",
+        "en": "The editor, PDF and image toolbars now share one toolbar container and button style."
+      }
+    ]
   }
 }

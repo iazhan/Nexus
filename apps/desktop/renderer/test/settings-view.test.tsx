@@ -2980,7 +2980,7 @@ describe('设置分组状态', () => {
     root = createRoot(container);
     act(() => root.render(<Probe />));
 
-    expect(latest?.section).toBe('appearance');
+    expect(latest?.section).toBe('general');
   });
 });
 
@@ -3028,7 +3028,7 @@ describe('设置分组的查询串落点', () => {
   it('查询串是认不出的分组时回落默认分组 —— 不把用户丢进一个空页', () => {
     renderWith('?window=settings&section=nonsense');
 
-    expect(latest?.section).toBe('appearance');
+    expect(latest?.section).toBe('general');
   });
 
   /**

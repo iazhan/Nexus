@@ -393,6 +393,25 @@ describe('ImageRenderer', () => {
     expect(container.querySelector('.nexus-image-bytes')).toBeNull();
   });
 
+  it('工具栏四枚按钮都是图标：每枚自带可访问名，图形是装饰性的', () => {
+    renderImage();
+
+    // 适合窗口 / 实际大小 / 缩小 / 放大
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('.nexus-image-icon-button')];
+    expect(buttons).toHaveLength(4);
+
+    for (const button of buttons) {
+      // 图标按钮里没有可见文字，可访问名只能来自 `aria-label` + `title` ——
+      // 漏一个就是一个没有名字的按钮，而它在画面上完全正常（同 PDF 那条）。
+      expect((button.getAttribute('aria-label') ?? '').trim().length).toBeGreaterThan(0);
+      expect((button.getAttribute('title') ?? '').trim().length).toBeGreaterThan(0);
+      // 图形必须是装饰性的：读屏念完名字再念一遍「图形」是双重播报
+      expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+      // 按钮里不该再有可见文字 —— 还有的话说明漏了一个文字按钮没换
+      expect(button.textContent).toBe('');
+    }
+  });
+
   describe('缩放', () => {
     it('打开即「适合窗口」—— 4000px 的照片不该按 100% 只露出四分之一', () => {
       loadImage(4000, 3000, { width: 1200, height: 700 });

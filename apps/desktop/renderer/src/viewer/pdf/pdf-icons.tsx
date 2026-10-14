@@ -1,9 +1,9 @@
 /**
  * PDF 阅读器工具栏的图标集。
  *
- * 规格照 `components/workspace-icons.tsx`：`viewBox="0 0 24 24"`、`fill="none"`、
- * `stroke="currentColor"`、线宽 2。**14px** 与工作区工具栏同档 —— 两处按钮的高度一样，
- * 图标一大一小并排看就是歪的。
+ * 规格与 `viewer-icons.tsx` **共用一份**（`VIEWER_ICON_PROPS`）—— 由那里统一定，
+ * 这里不再抄一遍。缩放那一对（`zoomIn` / `zoomOut`）的图形也直接导入图片查看器
+ * 在用的那两个：同样的 `<path>` 写两份迟早漂成两种，而漂移在 14px 下看得见。
  *
  * ## 为什么工具栏从文字换成图标（2026-10-14）
  *
@@ -20,18 +20,9 @@
  */
 
 import type { ReactNode } from 'react';
+import { VIEWER_ICON_PROPS, VIEWER_ICON_SHAPES } from '../viewer-icons.js';
 
-const ICON_PROPS = {
-  width: 14,
-  height: 14,
-  viewBox: '0 0 24 24',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 2,
-  strokeLinecap: 'round' as const,
-  strokeLinejoin: 'round' as const,
-  'aria-hidden': true
-};
+const ICON_PROPS = VIEWER_ICON_PROPS;
 
 /** 工具栏图标名。 */
 export type PdfIconName =
@@ -57,8 +48,8 @@ export const PDF_ICON_SHAPES: Record<PdfIconName, ReactNode> = {
   /** 翻页用上下箭头：文档是**竖着**读的，左右箭头会被读成「上一个/下一个文件」。 */
   previousPage: <path d="M6 15l6-6 6 6" />,
   nextPage: <path d="M6 9l6 6 6-6" />,
-  zoomIn: <path d="M12 5v14M5 12h14" />,
-  zoomOut: <path d="M5 12h14" />,
+  zoomIn: VIEWER_ICON_SHAPES.zoomIn,
+  zoomOut: VIEWER_ICON_SHAPES.zoomOut,
   /** 适合宽度：一页纸 + 里面的水平双向箭头。 */
   fitWidth: (
     <>

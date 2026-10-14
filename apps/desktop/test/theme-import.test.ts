@@ -85,6 +85,8 @@ describe('主题导入', () => {
     await app.waitForSelector('.nexus-activity-bar', 20000);
     await app.click('.nexus-activity-icon[data-activity="settings"]');
     await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
+    // 默认落点是「通用」，主题导入在外观分组 —— 显式点进去，不依赖默认落点
+    await app.click('.nexus-settings-nav [data-section="appearance"]');
     await app.waitForSelector('.nexus-theme-transfer', 10000);
 
     const before = await app.evaluate<string>(`document.documentElement.dataset.theme ?? ''`);

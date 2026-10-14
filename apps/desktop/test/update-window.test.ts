@@ -90,7 +90,7 @@ describe('更新窗口', () => {
     await app.dispatchKey(',', { ctrl: true });
     await app.waitForPageCount(SETTINGS_WINDOW_URL_MARKER, 1, 15000);
     await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);
-    // 设置窗口默认落在 `appearance`（`DEFAULT_SECTION_ID`），版本那一行在「关于」组。
+    // 设置窗口默认落在 `general`（`DEFAULT_SECTION_ID`），版本那一行在「关于」组。
     await app.waitForSelector('.nexus-settings-nav [data-section="about"]', 15000);
     await app.click('.nexus-settings-nav [data-section="about"]');
     await app.waitForSelector('[data-field-action="about.version"]', 15000);

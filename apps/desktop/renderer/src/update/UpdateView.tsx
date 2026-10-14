@@ -112,31 +112,66 @@ export const UpdateView: React.FC = () => {
   const hasUpdate = phase === 'available' || phase === 'downloading' || phase === 'downloaded';
 
   /**
-   * 「从当前版本显示到**要更新到的那个版本**」—— 下界是当前版本，上界是 `latest`。
+   * 「从当前版本显示到**要更新到的那个版本**」—— 下界是当前版本，上界是「发布过哪些版本」。
    *
-   * 上界那一条不是装饰。`changelog.json` 的键**只应该是发布过的版本**（一次发布一个键，
-   * 见 `.workbuddy-ai/memory/pitfalls.md` 判据 90），但这条不变量靠人守 —— 一旦有人把开发
-   * 期间的版本号写进去，界面上就会冒出一串「0.84.1 / 0.84.2 / 0.84.3 …」，而用户根本装不到
-   * 那些版本（2026-10-14 实测过一次）。「不可能被更新到一个没发布过的版本」是**能自己算出来**
-   * 的：比 `latest` 还新的条目一律不画。数据对了它不生效，数据漂了它兜住。
+   * ## 上界：tag 说了算
+   *
+   * `changelog.json` 的键**只应该是发布过的版本**（一次发布一个键，见判据 90），但这条
+   * 不变量靠人守 —— 2026-10-14 漂过一次：从 0.83.0 起每个开发提交都顺手写自己的版本号，
+   * 于是 0.80.0 → 0.84.8 的更新说明里排了十张卡片，其中九张对应的版本用户根本装不到。
+   * 「不可能被更新到一个没发布过的版本」是**能自己算出来**的，而算它的凭据不是 `latest`
+   * （那只是「上游最新的 release」，没发布就答不上来），是 **git tag** —— 仓库里
+   * 「一次提交 = 一次版本推进」，tag 是「这个版本真的发布过」的唯一落款。
+   *
+   * 用它当上界还顺带解决另一件事：**tag 打了、CI 还在编译、release 没发布**那段时间，
+   * 最新版的更新内容已经能给人看。等 release 才显示的话，「最新版 Updates 内容」要等到
+   * 流水线跑完才出现，而那正是最该看到它的时刻。
+   *
+   * tag 列表拿不到（接口挂 / 限流）时**回落旧口径**：`latest` 非空就以它为上界，
+   * `latest` 也为空时不上界 —— 「还没查」不能显示成「没有更新内容」，那是更糟的错。
    *
    * 上界对「显示全部历史版本」同样成立 —— 那个开关管的是「要不要往前翻」，不是「要不要看未来」。
-   * `latest` 未知（更新器还没检查过）时**不加**上界：把列表清空会把「还没查」显示成
-   * 「没有更新内容」，那是更糟的错。
+   *
+   * ## 下界：`> current`，开发机构建例外
+   *
+   * 例外只给**不可能知道发布状态**的构建：未打包（`phase === 'unsupported'`）或当前版本
+   * 领先 `latest`。这两种情况下「当前版本」自己就是即将发布那一版，它的卡片得画出来 ——
+   * 否则 CI 编译期间打开更新窗口，看到的是「已是最新」而不是「这一版改了什么」。
+   * 用 `phase` 而不是别的判据：终端用户已检查过（`idle` / `up-to-date`）时 `current` 恒
+   * 落后于 `latest`，不会因为这条例外多出一张卡。
    *
    * 用 `compareVersions` 而不是字符串比较：`0.10.0` 在字符串序里小于 `0.9.0`，而它实际更新。
    * 判据与主进程共用同一份实现（`ipc/channels.ts`）。
    */
   const releases = useMemo(() => {
     if (!changelog) return [];
-    const latest = state?.latest;
-    const ceiling = latest
-      ? changelog.filter((release) => compareVersions(release.version, latest) <= 0)
-      : changelog;
+
+    const all = changelog.releases;
+    const tagged = changelog.tagged;
     const current = state?.current;
+    const latest = state?.latest;
+
+    // 上界。tag 列表在时只画打过 tag 的（外加 `current` —— 开发机构建那个版本还没打上）；
+    // 不在时回落 `latest`，两样都没有就整份列出来。
+    const ceiling =
+      tagged.length > 0
+        ? all.filter((release) => tagged.includes(release.version) || release.version === current)
+        : latest
+          ? all.filter((release) => compareVersions(release.version, latest) <= 0)
+          : all;
+
     if (showAll || !current) return ceiling;
-    return ceiling.filter((release) => compareVersions(release.version, current) > 0);
-  }, [changelog, showAll, state?.current, state?.latest]);
+
+    // `state` 整份缺失时两个字段都是 `undefined`，所以这里判的是「有值」而不是「不是 null」。
+    const ahead =
+      phase === 'unsupported' ||
+      (latest != null && compareVersions(current, latest) > 0);
+
+    return ceiling.filter(
+      (release) =>
+        compareVersions(release.version, current) > 0 || (ahead && release.version === current)
+    );
+  }, [changelog, showAll, state?.current, state?.latest, phase]);
 
   const guard = useCallback(async (action: () => Promise<unknown> | undefined) => {
     setBusy(true);

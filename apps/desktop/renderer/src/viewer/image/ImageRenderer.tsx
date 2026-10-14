@@ -3,6 +3,7 @@ import { useLocale } from '../../hooks.js';
 import type { ViewerRendererProps } from '../types.js';
 import { relativePathFrom, toAssetUrl } from '@nexus/core';
 import { formatFileSize } from '../../workspace/file-size.js';
+import { viewerIcon } from '../viewer-icons.js';
 import {
   clampZoom,
   fitZoom,
@@ -301,36 +302,42 @@ const ImageRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
   return (
     <div className="nexus-image-viewer" data-zoom={zoomPercent(zoom)}>
       <div className="nexus-image-toolbar">
+        {/* 图标化与 PDF 工具栏（2026-10-14）对齐：四个动作都是公认手势，图标比汉字更快认。
+            可见文字没有了，可访问名只能来自 `aria-label` + `title` —— 每一枚都必须有。 */}
         <button
           type="button"
-          className="nexus-image-fit-button"
+          className="nexus-image-icon-button nexus-image-fit-button"
           data-zoom-action="fit"
+          aria-label={t('viewer.image.fitWindow')}
+          title={t('viewer.image.fitWindow')}
           onClick={applyFit}
           disabled={size === null}
         >
-          {t('viewer.image.fitWindow')}
+          {viewerIcon('fitWindow')}
         </button>
         <button
           type="button"
-          className="nexus-image-fit-button"
+          className="nexus-image-icon-button nexus-image-fit-button"
           data-zoom-action="actual"
+          aria-label={t('viewer.image.actualSize')}
+          title={t('viewer.image.actualSize')}
           onClick={() => applyZoom(ZOOM_DEFAULT)}
           disabled={size === null}
         >
-          {t('viewer.image.actualSize')}
+          {viewerIcon('actualSize')}
         </button>
 
         <span className="nexus-image-toolbar-divider" aria-hidden="true" />
 
         <button
           type="button"
-          className="nexus-image-zoom-button"
+          className="nexus-image-icon-button nexus-image-zoom-button"
           aria-label={t('viewer.image.zoomOut')}
           title={t('viewer.image.zoomOut')}
           disabled={zoom <= ZOOM_MIN}
           onClick={() => applyZoom(stepZoom(zoomRef.current, -1))}
         >
-          −
+          {viewerIcon('zoomOut')}
         </button>
         {/* 缩放比例可直接改。`%` 画在框外 —— 塞进 `value` 的话每次改数字都要先删掉它。 */}
         <input
@@ -347,13 +354,13 @@ const ImageRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
         <span className="nexus-image-zoom-suffix">%</span>
         <button
           type="button"
-          className="nexus-image-zoom-button"
+          className="nexus-image-icon-button nexus-image-zoom-button"
           aria-label={t('viewer.image.zoomIn')}
           title={t('viewer.image.zoomIn')}
           disabled={zoom >= ZOOM_MAX}
           onClick={() => applyZoom(stepZoom(zoomRef.current, 1))}
         >
-          +
+          {viewerIcon('zoomIn')}
         </button>
       </div>
 
