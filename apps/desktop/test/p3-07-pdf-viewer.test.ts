@@ -151,8 +151,22 @@ describe('P3-07 PDF Viewer', () => {
     expect(canvas.bitmapWidth).toBe(Math.floor(EXPECTED_CANVAS_CSS_WIDTH * canvas.devicePixelRatio));
     expect(canvas.pageNumber).toBe('1');
 
-    // 文件名上 caption，供人核对打开的是哪一份
-    expect(await app.getText('.nexus-pdf-name')).toBe('spec.pdf');
+    // 底部那条文件名 caption 已去掉（2026-10-14）：文件名在标签页上已经有了，
+    // 再占一条横条只是把正文挤矮。
+    expect(
+      await app.evaluate<boolean>(`document.querySelector('.nexus-pdf-caption') === null`)
+    ).toBe(true);
+    // 工具栏换成图标之后，每枚按钮的可访问名只能来自 `aria-label` —— 漏一个就是一个
+    // 在无障碍树里没有名字的按钮，而它在画面上完全正常。
+    expect(
+      await app.evaluate<boolean>(`(() => {
+        const buttons = [...document.querySelectorAll('.nexus-pdf-icon-button')];
+        return buttons.length >= 9 &&
+          buttons.every((button) =>
+            (button.getAttribute('aria-label') ?? '').trim().length > 0 &&
+            button.querySelector('svg')?.getAttribute('aria-hidden') === 'true');
+      })()`)
+    ).toBe(true);
 
     // ---- 3. 翻页：判据用 data-page-number 与 disabled，都不依赖文案 ----
     const pageButtonState = async (): Promise<{ previous: boolean; next: boolean }> =>
@@ -395,5 +409,84 @@ describe('P3-07 PDF Viewer', () => {
     expect(Number(after.zoom)).toBeGreaterThan(Number(before.zoom));
     expect(after.fraction).toBeCloseTo(0.4, 2);
     expect(after.innerWidth).toBe(before.innerWidth);
+
+    // ---- 11. 拖动工具：文本层让开，页面跟着指针走 ----
+    //
+    // 这条**只有真机能验**。happy-dom 没有布局、也没有命中测试，「拖动模式下文本层不吃
+    // 指针事件」在那边是恒真的（没有元素会吃掉事件）；这里用 `elementFromPoint` 拿到的是
+    // 真浏览器里的命中结果，所以它能证明那条 CSS 真的生效了 —— 而它失效的症状是
+    // 「按下去就开始选字，页面一动不动」。
+    interface PanPoint {
+      x: number;
+      y: number;
+      overTextLayer: boolean;
+      cursor: string;
+      tool: string | null;
+    }
+
+    const panPoint = (): Promise<PanPoint> =>
+      app.evaluate<PanPoint>(`(() => {
+        const stage = document.querySelector('.nexus-pdf-stage');
+        const stageRect = stage.getBoundingClientRect();
+        // 取一张**此刻真的露在 stage 里**的页：夹具两页，放大之后不一定都在视野内
+        const page = [...document.querySelectorAll('.nexus-pdf-page')].find((element) => {
+          const r = element.getBoundingClientRect();
+          return r.bottom > stageRect.top + 40 && r.top < stageRect.bottom - 40;
+        });
+        const rect = page.getBoundingClientRect();
+        const x = Math.round(Math.max(rect.left, stageRect.left) + 30);
+        const y = Math.round(Math.max(rect.top, stageRect.top) + 40);
+        const hit = document.elementFromPoint(x, y);
+        return {
+          x,
+          y,
+          overTextLayer: Boolean(hit?.closest('.nexus-pdf-text-layer')),
+          cursor: getComputedStyle(stage).cursor,
+          tool: document.querySelector('.nexus-pdf-viewer')?.getAttribute('data-tool') ?? null
+        };
+      })()`);
+
+    const beforePan = await panPoint();
+    // 默认是「选择文本」：指针压在这张页上时命中的是文本层 —— 那正是拖选原文的起点
+    expect(beforePan.tool).toBe('select');
+    expect(beforePan.overTextLayer).toBe(true);
+
+    await app.click('.nexus-pdf-tool-button[data-tool="pan"]');
+    await app.waitForFunction(
+      `() => document.querySelector('.nexus-pdf-viewer')?.dataset.tool === 'pan'`,
+      10000
+    );
+
+    const afterSwitch = await panPoint();
+    // 文本层让开了：命中的是它下面的 canvas
+    expect(afterSwitch.overTextLayer).toBe(false);
+    // 光标也换了 —— 看不出「现在是拖动模式」的话，这个工具等于没做
+    expect(afterSwitch.cursor).toBe('grab');
+
+    // 停在中间再往上拖：往上拖 = 内容上移 = `scrollTop` 变大
+    const panBase = await app.evaluate<number>(`(() => {
+      const stage = document.querySelector('.nexus-pdf-stage');
+      stage.scrollTop = Math.round((stage.scrollHeight - stage.clientHeight) / 2);
+      return stage.scrollTop;
+    })()`);
+    expect(panBase).toBeGreaterThan(0);
+
+    await app.mouseDragCoords(beforePan.x, beforePan.y, beforePan.x - 20, beforePan.y - 120);
+
+    const panMoved = await app.evaluate<number>(
+      `document.querySelector('.nexus-pdf-stage').scrollTop`
+    );
+    // 位移要真的落到滚动上，且方向对（内容跟着指针走）
+    expect(panMoved - panBase).toBeGreaterThan(60);
+    // 拖动**不该顺手拉出一个选区**：文本层不吃指针事件，底部就不该冒出引用栏
+    expect(
+      await app.evaluate<boolean>(`document.querySelector('.nexus-pdf-citation') === null`)
+    ).toBe(true);
+    // 拖完工具还是「拖动」，不会被一次拖动重置回选择
+    expect(
+      await app.evaluate<string | null>(
+        `document.querySelector('.nexus-pdf-viewer')?.getAttribute('data-tool') ?? null`
+      )
+    ).toBe('pan');
   });
 });

@@ -292,5 +292,28 @@
         "en": "Fixes the blank strip left by the previous change: hiding the sidebar's contents kept its 240px column in place, so the graph never really filled the window. The panel width and resize handle now collapse along with it, and slide back when you leave the graph."
       }
     ]
+  },
+  "0.84.9": {
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "PDF 阅读器多了「拖动」工具：以前指针恒为文本选择，一张比窗口大的表格想挪一下看别处，只能去够滚动条。现在工具栏上「选择文本 / 拖动页面」两个按钮可切换，拖动模式下按住左键就能把页面推着走，光标也跟着变成手型；切到拖动会顺手清掉已有选区，免得底部那条引用栏一直挂着。",
+        "en": "The PDF viewer gained a pan tool: the pointer used to be locked to text selection, so moving around a table wider than the window meant reaching for the scrollbar. The toolbar now has a select/pan pair — in pan mode you drag the page with the left button and the cursor turns into a hand. Switching to pan also clears any existing selection, so the citation bar doesn't linger."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "PDF 阅读器的工具栏按钮从文字换成了图标（导航、上一页/下一页、缩小/放大、适合宽度、连续/单页）。九个汉字按钮排下来把工具栏撑得很长，而这些本来都是公认的手势。",
+        "en": "The PDF toolbar buttons are now icons instead of words — navigation, page turning, zoom, fit width, and the single/continuous toggle. Nine word buttons stretched the bar; these are gestures people already know."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "PDF 阅读器底部那条文件名去掉了：文件名在标签页上已经有了，省下的高度留给正文。",
+        "en": "Removed the file-name bar at the bottom of the PDF viewer — the name is already on the tab, and the space goes to the document instead."
+      }
+    ]
   }
 }

@@ -734,27 +734,10 @@ body {
   font-size: 12px;
 }
 
-.nexus-pdf-page-button {
-  padding: 2px 10px;
-  border: 1px solid var(--nexus-border-default);
-  border-radius: 4px;
-  background-color: var(--nexus-bg-surface);
-  color: var(--nexus-text-primary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.nexus-pdf-page-button:hover:not(:disabled) {
-  background-color: var(--nexus-bg-surface-hover);
-}
-
-/* 禁用态必须在视觉上分得清。翻到第一页时「上一页」若看起来还能点，
-   人和测试都分不清是「按钮坏了」还是「到边界了」—— 而测试正是靠
-   `disabled` 判定边界的，两者必须一致。 */
-.nexus-pdf-page-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
+/* 翻页按钮（`.nexus-pdf-page-button`）的外观走 `.nexus-pdf-icon-button`。
+   **禁用态仍然必须在视觉上分得清**：翻到第一页时「上一页」若看起来还能点，
+   人和测试都分不清是「按钮坏了」还是「到边界了」—— 而测试正是靠 `disabled`
+   判定边界的，两者必须一致。这条由图标按钮的 `:disabled` 规则接住。 */
 
 /* 页码 = 可编辑输入框 + `/ 总页数`。 */
 .nexus-pdf-page-indicator {
@@ -815,10 +798,9 @@ body {
   background-color: var(--nexus-border-subtle);
 }
 
-.nexus-pdf-sidebar-button,
-.nexus-pdf-zoom-button,
-.nexus-pdf-fit-button,
-.nexus-pdf-layout-button,
+/* 图片工具栏的按钮仍是「带框的文字按钮」：那边只有两个动作，写全称比两个箭头好认。
+   PDF 那边 2026-10-14 起换成了图标（见下面的 `.nexus-pdf-icon-button`），所以这里
+   不再和它并列 —— 两边已经不是同一套外观了，硬凑在一起只会让人以为它们还一样。 */
 .nexus-image-zoom-button,
 .nexus-image-fit-button {
   flex: none;
@@ -831,27 +813,66 @@ body {
   cursor: pointer;
 }
 
-.nexus-pdf-sidebar-button:hover,
-.nexus-pdf-zoom-button:hover:not(:disabled),
-.nexus-pdf-fit-button:hover,
-.nexus-pdf-layout-button:hover,
 .nexus-image-zoom-button:hover:not(:disabled),
 .nexus-image-fit-button:hover:not(:disabled) {
   background-color: var(--nexus-bg-surface-hover);
 }
 
-.nexus-pdf-zoom-button:disabled,
 .nexus-image-zoom-button:disabled,
 .nexus-image-fit-button:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-/* 按下态与「选中态」是两件事：`aria-pressed` 表示侧栏现在是开的，
-   所以给底色而不是只给 hover —— hover 一移开就看不出它还开着。 */
-.nexus-pdf-sidebar-button[aria-pressed='true'] {
+/* ── PDF 工具栏的图标按钮 ────────────────────────────────────────────────
+   24×24 的方块、无边框、透明底：图标自己就是主体，再套一层框会让一整条工具栏看起来
+   像一排小按钮墙。悬停给底色，`aria-pressed` 给强调色 —— 后者是必需的，不然
+   「侧栏开着」与「拖动工具选中」这两个状态在画面上完全看不出来。 */
+.nexus-pdf-icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--nexus-text-secondary);
+  cursor: pointer;
+}
+
+.nexus-pdf-icon-button:hover:not(:disabled) {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
+/* 禁用态用「变淡」而不是另指定一个灰色：图标颜色本来就跟着主题走，
+   硬写一个灰会在某些主题下比正常态还显眼。 */
+.nexus-pdf-icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.nexus-pdf-icon-button[aria-pressed='true'] {
   background-color: var(--nexus-bg-surface-active);
-  border-color: var(--nexus-accent-solid);
+  color: var(--nexus-accent-solid);
+}
+
+/* 焦点环不能省：键盘走到这里时按钮里没有可见文字，环是唯一的位置提示。
+   用 `outline` 而不是改边框 —— 图标按钮没有边框可改。 */
+.nexus-pdf-icon-button:focus-visible {
+  outline: 2px solid var(--nexus-accent-solid);
+  outline-offset: 1px;
+}
+
+/* 两个鼠标工具之间的缝（2px）比分组之间的缝（8px）小，读起来才是「这两个是一组」。 */
+.nexus-pdf-tool-group {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 /* 侧栏与正文并排。`align-items: stretch` 让侧栏与 stage 同高 ——
@@ -1009,6 +1030,26 @@ body {
   background-color: var(--nexus-bg-canvas);
 }
 
+/* 拖动工具的光标。**文本层在拖动模式下不吃指针事件**（见下一条），所以光标落到底下
+   的 stage 上；不这么做的话按下就往文本层里扎，选出一个选区、页面一动不动。
+   `grabbing` 挂在拖动期间（`data-panning`）—— 按下时形状不变的话，用户分不清
+   「拖起来了」还是「按空了」。 */
+.nexus-pdf-viewer[data-tool='pan'] .nexus-pdf-stage {
+  cursor: grab;
+}
+
+.nexus-pdf-viewer[data-tool='pan'] .nexus-pdf-stage[data-panning='true'] {
+  cursor: grabbing;
+}
+
+/* `user-select: none` 与 `pointer-events: none` 缺一不可：前者挡「从页面空白处起拖、
+   掠过文字」这种仍能拉出选区的路径（选区不需要元素成为事件目标），后者挡「按在字上
+   拖」这条最直接的路。少一个都会出现「拖动时底部冒出一条引用」。 */
+.nexus-pdf-viewer[data-tool='pan'] .nexus-pdf-text-layer {
+  pointer-events: none;
+  user-select: none;
+}
+
 /* 页面列。单页模式下只有一项，连续模式下有 N 项 —— 两种模式共用同一套排版。
 
    `width: fit-content` + `min-width: 100%` 是「放大到超出窗口时仍能横向滚到左边缘」的
@@ -1126,22 +1167,8 @@ body {
   background-color: var(--nexus-bg-canvas);
 }
 
-.nexus-pdf-caption {
-  flex: none;
-  display: flex;
-  align-items: center;
-  padding: 6px 12px;
-  border-top: 1px solid var(--nexus-border-subtle);
-  background-color: var(--nexus-bg-surface);
-  color: var(--nexus-text-secondary);
-  font-size: 12px;
-}
-
-.nexus-pdf-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* 底部那条文件名 caption 已去掉（2026-10-14）：文件名在标签页上已经有了，
+   再占一条 26px 的横条只是把正文挤矮。 */
 
 .nexus-pdf-error-path {
   font-family: var(--font-mono);

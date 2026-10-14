@@ -8,6 +8,7 @@ import type { ViewerRendererProps } from '../types.js';
 import PdfPage, { type PageSize } from './PdfPage.js';
 import PdfSidebar, { type PdfSidebarTab } from './PdfSidebar.js';
 import type { PdfOutlineItem } from './PdfOutline.js';
+import { pdfIcon, type PdfIconName } from './pdf-icons.js';
 import {
   A4_FALLBACK_SIZE,
   BASE_SCALE,
@@ -80,16 +81,47 @@ import { PDF_DOCUMENT_OPTIONS, pdfjsLib } from './pdf-runtime.js';
  * 纯滚轮留给滚动；**按着修饰键就一定要 `preventDefault`**，连「已经到顶、不再缩放」那几次
  * 也要拦 —— 否则 Electron 会把它当成整个界面的缩放。
  *
- * ## 侧栏按钮叫「导航」
+ * ## 工具栏是图标，所以每个按钮都必须自带可访问名
  *
- * 它开关的是一个含「缩略图 / 大纲」两个标签页的面板，所以取**容器**的名字。写成第一项内容的
- * 名字（曾经叫「缩略图」）就是名实不符 —— 用户点「缩略图」却看见两样东西。
- * **别给它加 `aria-label`**：可见文字本身就是可访问名，另挂一个不含可见文字的名字会违反
- * WCAG 2.5.3，语音控制按可见文字点不到。开合状态写在 `aria-pressed` 上。
+ * 2026-10-14 起工具栏不写汉字了（原来九个按钮全是文字，「导航 / 上一页 / 下一页 /
+ * 适合宽度 / 连续」一条排下来把工具栏撑得很长，而它们做的都是公认的手势）。
+ * 代价是**可访问名没了**：可见文字本身就是可访问名，图标不是。所以每枚按钮
+ * `aria-label`（名字）+ `title`（悬停提示）各一份，图形自己 `aria-hidden`
+ * （见 `pdf-icons.tsx`）。漏掉 `aria-label` 的按钮在无障碍树里就是一个没有名字的「按钮」。
+ *
+ * 侧栏按钮叫「导航」：它开关的是一个含「缩略图 / 大纲」两个标签页的面板，所以取**容器**
+ * 的名字。写成第一项内容的名字（曾经叫「缩略图」）就是名实不符 —— 用户点「缩略图」
+ * 却看见两样东西。开合状态写在 `aria-pressed` 上。
+ *
+ * **引用栏的复制按钮仍是文字**，不跟着换图标：它要显示「已复制 / 复制失败」两种结果，
+ * 换成图形就把这个反馈一起丢了 —— 那不是更好认，是把信息删掉。
+ *
+ * ## 两个鼠标工具：选择文本 / 拖动
+ *
+ * 文本层是浮在 canvas 上的透明字，它存在的唯一目的是让浏览器能选中原文 —— 于是光标恒为
+ * `text`。一份扫描件、或者一张比窗口大的表格想「挪一下看别处」，就只剩滚动条可够。
+ * 所以加一个拖动工具，两个按钮成一组，`aria-pressed` 表示当前用的是哪个。
+ *
+ * 拖动工具下**文本层不吃指针事件**（`pointer-events: none` + `user-select: none`）：
+ * 不这么做的话按下就往文本层里扎，选出一个选区、而页面一动不动。
+ *
+ * 拖动走 `window` 的 pointermove / pointerup，不走 stage 自己的：指针一旦离开 stage
+ * （拖到工具栏上、拖出窗口），挂在 stage 上的监听就断了，手感是「拖着拖着掉了」。
+ * 也不用 `setPointerCapture` —— 那是同一件事的另一种写法，而 window 这条路在
+ * happy-dom 里也跑得起来（真机与测试同一套代码，没有只在真机上才走的分支）。
+ *
+ * 切到拖动时**丢掉选区**：进入这个模式的意图是「挪一下看别处」，而引用的输入是选区。
+ * 留着的话底部那条引用栏会一直挂着，用户却已经没有指针可以选文本了。
+ *
+ * **这个工具不落盘**（同缩放、侧栏开关，判据是「每次打开都要重设一遍吗」）：这一趟是
+ * 要抄一段文字、还是要对着大表格挪来挪去，每次都不一样，所以它属于这一次阅读。
  */
 
 /** 复制引用的三种结果，驱动按钮文案与 `data-copy-state`。 */
 type CopyState = 'idle' | 'copied' | 'failed';
+
+/** 鼠标工具：选中原文（默认），还是拖动页面。 */
+type PdfTool = 'select' | 'pan';
 
 /** 滚轮缩放的锚点：光标压着的那一点，在缩放前的几何里是哪一页的哪个相对位置。 */
 interface PdfZoomAnchor {
@@ -98,6 +130,56 @@ interface PdfZoomAnchor {
   /** 光标在 stage 视口内的 y 偏移 —— 缩放后这一点要回到同一个位置。 */
   readonly cursorOffset: number;
 }
+
+/** 一次拖动的起点：指针位置与当时的滚动偏移。 */
+interface PanStart {
+  readonly pointerId: number;
+  readonly x: number;
+  readonly y: number;
+  readonly left: number;
+  readonly top: number;
+}
+
+/**
+ * 工具栏上的一枚图标按钮。
+ *
+ * 存在的理由是**可访问名必须跟着按钮走**：图标自己 `aria-hidden`，`aria-label` 与
+ * `title` 都得从调用方给。手写八遍这件事，漏掉一遍就是一个没有名字的按钮 —— 而它在
+ * 视觉上完全正常（见文件头那条注释）。
+ *
+ * `className` 由调用方给：`.nexus-pdf-page-button` / `.nexus-pdf-zoom-button` 这些
+ * 是测试与别处的选择器，不能因为换了外观就把名字一起换掉。
+ */
+const PdfIconButton: React.FC<{
+  readonly icon: PdfIconName;
+  /** 可访问名。 */
+  readonly label: string;
+  /** 悬停提示。不给就用 `label` —— 只在「名字」与「这个动作干了什么」不是一句话时才给。 */
+  readonly title?: string;
+  readonly className: string;
+  readonly onClick: () => void;
+  /** 给了就是开关按钮 —— 渲染成 `aria-pressed`。 */
+  readonly pressed?: boolean;
+  readonly disabled?: boolean;
+  /** 翻页按钮的 `data-page-nav`，测试靠它选按钮。 */
+  readonly pageNav?: 'previous' | 'next';
+  /** 鼠标工具按钮的 `data-tool`。 */
+  readonly dataTool?: PdfTool;
+}> = ({ icon, label, title, className, onClick, pressed, disabled, pageNav, dataTool }) => (
+  <button
+    type="button"
+    className={`nexus-pdf-icon-button ${className}`}
+    aria-label={label}
+    title={title ?? label}
+    aria-pressed={pressed}
+    disabled={disabled}
+    data-page-nav={pageNav}
+    data-tool={dataTool}
+    onClick={onClick}
+  >
+    {pdfIcon(icon)}
+  </button>
+);
 
 const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
   const { t } = useLocale();
@@ -110,6 +192,7 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<PdfSidebarTab>('thumbnails');
+  const [tool, setTool] = useState<PdfTool>('select');
   const [outline, setOutline] = useState<readonly PdfOutlineItem[]>([]);
   const [pageSize, setPageSize] = useState<PageSize | null>(null);
   const [quote, setQuote] = useState('');
@@ -166,6 +249,12 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
   // 滚轮监听挂在整个阅读器上（见下面那个 effect），所以这里也要一份元素引用。
   // 用 state 而不是纯 ref：`null → 元素` 这一次变化必须触发那个 effect 重新挂监听。
   const [viewerElement, setViewerElement] = useState<HTMLDivElement | null>(null);
+
+  // 拖动工具的起点。用 ref 不用 state：pointermove 一帧来很多次，走 state 就是每帧一次
+  // 重渲染，而它要改的只是 `scrollTop` 这种布局值，React 这边不需要知道。
+  const panRef = useRef<PanStart | null>(null);
+  // 光标形状要跟着变（`grab` → `grabbing`），那是纯外观，所以这个用 state。
+  const [panning, setPanning] = useState(false);
 
   // 外部改了页码 / 缩放（滚动、翻页按钮、缩略图、大纲）时，草稿要跟上 ——
   // 但**用户正在这个框里打字时不跟**：输入「12」会先经过「1」，跟上就等于把用户的输入
@@ -438,6 +527,78 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, []);
 
+  // ── 拖动工具 ──────────────────────────────────────────────────────────
+  // 监听挂在 `window` 而不是 stage 上：指针离开 stage（拖到工具栏、拖出窗口）时挂在
+  // stage 上的监听就断了，手感会变成「拖着拖着掉了」。`panning` 同时就是「正在拖」的
+  // 开关 —— 没在拖的时候这两个监听根本不存在，正常阅读一点不受影响。
+  useEffect(() => {
+    if (!panning) return;
+
+    const onMove = (event: PointerEvent): void => {
+      const start = panRef.current;
+      const stage = stageRef.current;
+      if (start === null || stage === null || start.pointerId !== event.pointerId) return;
+      // 内容跟着指针走，所以滚动量是**反向**的：指针右移 10px，滚动位置左移 10px。
+      stage.scrollLeft = start.left - (event.clientX - start.x);
+      stage.scrollTop = start.top - (event.clientY - start.y);
+    };
+
+    const onEnd = (): void => {
+      panRef.current = null;
+      setPanning(false);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+    };
+  }, [panning]);
+
+  /**
+   * 在正文区按下 —— 拖动工具的起点。
+   *
+   * 只认左键：中键与右键各有系统/浏览器的默认行为，一个阅读器不该顺手改掉它们。
+   * 选择文本时整段不介入（文本层照常吃指针），所以这里第一件事就是看工具。
+   */
+  const handleStagePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      if (tool !== 'pan' || event.button !== 0) return;
+      const stage = stageRef.current;
+      if (stage === null) return;
+
+      panRef.current = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        left: stage.scrollLeft,
+        top: stage.scrollTop
+      };
+      setPanning(true);
+      // 拦住按下的默认行为：不拦的话浏览器会从这里开始拉一个文字选区，拖完底部就多出
+      // 一条引用 —— 而用户只是在挪页面。
+      event.preventDefault();
+    },
+    [tool]
+  );
+
+  /**
+   * 切换鼠标工具。
+   *
+   * 切到拖动时丢掉选区：这个模式的意图是「挪一下看别处」，而引用的输入是选区。留着的话
+   * 底部那条引用栏会一直挂着，用户却已经没有指针可以选文本了 —— 一条撤不掉的栏位。
+   */
+  const selectTool = useCallback((next: PdfTool): void => {
+    setTool(next);
+    if (next !== 'pan') return;
+    window.getSelection()?.removeAllRanges();
+    setQuote('');
+    setCopyState('idle');
+  }, []);
+
   const citation = useMemo(
     () =>
       quote.trim().length === 0
@@ -556,29 +717,60 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
   const continuous = layout === 'continuous';
 
   return (
-    <div className="nexus-pdf-viewer" ref={setViewerElement} data-layout={layout}>
+    <div
+      className="nexus-pdf-viewer"
+      ref={setViewerElement}
+      data-layout={layout}
+      data-tool={tool}
+    >
       <div className="nexus-pdf-toolbar">
-        <button
-          type="button"
-          className="nexus-pdf-sidebar-button"
-          aria-pressed={sidebarOpen}
+        <PdfIconButton
+          icon="navigation"
+          label={t('viewer.pdf.navigation')}
           title={t('viewer.pdf.toggleSidebar')}
+          className="nexus-pdf-sidebar-button"
+          pressed={sidebarOpen}
           onClick={() => setSidebarOpen((open) => !open)}
-        >
-          {t('viewer.pdf.navigation')}
-        </button>
+        />
 
         <span className="nexus-pdf-toolbar-divider" aria-hidden="true" />
 
-        <button
-          type="button"
+        {/* 鼠标工具成一组：两个按钮表达的是同一个选择（用哪个指针），所以合在一个
+            `role="group"` 里，各带 `aria-pressed`。分成两个孤立按钮的话，读屏听到的是
+            「选择文本，按钮；拖动，按钮」—— 看不出它们是二选一。 */}
+        <div
+          className="nexus-pdf-tool-group"
+          role="group"
+          aria-label={t('viewer.pdf.pointerTool')}
+        >
+          <PdfIconButton
+            icon="selectText"
+            label={t('viewer.pdf.toolSelect')}
+            className="nexus-pdf-tool-button"
+            pressed={tool === 'select'}
+            dataTool="select"
+            onClick={() => selectTool('select')}
+          />
+          <PdfIconButton
+            icon="hand"
+            label={t('viewer.pdf.toolPan')}
+            className="nexus-pdf-tool-button"
+            pressed={tool === 'pan'}
+            dataTool="pan"
+            onClick={() => selectTool('pan')}
+          />
+        </div>
+
+        <span className="nexus-pdf-toolbar-divider" aria-hidden="true" />
+
+        <PdfIconButton
+          icon="previousPage"
+          label={t('viewer.pdf.previousPage')}
           className="nexus-pdf-page-button"
-          data-page-nav="previous"
+          pageNav="previous"
           onClick={goToPreviousPage}
           disabled={pageNumber <= 1}
-        >
-          {t('viewer.pdf.previousPage')}
-        </button>
+        />
         <span className="nexus-pdf-page-indicator">
           {/* 页码可直接改：输入框只收数字，回车或失焦提交，Escape 取消。 */}
           <input
@@ -599,28 +791,24 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
             {t('viewer.pdf.pageTotal', { total: String(totalPages) })}
           </span>
         </span>
-        <button
-          type="button"
+        <PdfIconButton
+          icon="nextPage"
+          label={t('viewer.pdf.nextPage')}
           className="nexus-pdf-page-button"
-          data-page-nav="next"
+          pageNav="next"
           onClick={goToNextPage}
           disabled={totalPages === 0 || pageNumber >= totalPages}
-        >
-          {t('viewer.pdf.nextPage')}
-        </button>
+        />
 
         <span className="nexus-pdf-toolbar-divider" aria-hidden="true" />
 
-        <button
-          type="button"
+        <PdfIconButton
+          icon="zoomOut"
+          label={t('viewer.pdf.zoomOut')}
           className="nexus-pdf-zoom-button"
-          aria-label={t('viewer.pdf.zoomOut')}
-          title={t('viewer.pdf.zoomOut')}
           disabled={zoom <= ZOOM_MIN}
           onClick={() => applyZoom(stepZoom(zoom, -1))}
-        >
-          −
-        </button>
+        />
         {/* 缩放比例也可直接改。`%` 画在框外 —— 塞进 `value` 的话每次改数字都要先删掉它。 */}
         <input
           ref={zoomInputRef}
@@ -636,31 +824,31 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
         <span className="nexus-pdf-zoom-suffix" aria-hidden="true">
           %
         </span>
-        <button
-          type="button"
+        <PdfIconButton
+          icon="zoomIn"
+          label={t('viewer.pdf.zoomIn')}
           className="nexus-pdf-zoom-button"
-          aria-label={t('viewer.pdf.zoomIn')}
-          title={t('viewer.pdf.zoomIn')}
           disabled={zoom >= ZOOM_MAX}
           onClick={() => applyZoom(stepZoom(zoom, 1))}
-        >
-          +
-        </button>
-        <button type="button" className="nexus-pdf-fit-button" onClick={fitToWidth}>
-          {t('viewer.pdf.fitWidth')}
-        </button>
+        />
+        <PdfIconButton
+          icon="fitWidth"
+          label={t('viewer.pdf.fitWidth')}
+          className="nexus-pdf-fit-button"
+          onClick={fitToWidth}
+        />
 
         <span className="nexus-pdf-toolbar-divider" aria-hidden="true" />
 
-        <button
-          type="button"
+        {/* 图形画的是**当前**布局，可访问名说的是**按下会切到哪**（与 `title` 一致）。
+            这就是「按钮名 = 按下去会发生什么」这条惯例；而图形跟着当前状态走，
+            才能一眼看出现在读的是哪种。 */}
+        <PdfIconButton
+          icon={continuous ? 'layoutContinuous' : 'layoutSingle'}
+          label={t(continuous ? 'viewer.pdf.switchToSingle' : 'viewer.pdf.switchToContinuous')}
           className="nexus-pdf-layout-button"
-          data-layout={layout}
-          title={continuous ? t('viewer.pdf.switchToSingle') : t('viewer.pdf.switchToContinuous')}
           onClick={toggleLayout}
-        >
-          {t(continuous ? 'viewer.pdf.layoutContinuous' : 'viewer.pdf.layoutSingle')}
-        </button>
+        />
       </div>
 
       <div className="nexus-pdf-body">
@@ -676,7 +864,12 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
           />
         )}
 
-        <div className="nexus-pdf-stage" ref={attachStage}>
+        <div
+          className="nexus-pdf-stage"
+          ref={attachStage}
+          data-panning={panning ? 'true' : undefined}
+          onPointerDown={handleStagePointerDown}
+        >
           {pdfDocument === null && (
             <div className="nexus-state-container">
               <div className="nexus-loading-spinner" />
@@ -721,9 +914,6 @@ const PdfRenderer: React.FC<ViewerRendererProps> = ({ document: doc }) => {
           </button>
         </div>
       )}
-      <div className="nexus-pdf-caption">
-        <span className="nexus-pdf-name">{doc.name}</span>
-      </div>
     </div>
   );
 };

@@ -1,6 +1,6 @@
 {
   "name": "@nexus/theme",
-  "version": "0.84.8",
+  "version": "0.84.9",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

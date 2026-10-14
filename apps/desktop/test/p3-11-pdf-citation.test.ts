@@ -133,7 +133,10 @@ describe('P3-11 PDF citation loop', () => {
       }))()`);
       throw new Error(`${error instanceof Error ? error.message : String(error)}; state=${JSON.stringify(state)}`);
     }
-    expect(await app.getText('.nexus-pdf-name')).toBe('spec.pdf');
+    // 底部那条文件名 caption 已去掉（2026-10-14）—— 文件名在标签页上已经有了
+    expect(
+      await app.evaluate<boolean>(`document.querySelector('.nexus-pdf-caption') === null`)
+    ).toBe(true);
     expect(await app.evaluate<string>(
       `document.querySelector('.nexus-tab-active')?.getAttribute('data-document-kind') ?? ''`
     )).toBe('viewer');

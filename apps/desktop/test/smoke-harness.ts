@@ -668,6 +668,49 @@ export class ElectronAppInstance {
   }
 
   /**
+   * 按住左键从一点拖到另一点（PDF 的拖动工具、图谱的节点拖拽都要它）。
+   *
+   * **分步移动是必需的**：只发一次 `mouseMoved` 的话中间没有任何 `pointermove`，
+   * 而拖动类交互几乎都靠「累计位移」判断，一步到位等于跳过了整条路径。
+   * 移动时必须带 `buttons: 1` —— 不带的话 Chromium 认为没有键按着，
+   * 拖动方收到的 `pointermove` 里 `buttons` 为 0，看起来像「悬停」而不是「拖」。
+   */
+  public async mouseDragCoords(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    steps = 5
+  ): Promise<void> {
+    await this.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: fromX, y: fromY });
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: fromX,
+      y: fromY,
+      button: 'left',
+      buttons: 1,
+      clickCount: 1
+    });
+    for (let step = 1; step <= steps; step += 1) {
+      await this.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: Math.round(fromX + ((toX - fromX) * step) / steps),
+        y: Math.round(fromY + ((toY - fromY) * step) / steps),
+        button: 'left',
+        buttons: 1
+      });
+    }
+    await this.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: toX,
+      y: toY,
+      button: 'left',
+      buttons: 0,
+      clickCount: 1
+    });
+  }
+
+  /**
    * 派发一次滚轮。`deltaY` 正数向下滚。
    *
    * 滚轮在 CDP 里是 `mouseWheel` 类型（不是 `mousePressed` 加个参数），增量走

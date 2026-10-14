@@ -365,7 +365,9 @@ describe('PdfRenderer', () => {
     expect(container.querySelector('.nexus-state-container')).not.toBeNull();
     // 正文区容器先立着，加载完成后页面直接落进去 —— 不会「浮层消失 → 内容撑开」跳一下
     expect(container.querySelector('.nexus-pdf-pages')).not.toBeNull();
-    expect(container.querySelector('.nexus-pdf-name')?.textContent).toBe('spec.pdf');
+    // 底部那条文件名 caption 已去掉（2026-10-14）：文件名在标签页上已经有了，
+    // 再占一条横条只是把正文挤矮。
+    expect(container.querySelector('.nexus-pdf-caption')).toBeNull();
     // 还没加载完，不该有错误卡
     expect(container.querySelector('.nexus-error-card')).toBeNull();
   });
@@ -496,7 +498,11 @@ describe('PdfRenderer', () => {
     });
 
     expect(container.querySelector('.nexus-pdf-page')?.getAttribute('data-page-number')).toBe('1');
-    expect(container.querySelector('.nexus-pdf-name')?.textContent).toBe('other.pdf');
+    // 「真的换了一份」的直接证据落在请求上 —— 原来靠底部 caption 的文件名看，
+    // 那条已经去掉了（2026-10-14）。
+    expect(getDocumentMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      url: toAssetUrlExpectation(next.path)
+    });
   });
 
   it('引用里的 #page= 锚点决定初始页 —— 换页不换 key，靠 doc.page 接住', async () => {
@@ -608,6 +614,172 @@ describe('PdfRenderer', () => {
     });
 
     expect(container.querySelector('.nexus-pdf-citation')).toBeNull();
+  });
+
+  // ── 工具栏：图标按钮 + 两个鼠标工具 ────────────────────────────────────
+
+  const toolButton = (tool: 'select' | 'pan'): HTMLButtonElement =>
+    container.querySelector<HTMLButtonElement>(`.nexus-pdf-tool-button[data-tool="${tool}"]`)!;
+
+  const clickTool = async (tool: 'select' | 'pan'): Promise<void> => {
+    await act(async () => {
+      toolButton(tool).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+  };
+
+  it('工具栏换成图标之后，每枚按钮都自带可访问名', async () => {
+    await mountWithPages(2);
+
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('.nexus-pdf-icon-button')];
+    // 导航 / 两个鼠标工具 / 上一页 / 下一页 / 缩小 / 放大 / 适合宽度 / 布局
+    expect(buttons).toHaveLength(9);
+
+    for (const button of buttons) {
+      // 图标本身不是可访问名 —— 漏了 `aria-label` 的按钮在无障碍树里就是一个没有名字的
+      // 「按钮」，而它在画面上完全正常，所以这条只能靠测试守。
+      expect((button.getAttribute('aria-label') ?? '').trim().length).toBeGreaterThan(0);
+      // 图形必须是装饰性的：读屏念完名字再念一遍「图形」是双重播报
+      expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+      // 按钮里不该再有可见文字 —— 还有的话说明漏了一个文字按钮没换
+      expect(button.textContent).toBe('');
+    }
+  });
+
+  it('鼠标工具默认是「选择文本」，切到拖动后阅读器挂上 data-tool="pan"', async () => {
+    await mountWithPages(2);
+
+    expect(container.querySelector('.nexus-pdf-viewer')?.getAttribute('data-tool')).toBe('select');
+    // 二选一的按钮靠 `aria-pressed` 报当前状态，两个都要有
+    expect(toolButton('select').getAttribute('aria-pressed')).toBe('true');
+    expect(toolButton('pan').getAttribute('aria-pressed')).toBe('false');
+
+    await clickTool('pan');
+
+    expect(container.querySelector('.nexus-pdf-viewer')?.getAttribute('data-tool')).toBe('pan');
+    expect(toolButton('pan').getAttribute('aria-pressed')).toBe('true');
+    expect(toolButton('select').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('切到拖动工具会丢掉已有选区 —— 引用栏留着就撤不掉了', async () => {
+    await mountWithPages(2);
+
+    // mock 的 TextLayer 不产生 span，手动塞一个再选它（同上面那条引用用例）
+    const layer = container.querySelector<HTMLElement>('.nexus-pdf-text-layer');
+    const span = document.createElement('span');
+    span.textContent = 'DMA controller';
+    layer?.appendChild(span);
+
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    await act(async () => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    expect(container.querySelector('.nexus-pdf-citation')).not.toBeNull();
+
+    await clickTool('pan');
+
+    expect(container.querySelector('.nexus-pdf-citation')).toBeNull();
+    expect(window.getSelection()?.toString() ?? '').toBe('');
+  });
+
+  it('拖动工具：按下再移动会带动滚动位置，内容跟着指针走', async () => {
+    await mountWithPages(2);
+
+    const stage = container.querySelector<HTMLElement>('.nexus-pdf-stage')!;
+    // happy-dom 不做布局：`scrollLeft` / `scrollTop` 只是不记账的存取器，装上替身才量得到
+    let left = 40;
+    let top = 100;
+    Object.defineProperty(stage, 'scrollLeft', {
+      configurable: true,
+      get: () => left,
+      set: (value: number) => {
+        left = value;
+      }
+    });
+    Object.defineProperty(stage, 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      set: (value: number) => {
+        top = value;
+      }
+    });
+
+    await clickTool('pan');
+
+    await act(async () => {
+      stage.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          pointerId: 7,
+          clientX: 200,
+          clientY: 300
+        })
+      );
+    });
+    // 按下就要有「拖起来了」的标记，否则光标不会变 `grabbing`
+    expect(stage.getAttribute('data-panning')).toBe('true');
+
+    // 指针右移 30、下移 50 → 内容跟着走，滚动量**反向**减
+    await act(async () => {
+      window.dispatchEvent(
+        new PointerEvent('pointermove', { bubbles: true, pointerId: 7, clientX: 230, clientY: 350 })
+      );
+    });
+    expect(left).toBe(10);
+    expect(top).toBe(50);
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7 }));
+    });
+    expect(stage.getAttribute('data-panning')).toBeNull();
+
+    // 松手之后再动指针不能继续带着页面跑 —— 监听必须已经摘掉了
+    await act(async () => {
+      window.dispatchEvent(
+        new PointerEvent('pointermove', { bubbles: true, pointerId: 7, clientX: 400, clientY: 500 })
+      );
+    });
+    expect(left).toBe(10);
+    expect(top).toBe(50);
+  });
+
+  it('选择文本工具下按下不介入 —— 那是拖选原文的起点', async () => {
+    await mountWithPages(2);
+
+    const stage = container.querySelector<HTMLElement>('.nexus-pdf-stage')!;
+    await act(async () => {
+      stage.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 7, clientX: 10, clientY: 10 })
+      );
+    });
+
+    expect(stage.getAttribute('data-panning')).toBeNull();
+  });
+
+  it('布局按钮：图形画当前布局，可访问名说的是按下会切到哪', async () => {
+    settings.set('viewer.pdfPageLayout', 'single');
+    await mountWithPages(2);
+
+    const button = container.querySelector<HTMLButtonElement>('.nexus-pdf-layout-button')!;
+    const labelBefore = button.getAttribute('aria-label');
+    const iconBefore = button.innerHTML;
+    expect(labelBefore).not.toBe('');
+
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(container.querySelector('.nexus-pdf-viewer')?.getAttribute('data-layout')).toBe(
+      'continuous'
+    );
+    // 名字与图形都要跟着翻：名字说「按下去切到哪」，图形说「现在读的是哪种」
+    expect(button.getAttribute('aria-label')).not.toBe(labelBefore);
+    expect(button.innerHTML).not.toBe(iconBefore);
   });
 
   // ── 阅读增强：连续滚动 / 缩放 / 缩略图 / 大纲 ──────────────────────────
@@ -910,22 +1082,20 @@ describe('PdfRenderer', () => {
     expect(container.querySelector('.nexus-pdf-page')?.getAttribute('data-page-number')).toBe('3');
   });
 
-  it('侧栏按钮：可见文字就是可访问名，开合状态写在 aria-pressed 上', async () => {
+  it('侧栏按钮：图标是装饰性的，名字走 aria-label，开合状态写在 aria-pressed 上', async () => {
     await mountWithPages(2);
 
     const sidebarButton = (): HTMLButtonElement =>
       container.querySelector<HTMLButtonElement>('.nexus-pdf-sidebar-button')!;
 
-    const visible = sidebarButton().textContent?.trim() ?? '';
-    expect(visible.length).toBeGreaterThan(0);
-
-    // 有 `aria-label` 时它**覆盖**可见文字成为可访问名 —— 于是视觉用户看到「导航」、
-    // 屏幕阅读器读「显示/隐藏导航」，同一次点击对两类用户说的是两件事，
-    // 而语音控制按可见文字点不到（WCAG 2.5.3 Label in Name）。
-    // 判据是「可访问名**包含**可见文字」，不要求二者相等：`aria-label` 允许更长，
-    // 但不允许换一个不相干的名字。
-    const accessible = sidebarButton().getAttribute('aria-label') ?? visible;
-    expect(accessible).toContain(visible);
+    // 图标按钮里没有可见文字，可访问名只能来自 `aria-label`。**这与文字按钮那条
+    // 「可见文字就是可访问名，别另挂一个」（WCAG 2.5.3 Label in Name）不是同一条规则**：
+    // 那条管「有可见文字时不许换名字」，这条管「没有可见文字时必须给名字」。
+    // 换成图标之后前者失效、后者生效，两条都写在 `PdfRenderer.tsx` 的文件头注释里。
+    expect(sidebarButton().textContent).toBe('');
+    expect((sidebarButton().getAttribute('aria-label') ?? '').trim().length).toBeGreaterThan(0);
+    // 悬停提示可以比名字更细（「显示/隐藏导航」），名字本身保持稳定（「导航」）
+    expect(sidebarButton().getAttribute('title')).not.toBe('');
 
     // 开合状态与按钮的可见激活态（`[aria-pressed='true']` 的底色）必须来自同一个表达式
     expect(sidebarButton().getAttribute('aria-pressed')).toBe('false');
