@@ -247,5 +247,82 @@
         "en": "Fixes the blank strip left by the previous change: hiding the sidebar's contents kept its 240px column in place, so the graph never really filled the window. The panel width and resize handle now collapse along with it, and slide back when you leave the graph."
       }
     ]
+  },
+  "0.85.0": {
+    "date": "2026-10-15",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "PDF 阅读器多了「拖动」工具：以前指针恒为文本选择，一张比窗口大的表格想挪一下看别处，只能去够滚动条。现在工具栏上「选择文本 / 拖动页面」两个按钮可切换，拖动模式下按住左键就能把页面推着走，光标也跟着变成手型；切到拖动会顺手清掉已有选区，免得底部那条引用栏一直挂着。",
+        "en": "The PDF viewer gained a pan tool: the pointer used to be locked to text selection, so moving around a table wider than the window meant reaching for the scrollbar. The toolbar now has a select/pan pair — in pan mode you drag the page with the left button and the cursor turns into a hand. Switching to pan also clears any existing selection, so the citation bar does not linger."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "PDF 阅读器的工具栏按钮从文字换成了图标（导航、上一页/下一页、缩小/放大、适合宽度、连续/单页）。九个汉字按钮排下来把工具栏撑得很长，而这些本来都是公认的手势。",
+        "en": "The PDF toolbar buttons are now icons instead of words — navigation, page turning, zoom, fit width, and the single/continuous toggle. Nine word buttons stretched the bar; these are gestures people already know."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "PDF 阅读器底部那条文件名去掉了：文件名在标签页上已经有了，省下的高度留给正文。",
+        "en": "Removed the file-name bar at the bottom of the PDF viewer — the name is already on the tab, and the space goes to the document instead."
+      },
+      {
+        "type": "fix",
+        "scope": "desktop",
+        "zh": "保存文件不再弹「文件已被外部删除或移动」。原子写入是两步 rename —— 旧文件改名做备份、临时文件改名就位，第二步带着目标文件名；以前目录监听按事件类型转发，就把它当成了外部删除。现在只看路径上还有没有文件，不去猜底层报的是哪种事件。",
+        "en": "Saving a file no longer reports \"this file was deleted or moved externally\". An atomic write is two renames — the old file aside as a backup, the temp file into place — and the second one carries the target filename, which the directory watcher used to forward by event type as a deletion. Event type is now decided by whether the path still holds a file, not by which fs event happened to arrive."
+      },
+      {
+        "type": "fix",
+        "scope": "desktop",
+        "zh": "文件确实被外部删掉时，横幅上现在有「重新读取」和「写回原位置」两个出口，不再只剩「另存为」。重新读取会把盘上的版本拉回来 —— 文件其实回来了的话自动转去冲突横幅，那里才有「合并…」；写回原位置把缓冲区重新写成文件，走已有保存那条路，串行化和错误提示都是现成的。",
+        "en": "When a file really is deleted externally, the banner now offers Re-read and Write Back instead of Save As alone. Re-read pulls the on-disk version back — and if the file has quietly come back, the app moves on to the conflict banner, where merging lives. Write Back recreates the file from the buffer through the existing save path, so serialisation and error reporting come for free."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "设置里新增「打开 Markdown 时的模式」：始终富文本、始终源码、记住上次模式，默认始终富文本。选「记住」时每次切换都会记下来，下次打开同一份文档就落在上次那个模式上。",
+        "en": "A new setting, \"Mode when opening Markdown\", with three choices: always rich text (the default), always source, and remember last used. With Remember, every switch is recorded, and the next document opens in whichever mode you left."
+      },
+      {
+        "type": "feat",
+        "scope": "desktop",
+        "zh": "侧栏搜索的多文件命中现在带上下文：每条结果下面多一行片段，命中词前后各取一段并高亮它，比原来只有一行文件名好认得多；条目之间也加上了分隔线。片段里的空白严格一对一折叠成空格，高亮位置因此不会错位。",
+        "en": "Multi-file search hits in the sidebar now carry context: each entry gains a snippet line with the text around the match highlighted, which beats a bare list of file names, and entries are separated by a divider. Whitespace in the snippet is collapsed strictly one-for-one, so the highlight never lands off by a character."
+      },
+      {
+        "type": "feat",
+        "scope": "editor",
+        "zh": "编辑器内的查找/替换面板改成了编辑器右上角的悬浮卡片，不再是一条横贯编辑器顶部、会把正文往下挤的长条 —— 版式照 VS Code：一行放查找框、匹配计数、上下跳转、三个开关和关闭，替换行由最左的箭头展开。卡片浮在正文之上，正文一动不动，右侧也留出了滚动条的位置。",
+        "en": "The in-editor find/replace panel is now a floating card in the editor's top-right corner instead of a full-width strip above the editor that pushed the text down. The layout follows VS Code: one row holds the field, the match counter, prev/next, the three toggles and close, with the replace row opened by the arrow at the left edge. The card floats over the document, which no longer shifts, and it keeps clear of the scrollbar on the right."
+      },
+      {
+        "type": "feat",
+        "scope": "editor",
+        "zh": "编辑器内的查找/替换面板以前只有英文，现在整套文案跟随界面语言，而且切换语言时面板当场就换、不必关掉重开；查找和替换也拆成两个命令入口、各带各的快捷键，替换不再藏在查找面板的第二行里。",
+        "en": "The in-editor find/replace panel was English-only; its whole vocabulary now follows the interface language, and it retranslates on the spot when you switch languages — no need to close and reopen it. Find and replace are also split into two commands with separate shortcuts, so replace no longer hides on the panel's second row."
+      },
+      {
+        "type": "feat",
+        "scope": "editor",
+        "zh": "查找面板现在显示「当前第几处/共几处」，跳到下一处时数字跟着走；一处都没命中时直接写「无结果」，不再是一片沉默。三个开关（区分大小写、正则、全字匹配）从占宽的文字改成 Aa / .* / ab 图标，勾选状态一眼看得见，含义挪到无障碍标签上。替换行默认收起，用面板最左的箭头或「替换」命令展开。",
+        "en": "The find panel now shows which match you are on out of how many, and the number follows as you step through. When nothing matches it says so outright instead of staying silent. The three toggles (match case, regexp, whole word) became Aa / .* / ab icons, so their on-state is visible at a glance, with the meaning moved to accessible labels. The replace row starts collapsed, opened by the arrow at the panel's left edge or by the Replace command."
+      },
+      {
+        "type": "feat",
+        "scope": "editor",
+        "zh": "选中一段文字后，全文其余相同的地方会垫上底色，方便一眼看清这个词还在哪儿出现过。",
+        "en": "Selecting some text now tints every other occurrence of it in the document, so you can see at a glance where else the word appears."
+      },
+      {
+        "type": "fix",
+        "scope": "editor",
+        "zh": "富文本模式下搜索会漏掉渲染成卡片的文字（比如 [[双向链接]] 的内容）：面板明明报了一处命中，正文里却一处高亮都没有。原因是这类文字整段被卡片替换掉了，编辑器的高亮落不到它上面。现在由卡片自己把命中底色画出来。",
+        "en": "In rich text mode, searching used to miss text that renders as a card — the contents of a [[wikilink]], for instance. The panel would report a match while the document showed no highlight at all, because that whole span is replaced by the card and the editor's own highlight has nowhere to land. The card now paints the match highlight itself."
+      }
+    ]
   }
 }
