@@ -115,6 +115,31 @@ describe('内置主题的对比度不变量', () => {
     }
   });
 
+  /**
+   * 图谱的标签 chip 底用的是 `bg-canvas`（画布自己的底色），文字是 `text-secondary` /
+   * `text-primary`。这一对是**构造上**成立的：三级中性文字本来就是按「压在最坏的那个
+   * 通用面」定出来的，而 `bg-canvas` 不会是那个最坏面。
+   *
+   * 钉住它是为了防「顺手把 chip 换个更花的颜色」—— 那时文字压在 chip 上可能就不够了，
+   * 而那种错法在屏幕上只是「标签有点灰」，没人会当成 bug 报。
+   */
+  it('图谱标签压在 chip 底上仍然可读（≥ 4.5:1）', () => {
+    for (const [name, tokens] of THEMES) {
+      const chip = parseColour(tokens['bg-canvas']!)!;
+      for (const text of ['text-secondary', 'text-primary']) {
+        const ratio = contrastRatio(parseColour(tokens[text]!)!, chip);
+        expect(
+          ratio,
+          `${name} 的 ${text} 压在 chip 上只有 ${ratio.toFixed(2)}`
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+      // chip 色与文字色不能相同 —— 少了这条，「白底白字」也满足「画了 chip」
+      expect(parseColour(tokens['bg-canvas']!), `${name} 的 chip 底与文字同色`).not.toEqual(
+        parseColour(tokens['text-secondary']!)
+      );
+    }
+  });
+
   it('status-*-border 是不透明的，且作为指示器达 3:1', () => {
     // 这两条绑在一起才有意义：半透明会抵消图形级修正（暗色曾用 alpha 0.4，
     // 修到 3:1 再叠 alpha 只剩 1.5:1，1px 细线等于不可见）。

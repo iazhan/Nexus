@@ -74,6 +74,52 @@ const NODE_CLEARANCE_PX = 2;
 const DISTANCE_EPSILON_PX = 0.001;
 const ELLIPSIS = '…';
 
+/** 标签最多画几条：按画布面积给，并夹在上下限之间。 */
+const MIN_LABELS = 6;
+const MAX_LABELS = 48;
+/** 每一条标签大致占多少平方像素 —— 越小画得越多、越容易显得挤。 */
+const LABEL_AREA_BUDGET_PX = 6000;
+
+/**
+ * 缩得越小，标签预算按比例往下压。下限 0.35 而不是 0。
+ *
+ * ## 为什么要有这一档
+ *
+ * 缩到 0.4 倍时同样的 48 条标签摊在更小的内容上，每条都读不出来、反而把点盖住 ——
+ * 「画了 48 条」在那种倍率下不是信息，是噪点。
+ *
+ * ## 为什么下限不是「低于某个倍率一条都不画」
+ *
+ * 参考实现在 `globalScale < 1.8` 时**完全不画标签**。照抄到 Nexus 会出事：这里的
+ * `view` 初值是 `IDENTITY_VIEW`（1:1），但用户随手缩两格就掉到 1.0 以下 ——
+ * 那时「一条标签都没有」是比「标签有点挤」严重得多的问题。
+ *
+ * ## `scale >= 1` 必须恰好是 1
+ *
+ * 初始视图就是 1:1，所以「刚打开图谱时标签与改动前逐字段相等」这条判据，
+ * 前提就是这一档不缩放。写成 `scale * 0.8` 之类会静默改掉初始视图。
+ */
+const LABEL_SCALE_FLOOR = 0.35;
+
+function labelBudgetFactor(scale: number): number {
+  return scale >= 1 ? 1 : Math.max(LABEL_SCALE_FLOOR, scale);
+}
+
+/**
+ * 「这块画布、这个倍率下最多画几条标签」。
+ *
+ * `MIN_LABELS` 与 `LABEL_SCALE_FLOOR` 一起保证结果至少是 2 条 —— 而
+ * `planGraphLabels` 把活跃文档排在最前，所以活跃文档的标签在任何缩放下都轮得到
+ * （见 `graph-labels.test.ts` 的「超过上限时按重要度截断，活跃文档一定在」）。
+ */
+export function labelBudget(areaPx: number, scale: number): number {
+  const byArea = Math.min(
+    MAX_LABELS,
+    Math.max(MIN_LABELS, Math.floor(areaPx / LABEL_AREA_BUDGET_PX))
+  );
+  return Math.round(byArea * labelBudgetFactor(scale));
+}
+
 /** 锚点尝试顺序：优先往下（读起来最自然），放不下再依次换。 */
 const ANCHORS = ['bottom', 'top', 'right', 'left'] as const;
 type Anchor = (typeof ANCHORS)[number];

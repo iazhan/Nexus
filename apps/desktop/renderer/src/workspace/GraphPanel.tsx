@@ -17,7 +17,12 @@ import {
 import { DeadLinksList, HubsList, OrphansList } from './GraphLists.js';
 import { requireGraphBridge, type GraphPhase } from './graph-load.js';
 import { iterationsForNodeCount, layoutGraph } from './graph-layout.js';
-import { planGraphLabels, type GraphLabelCandidate, type GraphLabelPlacement } from './graph-labels.js';
+import {
+  labelBudget,
+  planGraphLabels,
+  type GraphLabelCandidate,
+  type GraphLabelPlacement
+} from './graph-labels.js';
 import {
   IDENTITY_VIEW,
   fitView,
@@ -77,11 +82,7 @@ const HIT_SLACK = 4;
  */
 const SELECTED_RING_OFFSET = 6;
 
-/** 标签最多画几条：按画布面积给，并夹在上下限之间。 */
-const MIN_LABELS = 6;
-const MAX_LABELS = 48;
-/** 每一条标签大致占多少平方像素 —— 越小画得越多、越容易显得挤。 */
-const LABEL_AREA_BUDGET_PX = 6000;
+/** 标签字号。必须与 `graph-labels.ts` 里的 `FONT_SIZE_PX` 一致 —— 那边按它算盒高。 */
 const LABEL_FONT_SIZE_PX = 10;
 
 /** 连线短于这个长度就不画箭头 —— 密集处它们会叠成一坨黑点，比没有更看不出方向。 */
@@ -862,8 +863,24 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     */
     const labelColor = readColor(canvas, '--nexus-text-secondary');
     const activeLabelColor = readColor(canvas, '--nexus-text-primary');
+    /*
+      chip 底与描边。
+
+      底色用**画布自己的底色**（`--nexus-bg-canvas`）：chip 要的就是「把画布那一块
+      重新铺在图上」，这样它压在边和节点上时把下面盖掉、落在空白处时又看不出来。
+      配一条 `--nexus-border-subtle` 的 1px 描边，它才读得出是个「片」而不是糊了一块。
+
+      **不新增图谱专用 token**：一对新 token 要动 `derive.ts` 的派生链、对比度审计
+      与全部预设，代价远大于收益；而这两个的语义恰好就是这里要的
+      （文字色本来就是**按画布底**定出来的，所以「文字压在 chip 上」的可读性
+      是构造上成立的，不是碰巧）。
+    */
+    const labelChipColor = readColor(canvas, '--nexus-bg-canvas');
+    const labelChipBorderColor = readColor(canvas, '--nexus-border-subtle');
     const fontFamily = getComputedStyle(canvas).fontFamily || 'sans-serif';
     context.font = `${LABEL_FONT_SIZE_PX}px ${fontFamily}`;
+    // `planGraphLabels` 的 `textX` / `textY` 是矩形**左上角**加 padding 算出来的，
+    // 所以基线必须是 `top`（默认的 `alphabetic` 会让文字整体浮在 chip 上沿之外）
     context.textBaseline = 'top';
 
     const candidates: GraphLabelCandidate[] = graph.nodes.flatMap((node) => {
@@ -885,10 +902,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     const placements = planGraphLabels({
       candidates,
       viewport: { width: size.width, height: size.height },
-      maxLabels: Math.min(
-        MAX_LABELS,
-        Math.max(MIN_LABELS, Math.floor((size.width * size.height) / LABEL_AREA_BUDGET_PX))
-      ),
+      maxLabels: labelBudget(size.width * size.height, view.scale),
       maxLabelWidthPx: Math.max(60, size.width * 0.4),
       measureTextWidth: (text) => context.measureText(text).width
     });
@@ -1011,6 +1025,26 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
       for (const placement of placements) {
         if (birthProgressOf(nodeBirthKey(placement.id)) < LABEL_MIN_BIRTH) continue;
         context.globalAlpha = litIds !== null && !litIds.has(placement.id) ? DIM_ALPHA : 1;
+
+        /*
+          chip 底 + 1px 描边，**再**画文字。
+
+          这个矩形不是新算的：`placement.rect` 就是避让算法用来判「会不会压到别的标签 /
+          别的节点」的那个盒子（文字包围盒 + padding）。以前只用了它的 `textX` / `textY`，
+          矩形本身丢掉了 —— 于是标签是裸文字，正好糊在它费力避开的那些东西上。
+
+          描边往里缩 0.5px：`lineWidth = 1` 是骑在路径两侧各半个像素的，不缩的话
+          chip 画出来会比 `data-labels` 声明的矩形大一圈。缩进来之后两者严格同框。
+        */
+        const { rect } = placement;
+        const width = rect.right - rect.left;
+        const height = rect.bottom - rect.top;
+        context.fillStyle = labelChipColor;
+        context.fillRect(rect.left, rect.top, width, height);
+        context.strokeStyle = labelChipBorderColor;
+        context.lineWidth = 1;
+        context.strokeRect(rect.left + 0.5, rect.top + 0.5, width - 1, height - 1);
+
         context.fillStyle = placement.isActive ? activeLabelColor : labelColor;
         context.fillText(placement.text, placement.textX, placement.textY);
       }

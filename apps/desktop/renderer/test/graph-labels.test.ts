@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   clampToWidth,
+  labelBudget,
   planGraphLabels,
   type GraphLabelCandidate
 } from '../src/workspace/graph-labels.js';
@@ -253,5 +254,51 @@ describe('标签文本截断', () => {
     it('不需要截断时输出与原串逐字符相等', () => {
       expect(clampToWidth(`a${GRINNING}b`, 120, byCodePoint)).toBe(`a${GRINNING}b`);
     });
+  });
+});
+
+/**
+ * 标签预算（画多少条）。
+ *
+ * 判据的核心是**两档对比**而不是绝对值：只说「缩小时变少」的话，把标签整个关掉也过；
+ * 只说「scale = 1 时是多少」的话，缩放那一档根本没被测到。所以两头都要钉住，
+ * 而且 scale = 1 那一档必须与改动前的公式逐值相等 —— 初始视图就是 1:1。
+ */
+describe('标签预算随缩放分级', () => {
+  /** 900×520 的画布：改动前 `floor(468000 / 6000) = 78`，被上限夹到 48。 */
+  const AREA = 900 * 520;
+
+  it('scale = 1 时与改动前的公式逐值相等', () => {
+    // 改动前：min(48, max(6, floor(area / 6000)))
+    expect(labelBudget(AREA, 1)).toBe(48);
+    // 小画布落到下限那一档
+    expect(labelBudget(6000 * 2, 1)).toBe(6);
+    expect(labelBudget(6000 * 10, 1)).toBe(10);
+    // 大画布被上限夹住
+    expect(labelBudget(6000 * 500, 1)).toBe(48);
+  });
+
+  it('放大不减少：scale > 1 与 scale = 1 一样多', () => {
+    // 参考实现在放大时给全额；Nexus 本来就按面积给了全额，所以这里只要求「不许变少」
+    expect(labelBudget(AREA, 2)).toBe(labelBudget(AREA, 1));
+    expect(labelBudget(AREA, 4)).toBe(48);
+  });
+
+  it('缩小时明显变少，且缩得越小给得越少', () => {
+    const at1 = labelBudget(AREA, 1);
+    const atHalf = labelBudget(AREA, 0.5);
+    const atMin = labelBudget(AREA, 0.3);
+
+    expect(atHalf).toBeLessThan(at1);
+    expect(atMin).toBeLessThanOrEqual(atHalf);
+    // 「明显少于」—— 少一两条不叫分级
+    expect(atHalf).toBeLessThan(at1 * 0.7);
+  });
+
+  it('缩到最小时仍然给得出标签，不会变成 0', () => {
+    // 一条都不画是比「标签有点挤」严重得多的问题（初始视图就在 1:1 附近，
+    // 用户随手缩两格就会掉进这一档）
+    expect(labelBudget(AREA, 0.3)).toBeGreaterThanOrEqual(2);
+    expect(labelBudget(6000 * 2, 0.3)).toBeGreaterThanOrEqual(2);
   });
 });
