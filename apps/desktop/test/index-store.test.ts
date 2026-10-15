@@ -941,11 +941,54 @@ describe('工作区索引', () => {
         store.close();
       });
 
-      it('自链接不算入度 —— 否则自己引用自己就不是孤儿了', async () => {
+      it('同一篇里的两种写法只算一次 —— 清单与图上的度数必须一致', async () => {
+        /*
+          这条是 P2-1 的判据本体。`[[hub]]` 与 `[[notes/hub]]` 指向同一篇文档，
+          `getGraph` 会把它们合成**一条**边，而按 `links` 的行数算就会得到 2 ——
+          于是枢纽榜说「被引用 2 次」、图上只有一条边，用户只会以为其中一个坏了。
+        */
+        await writeDoc('notes/hub.md', '枢纽。');
+        await writeDoc('index.md', '[[hub]] 与 [[notes/hub]]');
+
+        const store = await openIndexed();
+        const hub = store.listDocuments().find((doc) => doc.name === 'hub.md')!;
+        const degree = store.getGraph().nodes.find((node) => node.name === 'hub.md')!.degree;
+
+        expect(degree).toBe(1);
+        expect(store.getHubs().find((entry) => entry.document.id === hub.id)!.count).toBe(1);
+
+        store.close();
+      });
+
+      it('两篇各引用一次仍然算 2', async () => {
+        // 反例：把「去重」写成「一律算 1」也能过上面那条
+        await writeDoc('hub.md', '枢纽。');
+        await writeDoc('a.md', '[[hub]]');
+        await writeDoc('b.md', '[[hub]]');
+
+        const store = await openIndexed();
+        const hub = store.listDocuments().find((doc) => doc.name === 'hub.md')!;
+
+        expect(store.getHubs().find((entry) => entry.document.id === hub.id)!.count).toBe(2);
+
+        store.close();
+      });
+
+      it('只自引的文档在三种模式下都是孤儿 —— 与画布上的孤点一致', async () => {
         await writeDoc('self.md', '[[self]]');
         const store = await openIndexed();
 
+        /*
+          改动前：自引那一行不算**入**度、却算**出**度，于是清单说「它不是孤儿」，
+          而画布上它谁也不连 —— 同一份数据两个答案。图上那条边根本不存在
+          （`getGraph` 直接跳过自链接），所以两个方向都不该算。
+        */
+        const self = store.getGraph().nodes.find((node) => node.name === 'self.md')!;
+        expect(self.degree).toBe(0);
+
         expect(names(store.getOrphans('incoming'))).toEqual(['self.md']);
+        expect(names(store.getOrphans('outgoing'))).toEqual(['self.md']);
+        expect(names(store.getOrphans('both'))).toEqual(['self.md']);
 
         store.close();
       });

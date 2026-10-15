@@ -962,6 +962,18 @@ export class IndexStore {
   /**
    * 每篇文档的**入度与出度**。
    *
+   * ## 口径必须与 `getGraph` 的 `degree` 一致
+   *
+   * 这两个数是**同一份数据的另一个视图**（孤儿清单、枢纽榜），对不上就是缺陷：
+   * 用户看到「被引用 3 次」而图上只有两条边，只会以为其中一个坏了。
+   *
+   * 于是两条：
+   *
+   * - **按邻居去重，不按 `links` 的行数**。同一篇里写 `[[dma]]` 与 `[[notes/dma]]`
+   *   只算一次 —— 图上那两条也合成了一条边（`getGraph` 的边按配对合并）。
+   * - **自链接两个方向都不算**。`getGraph` 直接跳过它，画布上那是一枚孤点；
+   *   这里要是算上，就会出现「清单说它不是孤儿、画布上却谁也不连」。
+   *
    * ## 两个方向的口径不一样，都是有意的
    *
    * - **出度**数的是「**写下来的**链接」：解析不出来的目标（`[[还没写的方案]]`）**也算**。
@@ -973,7 +985,6 @@ export class IndexStore {
    *
    * `removeDocuments()` 不删 `links`（只删 `documents` 与 `search_fts`），所以表里会留下
    * 来源已经不在的行。拿它去算出度会把「一个已经删掉的文档写了什么」算进来。
-   * 自链接同样不算入度 —— 与 `getGraph` 的口径一致。
    */
   private linkDegrees(): {
     incoming: Map<number, number>;
@@ -990,19 +1001,40 @@ export class IndexStore {
       }
     }
 
-    const incoming = new Map<number, number>();
-    const outgoing = new Map<number, number>();
+    /*
+      先收成集合、最后取大小。去重键用**解析后的文档 id**，解析不出来才退回目标名 ——
+      与 `getGraph` 合成边时的两种键（配对 id、目标名）同一口径。
+    */
+    const sourcesByTarget = new Map<number, Set<number>>();
+    const targetsBySource = new Map<number, Set<number | string>>();
 
     for (const row of this.db.all(`SELECT source_id, target FROM links`)) {
       const source = Number(row.source_id);
       if (!existing.has(source)) continue;
 
-      outgoing.set(source, (outgoing.get(source) ?? 0) + 1);
+      const rawTarget = String(row.target);
+      const resolved = byTarget.get(rawTarget);
+      // 自链接：图上不存在这条边，两个方向都不算
+      if (resolved === source) continue;
 
-      const target = byTarget.get(String(row.target));
-      if (target === undefined || target === source) continue;
-      incoming.set(target, (incoming.get(target) ?? 0) + 1);
+      const key = resolved ?? rawTarget;
+      const targets = targetsBySource.get(source);
+      if (targets === undefined) targetsBySource.set(source, new Set([key]));
+      else targets.add(key);
+
+      // 入度只认解析得到的目标 —— 断链没有文档可以落在上面
+      if (resolved === undefined) continue;
+
+      const sources = sourcesByTarget.get(resolved);
+      if (sources === undefined) sourcesByTarget.set(resolved, new Set([source]));
+      else sources.add(source);
     }
+
+    const incoming = new Map<number, number>();
+    for (const [target, sources] of sourcesByTarget) incoming.set(target, sources.size);
+
+    const outgoing = new Map<number, number>();
+    for (const [source, targets] of targetsBySource) outgoing.set(source, targets.size);
 
     return { incoming, outgoing };
   }

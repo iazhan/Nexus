@@ -286,9 +286,13 @@ export interface WorkspaceGraph {
 /**
  * 孤儿模式：按**哪个方向的度数为 0** 来判。
  *
- * - `incoming`：没有任何文档链接到它（没人引用它）；
- * - `outgoing`：它不链接任何东西（**写下来的链接**一条都没有，见 `getOrphans`）；
+ * - `incoming`：没有任何**别的**文档链接到它（没人引用它）；
+ * - `outgoing`：它不链接任何**别的**文档（**写下来的链接**一条都没有，见 `getOrphans`）；
  * - `both`：两者都满足，也就是图谱上完全孤立。
+ *
+ * 「别的」不是废话：**自链接两个方向都不算**。图谱里那条边本来就不存在
+ * （`getGraph` 直接跳过自链接），清单要是算上，就会出现「清单说它不是孤儿、
+ * 画布上却谁也不连」—— 同一份数据的两个视图必须给同一个答案。
  */
 export const ORPHAN_MODES = ['incoming', 'outgoing', 'both'] as const;
 
@@ -301,7 +305,11 @@ export function isOrphanMode(value: unknown): value is OrphanMode {
 /** 一个枢纽：被引用最多的文档之一。 */
 export interface HubEntry {
   document: IndexedDocument;
-  /** 入链条数（有多少篇文档引用了它）。自链接不算。 */
+  /**
+   * 入度：有多少**篇不同的文档**引用了它（同一篇里写两次只算一次）。自链接不算。
+   *
+   * 与图上那个节点的 `degree` 同一口径 —— 对不上就是缺陷。
+   */
   count: number;
 }
 

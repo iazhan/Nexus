@@ -1,6 +1,6 @@
 {
   "name": "@nexus/desktop",
-  "version": "0.93.1",
+  "version": "0.93.2",
   "private": true,
   "description": "Nexus — local-first Markdown knowledge base",
   "author": "iazhan",
