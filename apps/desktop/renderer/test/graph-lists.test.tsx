@@ -18,18 +18,27 @@ import { localeManager } from '../src/platform.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const documentOf = (relativePath: string, id: number): IndexedDocument => ({
-  id,
-  path: `/vault/${relativePath}`,
-  relativePath,
-  name: relativePath.split('/').pop() ?? relativePath,
-  title: relativePath,
-  type: 'markdown',
-  sizeBytes: 1,
-  modifiedAtMs: 1,
-  contentHash: relativePath,
-  extractionStatus: 'none'
-});
+/**
+ * 夹具要**照主进程的口径**造：`title` 是去掉扩展名的文件名
+ * （`apps/desktop/electron/indexer.ts:433` 的 `deriveTitle`），不是相对路径。
+ * 写成 `title: relativePath` 的话两行卡片会退化成一行，而用例还以为在验两行。
+ */
+const documentOf = (relativePath: string, id: number): IndexedDocument => {
+  const name = relativePath.split('/').pop() ?? relativePath;
+  const dot = name.lastIndexOf('.');
+  return {
+    id,
+    path: `/vault/${relativePath}`,
+    relativePath,
+    name,
+    title: dot > 0 ? name.slice(0, dot) : name,
+    type: 'markdown',
+    sizeBytes: 1,
+    modifiedAtMs: 1,
+    contentHash: relativePath,
+    extractionStatus: 'none'
+  };
+};
 
 describe('图谱清单视图', () => {
   let container: HTMLDivElement;
@@ -91,7 +100,23 @@ describe('图谱清单视图', () => {
   };
 
   const items = () =>
-    Array.from(container.querySelectorAll<HTMLElement>('.nexus-backlink-item'));
+    Array.from(container.querySelectorAll<HTMLElement>('.nexus-graph-list-card'));
+
+  /**
+   * 每枚卡片的**两行**（标题 / 路径）+ 标题行右端的徽章。
+   *
+   * 不用 `textContent` 整块比：两行拼起来是 `'aa.md'` 这种没法读的串，
+   * 而这两行各自来自哪个字段正是要验的东西。
+   */
+  const cards = () =>
+    items().map((card) => ({
+      title: card.querySelector('.nexus-graph-list-card-title')?.textContent ?? null,
+      path: card.querySelector('.nexus-graph-list-card-path')?.textContent ?? null,
+      badge:
+        card.querySelector('.nexus-graph-list-card-head .nexus-graph-list-count')?.textContent ??
+        null
+    }));
+
   const chip = (selector: string) => container.querySelector<HTMLElement>(selector);
   const note = () => container.querySelector('.nexus-sidebar-note')?.textContent ?? null;
 
@@ -118,7 +143,11 @@ describe('图谱清单视图', () => {
       await act(async () => {});
 
       expect(getGraphOrphans).toHaveBeenLastCalledWith('incoming');
-      expect(items().map((el) => el.textContent)).toEqual(['a.md', 'b.md']);
+      // 两行：标题来自 `document.title`，次行来自 `relativePath`
+      expect(cards()).toEqual([
+        { title: 'a', path: 'a.md', badge: null },
+        { title: 'b', path: 'b.md', badge: null }
+      ]);
     });
 
     it('每种模式的空态说的是各自的空法', async () => {
@@ -187,9 +216,9 @@ describe('图谱清单视图', () => {
     it('列出文档与入链计数', async () => {
       await render(<HubsList revision={1} onOpenFile={onOpenFile} />);
 
-      expect(items().map((el) => el.textContent)).toEqual([
-        'hub.md7 incoming',
-        'b.md2 incoming'
+      expect(cards()).toEqual([
+        { title: 'hub', path: 'hub.md', badge: '7 incoming' },
+        { title: 'b', path: 'b.md', badge: '2 incoming' }
       ]);
     });
 
@@ -210,6 +239,50 @@ describe('图谱清单视图', () => {
       expect(note()).toContain('Nothing is linked');
       // 「枢纽」这个词本身不解释任何东西 —— 得说清它是按被引用次数排的
       expect(note()).toContain('ranks documents');
+    });
+  });
+
+  /**
+   * 卡片：两行、有边界、可点。
+   *
+   * 单行纯文字看起来像一段说明，不像能点的东西。而两行之后，「第二行没有信息量」
+   * 这种情形必须被省掉 —— 两行同文比一行还差。
+   */
+  describe('卡片', () => {
+    it('每条渲染两行：标题来自 document.title，次行是相对路径', async () => {
+      getGraphOrphans.mockImplementation(async () => [documentOf('notes/deep/a.md', 1)]);
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(cards()).toEqual([{ title: 'a', path: 'notes/deep/a.md', badge: null }]);
+    });
+
+    it('没有扩展名的文件只有一行 —— 第二行会和第一行一模一样', async () => {
+      // `deriveTitle('README')` 就是 `'README'`，相对路径也是 `'README'`
+      getGraphOrphans.mockImplementation(async () => [documentOf('README', 1)]);
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(cards()).toEqual([{ title: 'README', path: null, badge: null }]);
+    });
+
+    it('标题缺失时回退到文件名，而且不会渲染出一行重复的路径', async () => {
+      getGraphOrphans.mockImplementation(async () => [{ ...documentOf('a.md', 1), title: '' }]);
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(cards()).toEqual([{ title: 'a.md', path: null, badge: null }]);
+    });
+
+    it('用的是图谱清单自己的类，不是反向链接面板那一个', async () => {
+      /*
+        共用一个类的话，改这边会连带改掉反向链接面板 —— 两边都只是「一列文字」，
+        这种连带在界面上看不出来。断链的来源列表**仍在**用 `.nexus-backlink-item`
+        （那本来就是同一件事：谁引用了它），由「断链」那组用例守着。
+      */
+      getGraphOrphans.mockImplementation(async () => [documentOf('a.md', 1)]);
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+
+      const card = items()[0]!;
+      expect(card.classList.contains('nexus-graph-list-card')).toBe(true);
+      expect(card.classList.contains('nexus-backlink-item')).toBe(false);
     });
   });
 

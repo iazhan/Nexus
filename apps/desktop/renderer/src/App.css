@@ -1720,6 +1720,79 @@ button.nexus-outline-toggle:hover {
 }
 
 /*
+  图谱清单的卡片（孤儿 / 枢纽）。
+
+  **不复用 `.nexus-backlink-item`** —— 那是反向链接面板的类：那边是「谁引用了这一篇」，
+  这里是「这些文档本身」。两处的判据（要不要两行、有没有卡片边界）本来就不一样，
+  共用一个类的话改一处会连带改掉另一处，而这种连带在界面上看不出来。
+
+  两行：标题在上、路径在下且弱一档。整块可点，所以要有边框与 hover ——
+  单行纯文字看起来像一段说明，不像能点的东西。
+*/
+.nexus-graph-list-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nexus-graph-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 8px;
+  background-color: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nexus-graph-list-card:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  border-color: var(--nexus-border-default);
+}
+
+.nexus-graph-list-card:focus-visible {
+  outline: 2px solid var(--nexus-accent-solid);
+  outline-offset: 1px;
+}
+
+/* 标题行：标题占满、徽章贴右。徽章**不能**放进标题里面 ——
+   标题带 `text-overflow: ellipsis`，长标题会把徽章一起截掉。 */
+.nexus-graph-list-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* 行内已有 `gap`，这里把计数自带的 `margin-left` 收掉，否则间距会翻倍 */
+.nexus-graph-list-card-head .nexus-graph-list-count {
+  flex: 0 0 auto;
+  margin-left: 0;
+}
+
+.nexus-graph-list-card-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--nexus-text-primary);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-graph-list-card-path {
+  color: var(--nexus-text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
   断链条目：**目标名是主文案，来源是它的从属列表**。
 
   目标名不做成按钮 —— 它点不出任何文档（那正是「断链」的意思）。做成按钮会让人

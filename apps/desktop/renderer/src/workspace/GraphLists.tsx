@@ -42,6 +42,67 @@ export interface GraphListsProps {
 
 const ORPHANS_LIMIT_HINT = 200;
 
+/**
+ * 卡片第一行。`title` 是去掉扩展名的文件名（`indexer.ts:433` 的 `deriveTitle`），
+ * 正常文件不会为空；为空时回退到文件名 —— 渲染一行空白比多一个判断更糟。
+ */
+function cardTitle(document: IndexedDocument): string {
+  return document.title === '' ? document.name : document.title;
+}
+
+/**
+ * 卡片第二行要画的路径；**没有信息量时返回 `null`**。
+ *
+ * 判据是「与第一行同文」：那只有两种情形 —— 文件本来就没有扩展名（`README`、`.gitignore`），
+ * 或者 `title` 缺失而回退成了文件名。两行同文比一行还差，索性不画。
+ *
+ * 反过来，根目录的 `a.md` 会得到「a / a.md」两行。看着像重复，但第二行**带着扩展名**：
+ * 同一个目录里的 `manual.md` 与 `manual.pdf` 第一行都是 `manual`，去掉第二行就分不出来。
+ */
+function cardPath(document: IndexedDocument): string | null {
+  return document.relativePath === cardTitle(document) ? null : document.relativePath;
+}
+
+interface GraphListCardProps {
+  document: IndexedDocument;
+  onOpenFile: (filePath: string) => void;
+  /** 标题行右端的从属信息（枢纽的被引用次数）。不传就不占位。 */
+  badge?: React.ReactNode;
+}
+
+/**
+ * 图谱清单里的一枚卡片：**两行**（标题 + 路径），整块可点。
+ *
+ * ## 为什么不用 `.nexus-backlink-item`
+ *
+ * 那个类是反向链接面板的 —— 那边是「谁引用了这一篇」，这里是「这些文档本身」。
+ * 两处的判据（要不要两行、有没有卡片边界）本来就不一样，共用一个类的话改这边会
+ * 连带改掉那边，而这种连带在界面上看不出来（两边都只是「一列文字」）。
+ *
+ * ## 为什么要有卡片边界
+ *
+ * 单行纯文字看起来像一段说明，不像能点的东西。加边框 + hover 之后，「这里可以点」
+ * 才是**看出来的**而不是猜出来的。
+ */
+const GraphListCard: React.FC<GraphListCardProps> = ({ document, onOpenFile, badge }) => {
+  const path = cardPath(document);
+
+  return (
+    <button
+      type="button"
+      className="nexus-graph-list-card"
+      title={document.path}
+      onClick={() => onOpenFile(document.path)}
+    >
+      <span className="nexus-graph-list-card-head">
+        <span className="nexus-graph-list-card-title">{cardTitle(document)}</span>
+        {badge}
+      </span>
+      {path !== null && <span className="nexus-graph-list-card-path">{path}</span>}
+    </button>
+  );
+};
+
 export const OrphansList: React.FC<GraphListsProps> = ({ revision, onOpenFile }) => {
   const { t } = useLocale();
   const [mode, setMode] = useState<OrphanMode>('both');
@@ -102,17 +163,10 @@ export const OrphansList: React.FC<GraphListsProps> = ({ revision, onOpenFile })
       ) : orphans.length === 0 ? (
         <p className="nexus-sidebar-note">{t(`graph.orphans.empty.${mode}`)}</p>
       ) : (
-        <ul className="nexus-sidebar-list">
+        <ul className="nexus-sidebar-list nexus-graph-list-cards">
           {orphans.slice(0, ORPHANS_LIMIT_HINT).map((document) => (
             <li key={document.id}>
-              <button
-                type="button"
-                className="nexus-backlink-item"
-                title={document.path}
-                onClick={() => onOpenFile(document.path)}
-              >
-                {document.relativePath}
-              </button>
+              <GraphListCard document={document} onOpenFile={onOpenFile} />
             </li>
           ))}
         </ul>
@@ -164,21 +218,19 @@ export const HubsList: React.FC<GraphListsProps> = ({ revision, onOpenFile }) =>
       ) : hubs.length === 0 ? (
         <p className="nexus-sidebar-note">{t('graph.hubs.empty')}</p>
       ) : (
-        <ul className="nexus-sidebar-list">
+        <ul className="nexus-sidebar-list nexus-graph-list-cards">
           {hubs.map((entry) => (
             <li key={entry.document.id}>
-              <button
-                type="button"
-                className="nexus-backlink-item"
-                title={entry.document.path}
-                onClick={() => onOpenFile(entry.document.path)}
-              >
-                {entry.document.relativePath}
-                {/* 计数是这一屏的全部信息 —— 没有它，这个列表和文件树没区别 */}
-                <span className="nexus-graph-list-count">
-                  {t('graph.hubs.incoming', { count: String(entry.count) })}
-                </span>
-              </button>
+              <GraphListCard
+                document={entry.document}
+                onOpenFile={onOpenFile}
+                /* 计数是这一屏的全部信息 —— 没有它，这个列表和文件树没区别 */
+                badge={
+                  <span className="nexus-graph-list-count">
+                    {t('graph.hubs.incoming', { count: String(entry.count) })}
+                  </span>
+                }
+              />
             </li>
           ))}
         </ul>

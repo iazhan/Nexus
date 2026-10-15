@@ -497,9 +497,18 @@ describe('图谱面板', () => {
     */
     await ensureGraphVisible();
 
-    const listItems = () =>
-      app.evaluate<string[]>(
-        `Array.from(document.querySelectorAll('.nexus-graph-list .nexus-backlink-item')).map((el) => el.textContent)`
+    /*
+      卡片的两行。标题是去掉扩展名的文件名（`indexer.ts:433` 的 `deriveTitle`），
+      次行是相对路径 —— 夹具都在工作区根目录，所以两行分别是 `a` 与 `a.md`。
+      徽章只有枢纽有。
+    */
+    const listCards = () =>
+      app.evaluate<Array<{ title: string | null; path: string | null; badge: string | null }>>(
+        `Array.from(document.querySelectorAll('.nexus-graph-list .nexus-graph-list-card')).map((card) => ({
+           title: card.querySelector('.nexus-graph-list-card-title')?.textContent ?? null,
+           path: card.querySelector('.nexus-graph-list-card-path')?.textContent ?? null,
+           badge: card.querySelector('.nexus-graph-list-card-head .nexus-graph-list-count')?.textContent ?? null
+         }))`
       );
 
     /** 画布那一层的实际高度。`hidden` 属性必须真的把它收掉 —— 只断言属性会漏掉 CSS 优先级问题。 */
@@ -518,15 +527,20 @@ describe('图谱面板', () => {
     );
 
     // 默认是「两者都缺」—— 只有 lonely
-    expect(await listItems()).toEqual(['lonely.md']);
+    expect(await listCards()).toEqual([{ title: 'lonely', path: 'lonely.md', badge: null }]);
 
     // 切到「没人引用」：a 与 lonely
     await app.click('.nexus-graph-chip[data-orphan-mode="incoming"]');
     await app.waitForFunction(
-      `document.querySelectorAll('.nexus-graph-list .nexus-backlink-item').length === 2`,
+      `document.querySelectorAll('.nexus-graph-list .nexus-graph-list-card').length === 2`,
       10000
     );
-    expect((await listItems()).sort()).toEqual(['a.md', 'lonely.md']);
+    expect(
+      (await listCards()).sort((left, right) => (left.path ?? '').localeCompare(right.path ?? ''))
+    ).toEqual([
+      { title: 'a', path: 'a.md', badge: null },
+      { title: 'lonely', path: 'lonely.md', badge: null }
+    ]);
 
     // 切到枢纽：b 与 c 各被引用一次，同分按路径排
     await app.click('.nexus-graph-chip[data-mode="hubs"]');
@@ -534,7 +548,10 @@ describe('图谱面板', () => {
       `document.querySelector('.nexus-graph-list')?.textContent?.includes('b.md')`,
       10000
     );
-    expect(await listItems()).toEqual(['b.md1 incoming', 'c.md1 incoming']);
+    expect(await listCards()).toEqual([
+      { title: 'b', path: 'b.md', badge: '1 incoming' },
+      { title: 'c', path: 'c.md', badge: '1 incoming' }
+    ]);
 
     // 切回图谱视图，画布回来
     await app.click('.nexus-graph-chip[data-mode="explore"]');
