@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { HubEntry, IndexedDocument, OrphanMode } from '@nexus/core';
 import { ORPHAN_MODES } from '@nexus/core';
 import { useLocale } from '../hooks.js';
+import { requireGraphBridge, type GraphPhase } from './graph-load.js';
 
 /**
  * 图谱的**两个列表视图**：孤儿与枢纽。
@@ -23,6 +24,15 @@ import { useLocale } from '../hooks.js';
  * 孤儿有三种模式，每种「空」的含义不同（没人引用 / 不引用别人 / 两者都缺）。
  * 共用一句话的话，用户看到的会是「没有孤儿」，而他明明刚筛掉了另一类 ——
  * 与文件树「因过滤才变空的目录要丢弃」是同一条判据：**空的原因要说清楚**。
+ *
+ * ## 四态：错误 → 加载中 → 空 → 列表
+ *
+ * 顺序固定、互斥（语义见 `graph-load.ts`）。两条容易写错的：
+ *
+ * - **失败不能渲染成空态。** 原来是 `catch → console.error → 置空`，于是「取数挂了」
+ *   和「一条孤儿都没有」在屏幕上完全一样。
+ * - **换模式要回到加载中，只换 `revision` 不用。** 换模式等于换了一个问题，
+ *   旧答案对新问题不成立；而 `revision` 变化是同一个问题重取一次，保留旧清单才不会闪。
  */
 export interface GraphListsProps {
   /** 索引变化信号；变化时重取 */
@@ -36,17 +46,28 @@ export const OrphansList: React.FC<GraphListsProps> = ({ revision, onOpenFile })
   const { t } = useLocale();
   const [mode, setMode] = useState<OrphanMode>('both');
   const [orphans, setOrphans] = useState<IndexedDocument[]>([]);
+  const [phase, setPhase] = useState<GraphPhase>('loading');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const previousModeRef = useRef<OrphanMode | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
+    if (previousModeRef.current !== mode) setPhase('loading');
+    previousModeRef.current = mode;
+
     void (async () => {
       try {
-        const list = (await window.nexus?.getGraphOrphans?.(mode)) ?? [];
-        if (!cancelled) setOrphans(list);
+        const list = await requireGraphBridge().getGraphOrphans(mode);
+        if (cancelled) return;
+        setOrphans(list);
+        setPhase('ready');
+        setLoadError(null);
       } catch (err) {
         console.error('Failed to load orphans:', err);
-        if (!cancelled) setOrphans([]);
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+        setPhase('error');
       }
     })();
 
@@ -56,7 +77,7 @@ export const OrphansList: React.FC<GraphListsProps> = ({ revision, onOpenFile })
   }, [revision, mode]);
 
   return (
-    <div className="nexus-graph-list">
+    <div className="nexus-graph-list" data-phase={phase}>
       <div className="nexus-graph-list-modes" role="group" aria-label={t('graph.orphans.mode')}>
         {ORPHAN_MODES.map((value) => (
           <button
@@ -72,7 +93,13 @@ export const OrphansList: React.FC<GraphListsProps> = ({ revision, onOpenFile })
         ))}
       </div>
 
-      {orphans.length === 0 ? (
+      {phase === 'error' ? (
+        <p className="nexus-graph-note nexus-sidebar-error" data-error={loadError ?? ''}>
+          {t('graph.loadFailed')}
+        </p>
+      ) : phase === 'loading' ? (
+        <p className="nexus-sidebar-note">{t('graph.loading')}</p>
+      ) : orphans.length === 0 ? (
         <p className="nexus-sidebar-note">{t(`graph.orphans.empty.${mode}`)}</p>
       ) : (
         <ul className="nexus-sidebar-list">
@@ -100,17 +127,24 @@ const HUBS_LIMIT = 100;
 export const HubsList: React.FC<GraphListsProps> = ({ revision, onOpenFile }) => {
   const { t } = useLocale();
   const [hubs, setHubs] = useState<HubEntry[]>([]);
+  const [phase, setPhase] = useState<GraphPhase>('loading');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       try {
-        const list = (await window.nexus?.getGraphHubs?.(HUBS_LIMIT)) ?? [];
-        if (!cancelled) setHubs(list);
+        const list = await requireGraphBridge().getGraphHubs(HUBS_LIMIT);
+        if (cancelled) return;
+        setHubs(list);
+        setPhase('ready');
+        setLoadError(null);
       } catch (err) {
         console.error('Failed to load hubs:', err);
-        if (!cancelled) setHubs([]);
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+        setPhase('error');
       }
     })();
 
@@ -120,8 +154,14 @@ export const HubsList: React.FC<GraphListsProps> = ({ revision, onOpenFile }) =>
   }, [revision]);
 
   return (
-    <div className="nexus-graph-list">
-      {hubs.length === 0 ? (
+    <div className="nexus-graph-list" data-phase={phase}>
+      {phase === 'error' ? (
+        <p className="nexus-graph-note nexus-sidebar-error" data-error={loadError ?? ''}>
+          {t('graph.loadFailed')}
+        </p>
+      ) : phase === 'loading' ? (
+        <p className="nexus-sidebar-note">{t('graph.loading')}</p>
+      ) : hubs.length === 0 ? (
         <p className="nexus-sidebar-note">{t('graph.hubs.empty')}</p>
       ) : (
         <ul className="nexus-sidebar-list">

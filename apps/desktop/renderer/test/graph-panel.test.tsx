@@ -565,4 +565,98 @@ describe('图谱控制条', () => {
     expect(chips().map((el) => el.dataset.scope).filter(Boolean)).toEqual(['all', 'current']);
     expect(chips().filter((el) => el.dataset.type)).toHaveLength(0);
   });
+
+  /**
+   * 四态**互斥且顺序固定**：错误 → 加载中 → 空 → 画布。
+   *
+   * 原来的四个取数点全是 `catch → console.error → 置空`，于是「取数挂了」与
+   * 「工作区是空的」在界面上一模一样 —— 用户会以为自己的笔记没了。
+   *
+   * 判据用 `data-phase` 而不是文案：加载态与空态共用 `.nexus-sidebar-note`。
+   * 而 `[data-error]` 只挂在**画布那一块**的错误条上（类型清单那条没有），
+   * 两处都有 `.nexus-graph-note` 时必须靠它区分。
+   */
+  describe('四态互斥', () => {
+    const body = () => container.querySelector('.nexus-graph-body')!;
+    const errorNote = () => container.querySelector('.nexus-graph-note[data-error]');
+
+    it('取数失败时走错误态，而不是渲染成空态', async () => {
+      getGraph.mockRejectedValue(new Error('IPC exploded'));
+      await render();
+
+      expect(body().getAttribute('data-phase')).toBe('error');
+      expect(errorNote()?.textContent).toBe('Could not load the graph.');
+      // 关键：不能退化成空态文案，也不能在头部报一个「0」
+      expect(container.querySelector('.nexus-sidebar-note')).toBeNull();
+      expect(count()).toBeNull();
+    });
+
+    it('桥没就绪（preload 挂了）同样走错误态', async () => {
+      // 原来这里是 `window.nexus?.getGraph?.(…) ?? { nodes: [], edges: [] }` ——
+      // 桥不存在时连 catch 都不进、一行日志都没有，直接给一张空图
+      delete (window as unknown as { nexus?: unknown }).nexus;
+      await render();
+
+      expect(body().getAttribute('data-phase')).toBe('error');
+      expect(errorNote()).not.toBeNull();
+    });
+
+    it('真的没有文档时不出现错误条', async () => {
+      getGraph.mockImplementation(async () => ({ nodes: [], edges: [] }));
+      await render();
+
+      expect(body().getAttribute('data-phase')).toBe('ready');
+      expect(errorNote()).toBeNull();
+      expect(container.querySelector('.nexus-sidebar-note')!.textContent).toContain(
+        'No documents to draw yet'
+      );
+    });
+
+    it('第一次取数还没回来时是加载态，不显示空态文案', async () => {
+      getGraph.mockReturnValue(new Promise(() => {}));
+      await render();
+
+      expect(body().getAttribute('data-phase')).toBe('loading');
+      expect(errorNote()).toBeNull();
+      const note = container.querySelector('.nexus-sidebar-note')!.textContent!;
+      expect(note).toContain('Loading the graph');
+      expect(note).not.toContain('No documents to draw yet');
+    });
+
+    it('失败之后重新取数成功，上一次的错误条必须消失', async () => {
+      getGraph.mockRejectedValue(new Error('IPC exploded'));
+      await render();
+      expect(errorNote()).not.toBeNull();
+
+      getGraph.mockImplementation(async () => FULL);
+      await act(async () => {
+        root.render(<GraphPanel activeFilePath={null} onOpenFile={vi.fn()} revision={2} />);
+      });
+      await act(async () => {});
+
+      expect(body().getAttribute('data-phase')).toBe('ready');
+      expect(errorNote()).toBeNull();
+      expect(count()).toBe('4');
+    });
+
+    it('类型清单单独挂掉时不连累画布，但要留下一条说明', async () => {
+      // 类型清单是次要控件：它挂了画布照常画；但筛选条凭空消失也必须说一句，
+      // 否则用户只会觉得「以前有过的开关不见了」
+      getGraph.mockImplementation(async (query?: GraphQuery) => {
+        if (query === undefined) throw new Error('types exploded');
+        return FULL;
+      });
+      await render();
+
+      expect(body().getAttribute('data-phase')).toBe('ready');
+      expect(errorNote()).toBeNull();
+      expect(count()).toBe('4');
+      expect(container.querySelector('.nexus-graph-note')!.textContent).toBe(
+        'Document types are unavailable.'
+      );
+      expect(chips().filter((el) => el.dataset.type)).toHaveLength(0);
+      // 范围那两个还在 —— 「不连累」的具体含义
+      expect(chips().filter((el) => el.dataset.scope)).toHaveLength(2);
+    });
+  });
 });

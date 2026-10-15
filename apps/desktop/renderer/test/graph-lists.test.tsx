@@ -173,4 +173,130 @@ describe('图谱清单视图', () => {
       expect(note()).toContain('Nothing is linked');
     });
   });
+
+  /**
+   * 四态**互斥且顺序固定**：错误 → 加载中 → 空 → 列表。
+   *
+   * 前一半是正例（失败必须看得见），后一半是反例（正常的空与加载不能被渲染成失败）。
+   * 只写正例的话，「不管什么情况都显示错误条」照样能过。
+   *
+   * `data-phase` 是就绪判据，不是文案 —— 加载态与空态共用 `.nexus-sidebar-note`，
+   * 靠「某个文案出现了」判会互相串。
+   */
+  describe('四态互斥', () => {
+    const phase = () => container.querySelector('.nexus-graph-list')!.getAttribute('data-phase');
+    /** 错误条专有的 `data-error`（把原始错误信息带出来，方便定位是 IPC 还是桥）。 */
+    const errorNote = () => container.querySelector('.nexus-graph-note[data-error]');
+
+    it('孤儿取数失败时走错误态，而不是渲染成空态', async () => {
+      getGraphOrphans.mockRejectedValue(new Error('IPC exploded'));
+
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(phase()).toBe('error');
+      expect(errorNote()?.textContent).toBe('Could not load the graph.');
+      // 关键：不能退化成空态文案 —— 这两句话在屏幕上长得一模一样
+      expect(note()).toBeNull();
+    });
+
+    it('桥没就绪（preload 挂了）同样走错误态', async () => {
+      // 原来这里是 `window.nexus?.getGraphOrphans?.(…)` —— 桥不存在时连 catch 都不进、
+      // 一行日志都没有，直接渲染成「没有完全孤立的文档」
+      delete (window as unknown as { nexus?: unknown }).nexus;
+
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(phase()).toBe('error');
+      expect(errorNote()).not.toBeNull();
+    });
+
+    it('真的没有孤儿时不出现错误条', async () => {
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(phase()).toBe('ready');
+      expect(errorNote()).toBeNull();
+      expect(note()).toContain('disconnected');
+    });
+
+    it('第一次取数还没回来时是加载态，不显示空态文案', async () => {
+      getGraphOrphans.mockReturnValue(new Promise(() => {}));
+
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(phase()).toBe('loading');
+      expect(errorNote()).toBeNull();
+      expect(note()).toContain('Loading the graph');
+      expect(note()).not.toContain('disconnected');
+    });
+
+    it('失败之后重新取数成功，上一次的错误条必须消失', async () => {
+      getGraphOrphans.mockRejectedValue(new Error('IPC exploded'));
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+      expect(errorNote()).not.toBeNull();
+
+      getGraphOrphans.mockImplementation(async () => [documentOf('a.md', 1)]);
+      await act(async () => {
+        root.render(<OrphansList revision={2} onOpenFile={onOpenFile} />);
+      });
+      await act(async () => {});
+
+      expect(phase()).toBe('ready');
+      expect(errorNote()).toBeNull();
+      expect(items()).toHaveLength(1);
+    });
+
+    it('换模式回到加载态（旧答案对新问题不成立）', async () => {
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+      await act(async () => {
+        chip('[data-orphan-mode="outgoing"]')!.click();
+      });
+      await act(async () => {});
+      expect(items()).toHaveLength(1);
+
+      getGraphOrphans.mockReturnValue(new Promise(() => {}));
+      await act(async () => {
+        chip('[data-orphan-mode="incoming"]')!.click();
+      });
+
+      expect(phase()).toBe('loading');
+      expect(items()).toHaveLength(0);
+    });
+
+    it('只换 revision 不回加载态（同一个问题重取，不闪）', async () => {
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+      await act(async () => {
+        chip('[data-orphan-mode="incoming"]')!.click();
+      });
+      await act(async () => {});
+      expect(items()).toHaveLength(2);
+
+      getGraphOrphans.mockReturnValue(new Promise(() => {}));
+      await act(async () => {
+        root.render(<OrphansList revision={2} onOpenFile={onOpenFile} />);
+      });
+
+      expect(phase()).toBe('ready');
+      expect(items()).toHaveLength(2);
+    });
+
+    it('枢纽取数失败时走错误态，而不是渲染成空态', async () => {
+      getGraphHubs.mockRejectedValue(new Error('IPC exploded'));
+
+      await render(<HubsList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(phase()).toBe('error');
+      expect(errorNote()?.textContent).toBe('Could not load the graph.');
+      expect(note()).toBeNull();
+    });
+
+    it('枢纽真的为空时不出现错误条', async () => {
+      getGraphHubs.mockImplementation(async () => []);
+
+      await render(<HubsList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(phase()).toBe('ready');
+      expect(errorNote()).toBeNull();
+      expect(note()).toContain('Nothing is linked');
+    });
+  });
 });

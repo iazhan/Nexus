@@ -1719,6 +1719,24 @@ button.nexus-outline-toggle:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+  图谱里的一条**弱提示**：取数失败，或类型清单没拿到。
+
+  不复用 `.nexus-sidebar-note` —— 那一条是「整块状态」的占位文案（自带 12px 的
+  四周留白，出现时那一块就没有别的内容了）；这一条在清单里是**列表位置上的占位**、
+  在控件条里是**叠在控件下面的一行**，留白得跟着上下文走，所以给得比它小。
+
+  失败态再叠一个已有的 `.nexus-sidebar-error` 上色 —— 那是个只含 color 的组合类，
+  专门用来配别的 note 用，别为它新造一份错误色。
+*/
+.nexus-graph-note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nexus-text-muted);
+}
+
 .nexus-graph-chip {
   display: inline-flex;
   align-items: center;

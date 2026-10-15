@@ -15,6 +15,7 @@ import {
   rankClusters
 } from './graph-clusters.js';
 import { HubsList, OrphansList } from './GraphLists.js';
+import { requireGraphBridge, type GraphPhase } from './graph-load.js';
 import { iterationsForNodeCount, layoutGraph } from './graph-layout.js';
 import { planGraphLabels, type GraphLabelCandidate, type GraphLabelPlacement } from './graph-labels.js';
 import {
@@ -279,6 +280,13 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   /** 被拖动过的节点位置（**图坐标**）。只是视图副本：布局一重排就丢弃，见下面的 effect。 */
   const [pinned, setPinned] = useState<ReadonlyMap<number, { x: number; y: number }>>(new Map());
   const [panning, setPanning] = useState(false);
+  /*
+    取数的四态。两路查询各有自己的 phase（类型清单是次要控件，它挂了不该连累画布），
+    但**顺序与语义只有一条**（见 graph-load.ts）。
+  */
+  const [graphPhase, setGraphPhase] = useState<GraphPhase>('loading');
+  const [typesPhase, setTypesPhase] = useState<GraphPhase>('loading');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const dragRef = useRef<DragState | null>(null);
   /**
@@ -323,7 +331,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
 
     void (async () => {
       try {
-        const full = (await window.nexus?.getGraph?.()) ?? { nodes: [], edges: [] };
+        const full = await requireGraphBridge().getGraph();
         if (cancelled) return;
         const counts = new Map<DocumentType, number>();
         for (const node of full.nodes) {
@@ -332,9 +340,10 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
           counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
         }
         setTypeCounts([...counts].map(([type, count]) => ({ type, count })));
+        setTypesPhase('ready');
       } catch (err) {
         console.error('Failed to load graph types:', err);
-        if (!cancelled) setTypeCounts([]);
+        if (!cancelled) setTypesPhase('error');
       }
     })();
 
@@ -348,11 +357,16 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
 
     void (async () => {
       try {
-        const result = (await window.nexus?.getGraph?.(query)) ?? { nodes: [], edges: [] };
-        if (!cancelled) setGraph(result);
+        const result = await requireGraphBridge().getGraph(query);
+        if (cancelled) return;
+        setGraph(result);
+        setGraphPhase('ready');
+        setLoadError(null);
       } catch (err) {
         console.error('Failed to load graph:', err);
-        if (!cancelled) setGraph({ nodes: [], edges: [] });
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+        setGraphPhase('error');
       }
     })();
 
@@ -1086,6 +1100,13 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
             })}
           </div>
         )}
+        {typesPhase === 'error' && (
+          /*
+            类型清单是**次要控件**：它挂了不该连累画布（画布照常画）。
+            但也不能静默 —— 少了这条，筛选条凭空消失，用户只会觉得「以前有过的开关不见了」。
+          */
+          <p className="nexus-graph-note">{t('graph.typesUnavailable')}</p>
+        )}
           </>
         )}
       </div>
@@ -1104,8 +1125,26 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
         它必须始终存在（空态时也在），否则 `[]` 依赖的观察 effect 首次挂载时拿到 null，
         之后图谱有数据了也不会重新观察。
       */}
-      <div className="nexus-graph-body" ref={containerRef} hidden={mode !== 'explore'}>
-        {graph.nodes.length === 0 ? (
+      <div
+        className="nexus-graph-body"
+        ref={containerRef}
+        hidden={mode !== 'explore'}
+        data-phase={graphPhase}
+      >
+        {/*
+          四态**互斥且顺序固定**：错误 → 加载中 → 空 → 画布。
+          错误必须排在空态前面 —— 否则「取数失败」会渲染成「还没有可以画的文档」，
+          而用户完全看不出区别（这两句话在屏幕上长得一模一样）。
+          `data-phase` 是给测试用的就绪判据：**别用「某个文案出现了」判** ——
+          加载态与空态共用同一个类名。
+        */}
+        {graphPhase === 'error' ? (
+          <p className="nexus-graph-note nexus-sidebar-error" data-error={loadError ?? ''}>
+            {t('graph.loadFailed')}
+          </p>
+        ) : graphPhase === 'loading' ? (
+          <p className="nexus-sidebar-note">{t('graph.loading')}</p>
+        ) : graph.nodes.length === 0 ? (
           /*
             两种「空」必须分开：本来就没什么可画，和**被筛空了**。
             后者要给一条出路（「显示全部」）—— 否则用户面对一张空画布，只能靠猜是哪个开关干的。
