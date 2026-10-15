@@ -364,5 +364,106 @@
         "en": "Release notes now list only versions that are actually published and downloadable. While a build is still running there is nothing to download, so that version no longer appears."
       }
     ]
+  },
+  "0.96.0": {
+    "date": "2026-10-16",
+    "changes": [
+      {
+        "type": "fix",
+        "scope": "graph",
+        "zh": "图谱取数失败时不再画成一张空图。此前索引查询出错和「工作区里一篇文档都没有」长得一模一样，用户只会以为自己的笔记丢了。",
+        "en": "A failed graph load no longer looks like an empty graph. A broken index query and a workspace with no documents used to render identically, so it looked like the notes were gone."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "图谱里单击节点改为**选中**并弹出详情条（类型、入链 / 出链、打开 / 新建），双击才打开文档 —— 以前点一下就会被踢出图谱。",
+        "en": "Clicking a node in the graph now selects it and shows a detail bar (type, incoming/outgoing links, open/create); a double click opens the document. A single click used to throw you out of the graph."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "新增「断链」清单：列出所有写了、但工作区里还没有对应文档的链接，以及每条被哪几篇引用 —— 图上那几个红点现在可以逐条枚举了。",
+        "en": "New 'Dead links' list: every link that points at a document that does not exist yet, together with the documents that reference it. Those red dots on the canvas can now be enumerated."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "图谱为空时给出下一步动作（新建文档 / 打开搜索），并说明「什么算孤立」的规则，而不是只留一片空白。",
+        "en": "An empty graph now offers a next step (create a document / open search) and explains what counts as an orphan, instead of leaving a blank canvas."
+      },
+      {
+        "type": "fix",
+        "scope": "core",
+        "zh": "长文本按字素簇截断。此前 emoji、组合音标会被从中间切开，显示成一个乱码方块。",
+        "en": "Long text is now clipped by grapheme cluster. Emoji and combining marks used to be cut in half and rendered as a replacement-character box."
+      },
+      {
+        "type": "fix",
+        "scope": "core",
+        "zh": "「未链接提及」对中文改用真正的词边界判断，像「记笔记」这种动宾短语里不再把「笔记」误报成一处提及。（已知残留：「笔记本」这类复合词仍会命中。）",
+        "en": "'Unlinked mentions' now uses real word boundaries for Chinese, so a term is no longer reported inside a verb-object phrase such as 记笔记. (Known limitation: it still matches inside compounds such as 笔记本.)"
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "图谱标签加了底色与描边，压在线上的时候也读得清；标签数量随缩放变化 —— 缩小只留活跃文档与前几条，放大才铺开。",
+        "en": "Graph labels now have a background and an outline so they stay readable on top of edges, and how many are drawn follows the zoom level — zoomed out keeps only the active document and a few more, zoomed in shows the full budget."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "图谱头部同时显示节点数与连线数。只有节点数的话，二十个点可能是二十条线，也可能一条都没有。",
+        "en": "The graph header now shows both the node and the link count. With only a node count, twenty nodes could mean twenty links or none at all."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "孤儿与枢纽清单改成两行卡片：第一行文件名、第二行相对路径。此前只有一行路径，深目录里的文件扫起来很费劲。",
+        "en": "The orphans and hubs lists now use two-line cards — file name on the first line, relative path on the second. A single path line was hard to scan in deep folders."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "图谱的分区配色从 6 色扩到 8 色。顶层目录多的时候，图例不再出现「颜色对不上画布」的那一行。",
+        "en": "The graph cluster palette grew from 6 to 8 colours, so the legend no longer contains entries whose colour does not match the canvas."
+      },
+      {
+        "type": "fix",
+        "scope": "graph",
+        "zh": "「当前文档」这个范围用不了的时候（当前文档还没进索引，或它的类型被筛选隐藏了）不再「按了没反应」：按钮会禁用并说明原因，图退回整个工作区。",
+        "en": "The 'Current document' scope no longer silently does nothing when it cannot be honoured (the document is not indexed yet, or its type is hidden by the filter). The button is disabled with an explanation, and the graph falls back to the whole workspace."
+      },
+      {
+        "type": "fix",
+        "scope": "graph",
+        "zh": "枢纽榜的「被引用 N 次」与孤儿清单现在和画布上真的画出来的边完全一致：同一篇里用两种写法指向同一目标只算一次，只自引的文档在清单和画布上都被当成孤立。",
+        "en": "The 'referenced N times' count in the hubs list and the orphans list now agree with the edges actually drawn on the canvas: two different spellings of the same target inside one document count once, and a document that only links to itself is treated as isolated in both the list and the canvas."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "图谱里选中一个文档节点，详情条现在还会给出它的类型和标签。此前只有路径与入链/出链数，想知道「这篇归在哪儿」得先回去打开它。",
+        "en": "Selecting a document node in the graph now also shows its type and its tags in the detail bar. Before this only the path and the in/out link counts were there, so finding out where a document belonged meant opening it first."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "图谱左下角的图例有了可见标题（「目录」）。此前那里只有一列彩色方块和目录名，光看屏幕读不出那些颜色是「按顶层目录分区」的意思。",
+        "en": "The graph legend in the bottom-left corner now has a visible title ('Folders'). It used to be a column of coloured squares and folder names with nothing on screen saying those colours stand for top-level folders."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "图谱里新出现的节点会先散开一圈光晕再落定。在一张已经有几十个点的图上，「只是变大 + 淡入」太不显眼 —— 而出生动画的意义正是告诉你什么变了。",
+        "en": "A node that appears in the graph now expands a halo before it settles. On a canvas that already holds dozens of points, 'grows and fades in' was too easy to miss — and the whole point of the birth animation is to tell you what changed."
+      },
+      {
+        "type": "feat",
+        "scope": "graph",
+        "zh": "从图谱点开一篇文档时，会落在它的**代表性锚点**那一节，而不是文档开头 —— `[[dma#性能]]` 这类链接早就写明了用户关心哪一节。同一篇被多处引用、锚点各不相同时取出现最多的那个（平局按字典序，所以落点是确定的，不会两次打开跳到不同标题）。没有任何带锚点的引用时，照旧落在开头。",
+        "en": "Opening a document from the graph now lands on its representative anchor section instead of the top of the file — a link such as `[[dma#性能]]` already says which section matters. When a document is referenced with several different anchors, the most frequent one wins (ties break deterministically, so two sessions never land on different headings). With no anchored reference at all it still opens at the top."
+      }
+    ]
   }
 }
