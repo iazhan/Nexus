@@ -147,6 +147,46 @@ describe('未链接提及', () => {
       const mentions = findUnlinkedMentions('见 dma。\r\n下一行。\r\n', DMA);
       expect(mentions[0]!.excerpt).toBe('见 dma。');
     });
+
+    /**
+     * 取窗的两端是拿命中位置做减法算出来的，正好可能落在一个 emoji 的中间 ——
+     * 那样摘录里会冒出一个 `�`。两端都要对齐到字素簇边界。
+     *
+     * 正例（不含孤立代理项）单独不够：返回空串也过。所以每条都钉住具体切片位置。
+     */
+    describe('窗口两端对齐到字素簇边界', () => {
+      const LONE_SURROGATE =
+        /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+      const GRINNING = '\u{1F600}';
+
+      it('窗口结尾落在一个 emoji 中间时，往前收一格', () => {
+        // `dma ` + 115 个 `a` + 😀 + 50 个 `b`：命中在 0，窗口是 [0, 120)，
+        // 而 emoji 占 [119, 121) —— 120 正好落在它中间
+        const line = `dma ${'a'.repeat(115)}${GRINNING}${'b'.repeat(50)}`;
+        const excerpt = findUnlinkedMentions(line, DMA)[0]!.excerpt;
+
+        expect(excerpt.includes('dma')).toBe(true);
+        expect(LONE_SURROGATE.test(excerpt)).toBe(false);
+        expect(excerpt.startsWith('…')).toBe(false);
+        expect(excerpt.endsWith('…')).toBe(true);
+        // 收到 119：`dma ` + 115 个 `a`
+        expect(excerpt).toBe(`${'dma '.concat('a'.repeat(115))}…`);
+      });
+
+      it('窗口开头落在一个 emoji 中间时，往后推一格', () => {
+        // 60 个 😀（占 0..119）+ ` dma ` + 200 个 `后`：命中在 121，
+        // 窗口起点算出来是 81 —— 落在第 41 个 emoji（[80, 82)）的中间
+        const line = `${GRINNING.repeat(60)} dma ${'后'.repeat(200)}`;
+        const excerpt = findUnlinkedMentions(line, DMA)[0]!.excerpt;
+
+        expect(excerpt.includes('dma')).toBe(true);
+        expect(LONE_SURROGATE.test(excerpt)).toBe(false);
+        expect(excerpt.startsWith('…')).toBe(true);
+        expect(excerpt.endsWith('…')).toBe(true);
+        // 推到 82：省略号之后紧接着的就是一个**完整**的 emoji，不是它的后半
+        expect(excerpt.slice(1, 3)).toBe(GRINNING);
+      });
+    });
   });
 
   it('偏移能直接拿去切片', () => {

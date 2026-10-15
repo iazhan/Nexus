@@ -208,4 +208,50 @@ describe('标签文本截断', () => {
     expect(clampToWidth('   ', 120, measure)).toBe('');
     expect(clampToWidth('', 120, measure)).toBe('');
   });
+
+  /**
+   * 截断必须按**字素簇**，不许按 UTF-16 码元。
+   *
+   * 按码元切的话，名字里有 emoji 时末尾会留下一个孤立代理项 —— 画出来是一个 `�`。
+   * 这条判据必须正反两面：只说「不含孤立代理项」的话，**返回空串**也过；
+   * 所以每条都同时钉住「切在哪」的具体值。
+   */
+  describe('emoji 不能被切成半个', () => {
+    const LONE_SURROGATE =
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    /** 每个**码点** 6px（真实画布上组合符近乎零宽，这里只要可算就行） */
+    const byCodePoint = (text: string) => [...text].length * 6;
+
+    const GRINNING = '\u{1F600}';
+    const FAMILY = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+
+    it('砍到 emoji 前就停住，不会留下半个', () => {
+      // `ab😀cd` = 5 码点 = 30px。18px 这一档是**按码元切时正好落在 emoji 中间**的位置：
+      // 旧实现会给出 `ab` + 半个 emoji + `…`，屏幕上末尾就是一个 `�`。
+      const clamped = clampToWidth(`ab${GRINNING}cd`, 18, byCodePoint);
+
+      expect(clamped).toBe(`ab…`);
+      expect(LONE_SURROGATE.test(clamped)).toBe(false);
+    });
+
+    it('放得下时 emoji 完整保留', () => {
+      // `a😀b` = 3 码点 = 18px
+      expect(clampToWidth(`a${GRINNING}b`, 18, byCodePoint)).toBe(`a${GRINNING}b`);
+      // `a😀bcd` = 5 码点 = 30px；24px 放得下 `a😀b…`（4 码点 = 24px）
+      const clamped = clampToWidth(`a${GRINNING}bcd`, 24, byCodePoint);
+      expect(clamped).toBe(`a${GRINNING}b…`);
+      expect(LONE_SURROGATE.test(clamped)).toBe(false);
+    });
+
+    it('一个 ZWJ 序列要么整个留下、要么整个砍掉', () => {
+      // `x👨‍👩‍👧y` = 7 码点 = 42px；36px 放不下 `x👨‍👩‍👧…`（7 码点 = 42px），只放得下 `x…`
+      expect(clampToWidth(`x${FAMILY}y`, 36, byCodePoint)).toBe('x…');
+      // 42px 刚好放得下整个家族
+      expect(clampToWidth(`x${FAMILY}y`, 42, byCodePoint)).toBe(`x${FAMILY}y`);
+    });
+
+    it('不需要截断时输出与原串逐字符相等', () => {
+      expect(clampToWidth(`a${GRINNING}b`, 120, byCodePoint)).toBe(`a${GRINNING}b`);
+    });
+  });
 });

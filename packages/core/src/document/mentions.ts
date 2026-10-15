@@ -1,4 +1,5 @@
 import { skippedSpans, type Span } from './tags.js';
+import { graphemeBoundaryAtOrAfter, graphemeBoundaryAtOrBefore } from './grapheme.js';
 
 /**
  * **未链接提及**：正文里提到了某篇文档的名字，却没有写成链接。
@@ -105,7 +106,14 @@ function hasWordBoundaries(source: string, from: number, to: number, text: strin
   return true;
 }
 
-/** 命中处所在行的片段。过长时围绕命中处取一段窗口，两端加省略号。 */
+/**
+ * 命中处所在行的片段。过长时围绕命中处取一段窗口，两端加省略号。
+ *
+ * 窗口两端都对齐到**字素簇边界**：`EXCERPT_RADIUS` / `EXCERPT_MAX_LENGTH` 数的是码元，
+ * 而窗口的起止点是拿命中位置做减法算出来的，正好可能落在一个 emoji 或组合字符的中间 ——
+ * 那样摘录里会出现一个 `�`。取整方向刻意相反：开头往后收、结尾往前收，
+ * 这样窗口只会**向内**缩小，不会超出 `EXCERPT_MAX_LENGTH`。
+ */
 function excerptAt(source: string, from: number, to: number): string {
   const lineStart = source.lastIndexOf('\n', from - 1) + 1;
   const rawEnd = source.indexOf('\n', to);
@@ -116,8 +124,8 @@ function excerptAt(source: string, from: number, to: number): string {
   if (line.length <= EXCERPT_MAX_LENGTH) return line.trim();
 
   const localFrom = from - lineStart;
-  const start = Math.max(0, localFrom - EXCERPT_RADIUS);
-  const end = Math.min(line.length, start + EXCERPT_MAX_LENGTH);
+  const start = graphemeBoundaryAtOrAfter(line, Math.max(0, localFrom - EXCERPT_RADIUS));
+  const end = graphemeBoundaryAtOrBefore(line, Math.min(line.length, start + EXCERPT_MAX_LENGTH));
   return `${start > 0 ? '…' : ''}${line.slice(start, end).trim()}${end < line.length ? '…' : ''}`;
 }
 

@@ -145,6 +145,12 @@ export {
 export { countDocumentCharacters } from './document/text-stats.js';
 
 export {
+  segmentGraphemes,
+  graphemeBoundaryAtOrBefore,
+  graphemeBoundaryAtOrAfter
+} from './document/grapheme.js';
+
+export {
   DEFAULT_ATTACHMENT_DIRECTORY,
   DEFAULT_ATTACHMENT_NAME_TEMPLATE,
   expandAttachmentName,

@@ -20,6 +20,8 @@
  * 排序里没有任何随机项，末位兜底用 `id` 比较。图谱每次打开、每次重排都得到同一份标签，
  * 用户才能靠位置记住「那篇文档在哪」；而且坐标可断言（随机排序只能测「跑完了没抛错」）。
  */
+import { segmentGraphemes } from '@nexus/core';
+
 export interface GraphLabelCandidate {
   id: number;
   /** 屏幕坐标 */
@@ -233,10 +235,14 @@ export function clampToWidth(
 
   if (measureTextWidth(ELLIPSIS) > maxWidthPx) return '';
 
-  // 从后往前逐字砍：文件名 / 标题的区分度在前部，砍尾比砍头有信息量。
+  // 从后往前逐**字素簇**砍：文件名 / 标题的区分度在前部，砍尾比砍头有信息量。
   // 二分不适用 —— 字符不等宽，「截断长度 → 宽度」只是单调不减，不是线性。
-  for (let length = trimmed.length - 1; length > 0; length -= 1) {
-    const candidate = trimmed.slice(0, length) + ELLIPSIS;
+  //
+  // 按字素簇而不是按 `slice(0, length)` 的码元：名字里有 emoji 时，按码元切会在末尾
+  // 留下一个孤立代理项，画出来是一个 `�`（见 `@nexus/core` 的 `grapheme.ts`）。
+  const clusters = segmentGraphemes(trimmed);
+  for (let count = clusters.length - 1; count > 0; count -= 1) {
+    const candidate = clusters.slice(0, count).join('') + ELLIPSIS;
     if (measureTextWidth(candidate) <= maxWidthPx) return candidate;
   }
   return '';
