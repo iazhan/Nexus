@@ -12,7 +12,7 @@ import {
 /**
  * 图谱上的**断链**。
  *
- * 单独一个文件、单独一次启动：这一组要验的是「点断链 → 在工作区里建出那个文件」，
+ * 单独一个文件、单独一次启动：这一组要验的是「双击断链 → 在工作区里建出那个文件」，
  * 它**会改动工作区**（新建一篇文档）。放进 `graph-panel.test.ts` 会污染那边四个用例
  * 依赖的固定节点数。
  *
@@ -40,7 +40,7 @@ describe('图谱断链', () => {
   /**
    * 确保图谱在主区；被文档挤走了就再点一次活动栏图标。
    *
-   * 2026-10-14 起图谱占主区，而「点断链新建并打开文档」会让图谱退场 —— 上一条用例
+   * 2026-10-14 起图谱占主区，而「双击断链新建并打开文档」会让图谱退场 —— 上一条用例
    * 正好做了这件事，所以这一条开头必须先把图谱切回来。
    */
   const ensureGraphVisible = async (): Promise<void> => {
@@ -99,10 +99,11 @@ describe('图谱断链', () => {
     expect(painted).toBeGreaterThan(0);
   }, INDEXED_TEST_TIMEOUT_MS);
 
-  it('点断链节点会按目标名新建并打开那篇文档', async () => {
+  it('双击断链节点会按目标名新建并打开那篇文档', async () => {
     const missing = (await readScreenNodes()).find((node) => node.kind === 'missing')!;
     expect(missing).toBeTruthy();
 
+    // 单击只选中（2026-10-15 起），新建并打开是双击
     await app.evaluate(`(() => {
       const canvas = document.querySelector('.nexus-graph-canvas');
       const rect = canvas.getBoundingClientRect();
@@ -111,6 +112,9 @@ describe('图谱断链', () => {
         bubbles: true, button: 0, clientX: point.x, clientY: point.y
       }));
       canvas.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true, button: 0, clientX: point.x, clientY: point.y
+      }));
+      canvas.dispatchEvent(new MouseEvent('dblclick', {
         bubbles: true, button: 0, clientX: point.x, clientY: point.y
       }));
     })()`);

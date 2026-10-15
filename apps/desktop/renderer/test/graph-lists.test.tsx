@@ -151,6 +151,36 @@ describe('图谱清单视图', () => {
       });
       expect(onOpenFile).toHaveBeenCalledWith('/vault/b.md');
     });
+
+    it('三档空态文案两两不同，而且各自解释了「这一屏列的是什么」', async () => {
+      /*
+        三档共用一句话的话，用户看到的会是「没有孤儿」，而他明明刚筛掉了另一类。
+        光说「没有」还不够 —— 原来的文案没解释「孤立」的定义，用户分不清是
+        「没人引用」还是「不引用别人」。所以每条都要说清「什么才会出现在这里」。
+      */
+      getGraphOrphans.mockImplementation(async () => []);
+      await render(<OrphansList revision={1} onOpenFile={onOpenFile} />);
+      const both = note()!;
+
+      await act(async () => {
+        chip('[data-orphan-mode="incoming"]')!.click();
+      });
+      await act(async () => {});
+      const incoming = note()!;
+
+      await act(async () => {
+        chip('[data-orphan-mode="outgoing"]')!.click();
+      });
+      await act(async () => {});
+      const outgoing = note()!;
+
+      expect(new Set([both, incoming, outgoing]).size).toBe(3);
+      // 三档都得说清「这一屏列的是什么」，而不是只留一句「空的」——
+      // 光看空态分不出自己切到了哪一档（`appears`/`appear` 两种单复数都收）
+      for (const text of [both, incoming, outgoing]) {
+        expect(text).toMatch(/appears? here/);
+      }
+    });
   });
 
   describe('枢纽', () => {
@@ -172,12 +202,14 @@ describe('图谱清单视图', () => {
       expect(onOpenFile).toHaveBeenCalledWith('/vault/hub.md');
     });
 
-    it('没有任何链接时是空态', async () => {
+    it('没有任何链接时是空态，并说清这一屏是按什么排的', async () => {
       getGraphHubs.mockImplementation(async () => []);
       await render(<HubsList revision={1} onOpenFile={onOpenFile} />);
 
       expect(items()).toHaveLength(0);
       expect(note()).toContain('Nothing is linked');
+      // 「枢纽」这个词本身不解释任何东西 —— 得说清它是按被引用次数排的
+      expect(note()).toContain('ranks documents');
     });
   });
 

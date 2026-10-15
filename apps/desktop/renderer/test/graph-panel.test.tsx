@@ -145,12 +145,21 @@ describe('图谱控制条', () => {
     vi.restoreAllMocks();
   });
 
-  const render = async (options: { activeFilePath?: string | null } = {}) => {
+  const render = async (
+    options: {
+      activeFilePath?: string | null;
+      onCreateDocument?: () => void;
+      onOpenSearch?: () => void;
+    } = {}
+  ) => {
     await act(async () => {
       root.render(
         <GraphPanel
           activeFilePath={options.activeFilePath ?? null}
           onOpenFile={vi.fn()}
+          onCreateMissingLink={vi.fn()}
+          onCreateDocument={options.onCreateDocument ?? vi.fn()}
+          onOpenSearch={options.onOpenSearch ?? vi.fn()}
           revision={1}
         />
       );
@@ -252,17 +261,27 @@ describe('图谱控制条', () => {
     expect(count()).toBeNull();
     const note = container.querySelector('.nexus-sidebar-note')!;
     expect(note.textContent).toContain('No documents match');
-    expect(note.textContent).not.toContain('No documents to draw yet');
+    expect(note.textContent).not.toContain('No documents yet');
 
-    const reset = container.querySelector<HTMLElement>('.nexus-graph-reset')!;
+    const reset = container.querySelector<HTMLElement>(
+      '.nexus-graph-empty-action[data-action="reset-filters"]'
+    )!;
     expect(reset).not.toBeNull();
+    /*
+      被筛空时**不能**给「新建文档 / 搜索」：图是有的，只是被开关藏起来了，
+      而「新建一篇」解决不了这个问题 —— 那两枚按钮是给「工作区里一篇都没有」准备的。
+      少了这条反向断言，把两档合并成同一组按钮照样通过。
+    */
+    expect(container.querySelector('[data-action="new-document"]')).toBeNull();
+    expect(container.querySelector('[data-action="open-search"]')).toBeNull();
+
     await act(async () => {
       reset.click();
     });
     await act(async () => {});
 
     expect(count()).toBe('4');
-    expect(container.querySelector('.nexus-graph-reset')).toBeNull();
+    expect(container.querySelector('.nexus-graph-empty-action')).toBeNull();
   });
 
   it('图例按分区大小列出，根目录下的文档并入「其他」', async () => {
@@ -554,13 +573,43 @@ describe('图谱控制条', () => {
     expect(chip('[data-type="pdf"]')!.getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('工作区本来就空时不给出路按钮（那不是筛出来的）', async () => {
+  it('真·空态给两个动作，但不给「显示全部」', async () => {
+    /*
+      两种空态的出路**必须不同**：
+      - 被筛空 → 「显示全部」（图是有的，只是被藏起来了）；
+      - 真·空（新工作区）→ 「新建文档 / 搜索」。这时给「显示全部」是个点了什么都不变的
+        按钮，比没有按钮更让人困惑。
+
+      这条要正反两面都断言 —— 只断「有按钮」的话，把两档换成同一组照样通过。
+    */
+    const onCreateDocument = vi.fn();
+    const onOpenSearch = vi.fn();
     getGraph.mockImplementation(async () => ({ nodes: [], edges: [] }));
-    await render();
+    await render({ onCreateDocument, onOpenSearch });
 
     const note = container.querySelector('.nexus-sidebar-note')!;
-    expect(note.textContent).toContain('No documents to draw yet');
-    expect(container.querySelector('.nexus-graph-reset')).toBeNull();
+    // 文案要解释「为什么会是空的」，不只是报一句「没有文档」
+    expect(note.textContent).toContain('No documents yet');
+    expect(note.textContent).toContain('drawn from your workspace');
+    // 真·空不给「显示全部」
+    expect(container.querySelector('[data-action="reset-filters"]')).toBeNull();
+
+    const create = container.querySelector<HTMLElement>('[data-action="new-document"]')!;
+    const search = container.querySelector<HTMLElement>('[data-action="open-search"]')!;
+    expect(create).not.toBeNull();
+    expect(search).not.toBeNull();
+
+    act(() => {
+      create.click();
+    });
+    expect(onCreateDocument).toHaveBeenCalledTimes(1);
+    expect(onOpenSearch).not.toHaveBeenCalled();
+
+    act(() => {
+      search.click();
+    });
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+
     // 一个类型都没有时不画筛选条 —— 空的分段控件只会占地方
     expect(chips().filter((el) => el.dataset.type)).toHaveLength(0);
     // 范围那两个还在
@@ -619,7 +668,7 @@ describe('图谱控制条', () => {
       expect(body().getAttribute('data-phase')).toBe('ready');
       expect(errorNote()).toBeNull();
       expect(container.querySelector('.nexus-sidebar-note')!.textContent).toContain(
-        'No documents to draw yet'
+        'No documents yet'
       );
     });
 
@@ -641,7 +690,7 @@ describe('图谱控制条', () => {
 
       getGraph.mockImplementation(async () => FULL);
       await act(async () => {
-        root.render(<GraphPanel activeFilePath={null} onOpenFile={vi.fn()} revision={2} />);
+        root.render(<GraphPanel activeFilePath={null} onOpenFile={vi.fn()} onCreateMissingLink={vi.fn()} onCreateDocument={vi.fn()} onOpenSearch={vi.fn()} revision={2} />);
       });
       await act(async () => {});
 
@@ -705,6 +754,8 @@ describe('图谱控制条', () => {
             activeFilePath={null}
             onOpenFile={onOpenFile}
             onCreateMissingLink={onCreateMissingLink}
+            onCreateDocument={vi.fn()}
+            onOpenSearch={vi.fn()}
             revision={options.revision ?? 1}
           />
         );
@@ -864,6 +915,8 @@ describe('图谱控制条', () => {
             activeFilePath={null}
             onOpenFile={vi.fn()}
             onCreateMissingLink={vi.fn()}
+            onCreateDocument={vi.fn()}
+            onOpenSearch={vi.fn()}
             revision={2}
           />
         );
@@ -889,6 +942,8 @@ describe('图谱控制条', () => {
             activeFilePath="/vault/a.md"
             onOpenFile={vi.fn()}
             onCreateMissingLink={vi.fn()}
+            onCreateDocument={vi.fn()}
+            onOpenSearch={vi.fn()}
             revision={1}
           />
         );

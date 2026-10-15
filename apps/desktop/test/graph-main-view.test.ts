@@ -24,11 +24,11 @@ import {
  *    `overflow: hidden`）就只有这边会红。
  * 2. **侧栏整块隐藏**：图要的是「一屏图」。侧栏虽然还挂载着（切回来不用重跑索引），
  *    但 slot 挂 hidden 类、由 CSS 收起；这里顺带盯住它没有变成空白或第二份图谱。
- * 3. **点节点打开文档后退场**：主区一旦有文档要显示，图谱就让位，侧栏跟着回来。
- *    这条同时是「图谱不会把自己变成一潭死水」的保证：点了节点看得见文档。
+ * 3. **双击节点打开文档后退场**：主区一旦有文档要显示，图谱就让位，侧栏跟着回来。
+ *    这条同时是「图谱不会把自己变成一潭死水」的保证：双击节点看得见文档。
  *
  * **一个文件只启动一次 Electron**（同文件第二次启动会卡在 `Runtime.enable` 不返回）。
- * 两条用例按顺序共用一次启动：第一条切进图谱，第二条在图谱里点节点。
+ * 两条用例按顺序共用一次启动：第一条切进图谱，第二条在图谱里双击节点。
  */
 
 interface ScreenNode {
@@ -137,7 +137,7 @@ describe('图谱占编辑区', () => {
     ).toBe('true');
   }, INDEXED_TEST_TIMEOUT_MS);
 
-  it('在图谱里点节点打开文档：主区让位回编辑区', async () => {
+  it('在图谱里双击节点打开文档：主区让位回编辑区', async () => {
     // 布局比画布晚一拍（尺寸要等 ResizeObserver 报上来），等节点真的算出来
     await app.waitForFunction(
       `document.querySelector('.nexus-graph-hitmap')?.dataset.screenNodes !== '[]'`,
@@ -152,7 +152,9 @@ describe('图谱占编辑区', () => {
     const target = nodes.find((node) => node.name === 'a.md');
     expect(target).toBeDefined();
 
-    // 在画布上那一点的屏幕坐标处按下并松开 —— 「拖拽不算点击」靠的就是这一对事件
+    // 在画布上那一点双击 —— 单击只选中（2026-10-15 起），打开是双击。
+    // 浏览器里双击是 `mousedown/mouseup/click` ×2 之后再来一个 `dblclick`；
+    // 这里省掉 `click`（没人监听它）但保留一次按-放。
     await app.evaluate(`(() => {
       const canvas = document.querySelector('.nexus-main-content .nexus-graph-canvas');
       const rect = canvas.getBoundingClientRect();
@@ -161,6 +163,9 @@ describe('图谱占编辑区', () => {
         bubbles: true, button: 0, clientX: point.x, clientY: point.y
       }));
       canvas.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true, button: 0, clientX: point.x, clientY: point.y
+      }));
+      canvas.dispatchEvent(new MouseEvent('dblclick', {
         bubbles: true, button: 0, clientX: point.x, clientY: point.y
       }));
     })()`);

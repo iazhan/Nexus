@@ -50,6 +50,16 @@ export interface GraphPanelProps {
    * 合成到一个回调里、靠「路径存不存在」分流的话，图谱这一层就要去查磁盘了。
    */
   onCreateMissingLink: (linkTarget: string) => void;
+  /**
+   * 图谱**真·空态**（整个工作区一篇文档都没有）里的两个动作。
+   *
+   * 必须由宿主传进来，不能面板自己实现：
+   * - 新建文档要走 `new-file` 命令的**同一个**处理函数（Ctrl+N / 菜单 / 标签栏 `+` 都是它）——
+   *   在这里另写一份，就会出现「从这个入口新建的文档不进索引」这类同源问题；
+   * - 打开搜索要展开活动栏的搜索那一屏，那是宿主的布局状态。
+   */
+  onCreateDocument: () => void;
+  onOpenSearch: () => void;
   /** 索引变化信号；变化时重读图 */
   revision: number;
 }
@@ -253,6 +263,8 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   activeFilePath,
   onOpenFile,
   onCreateMissingLink,
+  onCreateDocument,
+  onOpenSearch,
   revision,
   variant = 'sidebar'
 }) => {
@@ -1243,26 +1255,55 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
           <p className="nexus-sidebar-note">{t('graph.loading')}</p>
         ) : graph.nodes.length === 0 ? (
           /*
-            两种「空」必须分开：本来就没什么可画，和**被筛空了**。
-            后者要给一条出路（「显示全部」）—— 否则用户面对一张空画布，只能靠猜是哪个开关干的。
-            与文件树的过滤规则是同一条判据。
+            两种「空」必须分开，而且**各自给各自的出路**：
+
+            - **被筛空了** —— 图是有的，只是被开关藏起来了。出路是「显示全部」。
+              不给的话用户面对一张空画布，只能靠猜是哪个开关干的。
+            - **真·空**（新工作区，一篇文档都没有）—— 这时候「显示全部」是没有用的按钮：
+              它显示的还是一个空图。该给的是「怎么让这儿有东西」：新建一篇、或者去搜。
+
+            两档给的按钮**必须不同**。把真·空那档也塞一个「显示全部」，等于给用户一个
+            点了什么都不变的按钮 —— 那比没有按钮更让人困惑。
           */
           hasTypeFilter ? (
             <p className="nexus-sidebar-note">
               {t('graph.filteredEmpty')}
-              <button
-                type="button"
-                className="nexus-graph-reset"
-                onClick={() => {
-                  setHiddenTypes([]);
-                  setScope('all');
-                }}
-              >
-                {t('graph.resetFilters')}
-              </button>
+              <span className="nexus-graph-empty-actions">
+                <button
+                  type="button"
+                  className="nexus-graph-empty-action"
+                  data-action="reset-filters"
+                  onClick={() => {
+                    setHiddenTypes([]);
+                    setScope('all');
+                  }}
+                >
+                  {t('graph.resetFilters')}
+                </button>
+              </span>
             </p>
           ) : (
-            <p className="nexus-sidebar-note">{t('graph.empty')}</p>
+            <p className="nexus-sidebar-note">
+              {t('graph.empty')}
+              <span className="nexus-graph-empty-actions">
+                <button
+                  type="button"
+                  className="nexus-graph-empty-action"
+                  data-action="new-document"
+                  onClick={onCreateDocument}
+                >
+                  {t('graph.empty.newDocument')}
+                </button>
+                <button
+                  type="button"
+                  className="nexus-graph-empty-action"
+                  data-action="open-search"
+                  onClick={onOpenSearch}
+                >
+                  {t('graph.empty.search')}
+                </button>
+              </span>
+            </p>
           )
         ) : (
           <>

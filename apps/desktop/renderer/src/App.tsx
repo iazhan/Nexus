@@ -698,19 +698,28 @@ export const App: React.FC = () => {
    * 「点了节点、文档开了、界面却什么都没变」。而**判据**本来就该是「活动文档换了」——
    * 那是「主区该显示文档了」的唯一信号。
    *
-   * 只在图谱视图里跑（早退），且只认「换成另一篇」：`null → null`（关掉最后一个
-   * 标签页）不退场，那时主区空着，留给图谱正合适。
+   * 只在图谱视图里跑（早退），且只认「换成了另一份文档」：id 没变就不退场。
+   *
+   * 认的是**文档 id** 不是 `filePath`：未命名文档（`filePath: null`）同样是「有文档要
+   * 显示」，而它的路径恒为空。按路径判的话，从图谱空态点「新建文档」或按 Ctrl+N 都是
+   * `null → null`，标签页开了、图谱却还占着主区 —— 用户按了按钮却什么都没看见。
+   * 用 id 才能把「关掉最后一个标签页」（id → null，那时主区真的空着，留给图谱正合适）
+   * 与「新建一份未命名」（null → 新 id，主区有东西要显示了）分开。
+   *
+   * 顺带一提：关掉最后一篇时宿主会立刻补一份空白文档（见 `closeDocumentAndEnsureEditor`），
+   * 所以那条路径的 id 也是变的 —— 从图谱视图按 Ctrl+W 会落到编辑区。这是对的：
+   * 那一刻主区确实有文档要显示。
    */
-  const previousActivePathRef = useRef<string | null>(activeDocument?.filePath ?? null);
+  const previousActiveIdRef = useRef<string | null>(activeDocument?.id ?? null);
   useEffect(() => {
-    const current = activeDocument?.filePath ?? null;
-    const previous = previousActivePathRef.current;
-    previousActivePathRef.current = current;
+    const current = activeDocument?.id ?? null;
+    const previous = previousActiveIdRef.current;
+    previousActiveIdRef.current = current;
     if (!graphViewActive) return;
     if (current !== null && current !== previous) {
       setActivity((state) => showActivity(state, 'workspace'));
     }
-  }, [activeDocument?.filePath, graphViewActive]);
+  }, [activeDocument?.id, graphViewActive]);
 
   /**
    * 兜底 session：只在 `status === 'ready'` 之前被引用。
@@ -1681,6 +1690,18 @@ export const App: React.FC = () => {
     initialContentRef.current = '';
     window.nexus?.setDirty?.(false);
   }, [store]);
+
+  /**
+   * 展开活动栏的**搜索**那一屏。
+   *
+   * 走 `showActivity` 而不是 `toggleActivity`：这是**程序发起的定位**，面板正收着的时候
+   * 也必须把它展开出来 —— 用户按了按钮却什么都没看见，等于按钮没生效。
+   * 与活动栏那枚搜索图标是同一份状态、同一条路径（那边也走 `setActivity`），
+   * 所以不存在「从这里打开搜索」与「点图标打开搜索」两种行为。
+   */
+  const handleOpenSearch = useCallback(() => {
+    setActivity((previous) => showActivity(previous, 'search'));
+  }, []);
 
   /**
    * 关掉标签页之后补一个空白文档。
@@ -3665,6 +3686,10 @@ export const App: React.FC = () => {
           activeFilePath={filePath}
           onOpenFile={handleOpenWorkspaceFile}
           onCreateMissingLink={createMissingLinkDocument}
+          // 空态里那两枚按钮不自己实现动作：新建要走 `new-file` 的同一条处理函数
+          // （Ctrl+N / 菜单 / 标签栏 `+` 都是它），搜索要展开宿主的活动栏
+          onCreateDocument={() => void handleNewFile()}
+          onOpenSearch={handleOpenSearch}
           revision={documentRevision}
         />
       ) : (

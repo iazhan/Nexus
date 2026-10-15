@@ -195,7 +195,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'graph.loading': 'Loading the graph…',
     'graph.loadFailed': 'Could not load the graph.',
     'graph.typesUnavailable': 'Document types are unavailable.',
-    'graph.empty': 'No documents to draw yet.',
+    'graph.empty':
+      'No documents yet. The graph is drawn from your workspace, so it stays empty until there is at least one.',
+    'graph.empty.newDocument': 'New document',
+    'graph.empty.search': 'Search',
     'graph.missingHint': 'not created yet',
     'graph.detail.links': '{incoming} in · {outgoing} out',
     'graph.detail.open': 'Open',
@@ -212,10 +215,14 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'graph.orphans.mode.incoming': 'No incoming',
     'graph.orphans.mode.outgoing': 'No outgoing',
     'graph.orphans.mode.both': 'Neither',
-    'graph.orphans.empty.incoming': 'Every document is linked from somewhere.',
-    'graph.orphans.empty.outgoing': 'Every document links somewhere.',
-    'graph.orphans.empty.both': 'Nothing is disconnected.',
-    'graph.hubs.empty': 'Nothing is linked yet.',
+    'graph.orphans.empty.incoming':
+      'Every document is linked from somewhere. Only documents with no incoming links appear here.',
+    'graph.orphans.empty.outgoing':
+      'Every document links somewhere. Only documents that link to nothing appear here.',
+    'graph.orphans.empty.both':
+      'Nothing is disconnected. A document appears here only when nothing links to it and it links to nothing.',
+    'graph.hubs.empty':
+      'Nothing is linked yet. This list ranks documents by how many others link to them.',
     'graph.hubs.incoming': '{count} incoming',
     'graph.dead.empty': 'Every link points at something that exists.',
     'graph.dead.count': '{count} refs',
@@ -1078,7 +1085,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'graph.loading': '正在加载图谱…',
     'graph.loadFailed': '图谱加载失败。',
     'graph.typesUnavailable': '文档类型不可用。',
-    'graph.empty': '还没有可以画的文档。',
+    'graph.empty':
+      '工作区里还没有文档。图谱是从工作区里的文档画出来的，所以要先有一篇。',
+    'graph.empty.newDocument': '新建文档',
+    'graph.empty.search': '搜索',
     'graph.missingHint': '还没创建',
     'graph.detail.links': '入链 {incoming} · 出链 {outgoing}',
     'graph.detail.open': '打开',
@@ -1095,10 +1105,13 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'graph.orphans.mode.incoming': '没人引用',
     'graph.orphans.mode.outgoing': '不引用别人',
     'graph.orphans.mode.both': '两者都缺',
-    'graph.orphans.empty.incoming': '每篇文档都被人引用着。',
-    'graph.orphans.empty.outgoing': '每篇文档都引用了别的文档。',
-    'graph.orphans.empty.both': '没有完全孤立的文档。',
-    'graph.hubs.empty': '还没有任何链接。',
+    'graph.orphans.empty.incoming':
+      '每篇文档都被人引用着。这一屏只列「没有文档引用它」的那些。',
+    'graph.orphans.empty.outgoing':
+      '每篇文档都引用了别的文档。这一屏只列「一条链接都没写」的那些。',
+    'graph.orphans.empty.both':
+      '没有完全孤立的文档。只有「没人引用、它也不引用别人」的文档才会出现在这里。',
+    'graph.hubs.empty': '还没有任何链接。这一屏按「被多少篇文档引用」给文档排名。',
     'graph.hubs.incoming': '被引用 {count} 次',
     'graph.dead.empty': '所有链接都指向了存在的文档。',
     'graph.dead.count': '{count} 处引用',

@@ -1798,9 +1798,20 @@ button.nexus-outline-toggle:hover {
 }
 
 /* 被筛空时的出路。与大纲空态的按钮同一条取舍：做得轻，它是一条提示不是主操作。 */
-.nexus-graph-reset {
-  display: block;
+/*
+  空态里的出路按钮。做得轻 —— 它是一条提示，不是主操作。
+
+  **排一行而不是各自占一行**：真·空那档给两个同等重要的动作（新建 / 搜索），
+  上下堆会读成「一个主操作 + 一个次要操作」，而它们其实是对等的二选一。
+*/
+.nexus-graph-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 8px;
+}
+
+.nexus-graph-empty-action {
   padding: 4px 10px;
   border: 1px solid var(--nexus-border-subtle);
   border-radius: 6px;
@@ -1811,7 +1822,7 @@ button.nexus-outline-toggle:hover {
   cursor: pointer;
 }
 
-.nexus-graph-reset:hover {
+.nexus-graph-empty-action:hover {
   background-color: var(--nexus-bg-surface-hover);
   color: var(--nexus-text-primary);
 }
