@@ -130,4 +130,22 @@ describe('未链接提及', () => {
 
     expect((await mentionsOf('notes/dma.md')).mentions).toEqual([]);
   });
+
+  /**
+   * 中文工作区：词与词之间不写空格，`\w` 式的边界判据整个失效 ——
+   * 这一条走的是 `Intl.Segmenter` 的词边界（判据 §11.2.4）。
+   *
+   * 正反两面都要：只说「不误报」的话，把中文一律排除掉也过。
+   */
+  it('中文：嵌在更长词里的候选不报，正常提及照报', async () => {
+    write('笔记.md', '# 笔记\n');
+    write('a.md', '我今天记笔记了。\n');
+    write('b.md', '见笔记那篇。\n');
+    await index();
+
+    const mentions = (await mentionsOf('笔记.md')).mentions;
+
+    expect(mentions.map((mention) => mention.document.relativePath)).toEqual(['b.md']);
+    expect(mentions[0]!.text).toBe('笔记');
+  });
 });

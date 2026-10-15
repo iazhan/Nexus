@@ -76,13 +76,15 @@ export function findUnlinkedMentions(
 
   const pattern = new RegExp(usable.map(escapeRegExp).join('|'), 'gi');
   const mentions: MentionRange[] = [];
+  // 分词一次、整篇共用（见 `createWordBoundaryLookup`）
+  const isWordBoundary = createWordBoundaryLookup(source);
 
   for (const match of source.matchAll(pattern)) {
     const from = match.index ?? 0;
     const to = from + match[0].length;
 
     if (skipped.some((span) => span.from < to && from < span.to)) continue;
-    if (!hasWordBoundaries(source, from, to, match[0])) continue;
+    if (!hasWordBoundaries(source, from, to, isWordBoundary)) continue;
 
     mentions.push({ text: match[0], from, to, excerpt: excerptAt(source, from, to) });
   }
@@ -98,12 +100,128 @@ export function findUnlinkedMentions(
  *
  * 不用 `\b`：候选里可以有 `/`、`.`、`-`，而 `\b` 只认 `\w` 的边界，
  * 在 `notes/dma` 这种候选上给出的边界位置是错的。手工判两个字符更直白。
+ *
+ * ## 中文为什么另走一条路
+ *
+ * `\w` 只认 ASCII，所以汉字一律被判成「非词字符」，判据直接返回「通过」——
+ * 于是中文候选的边界判据**整个失效**（判据 §11.2.4）。中文、日文、泰文这些语言
+ * 词与词之间不写空格，只能靠分词器：外侧字符是词字符、且任一侧是这类文字时，
+ * 改问「这个下标是不是词边界」。
+ *
+ * ## 这一条能做到什么、做不到什么（2026-10-15 实测，别当成回归）
+ *
+ * 按 `Intl.Segmenter` 的 `word` 粒度，被去掉的是**落在一个更长词内部**的命中，
+ * 例如 `记笔记`（ICU 切成 `记笔记` 一整段）里候选「笔记」不再命中 —— 那正是
+ * 「记笔记」这类动宾短语，用户并不是在指那篇文档。
+ *
+ * 但 `笔记本` **仍然会命中**：ICU 的词典把它切成 `笔记|本`，`笔记` 本身就是一个
+ * 完整的词。这不是本判据能分辨的（要分辨得另有一份「更长词」的词典），
+ * 刻意留成已知残留并有用例钉住，免得以后被当成 bug 反复修。
  */
-function hasWordBoundaries(source: string, from: number, to: number, text: string): boolean {
-  const isWordChar = (value: string | undefined) => value !== undefined && /[\w]/.test(value);
-  if (isWordChar(text[0]) && isWordChar(source[from - 1])) return false;
-  if (isWordChar(text[text.length - 1]) && isWordChar(source[to])) return false;
-  return true;
+function hasWordBoundaries(
+  source: string,
+  from: number,
+  to: number,
+  isWordBoundary: (index: number) => boolean
+): boolean {
+  return (
+    isMatchBoundary(charBefore(source, from), charAt(source, from), from, isWordBoundary) &&
+    isMatchBoundary(charAt(source, to), charBefore(source, to), to, isWordBoundary)
+  );
+}
+
+/**
+ * 「可能是词的一部分」。**比 `\w` 宽**：`\w` 只认 ASCII，汉字会被判成非词字符 ——
+ * 那样外侧的汉字根本进不了「要不要问分词器」这一步，判据会在第一行就返回「通过」。
+ *
+ * 下划线必须带上：`\w` 有它，少了这一条 `dma_ctrl` 里的 `dma` 会被判成命中。
+ */
+const WORD_CHAR = /[\p{L}\p{M}\p{N}_]/u;
+
+/** 拉丁那一路沿用原来的 `\w` 判据（ASCII 字母 / 数字 / 下划线）。 */
+const ASCII_WORD_CHAR = /[\w]/;
+
+/**
+ * 不写空格分词的语言：词与词的边界在正文字符里看不出来，只能靠分词器。
+ * 用 `scx=`（script extensions）而不是 `sc=`：日文的假名、注音符号等都归在 Han 的扩展集里。
+ */
+const UNSPACED_SCRIPT_CHAR =
+  /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}]/u;
+
+/**
+ * 词粒度分词器，**模块加载时取一次**。没有就退到「一律算边界」。
+ *
+ * 退化的方向是刻意选的：退到「通过」＝宁可多提示一条，也不漏掉一条。
+ * 反过来（退到「拒绝」）会让中文工作区在这个环境里**一条建议都没有**，
+ * 而用户看到的是「这个功能坏了」，不是「环境不支持」。
+ */
+const WORD_SEGMENTER: Intl.Segmenter | null = (() => {
+  const Ctor = (globalThis as { Intl?: { Segmenter?: typeof Intl.Segmenter } }).Intl?.Segmenter;
+  return Ctor === undefined ? null : new Ctor('und', { granularity: 'word' });
+})();
+
+/**
+ * 「这个下标是不是词边界」的查询器，**按源文本建一次**。
+ *
+ * 每个命中都要问两次，而分词是整段文本一遍的事 —— 放进循环里就是 O(命中数 × 文本长度)。
+ * 边界集合懒建：一整篇文档里可能一条无空格文字的命中都没有（纯英文工作区），
+ * 那就不该付这次分词的钱。
+ */
+function createWordBoundaryLookup(source: string): (index: number) => boolean {
+  const segmenter = WORD_SEGMENTER;
+  if (segmenter === null) return () => true;
+
+  let boundaries: Set<number> | null = null;
+  return (index) => {
+    if (boundaries === null) {
+      boundaries = new Set<number>([source.length]);
+      for (const segment of segmenter.segment(source)) boundaries.add(segment.index);
+    }
+    return boundaries.has(index);
+  };
+}
+
+/**
+ * 一侧的判据。`outside` 是紧挨着命中的那个字符，`inside` 是命中自己的边缘字符。
+ *
+ * 三条分支的顺序不能换：先排「外侧不是词字符」（标点、空白、行首行尾都算边界），
+ * 再排无空格文字，最后才是原来的 `\w` 判据。
+ */
+function isMatchBoundary(
+  outside: string | undefined,
+  inside: string | undefined,
+  index: number,
+  isWordBoundary: (index: number) => boolean
+): boolean {
+  if (outside === undefined) return true;
+  if (!WORD_CHAR.test(outside)) return true;
+  if (UNSPACED_SCRIPT_CHAR.test(outside) || (inside !== undefined && UNSPACED_SCRIPT_CHAR.test(inside))) {
+    return isWordBoundary(index);
+  }
+  // 拉丁 / 有空格分词的那一路：与原来的判据逐条一致 —— 外侧与候选自己的边缘字符
+  // **都**是 `\w` 才算词内命中。少一个条件都会改变既有行为（`dma` / `notes/dma` 那批用例）。
+  return !(ASCII_WORD_CHAR.test(outside) && inside !== undefined && ASCII_WORD_CHAR.test(inside));
+}
+
+/**
+ * 按下标取一个**码点**（不是码元）。
+ *
+ * 不能写 `source[index]`：BMP 之外的字符（`𠮷`、emoji）会被取成半个代理项，
+ * 而 `𠮷` 恰恰是 `scx=Han` 的汉字 —— 取错一半就等于漏判一个中文边界。
+ */
+function charAt(text: string, index: number): string | undefined {
+  if (index < 0 || index >= text.length) return undefined;
+  const codePoint = text.codePointAt(index);
+  return codePoint === undefined ? undefined : String.fromCodePoint(codePoint);
+}
+
+/** 按下标取**前一个**码点；下标落在代理对后半时再往前一格。 */
+function charBefore(text: string, index: number): string | undefined {
+  if (index <= 0) return undefined;
+  const lowIndex = index - 1;
+  const unit = text.charCodeAt(lowIndex);
+  const isTrailSurrogate = unit >= 0xdc00 && unit <= 0xdfff;
+  return charAt(text, isTrailSurrogate && lowIndex > 0 ? lowIndex - 1 : lowIndex);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { findUnlinkedMentions } from '../src/index.js';
 
 /**
@@ -98,6 +98,59 @@ describe('未链接提及', () => {
     });
   });
 
+  /**
+   * 中文的词与词之间不写空格，`\w` 式的判据整个失效（汉字一律被判成非词字符）。
+   * 这一组走 `Intl.Segmenter` 的词边界。
+   *
+   * 正反两面都必须有：只说「不再误报」的话，把中文一律排除掉也过 ——
+   * 而「一刀切掉所有中文」恰恰是最省事的错法。所以每条收紧的用例都配一条
+   * 「中文正文里正常的提及必须照常命中」。
+   */
+  describe('中文词边界', () => {
+    const BIJI = ['笔记'];
+
+    it('候选落在一个更长的词内部时不命中', () => {
+      // 「记笔记」是一整个词（ICU 的词典把它切成一段），用户不是在指那篇文档
+      expect(texts('我今天记笔记了。', BIJI)).toEqual([]);
+    });
+
+    it('中文正文里正常的提及照常命中', () => {
+      // 少了这条，「凡汉字相邻就不算命中」也能让上一条过 —— 那等于把功能关掉
+      expect(texts('见笔记那篇。', BIJI)).toEqual(['笔记']);
+      expect(texts('我的笔记写得不错。', BIJI)).toEqual(['笔记']);
+      expect(texts('笔记里写了这件事。', BIJI)).toEqual(['笔记']);
+    });
+
+    it('两侧是空格或标点时命中', () => {
+      expect(texts('关于 笔记 的说明。', BIJI)).toEqual(['笔记']);
+      expect(texts('《笔记》、笔记。', BIJI)).toEqual(['笔记', '笔记']);
+    });
+
+    it('中文与拉丁字母混排时按词边界判，不是一律放行', () => {
+      // 外侧是拉丁字母 → 走分词器那条路：`A` 与 `笔记` 之间是词边界
+      expect(texts('A笔记B', BIJI)).toEqual(['笔记']);
+    });
+
+    it('拉丁那一路的行为逐条不变', () => {
+      // 这几条与上面「词边界」那一组重复是**刻意**的：换判据最容易碰坏的就是它们
+      expect(texts('dmax 是另一个东西。', DMA)).toEqual([]);
+      expect(texts('adma 不是 dma。', DMA)).toEqual(['dma']);
+      expect(texts('见 notes/dma。', ['dma', 'notes/dma'])).toEqual(['notes/dma']);
+      expect(texts('notes/dma2 里没有。', ['notes/dma'])).toEqual([]);
+    });
+
+    /**
+     * **已知残留，不是回归。** ICU 的词典把「笔记本」切成 `笔记|本`，
+     * `笔记` 自己就是一个完整的词 —— 词边界判据分辨不出「它其实是被 本 续上了」。
+     * 要分辨得另有一份「更长词」的词典，代价远超收益。
+     *
+     * 钉住它是为了让这件事**可见**：哪天有人来修，会先看到这条用例和它的理由。
+     */
+    it('已知残留：「笔记本」里仍然命中', () => {
+      expect(texts('这个笔记本很好。', BIJI)).toEqual(['笔记']);
+    });
+  });
+
   describe('候选写法', () => {
     it('长的候选优先，短的不会吃掉它的尾巴', () => {
       // 候选里同时有 `dma` 与 `notes/dma` 时，`notes/dma` 必须先匹配
@@ -193,5 +246,40 @@ describe('未链接提及', () => {
     const source = '见 dma 那篇。';
     const mention = findUnlinkedMentions(source, DMA)[0]!;
     expect(source.slice(mention.from, mention.to)).toBe(mention.text);
+  });
+});
+
+/**
+ * 老 Chromium 与精简 ICU 的 Node 里没有 `Intl.Segmenter`。
+ *
+ * 退化方向是**刻意选的**：退到「一律算边界」＝宁可多提示一条，也不漏掉一条。
+ * 反过来（退到「拒绝」）会让中文工作区在这个环境里一条建议都没有，
+ * 用户看到的是「功能坏了」，不是「环境不支持」。也**绝不能抛异常** ——
+ * 这条路径在「打开一篇文档就算提及」的链上。
+ */
+describe('没有 Intl.Segmenter 时', () => {
+  async function loadWithoutSegmenter(): Promise<typeof import('../src/index.js')> {
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, 'Segmenter');
+    Reflect.deleteProperty(Intl, 'Segmenter');
+    vi.resetModules();
+    try {
+      return await import('../src/index.js');
+    } finally {
+      if (descriptor !== undefined) Object.defineProperty(Intl, 'Segmenter', descriptor);
+      vi.resetModules();
+    }
+  }
+
+  it('中文候选退回「通过」，不抛异常', async () => {
+    const mod = await loadWithoutSegmenter();
+    expect(() => mod.findUnlinkedMentions('我今天记笔记了。', ['笔记'])).not.toThrow();
+    // 退化的方向是「多提示」：拿不准的一律算命中
+    expect(mod.findUnlinkedMentions('我今天记笔记了。', ['笔记']).map((m) => m.text)).toEqual(['笔记']);
+  });
+
+  it('拉丁那一路在退化环境里也不受影响', async () => {
+    const mod = await loadWithoutSegmenter();
+    expect(mod.findUnlinkedMentions('dmax 是另一个东西。', ['dma'])).toEqual([]);
+    expect(mod.findUnlinkedMentions('见 dma 那篇。', ['dma']).map((m) => m.text)).toEqual(['dma']);
   });
 });
