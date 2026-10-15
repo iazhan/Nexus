@@ -2053,6 +2053,13 @@ ipcMain.handle(IPC_CHANNELS.findDocumentsByTag, (event, tag: unknown) => {
   return getIndexStore(event.sender.id)?.findDocumentsByTag(tag) ?? [];
 });
 
+ipcMain.handle(IPC_CHANNELS.tagsOf, (event, documentId: unknown) => {
+  // 认不出就当「没有这篇」给空数组，不抛 —— 与 `readGraphQuery` 同一个取舍：
+  // 这是只读查询，坏参数退回一个空结果比把图谱详情条打挂有用。
+  if (typeof documentId !== 'number' || !Number.isFinite(documentId)) return [];
+  return getIndexStore(event.sender.id)?.tagsOf(Math.floor(documentId)) ?? [];
+});
+
 ipcMain.handle(IPC_CHANNELS.getGraph, (event, query: unknown) => {
   return (
     getIndexStore(event.sender.id)?.getGraph(readGraphQuery(query)) ?? { nodes: [], edges: [] }

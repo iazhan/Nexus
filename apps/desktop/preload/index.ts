@@ -190,6 +190,10 @@ const bridge: NexusBridge = {
     return ipcRenderer.invoke(IPC_CHANNELS.findDocumentsByTag, tag);
   },
 
+  tagsOf: (documentId: number): Promise<string[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.tagsOf, documentId);
+  },
+
   getGraph: (query?: GraphQuery): Promise<WorkspaceGraph> => {
     return ipcRenderer.invoke(IPC_CHANNELS.getGraph, query);
   },

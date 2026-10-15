@@ -84,6 +84,8 @@ describe('图谱控制条', () => {
   let container: HTMLDivElement;
   let root: Root;
   let getGraph: ReturnType<typeof vi.fn>;
+  /** 详情条按需查标签用的。默认空数组 —— 只有「标签」那一组用例会改它。 */
+  let tagsOf: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     container = document.createElement('div');
@@ -119,11 +121,13 @@ describe('图谱控制条', () => {
     });
 
     // 切到清单视图时那三个组件会挂上，必须一起打桩，否则它们会去调 undefined
+    tagsOf = vi.fn(async () => []);
     (window as unknown as { nexus: unknown }).nexus = {
       getGraph,
       getGraphOrphans: vi.fn(async () => []),
       getGraphHubs: vi.fn(async () => []),
-      getGraphDeadLinks: vi.fn(async () => [])
+      getGraphDeadLinks: vi.fn(async () => []),
+      tagsOf
     };
   });
 
@@ -924,14 +928,113 @@ describe('图谱控制条', () => {
       expect(onCreateMissingLink).not.toHaveBeenCalled();
     });
 
-    it('选中后详情条给出名字、路径与入链出链数', async () => {
+    it('选中后详情条给出名字、路径、类型与入链出链数', async () => {
       await renderGraph(FULL);
       await clickAt(screenPointOfNode('b.md'));
 
+      const bar = detail()!;
       // `FULL` 里 b 的边：a→b（入 1）、b→c 与 b→manual.pdf（出 2）
-      expect(detail()!.querySelector('.nexus-graph-detail-name')!.textContent).toBe('b.md');
-      expect(detail()!.querySelector('.nexus-graph-detail-path')!.textContent).toBe('b.md');
-      expect(detail()!.querySelector('.nexus-graph-detail-stat')!.textContent).toBe('1 in · 2 out');
+      expect(bar.querySelector('.nexus-graph-detail-name')!.textContent).toBe('b.md');
+      expect(bar.querySelector('.nexus-graph-detail-path')!.textContent).toBe('b.md');
+
+      /*
+        类型与计数都是 `.nexus-graph-detail-stat`，所以**不能**再靠「第一个 stat」取 ——
+        以后再加一个信息项就会指错地方（这条断言原来就是这么写的）。
+        类型用 `data-type` 定位：文案随语言变，类型名不变。
+      */
+      expect(bar.querySelector('[data-type]')!.getAttribute('data-type')).toBe('markdown');
+      expect(bar.querySelector('[data-type]')!.textContent).toBe('Notes');
+      expect(bar.querySelector('.nexus-graph-detail-stat:not([data-type])')!.textContent).toBe(
+        '1 in · 2 out'
+      );
+    });
+
+    it('详情条列出选中文档的标签', async () => {
+      tagsOf.mockImplementation(async () => ['dma', '性能']);
+      await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+      await act(async () => {});
+
+      const tags = Array.from(detail()!.querySelectorAll<HTMLElement>('[data-tag]'));
+      expect(tags.map((element) => element.dataset.tag)).toEqual(['dma', '性能']);
+      // `#` 前缀与标签面板同一套写法
+      expect(tags.map((element) => element.textContent)).toEqual(['#dma', '#性能']);
+      // 查的必须是**选中那一篇**的 id
+      expect(tagsOf).toHaveBeenCalledWith(2);
+    });
+
+    it('没有标签的文档不画标签区', async () => {
+      // 反例：空壳（一个标签标题配一片空白）比没有更让人困惑
+      tagsOf.mockImplementation(async () => []);
+      await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+      await act(async () => {});
+
+      expect(detail()!.querySelector('.nexus-graph-detail-tags')).toBeNull();
+    });
+
+    it('换选中时不会先顶着上一篇的标签', async () => {
+      /*
+        标签是异步取的，而只存一个数组的话，换选中的那一瞬间新名字会配着**上一篇**的标签 ——
+        那是错误数据，比「还没加载好」糟得多。所以让第二篇的查询**挂着不返回**，
+        这样才能把「已经清掉」和「还没回来」区分开（第二篇立刻返回空数组的话，
+        不清理也能过 —— 那就白测了）。
+      */
+      let resolveSecond: (tags: string[]) => void = () => {};
+      tagsOf.mockImplementation(async (id: number) => {
+        if (id === 2) return ['dma'];
+        return new Promise<string[]>((resolve) => {
+          resolveSecond = resolve;
+        });
+      });
+
+      await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+      await act(async () => {});
+      expect(detail()!.querySelector('[data-tag]')).not.toBeNull();
+
+      await clickAt(screenPointOfNode('c.md'));
+      expect(detail()!.querySelector('.nexus-graph-detail-name')!.textContent).toBe('c.md');
+      expect(detail()!.querySelector('[data-tag]')).toBeNull();
+
+      // 反面对称：回来了就得画出来 —— 否则「永远不画」也能过上面那条
+      await act(async () => {
+        resolveSecond(['x']);
+      });
+      expect(detail()!.querySelector('[data-tag]')!.textContent).toBe('#x');
+    });
+
+    it('标签读不出来时说一句，而不是画成「没有标签」', async () => {
+      tagsOf.mockImplementation(async () => {
+        throw new Error('IPC exploded');
+      });
+      await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+      await act(async () => {});
+
+      // 留白与「这篇没有标签」长得一模一样 —— 同一份数据两个结论
+      expect(detail()!.textContent).toContain('Tags unavailable');
+      expect(detail()!.querySelector('.nexus-graph-detail-tags')).toBeNull();
+    });
+
+    it('断链节点的详情条没有类型也没有标签区', async () => {
+      const withMissing: WorkspaceGraph = {
+        nodes: [
+          node(1, 'a.md', 'markdown', 1),
+          { kind: 'missing', id: 9, name: '未建', linkTarget: '未建', degree: 1 }
+        ],
+        edges: [{ source: 1, target: 9 }]
+      };
+      await renderGraph(withMissing);
+      await clickAt(screenPointOfNode('未建'));
+      await act(async () => {});
+
+      const bar = detail()!;
+      expect(bar.querySelector('[data-type]')).toBeNull();
+      expect(bar.querySelector('.nexus-graph-detail-tags')).toBeNull();
+      expect(bar.textContent).toContain('not created yet');
+      // 断链没有文档 id 可查，不该白问一次
+      expect(tagsOf).not.toHaveBeenCalled();
     });
 
     it('再点一次已选中的节点取消选中', async () => {

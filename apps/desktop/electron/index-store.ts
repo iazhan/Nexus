@@ -757,6 +757,22 @@ export class IndexStore {
   }
 
   /**
+   * 一篇文档的标签，按标签名排序。
+   *
+   * 与 `listTags()` / `findDocumentsByTag()` 是**同一张表、同一份归一化**的两个方向：
+   * 那边是「按标签找文档」，这边是「这篇有哪些标签」。图谱详情条要的是后者 ——
+   * 从 `listTags()` 反查做不到（它只给标签与总数，不给归属）。
+   *
+   * 文档不在索引里、或没有标签时都返回空数组 —— 调用方（详情条）对这两种情形
+   * 的处置相同：不画标签区。
+   */
+  tagsOf(documentId: number): string[] {
+    return this.db
+      .all(`SELECT tag FROM tags WHERE source_id = ? ORDER BY tag`, [documentId])
+      .map((row) => String(row.tag));
+  }
+
+  /**
    * 整个工作区的链接图：节点是文档，边是 wikilink。
    *
    * ## 边按**配对**合并，方向记在 `mutual` 上

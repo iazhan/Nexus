@@ -2018,6 +2018,26 @@ button.nexus-outline-toggle:hover {
 }
 
 /*
+  标签组。外面一档间距（跟其它信息项一样），里面紧凑 —— 标签之间是「一组」，
+  与「路径 / 类型 / 计数」这些并列项不是同一个层级。
+*/
+.nexus-graph-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 药丸形但**没有边框** —— 与可点的 `.nexus-graph-chip` 区分开：这些点不动 */
+.nexus-graph-detail-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background-color: var(--nexus-bg-canvas);
+  color: var(--nexus-text-secondary);
+  font-size: 11px;
+}
+
+/*
   动作按钮推到右端（`margin-left: auto` 只给第一个）。
   详情条里会变长的是名字与路径，按钮位置固定下来，第二次选中的时候不用重新找。
 */

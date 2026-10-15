@@ -550,6 +550,55 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     return { incoming, outgoing };
   }, [graph.edges, selectedNode]);
 
+  /** 选中的**文档**节点 id（断链没有标签可查，按 `null` 处理）。 */
+  const selectedDocumentId =
+    selectedNode !== null && selectedNode.kind === 'document' ? selectedNode.id : null;
+
+  /**
+   * 选中文档的标签。**按需取，不塞进图谱载荷**。
+   *
+   * 图谱每次切范围 / 切筛选都要重发整张图，把标签挂在每个节点上等于让它们跟着重发一遍，
+   * 而画面上一次只显示一个节点的标签。
+   */
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  /** 标签读不出来。**必须看得见** —— 见下面的注释。 */
+  const [tagsUnavailable, setTagsUnavailable] = useState(false);
+
+  useEffect(() => {
+    /*
+      先清空再取。不清的话，新选中的那一篇会**顶着上一篇的标签**显示一瞬间 ——
+      那是错误数据，比「还没加载好」糟得多。
+    */
+    setSelectedTags([]);
+    setTagsUnavailable(false);
+
+    if (selectedDocumentId === null) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const tags = await requireGraphBridge().tagsOf(selectedDocumentId);
+        if (cancelled) return;
+        setSelectedTags(tags);
+        setTagsUnavailable(false);
+      } catch (err) {
+        console.error('Failed to load graph node tags:', err);
+        if (cancelled) return;
+        /*
+          失败**不能**画成「这篇没有标签」—— 那是对用户数据的一个错误结论，
+          而用户看不出区别。与类型清单挂掉时同一条规矩（`graph.typesUnavailable`）。
+        */
+        setSelectedTags([]);
+        setTagsUnavailable(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDocumentId]);
+
   /*
     切视图 / 索引变化之后清掉选中。
 
@@ -1419,21 +1468,47 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
             {selectedNode !== null && (
               <div className="nexus-graph-detail" data-kind={selectedNode.kind}>
                 <span className="nexus-graph-detail-name">{selectedNode.name}</span>
-                {selectedNode.kind === 'document' ? (
-                  <span className="nexus-graph-detail-path" title={selectedNode.path}>
-                    {selectedNode.relativePath}
-                  </span>
-                ) : (
-                  // 断链没有路径也没有类型，能说的只有「它还没建」——详情条不许留空壳
+                {selectedNode.kind === 'missing' ? (
+                  // 断链没有路径、没有类型、也没有标签，能说的只有「它还没建」——详情条不许留空壳
                   <span className="nexus-graph-detail-stat">{t('graph.missingHint')}</span>
-                )}
-                {selectedNode.kind === 'document' && (
-                  <span className="nexus-graph-detail-stat">
-                    {t('graph.detail.links', {
-                      incoming: String(selectedLinks.incoming),
-                      outgoing: String(selectedLinks.outgoing)
-                    })}
-                  </span>
+                ) : (
+                  <>
+                    <span className="nexus-graph-detail-path" title={selectedNode.path}>
+                      {selectedNode.relativePath}
+                    </span>
+                    {/*
+                      类型名。蓝图 §12 要求「不能只用颜色区分」，而画布上那个圆点里
+                      画不下图标 —— 名字放到这里。`data-type` 是给测试的出口：
+                      文案随语言变，类型名不变。
+                    */}
+                    <span className="nexus-graph-detail-stat" data-type={selectedNode.type}>
+                      {t(`graph.type.${selectedNode.type}`)}
+                    </span>
+                    <span className="nexus-graph-detail-stat">
+                      {t('graph.detail.links', {
+                        incoming: String(selectedLinks.incoming),
+                        outgoing: String(selectedLinks.outgoing)
+                      })}
+                    </span>
+                    {selectedTags.length > 0 && (
+                      <span className="nexus-graph-detail-tags">
+                        {selectedTags.map((tag) => (
+                          <span key={tag} className="nexus-graph-detail-tag" data-tag={tag}>
+                            #{tag}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    {/*
+                      读不出来时说一句，而不是留白 —— 留白与「这篇没有标签」长得一模一样，
+                      而用户看不出区别（同一份数据两个结论）。
+                    */}
+                    {tagsUnavailable && (
+                      <span className="nexus-graph-detail-stat">
+                        {t('graph.detail.tagsUnavailable')}
+                      </span>
+                    )}
+                  </>
                 )}
                 <button
                   type="button"

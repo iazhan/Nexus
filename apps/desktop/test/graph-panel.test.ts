@@ -143,7 +143,8 @@ describe('图谱面板', () => {
 
     // a → b → c 一条链，外加一篇孤立的
     fs.writeFileSync(path.join(workspace, 'a.md'), '# A\n\n参见 [[b]]。\n', 'utf-8');
-    fs.writeFileSync(path.join(workspace, 'b.md'), '# B\n\n参见 [[c]]。\n', 'utf-8');
+    // b 带一个正文标签：详情条那一条（P2-3）要读它，而标签不进图谱、不影响别的断言
+    fs.writeFileSync(path.join(workspace, 'b.md'), '# B\n\n参见 [[c]]。标签 #dma。\n', 'utf-8');
     fs.writeFileSync(path.join(workspace, 'c.md'), '# C\n\n终点。\n', 'utf-8');
     fs.writeFileSync(path.join(workspace, 'lonely.md'), '# 孤立\n\n谁也不链。\n', 'utf-8');
 
@@ -629,6 +630,21 @@ describe('图谱面板', () => {
         `document.querySelector('.nexus-graph-detail-name')?.textContent ?? ''`
       )
     ).toBe('b.md');
+
+    /*
+      详情条的其余内容（P2-3）。类型来自节点本身；标签是**按需查**的（`tagsOf`），
+      所以这里必须等 —— 只断言类型的话，「标签这条 IPC 根本没接上」照样能过，
+      而那正是最容易断的一环（渲染层测试用的是桩，接不上看不出来）。
+    */
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('.nexus-graph-detail [data-type]')?.getAttribute('data-type') ?? ''`
+      )
+    ).toBe('markdown');
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-detail [data-tag]')?.textContent === '#dma'`,
+      10000
+    );
 
     // 点空白取消选中
     await clickAt(await emptyCanvasPoint());

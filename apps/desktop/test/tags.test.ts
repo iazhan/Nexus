@@ -66,6 +66,29 @@ describe('标签索引', () => {
     expect(store.findDocumentsByTag('dma').map((doc) => doc.relativePath)).toEqual(['a.md']);
   });
 
+  it('问一篇文档有哪些标签，按标签名排序', () => {
+    // 反方向：`findDocumentsByTag` 是「按标签找文档」，这里是「这篇有哪些标签」。
+    // 图谱详情条要的是后者 —— 从 `listTags()` 反查做不到（它只给标签与总数，不给归属）。
+    put('a.md', ['ethercat', 'dma']);
+    put('b.md', ['dma']);
+
+    const a = store.listDocuments().find((doc) => doc.relativePath === 'a.md')!;
+
+    expect(store.tagsOf(a.id)).toEqual(['dma', 'ethercat']);
+  });
+
+  it('没有标签的文档与不存在的 id 都给空数组', () => {
+    /*
+      两者必须长得一样：详情条对它们的处置相同（不画标签区），
+      而「这篇没有标签」和「查错了 id」在界面上本来就该是同一件事。
+    */
+    put('a.md', []);
+
+    const a = store.listDocuments().find((doc) => doc.relativePath === 'a.md')!;
+    expect(store.tagsOf(a.id)).toEqual([]);
+    expect(store.tagsOf(9999)).toEqual([]);
+  });
+
   it('查询时接受带 # 和大写 —— 入参归一化', () => {
     put('a.md', ['dma']);
 

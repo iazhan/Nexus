@@ -183,6 +183,13 @@ export interface NexusBridge {
   /** 带某个标签的文档。标签可以带 `#`、大小写随意，归一化在索引层做。 */
   findDocumentsByTag: (tag: string) => Promise<IndexedDocument[]>;
   /**
+   * 一篇文档的标签，按标签名排序。
+   *
+   * 与 `listTags` 是同一张表的两个方向：那边按标签找文档，这边问「这篇有哪些标签」。
+   * 文档不在索引里、或没有标签时都是空数组。
+   */
+  tagsOf: (documentId: number) => Promise<string[]>;
+  /**
    * 链接图：文档为节点，wikilink 为无向边。
    *
    * 不传 `query` 就是整个工作区；传了就按中心文档的邻域 / 文档类型裁剪。

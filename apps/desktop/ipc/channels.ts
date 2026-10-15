@@ -90,6 +90,7 @@ export const IPC_CHANNELS = {
   findBacklinks: 'nexus:find-backlinks',
   listTags: 'nexus:list-tags',
   findDocumentsByTag: 'nexus:find-documents-by-tag',
+  tagsOf: 'nexus:get-tags-of',
   getGraph: 'nexus:get-graph',
   getGraphOrphans: 'nexus:get-graph-orphans',
   getGraphHubs: 'nexus:get-graph-hubs',
