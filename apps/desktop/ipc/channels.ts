@@ -802,36 +802,9 @@ export interface ChangelogRelease {
  * 更新日志查询结果。
  *
  * `null` = **一条都没拿到**（三层回落全失败）。与「拿到了但列表是空的」是两件事：
- * 空的是「没有比当前版本更新的条目」，界面文案不同（前者「无法获取」，后者「已是最新」）。
+ * 空的是「没有比当前版本更新的条目」，界面文案不同（前者「无法获取」，后者「没有更新的内容」）。
  */
-export type ChangelogResult = ChangelogPayload | null;
-
-/**
- * 更新日志的载荷：日志本身 + 「哪些版本真的发布过」。
- *
- * ## `tagged` 是什么
- *
- * 仓库里**打过 tag** 的版本（GitHub tags API，去掉前导 `v`）。它是「这个版本真的发布过」
- * 的权威信号 —— 与 `changelog.json` 的键 = 发布过的版本这条纪律同源（判据 90），
- * 区别只在于**那条靠人守，这条能自己算出来**。2026-10-14 漂过一次：开发期间的版本号
- * 混进 `changelog.json`，用户看到一串根本装不到的卡片。
- *
- * 它还解决另一件事：**tag 打了、release 还没发布**（CI 还在编译）时，那一版的日志
- * 已经能给人看。tag 是发布动作的起点，release 只是它的产物 —— 等 release 才显示，
- * 等于把「最新版 Updates 内容」推迟到流水线跑完。
- *
- * ## `tagged` 为空怎么办
- *
- * 空数组 = 「tag 列表没拿到」（接口挂了 / 被限流）。这时**回落旧口径**：
- * `latest` 非空时以它为上界，`latest` 也为空时不上界 —— 「还没查」不能显示成
- * 「没有更新内容」。
- */
-export interface ChangelogPayload {
-  /** 按版本降序的更新日志。 */
-  releases: ChangelogRelease[];
-  /** 打过 tag 的版本。空 = 没拿到（不是「一个 tag 都没有」）。 */
-  tagged: readonly string[];
-}
+export type ChangelogResult = ChangelogRelease[] | null;
 
 /**
  * 仓库里那份双语更新日志的形状（`changelog.json`）。

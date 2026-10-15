@@ -10,10 +10,6 @@
  * 3. **GitHub Releases 的 notes** —— 最后一层。只有英文（提交信息原样），
  *    而且早期版本可能一条都没有（流水线那时还没生成 notes）。
  *
- * 另有一路**不产日志、只产事实**的请求：**GitHub tags API**。它答的是「哪些版本打过
- * tag」，用来当上界（见 `ipc/channels.ts` 的 `ChangelogPayload.tagged`）——
- * log 靠人守，tag 是机器能查的。
- *
  * **按版本合并而不是整体二选一**：装 0.73.0 时，0.64.0–0.73.0 可能三层都有，
  * 而 0.74.0 只有远端有。任一层失败都不影响另外两层。
  *
@@ -27,6 +23,10 @@
  * 开发期间的双语条目先攒在 `.workbuddy-ai/memory/pending-changelog.md`，打 tag 时整段搬进来，
  * 键 = tag 的版本号（去掉前导 `v`）。`changelog.test.ts` 从 `.git` 里的 tag ref 推出「发布过哪些
  * 版本」，两个方向都守这条不变量：不许有没发布过的键，也不许漏掉发布过的版本。
+ *
+ * 注意这条纪律**只保证键的集合对**，不保证「此刻能下载」：键是在打 tag 那一刻搬进来的，
+ * 而包要等 CI 编译完才有。所以界面还得有一道上界（见 `UpdateView` 里那段注释）——
+ * 本模块只负责「有什么日志」，不负责「哪些能装」。
  *
  * ## 为什么读文件 / 发请求都在参数里
  *
@@ -58,7 +58,6 @@ import path from 'node:path';
 import {
   compareVersions,
   type ChangelogEntry,
-  type ChangelogPayload,
   type ChangelogRelease,
   type ChangelogResult
 } from '../ipc/channels.js';
@@ -77,18 +76,6 @@ export const CHANGELOG_REMOTE_URL =
 
 /** 兜底那层的接口。`per_page=30` 够用 —— 界面最多也就展示这么多版本。 */
 export const RELEASES_API_URL = 'https://api.github.com/repos/iazhan/Nexus/releases?per_page=30';
-
-/**
- * tag 列表的接口。
- *
- * **为什么单有这一张**：`releases` 只列**已发布**的 release，而「tag 打了、release 还没发布」
- * （CI 还在编译）正是要显示最新版更新内容的那段时间。tag 才是发布动作的起点。
- *
- * `per_page=100`：仓库已有 36 个 tag，默认 30 会漏掉最老那几个，而「显示全部历史版本」
- * 要翻的正是它们。API 上限就是 100 —— 以后再超，该改成翻页而不是调大这个数。
- */
-export const TAGS_API_URL =
-  'https://api.github.com/repos/iazhan/Nexus/git/refs/tags?per_page=100';
 
 /** 拉取超时。更新窗口是短命窗口，不能等一个挂住的请求。 */
 export const FETCH_TIMEOUT_MS = 8_000;
@@ -223,32 +210,6 @@ export function parseGithubReleases(payload: unknown): ChangelogRelease[] {
 }
 
 /**
- * 解析 GitHub tags API（`git/refs/tags`）的响应：`[{ ref: 'refs/tags/v0.85.0' }, …]`。
- *
- * 只要**名字**，不要 sha —— 这里判的是「这个版本有没有发布过」，不是「它指向哪个提交」。
- * 认不出的 ref 跳过（`nightly` 这种不是版本号），顺序与去重按输入来。
- */
-export function parseGithubTags(payload: unknown): string[] {
-  if (!Array.isArray(payload)) return [];
-
-  const versions: string[] = [];
-  const seen = new Set<string>();
-
-  for (const item of payload) {
-    if (!item || typeof item !== 'object') continue;
-    const ref = (item as Record<string, unknown>).ref;
-    if (typeof ref !== 'string' || !ref.startsWith('refs/tags/')) continue;
-
-    const version = normalizeVersion(ref.slice('refs/tags/'.length));
-    if (!version || seen.has(version)) continue;
-    seen.add(version);
-    versions.push(version);
-  }
-
-  return versions;
-}
-
-/**
  * 按版本合并多层来源，**先传的优先**。
  *
  * 低优先层只在两种情况下补进来：这个版本高优先层没有，或者高优先层有但**条目为空**
@@ -299,33 +260,22 @@ export interface LoadChangelogDeps {
 }
 
 /**
- * 三层回落取更新日志，外加一份 tag 列表。
+ * 三层回落取更新日志，按版本降序。
  *
- * 四路请求是**并发**发的：它们互相独立，串行只会让打开窗口时的等待翻倍。
+ * 两路网络请求是**并发**发的：它们互相独立，串行只会让打开窗口时的等待翻倍。
  *
- * 返回 `null` 的条件是「日志一张都没有、tag 一个都没读到」—— 那意味着三层回落全失败，
- * 界面该说的是「无法获取」而不是「已是最新」。只失败其中一路时照常返回载荷：
- * tag 没拿到就退回「`latest` 当上界」的旧口径（`UpdateView` 里那条回落）。
+ * 返回 `null` 的条件是三层回落全空 —— 界面该说的是「无法获取」而不是「没有更新的内容」。
  */
 export async function loadChangelog(deps: LoadChangelogDeps): Promise<ChangelogResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
 
-  const [remotePayload, githubPayload, tagsPayload] = await Promise.all([
+  const [remotePayload, githubPayload] = await Promise.all([
     fetchJson(CHANGELOG_REMOTE_URL, { accept: 'application/json' }, fetchImpl),
     fetchJson(
       RELEASES_API_URL,
       {
         accept: 'application/vnd.github+json',
         // GitHub 对**没有 UA 的请求直接 403** —— 这个头不是礼貌，是必需。
-        'user-agent': 'Nexus-Desktop'
-      },
-      fetchImpl
-    ),
-    // tag 列表与 releases 走同一个 API 域，所以头也一样（同样会被 403）。
-    fetchJson(
-      TAGS_API_URL,
-      {
-        accept: 'application/vnd.github+json',
         'user-agent': 'Nexus-Desktop'
       },
       fetchImpl
@@ -337,10 +287,6 @@ export async function loadChangelog(deps: LoadChangelogDeps): Promise<ChangelogR
     readBundledChangelog(deps.dir),
     parseGithubReleases(githubPayload)
   );
-  const tagged = parseGithubTags(tagsPayload);
 
-  if (merged.length === 0 && tagged.length === 0) return null;
-
-  const payload: ChangelogPayload = { releases: merged, tagged };
-  return payload;
+  return merged.length > 0 ? merged : null;
 }

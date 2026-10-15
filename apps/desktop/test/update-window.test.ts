@@ -39,10 +39,11 @@ const EXPECTED_APP_VERSION = (
  * 4. **未打包时阶段是 `unsupported`** —— 测试进程没有 `app-update.yml`，
  *    这是「这个构建没有更新通道」在界面上的样子，而不是一个卡在「尚未检查」的假象。
  * 5. **更新日志真的拿到了** —— 三层回落里至少「内置 `changelog.json`」那层是活的
- *    （dev/测试下 `changelogDir()` 指向仓库根）。它不依赖更新通道，所以未打包也看得到。
- *    「显示全部历史版本」那个开关因此能端到端验：勾上之后 0.73.0（当前版本）那张卡片出现。
+ *    （dev/测试下 `changelogDir()` 指向仓库根），状态会落到 `ready`。它不依赖更新通道，
+ *    所以未打包也拿得到内容；但未打包时 `state.latest` 恒为 `null`，**一张卡片都不画**
+ *    （见 `UpdateView` 里那条不变量：画出来的每一版都必须能下载）。
  *
- * 各层分支（阶段文案、进度条、跳过/稍后的按钮显隐、Escape 的两条路）在
+ * 各层分支（阶段文案、进度条、跳过/稍后的按钮显隐、Escape 的两条路、日志的过滤与渲染）在
  * `renderer/test/` 的组件用例里；状态机在 `updater.test.ts`；三层回落与合并规则在
  * `changelog.test.ts`。
  *
@@ -146,33 +147,22 @@ describe('更新窗口', () => {
     ).toBe(1);
 
     // ⑦ 更新日志：三层回落里「内置 changelog.json」那层在 dev/测试下指向仓库根，
-    //    所以即使没有网络、即使未打包，这一段也拿得到内容。
+    //    所以即使没有网络、即使未打包，这一段也拿得到内容（状态会落到 `ready`）。
     //    先等它落定（远端那次拉取最长 8s 超时），否则下面数的卡片数会在拉取回来的瞬间变。
     await app.waitForSelector('[data-changelog-state="ready"]', 25000);
 
-    //    默认只画**比当前版本新**的那些，所以 `0.73.0`（一个已发布但早于当前版本的键）
-    //    一开始不在。这里刻意挑一个**已发布**的版本号：它一直留在 `changelog.json` 里，
-    //    不像未发布的版本号那样会被人从文件里清掉，于是这条断言不会随着数据整理而失效。
+    //    但**一张卡片都不画**：这个构建未打包（`unsupported`），`state.latest` 恒为 `null` ——
+    //    不知道哪一版真的发布了、能下载。列表的不变量是「画出来的每一版都必须能下载」，
+    //    所以这里宁可空着。勾「显示全部历史版本」也一样：那个开关翻的是过去，上界对它同样成立。
     expect(
-      await app.evaluate<number>(`document.querySelectorAll('[data-release="0.73.0"]').length`)
+      await app.evaluate<number>(`document.querySelectorAll('[data-release]').length`)
     ).toBe(0);
 
-    const collapsedCount = await app.evaluate<number>(
-      `document.querySelectorAll('[data-release]').length`
-    );
-
-    //    勾上「显示全部历史版本」→ 当前版本那张卡片出现。
     await app.click('.nexus-update-show-all input');
-    await app.waitForSelector('[data-release="0.73.0"]', 10000);
-    expect(await app.evaluate<number>(`document.querySelectorAll('[data-release]').length`)).toBeGreaterThanOrEqual(
-      4
-    );
-    //    取消勾选 → 回到默认视图。开关是活的，不是一次性渲染。
+    expect(
+      await app.evaluate<number>(`document.querySelectorAll('[data-release]').length`)
+    ).toBe(0);
     await app.click('.nexus-update-show-all input');
-    await app.waitForFunction(
-      `() => document.querySelectorAll('[data-release]').length === ${collapsedCount}`,
-      10000
-    );
 
     // ⑧ 单例：回设置页再点一次，不该开出第二个更新窗口
     await app.attachToWindow(SETTINGS_WINDOW_URL_MARKER);

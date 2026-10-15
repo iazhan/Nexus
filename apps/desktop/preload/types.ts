@@ -290,9 +290,9 @@ export interface NexusBridge {
    */
   installUpdateNow: () => Promise<boolean>;
   /**
-   * 更新日志（双语），按版本降序，外加「哪些版本打过 tag」。
+   * 更新日志（双语），按版本降序。
    *
-   * `null` = 一条都没拿到（三层回落全失败），与空载荷不同 —— 见 `ChangelogResult`。
+   * `null` = 一条都没拿到（三层回落全失败），与空数组不同 —— 见 `ChangelogResult`。
    */
   getChangelog: () => Promise<ChangelogResult>;
   /**

@@ -353,5 +353,16 @@
         "en": "The editor, PDF and image toolbars now share one toolbar container and button style."
       }
     ]
+  },
+  "0.86.1": {
+    "date": "2026-10-15",
+    "changes": [
+      {
+        "type": "fix",
+        "scope": "update",
+        "zh": "更新内容只列真的发布了、能下载的版本。CI 还在编译、安装包还没生成时，那一版不再出现（此前会显示出来，用户读完却下载不到）。",
+        "en": "Release notes now list only versions that are actually published and downloadable. While a build is still running there is nothing to download, so that version no longer appears."
+      }
+    ]
   }
 }

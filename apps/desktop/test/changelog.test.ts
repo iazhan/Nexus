@@ -7,7 +7,6 @@ import {
   CHANGELOG_FILE,
   CHANGELOG_REMOTE_URL,
   INTERNAL_TYPES,
-  parseGithubTags,
   RELEASES_API_URL,
   loadChangelog,
   mergeChangelogs,
@@ -15,29 +14,27 @@ import {
   parseChangelogFile,
   parseGithubBody,
   parseGithubReleases,
-  readBundledChangelog,
-  TAGS_API_URL
+  readBundledChangelog
 } from '../electron/changelog.js';
 import { compareVersions, type ChangelogRelease } from '../ipc/channels.js';
 import { createTempDir } from './smoke-harness.js';
 
 /**
- * 更新日志：双语条目 + 三层回落（远端 JSON → 内置 JSON → GitHub Releases），
- * 外加一路只产事实的 tag 列表。
+ * 更新日志：双语条目 + 三层回落（远端 JSON → 内置 JSON → GitHub Releases）。
  *
  * 这一层全部是纯函数与「收目录 / 收 fetch」的加载器，所以能在**不启动 Electron、不联网**
  * 的前提下测完三条回落路径与所有失败方向 —— 与 `recent-workspace.ts` 同一条纪律。
  *
- * 重点在三处：
+ * 重点在两处：
  *
- * 1. **失败方向**。`loadChangelog` 三层全空 + tag 一个都没读到时返回 `null`（「拿不到」），
- *    而不是空载荷（「拿到了，只是没有更新的条目」）—— 这两种情况给用户看的文案与下一步动作
- *    完全不同。
+ * 1. **失败方向**。`loadChangelog` 三层全空时返回 `null`（「拿不到」），而不是空数组
+ *    （「拿到了，只是没有更新的条目」）—— 这两种情况给用户看的文案与下一步动作完全不同。
  * 2. **合并规则**。低优先层只在「该版本高优先层没有」或「有但条目为空」时补进来。
  *    第二条是给早期版本留的：那时流水线还没生成 notes，显示「未提供更新说明」
  *    不如让下一层的中文条目顶上来。
- * 3. **tag 列表是独立的一路**。它不写进日志，只在「哪些版本真的发布过」这件事上说话 ——
- *    CI 编译中（release 未发布）能看到最新版内容，靠的就是它。
+ *
+ * 「哪些版本**能下载**」不在这一层判 —— 日志里有哪一版与包发没发出来是两件事，
+ * 上界由渲染层拿 `state.latest` 卡（见 `renderer/src/update/UpdateView.tsx`）。
  */
 
 /** 假 `fetch`：按 URL 查表返回，并把每次调用的头记下来供断言。 */
@@ -75,11 +72,6 @@ function githubRelease(tag: string, body: string) {
     prerelease: false,
     published_at: '2026-10-02T09:48:41Z'
   };
-}
-
-/** tags API 的一条 ref。 */
-function tagRef(version: string) {
-  return { ref: `refs/tags/${version}`, object: { sha: '0'.repeat(40) } };
 }
 
 describe('更新日志 · 版本号归一', () => {
@@ -256,33 +248,6 @@ describe('更新日志 · 解析 GitHub Releases 响应', () => {
   });
 });
 
-describe('更新日志 · 解析 GitHub tags 响应', () => {
-  it('不是数组就返回空数组', () => {
-    for (const payload of [null, 42, {}, 'x']) {
-      expect(parseGithubTags(payload)).toEqual([]);
-    }
-  });
-
-  it('ref 归一成不带 v 的版本号', () => {
-    expect(parseGithubTags([tagRef('v0.85.0'), tagRef('0.84.8')])).toEqual(['0.85.0', '0.84.8']);
-  });
-
-  /** 只有名字有用：sha 在这里没有意义（判的是「发布过没有」，不是「指向哪个提交」）。 */
-  it('item 没有 ref / ref 不在 refs/tags 底下就跳过', () => {
-    expect(parseGithubTags([{ sha: 'x' }, { ref: 'refs/heads/master' }, 42, null])).toEqual([]);
-  });
-
-  it('认不出的 tag 名跳过 —— nightly 这种不是版本号', () => {
-    expect(parseGithubTags([tagRef('v0.85.0'), tagRef('nightly'), tagRef('latest')])).toEqual([
-      '0.85.0'
-    ]);
-  });
-
-  it('重复的版本去重', () => {
-    expect(parseGithubTags([tagRef('v0.85.0'), tagRef('0.85.0')])).toEqual(['0.85.0']);
-  });
-});
-
 describe('更新日志 · 按版本合并', () => {
   const release = (
     version: string,
@@ -379,31 +344,27 @@ describe('更新日志 · 三层回落', () => {
     writeBundled(remoteFile('0.72.0', '内置那条'));
     const fetchImpl = fakeFetch({
       [CHANGELOG_REMOTE_URL]: remoteFile('0.74.0', '远端那条'),
-      [RELEASES_API_URL]: [githubRelease('v0.70.0', '- feat: github entry')],
-      [TAGS_API_URL]: [tagRef('v0.74.0'), tagRef('v0.72.0'), tagRef('v0.70.0')]
+      [RELEASES_API_URL]: [githubRelease('v0.70.0', '- feat: github entry')]
     });
 
     const result = await loadChangelog({ dir: directory, fetchImpl });
 
-    expect(result?.releases.map((release) => [release.version, release.source])).toEqual([
+    expect(result?.map((release) => [release.version, release.source])).toEqual([
       ['0.74.0', 'remote'],
       ['0.72.0', 'bundled'],
       ['0.70.0', 'github']
     ]);
-    // tag 那一路只产事实，不混进日志
-    expect(result?.tagged).toEqual(['0.74.0', '0.72.0', '0.70.0']);
   });
 
   it('远端挂了不影响另外两层', async () => {
     writeBundled(remoteFile('0.72.0', '内置那条'));
     const fetchImpl = fakeFetch({
       [CHANGELOG_REMOTE_URL]: 'THROW',
-      [RELEASES_API_URL]: [githubRelease('v0.70.0', '- feat: github entry')],
-      [TAGS_API_URL]: [tagRef('v0.70.0')]
+      [RELEASES_API_URL]: [githubRelease('v0.70.0', '- feat: github entry')]
     });
 
     const result = await loadChangelog({ dir: directory, fetchImpl });
-    expect(result?.releases.map((release) => release.version)).toEqual(['0.72.0', '0.70.0']);
+    expect(result?.map((release) => release.version)).toEqual(['0.72.0', '0.70.0']);
   });
 
   it('非 2xx 当成没拿到，而不是把响应体当数据解析', async () => {
@@ -425,90 +386,50 @@ describe('更新日志 · 三层回落', () => {
     writeBundled(remoteFile('0.68.0', '内置补的中文'));
     const fetchImpl = fakeFetch({
       [CHANGELOG_REMOTE_URL]: { '0.68.0': { changes: [] } },
-      [RELEASES_API_URL]: [githubRelease('v0.68.0', '')],
-      [TAGS_API_URL]: [tagRef('v0.68.0')]
+      [RELEASES_API_URL]: [githubRelease('v0.68.0', '')]
     });
 
-    const [release] = (await loadChangelog({ dir: directory, fetchImpl }))?.releases ?? [];
+    const [release] = (await loadChangelog({ dir: directory, fetchImpl })) ?? [];
     expect(release).toMatchObject({ version: '0.68.0', source: 'bundled' });
     expect(release?.entries).toHaveLength(1);
   });
 
-  it('GitHub 那两次请求带 User-Agent —— 不带会被直接 403，这不是礼貌是必需', async () => {
+  it('GitHub 那次请求带 User-Agent —— 不带会被直接 403，这不是礼貌是必需', async () => {
     const calls: { url: string; headers: Record<string, string> }[] = [];
     const fetchImpl = fakeFetch(
       {
         [CHANGELOG_REMOTE_URL]: remoteFile('0.74.0', '远端'),
-        [RELEASES_API_URL]: [],
-        [TAGS_API_URL]: [tagRef('v0.74.0')]
+        [RELEASES_API_URL]: []
       },
       calls
     );
 
     await loadChangelog({ dir: directory, fetchImpl });
 
-    for (const url of [RELEASES_API_URL, TAGS_API_URL]) {
-      const call = calls.find((item) => item.url === url);
-      expect(call?.headers['user-agent'], `${url} 少带了 UA`).toBeTruthy();
-    }
+    const call = calls.find((item) => item.url === RELEASES_API_URL);
+    expect(call?.headers['user-agent'], `${RELEASES_API_URL} 少带了 UA`).toBeTruthy();
   });
 
-  /**
-   * **tag 打了、release 还没发布**（CI 还在编译）—— 这正是用户要在应用里看到
-   * 「最新版更新内容」的那段时间。tag 已经在仓库里，releases API 还答不上来，
-   * 而日志那一层照样有 0.86.0 的键（双语条目在打 tag 前就搬进了 `changelog.json`）。
-   */
-  it('CI 编译中：tag 有了、release 还没发，那一版照样拿得到', async () => {
-    writeBundled(remoteFile('0.86.0', '即将发布那一条'));
-    const fetchImpl = fakeFetch({
-      // 远端那份还没有 0.86.0（tag 刚打，master 上的 changelog.json 可能还没同步过来）
-      [CHANGELOG_REMOTE_URL]: remoteFile('0.85.0', '已发布那一条'),
-      // releases API 只列到 0.85.0 —— 0.86.0 的 release 还没建
-      [RELEASES_API_URL]: [githubRelease('v0.85.0', '- feat: shipped')],
-      // 但 tag 有了
-      [TAGS_API_URL]: [tagRef('v0.86.0'), tagRef('v0.85.0')]
-    });
-
-    const result = await loadChangelog({ dir: directory, fetchImpl });
-
-    expect(result?.releases.map((release) => release.version)).toEqual(['0.86.0', '0.85.0']);
-    expect(result?.tagged).toContain('0.86.0');
-  });
-
-  /** tag 那一路挂了不影响日志 —— 上界回落到 `latest`，由 `UpdateView` 负责。 */
-  it('tag 列表拿不到时 tagged 是空数组，日志照常', async () => {
-    writeBundled(remoteFile('0.72.0', '内置那条'));
-    const fetchImpl = fakeFetch({
-      [CHANGELOG_REMOTE_URL]: remoteFile('0.74.0', '远端那条'),
-      [RELEASES_API_URL]: [githubRelease('v0.70.0', '- feat: github entry')],
-      [TAGS_API_URL]: 'THROW'
-    });
-
-    const result = await loadChangelog({ dir: directory, fetchImpl });
-    expect(result?.tagged).toEqual([]);
-    expect(result?.releases.map((release) => release.version)).toEqual(['0.74.0', '0.72.0', '0.70.0']);
-  });
-
-  it('三路请求是并发发的 —— 串行会让打开窗口时的等待翻倍', async () => {
+  it('两路请求是并发发的 —— 串行会让打开窗口时的等待翻倍', async () => {
     let started = 0;
     let releaseAll: () => void = () => {};
     const allStarted = new Promise<void>((resolve) => {
       releaseAll = resolve;
     });
 
-  // 三个网络请求（远端 JSON / releases API / tags API）+ 一次同步读文件。
-  // 这一次不看 URL，只看「三个请求是不是同时在飞」—— 所以参数不用。
-  const fetchImpl = (async () => {
-    started += 1;
-    if (started === 3) releaseAll();
-    await allStarted;
-    return new Response('', { status: 404 });
-  }) as unknown as typeof fetch;
+    // 两个网络请求（远端 JSON / releases API）+ 一次同步读文件。
+    // 这一次不看 URL，只看「两个请求是不是同时在飞」—— 所以参数不用。
+    const fetchImpl = (async () => {
+      started += 1;
+      if (started === 2) releaseAll();
+      await allStarted;
+      return new Response('', { status: 404 });
+    }) as unknown as typeof fetch;
 
-  // 若实现是串行的，第一个请求会等一个永远不来的 `allStarted`，这里就会超时。
-  await expect(loadChangelog({ dir: directory, fetchImpl })).resolves.toBeNull();
-  expect(started).toBe(3);
-});
+    // 若实现是串行的，第一个请求会等一个永远不来的 `allStarted`，这里就会超时。
+    await expect(loadChangelog({ dir: directory, fetchImpl })).resolves.toBeNull();
+    expect(started).toBe(2);
+  });
 });
 
 describe('更新日志 · 仓库里那份文件', () => {
