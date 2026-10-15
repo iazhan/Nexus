@@ -1867,6 +1867,75 @@ button.nexus-outline-toggle:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+  选中节点的详情条：压在画布**顶部**（图例在左下角，两者不打架）。
+  做成浮层的理由见 `GraphPanel.tsx` 里那一段 —— 占布局会改画布高度，
+  于是「选中一个点」就触发一次重排 + 重算布局，点一下卡一下。
+*/
+.nexus-graph-detail {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background-color: var(--nexus-bg-surface);
+  font-size: 12px;
+}
+
+.nexus-graph-detail-name {
+  overflow: hidden;
+  color: var(--nexus-text-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 路径与计数弱一档：详情条要回答的是「这是哪一篇、它连了几条」，不是把路径念一遍 */
+.nexus-graph-detail-path,
+.nexus-graph-detail-stat {
+  overflow: hidden;
+  color: var(--nexus-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nexus-graph-detail-stat {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  动作按钮推到右端（`margin-left: auto` 只给第一个）。
+  详情条里会变长的是名字与路径，按钮位置固定下来，第二次选中的时候不用重新找。
+*/
+.nexus-graph-detail-action {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--nexus-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.nexus-graph-detail-action + .nexus-graph-detail-action {
+  margin-left: 0;
+}
+
+.nexus-graph-detail-action:hover {
+  background-color: var(--nexus-bg-surface-hover);
+  color: var(--nexus-text-primary);
+}
+
 /* Canvas 撑满盒子。像素尺寸由 ResizeObserver 驱动，
    这里只负责让它占满 —— 两者都设的话会互相打架。 */
 .nexus-graph-canvas {
@@ -1883,7 +1952,7 @@ button.nexus-outline-toggle:hover {
   cursor: grabbing;
 }
 
-/* 悬停在节点上时是「可点开」的语义，与拖空白区分开 */
+/* 悬停在节点上时是「可选中」的语义（打开是双击），与拖空白区分开 */
 .nexus-graph-canvas[data-hovered]:not([data-hovered='']) {
   cursor: pointer;
 }

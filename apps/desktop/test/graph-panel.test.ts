@@ -94,6 +94,48 @@ describe('图谱面板', () => {
       }));
     })()`);
 
+  /**
+   * 在画布上双击。
+   *
+   * 浏览器里双击是 `mousedown/mouseup/click` ×2 之后再来一个 `dblclick`；
+   * 这里省掉 `click`（没人监听它）但**保留一次按-放** —— 少了它，`dblclick` 落在一个
+   * 从未被按下的画布上，与真实链路不是一回事。
+   */
+  const doubleClickAt = (pointExpression: string) =>
+    app.evaluate(`(() => {
+      const canvas = document.querySelector('.nexus-graph-canvas');
+      const point = ${pointExpression};
+      canvas.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, button: 0, clientX: point.x, clientY: point.y
+      }));
+      canvas.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true, button: 0, clientX: point.x, clientY: point.y
+      }));
+      canvas.dispatchEvent(new MouseEvent('dblclick', {
+        bubbles: true, button: 0, clientX: point.x, clientY: point.y
+      }));
+    })()`);
+
+  /** 找一个离所有节点都足够远的画布内点（「点空白」用）。 */
+  const emptyCanvasPoint = async (): Promise<string> => {
+    const raw = await app.evaluate<string>(`(() => {
+      const canvas = document.querySelector('.nexus-graph-canvas');
+      const rect = canvas.getBoundingClientRect();
+      const nodes = JSON.parse(document.querySelector('.nexus-graph-hitmap').dataset.screenNodes);
+      for (let x = 6; x < rect.width - 6; x += 6) {
+        for (let y = 6; y < rect.height - 6; y += 6) {
+          if (nodes.every((n) => Math.hypot(n.x - x, n.y - y) > 40)) {
+            return JSON.stringify({ x: rect.left + x, y: rect.top + y });
+          }
+        }
+      }
+      return 'null';
+    })()`);
+    // 找不到空白点说明夹具或布局坏了 —— 让它在原地报错，别退化成一个「随便点一下」
+    expect(raw).not.toBe('null');
+    return raw;
+  };
+
   beforeAll(async () => {
     tempDir = createTempDir('nexus-graph-e2e-');
     workspace = path.join(tempDir, 'vault');
@@ -337,7 +379,8 @@ describe('图谱面板', () => {
     );
 
     const fitted = await readScreenNodes();
-    await clickAt(canvasPoint(byName(fitted, 'a.md')));
+    // 单击只选中（P0-1），打开要双击 —— 这条守的仍是「投影写反了点不中」
+    await doubleClickAt(canvasPoint(byName(fitted, 'a.md')));
 
     await app.waitForSelector('.cm-content', 20000);
     const fileName = await app.evaluate<string>(
@@ -526,5 +569,55 @@ describe('图谱面板', () => {
     expect(viewAfter.scale).toBe(viewBefore.scale);
     expect(viewAfter.offsetX).toBeCloseTo(viewBefore.offsetX + 30, 0);
     expect(viewAfter.offsetY).toBeCloseTo(viewBefore.offsetY - 18, 0);
+  }, INDEXED_TEST_TIMEOUT_MS);
+
+  it('单击只选中不打开，双击才打开', async () => {
+    /*
+      P0-1 的端到端判据。renderer 层（打桩 `window.nexus`）覆盖的是分支，这里证明
+      **真实链路**上「单击不离开图谱」也成立 —— 少了它，「选中」可能只是被桩挡住，
+      真机上照样一点就跳走。
+
+      放在最后一条：它会把活动文档换成 b.md，而前面几条都依赖「活动文档是 a.md」。
+    */
+    await ensureGraphVisible();
+    const before = await app.evaluate<string>(
+      `document.querySelector('.nexus-filename')?.textContent ?? ''`
+    );
+    const target = byName(await readScreenNodes(), 'b.md');
+
+    await clickAt(canvasPoint(target));
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-hitmap')?.dataset.selected === '${target.id}'`,
+      5000
+    );
+
+    // 关键：主区里还是画布，没有被编辑器顶掉
+    expect(
+      await app.evaluate<boolean>(
+        `!!document.querySelector('.nexus-main-content .nexus-graph-canvas')`
+      )
+    ).toBe(true);
+    expect(
+      await app.evaluate<string>(`document.querySelector('.nexus-filename')?.textContent ?? ''`)
+    ).toBe(before);
+    expect(
+      await app.evaluate<string>(
+        `document.querySelector('.nexus-graph-detail-name')?.textContent ?? ''`
+      )
+    ).toBe('b.md');
+
+    // 点空白取消选中
+    await clickAt(await emptyCanvasPoint());
+    await app.waitForFunction(
+      `document.querySelector('.nexus-graph-hitmap')?.dataset.selected === ''`,
+      5000
+    );
+
+    // 双击才打开 —— 老用户的肌肉记忆必须留着，否则会觉得「点不动了」
+    await doubleClickAt(canvasPoint(target));
+    await app.waitForSelector('.cm-content', 20000);
+    expect(
+      await app.evaluate<string>(`document.querySelector('.nexus-filename')?.textContent ?? ''`)
+    ).toBe('b.md');
   }, INDEXED_TEST_TIMEOUT_MS);
 });

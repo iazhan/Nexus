@@ -659,4 +659,239 @@ describe('图谱控制条', () => {
       expect(chips().filter((el) => el.dataset.scope)).toHaveLength(2);
     });
   });
+
+  /**
+   * 选中节点 ≠ 打开文档。
+   *
+   * 打开文档会让图谱退场（主区要显示那篇文档），所以「单击即打开」等于「没法先在图谱上
+   * 看清一个点连着谁、再决定要不要打开」。单击改成选中，打开改由双击承担。
+   *
+   * 判据全部走 `data-selected`（画布上的环从外面看不见，判据 21）；
+   * 「没有打开」那几条**必须用 spy** —— 只断言 `data-selected` 的话，
+   * 「既选中又打开了」照样能过。
+   */
+  describe('选中节点', () => {
+    /** 画布在 happy-dom 里没有布局，尺寸靠 `clientWidth/Height` + 手动 fire 喂进去。 */
+    const sizeCanvas = async () => {
+      const body = container.querySelector<HTMLElement>('.nexus-graph-body')!;
+      Object.defineProperty(body, 'clientWidth', { value: 400, configurable: true });
+      Object.defineProperty(body, 'clientHeight', { value: 300, configurable: true });
+      await act(async () => {
+        StubResizeObserver.instances.at(-1)!.fire();
+      });
+    };
+
+    const renderGraph = async (
+      graph: WorkspaceGraph,
+      options: { revision?: number } = {}
+    ) => {
+      const onOpenFile = vi.fn();
+      const onCreateMissingLink = vi.fn();
+      getGraph.mockImplementation(async () => graph);
+      await act(async () => {
+        root.render(
+          <GraphPanel
+            activeFilePath={null}
+            onOpenFile={onOpenFile}
+            onCreateMissingLink={onCreateMissingLink}
+            revision={options.revision ?? 1}
+          />
+        );
+      });
+      await act(async () => {});
+      await sizeCanvas();
+      return { onOpenFile, onCreateMissingLink };
+    };
+
+    const hitmap = () => container.querySelector('.nexus-graph-hitmap')!;
+    const selected = () => hitmap().getAttribute('data-selected');
+    const detail = () => container.querySelector<HTMLElement>('.nexus-graph-detail');
+
+    const screenPointOfNode = (name: string) => {
+      const nodes = JSON.parse(hitmap().getAttribute('data-screen-nodes')!) as Array<{
+        name: string;
+        x: number;
+        y: number;
+      }>;
+      const node = nodes.find((item) => item.name === name)!;
+      const canvas = container.querySelector<HTMLCanvasElement>('.nexus-graph-canvas')!;
+      const rect = canvas.getBoundingClientRect();
+      return { x: rect.left + node.x, y: rect.top + node.y };
+    };
+
+    /** 在画布上按下并松开一次（不移动 = 一次点击）。 */
+    const clickAt = async (point: { x: number; y: number }) => {
+      const canvas = container.querySelector<HTMLCanvasElement>('.nexus-graph-canvas')!;
+      await act(async () => {
+        for (const type of ['mousedown', 'mouseup']) {
+          canvas.dispatchEvent(
+            new MouseEvent(type, { bubbles: true, button: 0, clientX: point.x, clientY: point.y })
+          );
+        }
+      });
+    };
+
+    /** 双击一个节点：真实浏览器里是 mousedown/mouseup ×2 之后再来一个 dblclick。 */
+    const doubleClickNode = async (name: string) => {
+      const point = screenPointOfNode(name);
+      const canvas = container.querySelector<HTMLCanvasElement>('.nexus-graph-canvas')!;
+      await clickAt(point);
+      await act(async () => {
+        canvas.dispatchEvent(
+          new MouseEvent('dblclick', {
+            bubbles: true,
+            button: 0,
+            clientX: point.x,
+            clientY: point.y
+          })
+        );
+      });
+    };
+
+    it('单击节点只选中，不打开文档', async () => {
+      const { onOpenFile, onCreateMissingLink } = await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+
+      expect(selected()).toBe('2');
+      // 关键：不能只看 `data-selected` —— 「既选中又打开了」也得被这条拦住
+      expect(onOpenFile).not.toHaveBeenCalled();
+      expect(onCreateMissingLink).not.toHaveBeenCalled();
+    });
+
+    it('选中后详情条给出名字、路径与入链出链数', async () => {
+      await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+
+      // `FULL` 里 b 的边：a→b（入 1）、b→c 与 b→manual.pdf（出 2）
+      expect(detail()!.querySelector('.nexus-graph-detail-name')!.textContent).toBe('b.md');
+      expect(detail()!.querySelector('.nexus-graph-detail-path')!.textContent).toBe('b.md');
+      expect(detail()!.querySelector('.nexus-graph-detail-stat')!.textContent).toBe('1 in · 2 out');
+    });
+
+    it('再点一次已选中的节点取消选中', async () => {
+      await renderGraph(FULL);
+      const point = screenPointOfNode('b.md');
+
+      await clickAt(point);
+      expect(selected()).toBe('2');
+
+      await clickAt(point);
+      expect(selected()).toBe('');
+      expect(detail()).toBeNull();
+    });
+
+    it('双击节点打开对应的文档', async () => {
+      // 少了这条，「单击改成选中」会被实现成「点了没反应」
+      const { onOpenFile } = await renderGraph(FULL);
+      await doubleClickNode('c.md');
+
+      expect(onOpenFile).toHaveBeenCalledWith('/vault/c.md');
+    });
+
+    it('双击断链节点走「新建」而不是打开', async () => {
+      const withMissing: WorkspaceGraph = {
+        nodes: [
+          node(1, 'a.md', 'markdown', 1),
+          { kind: 'missing', id: 9, name: '未建', linkTarget: '未建', degree: 1 }
+        ],
+        edges: [{ source: 1, target: 9 }]
+      };
+      const { onOpenFile, onCreateMissingLink } = await renderGraph(withMissing);
+      await doubleClickNode('未建');
+
+      expect(onCreateMissingLink).toHaveBeenCalledWith('未建');
+      expect(onOpenFile).not.toHaveBeenCalled();
+    });
+
+    it('详情条上的按钮也能打开 / 清除', async () => {
+      const { onOpenFile } = await renderGraph(FULL);
+      await clickAt(screenPointOfNode('c.md'));
+
+      await act(async () => {
+        detail()!.querySelector<HTMLElement>('[data-action="open"]')!.click();
+      });
+      expect(onOpenFile).toHaveBeenCalledWith('/vault/c.md');
+
+      await act(async () => {
+        detail()!.querySelector<HTMLElement>('[data-action="clear"]')!.click();
+      });
+      expect(selected()).toBe('');
+    });
+
+    it('点空白清除选中', async () => {
+      await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+      expect(selected()).toBe('2');
+
+      // 离所有节点都足够远 —— 不去猜布局把哪个角留空了
+      await clickAt({ x: -10000, y: -10000 });
+      expect(selected()).toBe('');
+    });
+
+    it('切视图清除选中', async () => {
+      await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+      expect(selected()).toBe('2');
+
+      await act(async () => {
+        chip('[data-mode="orphans"]')!.click();
+      });
+      await act(async () => {});
+
+      expect(selected()).toBe('');
+    });
+
+    it('索引变化清除选中', async () => {
+      // id 是索引分配的，重取之后同一个 id 可能指向另一篇文档
+      await renderGraph(FULL);
+      await clickAt(screenPointOfNode('b.md'));
+      expect(selected()).toBe('2');
+
+      await act(async () => {
+        root.render(
+          <GraphPanel
+            activeFilePath={null}
+            onOpenFile={vi.fn()}
+            onCreateMissingLink={vi.fn()}
+            revision={2}
+          />
+        );
+      });
+      await act(async () => {});
+
+      expect(selected()).toBe('');
+    });
+
+    it('选中另一篇时，活跃文档仍然是活跃的那个', async () => {
+      /*
+        「活跃」与「选中」是两个独立的环：选中另一篇时活跃那篇的环**不能消失**
+        （参考里那个状态叫 `active-selected`）。
+
+        这条能证明的是「两个状态没有互相覆盖」——`data-active-node` 没有被选中改写。
+        环本身画在 canvas 里，从外面看不见，所以画出来那一步只能靠代码路径
+        （两条 `if` 各自独立、不共享 `else`）与真机用例兜。
+      */
+      getGraph.mockImplementation(async () => FULL);
+      await act(async () => {
+        root.render(
+          <GraphPanel
+            activeFilePath="/vault/a.md"
+            onOpenFile={vi.fn()}
+            onCreateMissingLink={vi.fn()}
+            revision={1}
+          />
+        );
+      });
+      await act(async () => {});
+      await sizeCanvas();
+
+      expect(hitmap().getAttribute('data-active-node')).toBe('1');
+
+      await clickAt(screenPointOfNode('b.md'));
+
+      expect(selected()).toBe('2');
+      // 活跃那个没被选中覆盖掉
+      expect(hitmap().getAttribute('data-active-node')).toBe('1');
+    });
+  });
 });

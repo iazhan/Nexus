@@ -59,6 +59,13 @@ const NODE_RADIUS = 3;
 const MAX_DEGREE_BONUS = 6;
 /** 点击命中额外放宽的像素，手指不好精确点到 3px 的圆。 */
 const HIT_SLACK = 4;
+/**
+ * 选中环相对节点半径的外扩量。
+ *
+ * 比活跃 / 悬停那两个环（都是 `+3`）**更大**：三个环可能同时出现（选中的恰好是活跃文档，
+ * 或者鼠标正停在它上面），同一半径上叠两圈就分不出那是两件事。
+ */
+const SELECTED_RING_OFFSET = 6;
 
 /** 标签最多画几条：按画布面积给，并夹在上下限之间。 */
 const MIN_LABELS = 6;
@@ -287,6 +294,15 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   const [graphPhase, setGraphPhase] = useState<GraphPhase>('loading');
   const [typesPhase, setTypesPhase] = useState<GraphPhase>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
+  /*
+    被**选中**的节点 id。与「活跃文档」是两件事：活跃是「编辑器里开着的那篇」，
+    选中是「我此刻在图谱上看着的那一个」。两者可以同时成立 —— 选中另一篇时，
+    活跃那篇的环不能消失（参考里那个状态叫 `active-selected`）。
+
+    **不落盘**：它回答的是「我正看着哪儿」，重启之后没有意义；而且 id 是索引分配的，
+    落盘之后在新工作区里会指向另一个节点 —— 那比没有更糟。
+  */
+  const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
 
   const dragRef = useRef<DragState | null>(null);
   /**
@@ -469,6 +485,43 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   }, [graph.nodes, activeFilePath]);
 
   /*
+    选中的那个节点。**从图里找回来**而不是直接信 `selectedNodeId`：换了筛选 / 范围之后
+    那个 id 可能已经不在图上了，这时应当按「没选」处理，而不是让详情条挂着一个
+    画不出来的节点。
+  */
+  const selectedNode = useMemo(
+    () => graph.nodes.find((node) => node.id === selectedNodeId) ?? null,
+    [graph.nodes, selectedNodeId]
+  );
+
+  /**
+   * 选中节点的入链 / 出链条数。
+   *
+   * 口径与 `getGraph` **一致**：数的是 `graph.edges`（已经按「来源文档 → 目标」合并过的边），
+   * 不是 `links` 表的行数 —— 同一篇文档里写两次 `[[dma]]` 只算一条边。
+   */
+  const selectedLinks = useMemo(() => {
+    if (selectedNode === null) return { incoming: 0, outgoing: 0 };
+    let incoming = 0;
+    let outgoing = 0;
+    for (const edge of graph.edges) {
+      if (edge.target === selectedNode.id) incoming += 1;
+      if (edge.source === selectedNode.id) outgoing += 1;
+    }
+    return { incoming, outgoing };
+  }, [graph.edges, selectedNode]);
+
+  /*
+    切视图 / 索引变化之后清掉选中。
+
+    前者是「这一屏换了」；后者是「节点 id 可能全变了」—— 留着的话详情条会挂在一个
+    已经不存在的 id 上，更糟的是指向另一篇文档。点空白清除见 `endDrag`。
+  */
+  useEffect(() => {
+    setSelectedNodeId(null);
+  }, [mode, revision]);
+
+  /*
     图例。**列的是「屏幕上真的有颜色」的那些分区** —— 图例与画面对不上比没有图例更糟。
     第 7 个及以后的分区共用中性色，所以合并成一行「其他」；根目录下的文档也在那一行里。
 
@@ -634,21 +687,32 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     [hitTest]
   );
 
+  /**
+   * 一次按-放结束。**单击 = 选中，不打开。**
+   *
+   * 打开文档会让图谱退场（主区要显示那篇文档），所以「点一下就离开图谱」等于
+   * 「没法在图谱上先看清一个点连着谁，再决定要不要打开」。打开改由**双击**承担
+   * （见 `handleDoubleClick`）—— 那是老用户的肌肉记忆，不能只留详情条上的按钮。
+   */
   const endDrag = useCallback(() => {
     const drag = dragRef.current;
     dragRef.current = null;
     setPanning(false);
     if (drag === null) return;
 
-    // 拖过了就不算点击 —— 否则拖完一个节点会顺手把它打开，把用户从图谱里踢出去
-    if (drag.moved || drag.kind !== 'node' || drag.nodeId === null) return;
+    // 拖过了就不算点击 —— 否则拖完一个节点会顺手把它选中，把用户刚摆好的视角又改一次
+    if (drag.moved) return;
 
-    const node = graph.nodes.find((candidate) => candidate.id === drag.nodeId);
-    if (node === undefined) return;
-    // 断链没有文件可打开 —— 它走的是「按这个目标名新建一篇」
-    if (node.kind === 'missing') onCreateMissingLink(node.linkTarget);
-    else onOpenFile(node.path);
-  }, [graph.nodes, onOpenFile, onCreateMissingLink]);
+    if (drag.kind === 'pan') {
+      // 点空白 = 取消选中
+      setSelectedNodeId(null);
+      return;
+    }
+
+    if (drag.nodeId === null) return;
+    // 再点一次已选中的节点 = 取消选中。用函数式更新，免得把 `selectedNodeId` 拉进依赖。
+    setSelectedNodeId((prev) => (prev === drag.nodeId ? null : drag.nodeId));
+  }, []);
 
   const handleMouseLeave = useCallback(() => {
     dragRef.current = null;
@@ -656,11 +720,26 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     setHoveredId(null);
   }, []);
 
-  /** 双击空白取景；双击节点时不取景（那是「打开文档」的位置）。 */
+  /**
+   * 双击：**节点上**是「打开 / 新建」，空白处是「取景」。
+   *
+   * 打开必须留一个双击入口 —— 单击改成选中之后，只给详情条上的按钮的话，老用户会觉得
+   * 「点不动了」（他们的肌肉记忆就是单击打开）。断链没有文件可打开，它走的是
+   * 「按这个目标名新建一篇」。
+   */
   const handleDoubleClick = useCallback(
     (event: React.MouseEvent<HTMLCanvasElement>) => {
       const point = screenPointOf(event);
-      if (hitTest(point.x, point.y) !== null) return;
+      const nodeId = hitTest(point.x, point.y);
+
+      if (nodeId !== null) {
+        const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+        if (node === undefined) return;
+        if (node.kind === 'missing') onCreateMissingLink(node.linkTarget);
+        else onOpenFile(node.path);
+        return;
+      }
+
       setView(
         fitView(
           [...positionById.values()],
@@ -669,7 +748,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
         )
       );
     },
-    [hitTest, positionById, size.width, size.height]
+    [hitTest, graph.nodes, onOpenFile, onCreateMissingLink, positionById, size.width, size.height]
   );
 
   useEffect(() => {
@@ -728,6 +807,9 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     const activeColor = readColor(canvas, '--nexus-accent-indicator');
     // 活跃文档改用**描边**区分：填充已经被分区色占了，两个都用填充就分不出谁是谁
     const activeRingColor = readColor(canvas, '--nexus-text-primary');
+    // 选中环走 accent 的**文字档**（4.5:1）：它与活跃环可能同时出现，两个都用 text-primary
+    // 就变成同一圈；半径不同 + 色相不同，两层才读得出是两件事
+    const selectedRingColor = readColor(canvas, '--nexus-accent-text');
     // 断链走警告色：它不是「另一类文档」，是「这里缺了东西」
     const missingColor = readColor(canvas, '--nexus-status-warning-text');
 
@@ -892,6 +974,19 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
           context.arc(screen.x, screen.y, radius + 3, 0, Math.PI * 2);
           context.stroke();
         }
+
+        /*
+          选中的那个点再外一圈。
+          半径比活跃 / 悬停那两个环大（`SELECTED_RING_OFFSET`），所以「选中的正好是活跃文档」
+          这个状态两层环都在、且不重叠 —— 那正是参考里 `active-selected` 要表达的东西。
+        */
+        if (node.id === selectedNodeId) {
+          context.strokeStyle = selectedRingColor;
+          context.lineWidth = 2;
+          context.beginPath();
+          context.arc(screen.x, screen.y, radius + SELECTED_RING_OFFSET, 0, Math.PI * 2);
+          context.stroke();
+        }
       }
       context.globalAlpha = 1;
 
@@ -953,6 +1048,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     size,
     activeFilePath,
     hoveredId,
+    selectedNodeId,
     t,
     // 换主题要重画 —— 画布的颜色是读出来定死在位图里的，不订阅就停在旧配色上
     resolvedTheme?.id
@@ -1183,6 +1279,58 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
               onDoubleClick={handleDoubleClick}
             />
             {/*
+              选中节点的详情条。**浮层而不是占布局** —— 它是「画布上多出来的一层信息」，
+              占布局会把画布高度改掉，于是「选中一个点」就触发一次重排 + 重算布局
+              （`ResizeObserver` 那条 150ms 防抖链），点一下卡一下。图例也是浮层，同一套理由。
+
+              `data-selected` 挂在 hitmap 上（画布上的环从外面看不见，判据 21）：
+              **判「选没选中」要用它，不要用「详情条出现了」** —— 后者对「详情条画错了」
+              同样成立。
+            */}
+            {selectedNode !== null && (
+              <div className="nexus-graph-detail" data-kind={selectedNode.kind}>
+                <span className="nexus-graph-detail-name">{selectedNode.name}</span>
+                {selectedNode.kind === 'document' ? (
+                  <span className="nexus-graph-detail-path" title={selectedNode.path}>
+                    {selectedNode.relativePath}
+                  </span>
+                ) : (
+                  // 断链没有路径也没有类型，能说的只有「它还没建」——详情条不许留空壳
+                  <span className="nexus-graph-detail-stat">{t('graph.missingHint')}</span>
+                )}
+                {selectedNode.kind === 'document' && (
+                  <span className="nexus-graph-detail-stat">
+                    {t('graph.detail.links', {
+                      incoming: String(selectedLinks.incoming),
+                      outgoing: String(selectedLinks.outgoing)
+                    })}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="nexus-graph-detail-action"
+                  data-action="open"
+                  onClick={() =>
+                    selectedNode.kind === 'missing'
+                      ? onCreateMissingLink(selectedNode.linkTarget)
+                      : onOpenFile(selectedNode.path)
+                  }
+                >
+                  {selectedNode.kind === 'missing'
+                    ? t('graph.detail.create')
+                    : t('graph.detail.open')}
+                </button>
+                <button
+                  type="button"
+                  className="nexus-graph-detail-action"
+                  data-action="clear"
+                  onClick={() => setSelectedNodeId(null)}
+                >
+                  {t('graph.detail.clear')}
+                </button>
+              </div>
+            )}
+            {/*
               画布上的东西从外部没法定位，所以把三样显式暴露出来：
               - `data-nodes`：**布局**坐标，验「布局本身」；
               - `data-screen-nodes`：**投影后**的坐标，验「点击命中」—— 缩放之后必须点得中，
@@ -1212,6 +1360,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
               )}
               data-view={JSON.stringify(view)}
               data-active-node={activeNodeId === null ? '' : String(activeNodeId)}
+              data-selected={selectedNode === null ? '' : String(selectedNode.id)}
               data-edges={JSON.stringify(
                 graph.edges.map((edge) => ({
                   source: edge.source,
