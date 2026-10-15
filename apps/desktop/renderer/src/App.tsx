@@ -273,6 +273,20 @@ export const App: React.FC = () => {
   } | null>(null);
 
   /**
+   * 待兑现的「打开文档后跳到某一节」——图谱节点带下来的**代表性锚点**。
+   *
+   * 与 `pendingTagReveal` 同形、同理由：打开一篇文档会重建 EditorView，`handleOpenWorkspaceFile`
+   * 返回时新 view 还不存在，那时跳只会打在上一篇文档的 view 上。
+   *
+   * 连 `filePath` 一起存：只存锚点的话，目标文档的视图迟迟不出现时（打开失败、或用户
+   * 抢先切走）这一项会**留到下一次打开文档**时才兑现 —— 跳到一篇不相干文档的某一节上。
+   */
+  const [pendingAnchorReveal, setPendingAnchorReveal] = useState<{
+    anchor: string;
+    filePath: string;
+  } | null>(null);
+
+  /**
    * 待兑现的「在工作区文件树里定位到某个文件」。
    *
    * 与 `pendingTagReveal` 同形，理由也一样：定位要等**树**先把那个节点渲染出来，
@@ -1209,6 +1223,48 @@ export const App: React.FC = () => {
     const match = scanTags(activeView.state.doc.toString()).find((item) => item.tag === tag);
     if (match) revealHeadingAt(activeView, match.from);
   }, [pendingTagReveal, activeView, filePath]);
+
+  /**
+   * 图谱里点开一篇文档：打开它，并落到它的**代表性锚点**那一节。
+   *
+   * `handleOpenWorkspaceFile` 的第二个参数是 PDF 的页码，不是标题锚点 —— 一个是 viewer
+   * 里的位置、一个是 Markdown 里的一节，所以这里包一层而不是把锚点塞进那个参数。
+   *
+   * 不传锚点时直接走原路：一篇没有任何带锚点引用的文档打开就是开头，没有可跳的。
+   */
+  const handleOpenGraphNode = useCallback(
+    async (targetPath: string, anchor?: string) => {
+      const opened = await handleOpenWorkspaceFile(targetPath);
+      // 打不开就不排队：排了会一直挂着，等下一次打开任何文档时突然生效。
+      if (!opened || anchor === undefined) return;
+      setPendingAnchorReveal({ anchor, filePath: targetPath });
+    },
+    [handleOpenWorkspaceFile]
+  );
+
+  /**
+   * 兑现上面那个排队项。
+   *
+   * 两个条件缺一不可：目标文档**已经是活动文档**、且它的 view **已就绪**。
+   * 与 `pendingTagReveal` 同一条理由 —— 打开是异步的，少任何一个都只会拿到上一篇的 view。
+   */
+  useEffect(() => {
+    if (!pendingAnchorReveal) return;
+    if (!activeView || filePath !== pendingAnchorReveal.filePath) return;
+
+    const { anchor } = pendingAnchorReveal;
+    // 先清掉再跳：即使跳转那一步抛错，也不会把这一项永远挂在队列里。
+    setPendingAnchorReveal(null);
+
+    /*
+      落点走大纲跳转那条路径（`revealHeadingAnchor` 内部就是 `revealHeadingAt`），
+      所以「目标行对齐到视口第一行」「行号不被行盒顶出去」两条都已经解决了。
+
+      锚点没命中就什么都不做：链接是**手写**的，`[[dma#性能]]` 里的标题可能已经被改名或
+      删掉，那时落回文档开头（打开动作本身已经成功了）。
+    */
+    revealHeadingAnchor(activeView, anchor);
+  }, [pendingAnchorReveal, activeView, filePath]);
 
   // Open file via the system dialog
   const handleOpenFile = useCallback(async () => {
@@ -3684,7 +3740,7 @@ export const App: React.FC = () => {
         <GraphPanel
           variant="main"
           activeFilePath={filePath}
-          onOpenFile={handleOpenWorkspaceFile}
+          onOpenFile={handleOpenGraphNode}
           onCreateMissingLink={createMissingLinkDocument}
           // 空态里那两枚按钮不自己实现动作：新建要走 `new-file` 的同一条处理函数
           // （Ctrl+N / 菜单 / 标签栏 `+` 都是它），搜索要展开宿主的活动栏

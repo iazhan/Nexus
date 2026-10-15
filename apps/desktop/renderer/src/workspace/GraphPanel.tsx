@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DocumentType, GraphNode, WorkspaceGraph } from '@nexus/core';
+import type { DocumentType, GraphDocumentNode, GraphNode, WorkspaceGraph } from '@nexus/core';
 import { useLocale, useSetting, useTheme } from '../hooks.js';
 import {
   GRAPH_MODES,
@@ -48,7 +48,14 @@ export interface GraphPanelProps {
   variant?: 'sidebar' | 'main';
   /** 当前活动文档的绝对路径，用于高亮它的节点 */
   activeFilePath: string | null;
-  onOpenFile: (filePath: string) => void;
+  /**
+   * 打开一篇文档。
+   *
+   * `anchor` 是节点上的**代表性锚点**（`[[dma#性能]]` 里的 `性能`），传下去之后
+   * 打开会落在那一节而不是文档开头。不传 / 传 `undefined` = 落到开头 ——
+   * 一篇没有任何带锚点引用的文档就是这种情形。
+   */
+  onOpenFile: (filePath: string, anchor?: string) => void;
   /**
    * 点击**断链节点**时调用，参数是归一化后的链接目标（如 `notes/dma`）。
    *
@@ -137,6 +144,24 @@ function isActiveGraphNode(node: GraphNode, normalizedActivePath: string | undef
     node.kind === 'document' &&
     normalizedActivePath !== undefined &&
     node.path.replace(/\\/g, '/') === normalizedActivePath
+  );
+}
+
+/**
+ * 按**绝对路径**找文档节点。
+ *
+ * 断链节点没有 `path` 字段，所以这里不能写成 `node.path === filePath` ——
+ * 联合类型里另一半没有这个字段。写成类型谓词之后返回的就是文档节点，调用方直接拿 `anchor`。
+ *
+ * 不做路径归一化：两边都来自主进程的同一列，写法天然一致
+ * （`isActiveGraphNode` 要归一化是因为 `activeFilePath` 来自另一个来源）。
+ */
+function findDocumentNode(
+  nodes: readonly GraphNode[],
+  filePath: string
+): GraphDocumentNode | undefined {
+  return nodes.find(
+    (node): node is GraphDocumentNode => node.kind === 'document' && node.path === filePath
   );
 }
 
@@ -810,6 +835,27 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   }, []);
 
   /**
+   * 打开一篇文档，落在它的**代表性锚点**上。
+   *
+   * 画布上的节点直接带着 `anchor`；三张清单（孤儿 / 枢纽 / 断链）只拿到路径 ——
+   * 它们的数据来自另一条查询，节点上没挂锚点。所以按路径回图里找一次：
+   * **同一个动作从哪一行发起都该落到同一节**，否则「从清单点开」和「从画布点开」
+   * 落在文档的两个位置，用户只会觉得其中一个坏了。
+   *
+   * 清单里可能有当前图载荷之外的文档（它自己带筛选条件），那时找不到，退回打开到开头。
+   */
+  const openDocumentAtAnchor = useCallback(
+    (filePath: string, anchor?: string) => {
+      const resolved = anchor ?? findDocumentNode(graph.nodes, filePath)?.anchor;
+      // 没有锚点时**不传第二个参数**：调用方那边 `undefined` 与「不传」是同一件事，
+      // 但少传一个参数让「这次没有锚点」在调用记录里一眼看得见。
+      if (resolved === undefined) onOpenFile(filePath);
+      else onOpenFile(filePath, resolved);
+    },
+    [graph.nodes, onOpenFile]
+  );
+
+  /**
    * 双击：**节点上**是「打开 / 新建」，空白处是「取景」。
    *
    * 打开必须留一个双击入口 —— 单击改成选中之后，只给详情条上的按钮的话，老用户会觉得
@@ -825,7 +871,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
         const node = graph.nodes.find((candidate) => candidate.id === nodeId);
         if (node === undefined) return;
         if (node.kind === 'missing') onCreateMissingLink(node.linkTarget);
-        else onOpenFile(node.path);
+        else openDocumentAtAnchor(node.path, node.anchor);
         return;
       }
 
@@ -837,7 +883,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
         )
       );
     },
-    [hitTest, graph.nodes, onOpenFile, onCreateMissingLink, positionById, size.width, size.height]
+    [hitTest, graph.nodes, openDocumentAtAnchor, onCreateMissingLink, positionById, size.width, size.height]
   );
 
   useEffect(() => {
@@ -1381,10 +1427,10 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
         而清单是普通流式布局，塞进 `.nexus-graph-body` 会把它撑成一个画布盒子。
       */}
       {mode === 'orphans' && (
-        <OrphansList revision={revision} onOpenFile={onOpenFile} />
+        <OrphansList revision={revision} onOpenFile={openDocumentAtAnchor} />
       )}
-      {mode === 'hubs' && <HubsList revision={revision} onOpenFile={onOpenFile} />}
-      {mode === 'dead' && <DeadLinksList revision={revision} onOpenFile={onOpenFile} />}
+      {mode === 'hubs' && <HubsList revision={revision} onOpenFile={openDocumentAtAnchor} />}
+      {mode === 'dead' && <DeadLinksList revision={revision} onOpenFile={openDocumentAtAnchor} />}
 
       {/*
         这一层是**画布的盒子**：尺寸由它量、绘制坐标也以它为准（见上面 ResizeObserver 的说明）。
@@ -1538,7 +1584,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
                   onClick={() =>
                     selectedNode.kind === 'missing'
                       ? onCreateMissingLink(selectedNode.linkTarget)
-                      : onOpenFile(selectedNode.path)
+                      : openDocumentAtAnchor(selectedNode.path, selectedNode.anchor)
                   }
                 >
                   {selectedNode.kind === 'missing'

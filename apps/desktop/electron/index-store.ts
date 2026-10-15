@@ -847,14 +847,37 @@ export class IndexStore {
     const edgeByKey = new Map<string, GraphEdge>();
     const sourcesByUnresolved = new Map<string, Set<number>>();
 
+    /*
+      目标文档 → 它收到的锚点 → 被引用了几次。用来算**代表性锚点**（`GraphDocumentNode.anchor`）。
+
+      统计**放在 `allowed.has(source)` 那道筛选之前**：代表性锚点是文档的属性，
+      不该随「用户把哪个类型藏起来了」「范围裁到了几度」变 —— 同一篇文档在不同范围下
+      落到不同标题上，看着像文档被改了。**边**才该跟着筛选走。
+
+      不带锚点的链接不进这张表：让它们参与的话，一篇「多数引用都没写锚点」的文档会从
+      少数带锚点的引用里挑一个，落点看着像随机的。自链接同样不算（与图上的边同一口径）。
+    */
+    const anchorsByTarget = new Map<number, Map<string, number>>();
+
     for (const row of this.db.all(
-      `SELECT source_id, target FROM links ORDER BY source_id, target`
+      `SELECT source_id, target, anchor FROM links ORDER BY source_id, target`
     )) {
       const source = Number(row.source_id);
+      const rawTarget = String(row.target);
+
+      const anchor = typeof row.anchor === 'string' && row.anchor.length > 0 ? row.anchor : null;
+      if (anchor !== null) {
+        const anchorTarget = byTarget.get(rawTarget);
+        if (anchorTarget !== undefined && anchorTarget !== source) {
+          const counts = anchorsByTarget.get(anchorTarget);
+          if (counts === undefined) anchorsByTarget.set(anchorTarget, new Map([[anchor, 1]]));
+          else counts.set(anchor, (counts.get(anchor) ?? 0) + 1);
+        }
+      }
+
       // 来源被筛掉（或本来就不在索引里）时，这条链接整条不参与 —— 无论解析得出解析不出
       if (!allowed.has(source)) continue;
 
-      const rawTarget = String(row.target);
       const resolved = byTarget.get(rawTarget);
 
       // 自链接不进图
@@ -947,15 +970,20 @@ export class IndexStore {
       degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
     }
 
-    const nodes: GraphNode[] = keptDocuments.map((document) => ({
-      kind: 'document',
-      id: document.id,
-      path: document.path,
-      relativePath: document.relativePath,
-      name: document.name,
-      type: document.type,
-      degree: degree.get(document.id) ?? 0
-    }));
+    const nodes: GraphNode[] = keptDocuments.map((document) => {
+      const anchor = representativeAnchor(anchorsByTarget.get(document.id));
+      return {
+        kind: 'document',
+        id: document.id,
+        path: document.path,
+        relativePath: document.relativePath,
+        name: document.name,
+        type: document.type,
+        degree: degree.get(document.id) ?? 0,
+        // 没有代表性锚点时**这个字段不出现** —— 契约里它是可选的，调用方落回「打开到开头」
+        ...(anchor === undefined ? {} : { anchor })
+      };
+    });
 
     for (const [rawTarget, syntheticId] of missingIdByTarget) {
       const nodeDegree = degree.get(syntheticId) ?? 0;
@@ -1285,6 +1313,31 @@ function reachableFrom(
   }
 
   return visited;
+}
+
+/**
+ * 从「锚点 → 被引用的次数」里取**代表性锚点**：出现最多的那个。
+ *
+ * ## 平局必须有个全序的裁决
+ *
+ * 两个锚点各被引用两次时，`Map` 的迭代顺序取决于插入顺序，而插入顺序取决于 SQLite
+ * 的返回顺序 —— 不裁决的话同一份工作区两次打开会落到**不同的标题**上，用户会以为
+ * 文档被改了。这里固定取字典序小的那个。
+ *
+ * 返回 `undefined` = 「一个锚点都没有」，调用方据此**不写这个字段**（契约里它是可选的）。
+ */
+function representativeAnchor(counts: Map<string, number> | undefined): string | undefined {
+  if (counts === undefined) return undefined;
+
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [anchor, count] of counts) {
+    if (count > bestCount || (count === bestCount && best !== undefined && anchor < best)) {
+      best = anchor;
+      bestCount = count;
+    }
+  }
+  return best;
 }
 
 function mapDocument(row: Record<string, unknown>): IndexedDocument {

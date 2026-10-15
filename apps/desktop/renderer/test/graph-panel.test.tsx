@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GraphQuery, WorkspaceGraph } from '@nexus/core';
+import type { GraphQuery, IndexedDocument, WorkspaceGraph } from '@nexus/core';
 import { GraphPanel } from '../src/workspace/GraphPanel.js';
 import { CLUSTER_TOKENS, UNCLUSTERED_TOKEN } from '../src/workspace/graph-clusters.js';
 import { localeManager, settings } from '../src/platform.js';
@@ -56,6 +56,24 @@ const node = (id: number, name: string, type: string, degree: number) => ({
   degree
 });
 
+/** 清单（孤儿 / 枢纽 / 断链）那条查询返回的是 `IndexedDocument`，比图谱节点多几个字段。 */
+const documentOf = (relativePath: string, id: number): IndexedDocument => {
+  const name = relativePath.split('/').pop() ?? relativePath;
+  const dot = name.lastIndexOf('.');
+  return {
+    id,
+    path: `/vault/${relativePath}`,
+    relativePath,
+    name,
+    title: dot > 0 ? name.slice(0, dot) : name,
+    type: 'markdown',
+    sizeBytes: 1,
+    modifiedAtMs: 1,
+    contentHash: relativePath,
+    extractionStatus: 'none'
+  };
+};
+
 /** 全量图：3 篇笔记 + 1 个 PDF。 */
 const FULL: WorkspaceGraph = {
   nodes: [
@@ -86,6 +104,8 @@ describe('图谱控制条', () => {
   let getGraph: ReturnType<typeof vi.fn>;
   /** 详情条按需查标签用的。默认空数组 —— 只有「标签」那一组用例会改它。 */
   let tagsOf: ReturnType<typeof vi.fn>;
+  /** 三张清单的查询。默认空 —— 只有「从清单点开也带锚点」那一条会改它。 */
+  let getGraphOrphans: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     container = document.createElement('div');
@@ -122,9 +142,10 @@ describe('图谱控制条', () => {
 
     // 切到清单视图时那三个组件会挂上，必须一起打桩，否则它们会去调 undefined
     tagsOf = vi.fn(async () => []);
+    getGraphOrphans = vi.fn(async () => []);
     (window as unknown as { nexus: unknown }).nexus = {
       getGraph,
-      getGraphOrphans: vi.fn(async () => []),
+      getGraphOrphans,
       getGraphHubs: vi.fn(async () => []),
       getGraphDeadLinks: vi.fn(async () => []),
       tagsOf
@@ -1070,7 +1091,54 @@ describe('图谱控制条', () => {
       const { onOpenFile } = await renderGraph(FULL);
       await doubleClickNode('c.md');
 
+      // 只传一个参数：没有代表性锚点的文档打开就该落在开头
       expect(onOpenFile).toHaveBeenCalledWith('/vault/c.md');
+    });
+
+    it('双击带代表性锚点的节点，把锚点一起传下去', async () => {
+      /*
+        锚点是 `[[dma#性能]]` 里的 `性能`：图谱点进去该落在那一节，而不是文档开头。
+        节点上带不带锚点由主进程算（`IndexStore.getGraph`），这里只验**传递**。
+      */
+      const anchored: WorkspaceGraph = {
+        nodes: [
+          node(1, 'src.md', 'markdown', 1),
+          { ...node(2, 'dma.md', 'markdown', 1), anchor: '性能' }
+        ],
+        edges: [{ source: 1, target: 2 }]
+      };
+      const { onOpenFile } = await renderGraph(anchored);
+      await doubleClickNode('dma.md');
+
+      expect(onOpenFile).toHaveBeenCalledWith('/vault/dma.md', '性能');
+    });
+
+    it('从清单点开同一篇文档也落在同一节', async () => {
+      /*
+        清单的数据来自另一条查询，只拿得到路径、拿不到锚点，所以面板要按路径回图里找一次。
+        不找的话「从画布点开」和「从清单点开」落在文档的两个位置 ——
+        用户只会觉得其中一个坏了。
+      */
+      const anchored: WorkspaceGraph = {
+        nodes: [
+          node(1, 'src.md', 'markdown', 1),
+          { ...node(2, 'dma.md', 'markdown', 1), anchor: '性能' }
+        ],
+        edges: [{ source: 1, target: 2 }]
+      };
+      getGraphOrphans.mockImplementation(async () => [documentOf('dma.md', 2)]);
+
+      const { onOpenFile } = await renderGraph(anchored);
+      await act(async () => {
+        container.querySelector<HTMLElement>('[data-mode="orphans"]')!.click();
+      });
+      await act(async () => {});
+
+      await act(async () => {
+        container.querySelector<HTMLElement>('.nexus-graph-list-card')!.click();
+      });
+
+      expect(onOpenFile).toHaveBeenCalledWith('/vault/dma.md', '性能');
     });
 
     it('双击断链节点走「新建」而不是打开', async () => {

@@ -1235,4 +1235,94 @@ describe('工作区索引', () => {
       recovered.close();
     });
   });
+
+  /**
+   * 图谱节点的**代表性锚点**：从图谱点进一篇文档时该落在哪一节。
+   *
+   * 口径是「指向它的链接里出现最多的那个锚点」，平局按字典序，且**与范围 / 类型筛选无关**。
+   * 最后一条最容易写错：把它算在筛选之后的边集上，同一篇文档在不同范围下会落到不同标题，
+   * 看着像文档被改了。
+   */
+  describe('图谱节点的代表性锚点', () => {
+    const anchorOf = (store: IndexStore, name: string) => {
+      const node = store.getGraph().nodes.find((candidate) => candidate.name === name)!;
+      return node.kind === 'document' ? node.anchor : undefined;
+    };
+
+    it('取指向它的链接里出现最多的那个锚点', async () => {
+      await writeDoc('dma.md', '# DMA\n\n## 性能\n\n## 中断\n');
+      await writeDoc('one.md', '见 [[dma#性能]]。');
+      await writeDoc('two.md', '也见 [[dma#性能]]。');
+      await writeDoc('three.md', '见 [[dma#中断]]。');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+
+      // 2 比 1 —— 绝大多数引用指向哪一节，才是这篇文档在这个知识库里代表什么
+      expect(anchorOf(store, 'dma.md')).toBe('性能');
+
+      store.close();
+    });
+
+    it('平局按字典序取小的 —— 两次打开落点相同', async () => {
+      await writeDoc('dma.md', '# DMA\n\n## Alpha\n\n## Beta\n');
+      await writeDoc('one.md', '见 [[dma#Beta]]。');
+      await writeDoc('two.md', '见 [[dma#Alpha]]。');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+      expect(anchorOf(store, 'dma.md')).toBe('Alpha');
+      store.close();
+
+      /*
+        重开一次。`Map` 的迭代顺序取决于插入顺序、而插入顺序取决于 SQLite 的返回顺序 ——
+        不裁决的话这里会飘，用户看到的是「什么都没改，落点却变了」。
+      */
+      const reopened = IndexStore.open(dbPath);
+      expect(anchorOf(reopened, 'dma.md')).toBe('Alpha');
+      reopened.close();
+    });
+
+    it('一条带锚点的链接都没有时，节点上**不出现**这个字段', async () => {
+      await writeDoc('dma.md', '# DMA\n\n## 性能\n');
+      await writeDoc('one.md', '见 [[dma]]。');
+      await writeDoc('two.md', '也见 [[dma]]。');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+
+      /*
+        反例：不能让节点凭空带上一个锚点 —— 那会落到一个用户没在指的位置。
+        判据取「字段不存在」而不是「等于 undefined」：前者才说明主进程没写它。
+      */
+      const node = store.getGraph().nodes.find((candidate) => candidate.name === 'dma.md')!;
+      expect('anchor' in node).toBe(false);
+
+      store.close();
+    });
+
+    it('锚点不随范围裁剪变 —— 它是文档的属性，不是这一屏的属性', async () => {
+      await writeDoc('dma.md', '# DMA\n\n## 性能\n');
+      await writeDoc('a.md', '见 [[dma#性能]]。');
+      await writeDoc('b.md', '见 [[dma]]。');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+      expect(anchorOf(store, 'dma.md')).toBe('性能');
+
+      /*
+        以 b 为中心收一度：dma 还在（b 直接链它），但**唯一带锚点的那个来源 a.md 被裁掉了**
+        （它离 b 两跳）。锚点若算在可见边上，这里会变成 undefined ——
+        同一篇文档换个范围落点就变，看着像文档被改了。
+      */
+      const b = store.listDocuments().find((document) => document.name === 'b.md')!;
+      const scoped = store.getGraph({ centerPath: b.path, degrees: 1 });
+      expect(scoped.nodes.map((node) => node.name).sort()).toEqual(['b.md', 'dma.md']);
+
+      const scopedDma = scoped.nodes.find((node) => node.name === 'dma.md')!;
+      expect(scopedDma.kind === 'document' ? scopedDma.anchor : undefined).toBe('性能');
+
+      store.close();
+    });
+  });
 });
