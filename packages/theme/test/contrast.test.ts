@@ -19,8 +19,8 @@ const THEMES: ReadonlyArray<readonly [string, Record<string, string>]> = [
 
 const keyOf = (theme: string, failure: ContrastFailure): string => `${theme}/${failure.token}@${failure.ground}`;
 
-/** 契约表实际测到的对数：每套 145 对。数字变了说明承载面或契约被改动，需要一并复核。 */
-const MEASURED_PER_THEME = 145;
+/** 契约表实际测到的对数：每套 185 对。数字变了说明承载面或契约被改动，需要一并复核。 */
+const MEASURED_PER_THEME = 185;
 
 /** 装饰边框豁免：不参与测量，但必须显式列出，不能靠「没测到」。 */
 const EXEMPT_BORDER_TOKENS = ['border-default', 'border-strong', 'border-subtle'];

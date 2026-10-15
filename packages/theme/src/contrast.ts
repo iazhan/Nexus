@@ -170,6 +170,28 @@ for (const name of SYNTAX_HIGHLIGHTS) {
   FOREGROUND_CONTRACT[name] = { tier: 'text', on: [...general] };
 }
 
+/**
+ * 图谱的分区色板。**图形级 3:1** —— 它们只作为图例色块与节点圆点出现，不是文字，
+ * 与 `accent-indicator` 同一类（WCAG 1.4.11 非文本对比度）。
+ *
+ * `derive.ts` 按文字级 4.5 修它们，比这里承诺的更严；不冲突，但别把两处口径当成一回事：
+ * 这一行的 `graphical` 是**承诺**，那边是**做法**。
+ */
+const GRAPH_PALETTE: readonly string[] = [
+  'graph-1',
+  'graph-2',
+  'graph-3',
+  'graph-4',
+  'graph-5',
+  'graph-6',
+  'graph-7',
+  'graph-8',
+];
+
+for (const name of GRAPH_PALETTE) {
+  FOREGROUND_CONTRACT[name] = { tier: 'graphical', on: [...general] };
+}
+
 // 状态边框是语义指示器（1.4.11 的非文本对比度适用），按图形级 3:1 实测 ——
 // 与上面三个纯装饰的分隔线不是一类。`derive.ts` 早就按 3:1 修它们，契约表却归进 `border`
 // 豁免、从不测量，两处口径不同。

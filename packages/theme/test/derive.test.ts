@@ -7,7 +7,13 @@ import {
   nexusDark,
   nexusLight,
 } from '../src/index.js';
-import { GENERAL_SURFACES, contrastRatio, measureTheme, parseColour } from '../src/contrast.js';
+import {
+  FOREGROUND_CONTRACT,
+  GENERAL_SURFACES,
+  contrastRatio,
+  measureTheme,
+  parseColour,
+} from '../src/contrast.js';
 import { applyOverrides, defaultTuning, seedsToTokens, seedsToTokensWithReport } from '../src/derive.js';
 import { rgbToOklch } from '../src/oklch.js';
 import { nexusDarkSeeds, nexusLightSeeds, type NexusThemeScheme } from '../src/seeds.js';
@@ -56,8 +62,8 @@ describe('内置主题就是派生输出', () => {
     expect(nexusDark.tokens).toEqual(seedsToTokens(nexusDarkSeeds));
   });
 
-  it('每套 45 个 token，两套的名字一致', () => {
-    expect(Object.keys(nexusLight.tokens)).toHaveLength(45);
+  it('每套 53 个 token，两套的名字一致', () => {
+    expect(Object.keys(nexusLight.tokens)).toHaveLength(53);
     expect(Object.keys(nexusDark.tokens).sort()).toEqual(Object.keys(nexusLight.tokens).sort());
   });
 
@@ -73,7 +79,7 @@ describe('内置主题的对比度不变量', () => {
   it('两套主题在契约矩阵下零不达标', () => {
     for (const [name, tokens] of THEMES) {
       const report = measureTheme(tokens);
-      expect(report.measured, `${name} 的测量对数变了`).toBe(145);
+      expect(report.measured, `${name} 的测量对数变了`).toBe(185);
       expect(
         report.failures.map((f) => `${f.token}@${f.ground} ${f.ratio.toFixed(2)}`),
         `${name} 有不达标的配对`,
@@ -175,7 +181,7 @@ describe('派生规则对第三方种子成立', () => {
 
   it('守卫不成立时不抛错，输出仍全部达标（Solarized Light 的带太窄）', () => {
     const tokens = seedsToTokens(SOLARIZED_LIGHT);
-    expect(Object.keys(tokens)).toHaveLength(45);
+    expect(Object.keys(tokens)).toHaveLength(53);
     expect(measureTheme(tokens).failures).toEqual([]);
   });
 });
@@ -263,18 +269,15 @@ describe('seedsToTokensWithReport', () => {
    * `text-secondary` 取与正文色的几何中点。能断言的是**下界**，以及「走 3:1 的只有图形类」。
    */
   it('target 不低于该 token 的档位：图形类 3:1，其余 4.5:1', () => {
-    const GRAPHICAL = new Set([
-      'accent-indicator',
-      'border-control',
-      'status-success-border',
-      'status-warning-border',
-      'status-error-border',
-    ]);
+    /*
+      「哪些 token 走 3:1」**不在这里另抄一份** —— 抄一份的下场就是加了新 token 之后这里忘了加，
+      而失败信息会说「derive 的目标比值不对」，把方向指错。档位只有 `contrast.ts` 的契约表一个来源。
+    */
     const seen = new Set<string>();
 
     for (const scheme of [nexusLightSeeds, nexusDarkSeeds, DRACULA, SOLARIZED_LIGHT]) {
       for (const correction of seedsToTokensWithReport(scheme).corrections) {
-        const graphical = GRAPHICAL.has(correction.token);
+        const graphical = FOREGROUND_CONTRACT[correction.token]?.tier === 'graphical';
         expect(correction.target).toBeGreaterThanOrEqual(graphical ? 3 : 4.5);
         if (correction.target === 3) expect(graphical).toBe(true);
         seen.add(correction.token);
@@ -396,6 +399,93 @@ describe('出厂主题表', () => {
       const entry = BUILT_IN_SCHEMES.find((candidate) => candidate.id === id);
       if (!entry) throw new Error(`出厂主题表里没有 ${id}`);
       expect(seedsToTokensWithReport(entry.scheme).corrections.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * 图谱的分区色板。
+ *
+ * 这一组存在的理由是「图例不能说谎」：分区超过调色板大小时图例会把多出来的合并成
+ * 「其他」那一行，但**合并之前**的每一个色块都必须真的分得开 —— 两个分区共用一个
+ * （或看起来像同一个）色块，用户会以为那两个目录是一伙的。
+ *
+ * 「不同」不能只比字符串：`#795e26` 与 `#ad7400` 是不同的 hex，但在浅色主题下都是暗橄榄/
+ * 暗琥珀。判据取 **OKLab 的欧氏距离**（ΔE），它是感知均匀的，可以直接当阈值用。
+ * 阈值 0.05 的来历：实测两套主题的最近一对是 0.071（浅）/ 0.094（深），留了约 40% 余量；
+ * 而按文字级 4.5:1 派生时浅色只有 0.041 —— 那正是这条断言要挡住的情形。
+ */
+describe('图谱分区色板', () => {
+  const GRAPH_TOKENS = Array.from({ length: 8 }, (_, index) => `graph-${index + 1}`);
+  const MIN_DISTANCE = 0.05;
+
+  /** 排名 → 槽位。这是「哪个分区拿哪个颜色」的口径，改了它所有既有工作区的配色都会重排。 */
+  const SLOTS = ['base0D', 'base0E', 'base08', 'base0B', 'base0F', 'base0C', 'base09', 'base0A'] as const;
+
+  const toLab = (hex: string): [number, number, number] => {
+    const { l, c, h } = rgbToOklch(parseColour(hex)!);
+    const rad = (h * Math.PI) / 180;
+    return [l, c * Math.cos(rad), c * Math.sin(rad)];
+  };
+
+  const distance = (a: string, b: string): number => {
+    const [x, y] = [toLab(a), toLab(b)];
+    return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+  };
+
+  it('八色齐备，且两两分得开（含最接近的一对）', () => {
+    for (const [name, tokens] of THEMES) {
+      const values = GRAPH_TOKENS.map((token) => {
+        const value = tokens[token];
+        if (!value) throw new Error(`${name} 缺 ${token}`);
+        return value;
+      });
+
+      expect(new Set(values).size, `${name} 的图谱色板有重复值`).toBe(GRAPH_TOKENS.length);
+
+      let closest = { pair: '', distance: Number.POSITIVE_INFINITY };
+      for (let i = 0; i < values.length; i += 1) {
+        for (let j = i + 1; j < values.length; j += 1) {
+          const d = distance(values[i]!, values[j]!);
+          if (d < closest.distance) {
+            closest = { pair: `${GRAPH_TOKENS[i]}/${GRAPH_TOKENS[j]}`, distance: d };
+          }
+        }
+      }
+
+      expect(
+        closest.distance,
+        `${name} 的 ${closest.pair} 挤在一起了（ΔE ${closest.distance.toFixed(4)}）`,
+      ).toBeGreaterThanOrEqual(MIN_DISTANCE);
+    }
+  });
+
+  it('明暗两版逐槽都不同 —— 否则「切主题图谱跟着换」是假的', () => {
+    for (const token of GRAPH_TOKENS) {
+      expect(nexusLight.tokens[token], `${token} 两套主题同值`).not.toBe(nexusDark.tokens[token]);
+    }
+  });
+
+  it('每一色都是它那个 base16 槽的色相 —— 换了槽位就会换色', () => {
+    /*
+      派生只改明度（`shiftLightness` / `atRatio` 都保留 oklch 的 c 与 h），所以色相应当与
+      种子一致。实测 16 组里 15 组**逐位相同**，唯一的例外是浅色的 `graph-8`：种子
+      `base0A` 是高彩度的浅琥珀（`#fbbf24`），压到 3:1 时超出 sRGB 色域、被 `oklchToRgb`
+      裁切，色相偏了 9.6°（84° → 75°）。容差 12° 就是给这类裁切留的 —— 它挡的是
+      「槽位被换掉」（换一个槽色相差通常远大于 12°），不是裁切本身。
+    */
+    const variants: ReadonlyArray<readonly [string, Record<string, string>, NexusThemeScheme]> = [
+      ['light', nexusLight.tokens, nexusLightSeeds],
+      ['dark', nexusDark.tokens, nexusDarkSeeds],
+    ];
+    const hue = (hex: string): number => rgbToOklch(parseColour(hex)!).h;
+
+    for (const [name, tokens, seeds] of variants) {
+      SLOTS.forEach((slot, index) => {
+        const token = `graph-${index + 1}`;
+        const gap = Math.abs(hue(tokens[token]!) - hue(seeds.palette[slot]));
+        expect(gap, `${name} 的 ${token} 不是 ${slot} 的色相`).toBeLessThanOrEqual(12);
+      });
     }
   });
 });

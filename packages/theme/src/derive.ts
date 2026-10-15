@@ -85,7 +85,45 @@ const rgbaString = ({ r, g, b, a }: Rgba): string =>
 interface Rule {
   slot: Base16Slot;
   dl?: number;
+  /**
+   * 目标对比度比值。缺省按 token 名判：`-border` 结尾是图形级 3:1，其余是文字级 4.5。
+   * 显式给值只用在**明确不属于这两档**的 token 上（见 `GRAPH_RULES`）。
+   */
+  target?: number;
 }
+
+/**
+ * 图谱的**分区色板**（`apps/desktop/renderer/src/workspace/graph-clusters.ts` 的 `CLUSTER_TOKENS`）。
+ *
+ * 八色 = base16 的八个**色相槽**（`base08`–`base0F`）。前六个沿用了借 `syntax-*` 时期的
+ * **槽位顺序**（`base0D`/`base0E`/`base08`/`base0B`/`base0F`/`base0C`），所以 ≤6 个分区的工作区
+ * 不会整体换色。**一处例外**：暗色主题的 `syntax-string` 用的是 `base09`（橙），而这里明暗同槽，
+ * 于是暗色的第三个槽位从橙变成 `base08` 的红。拿这一处换「一张槽位表管两套主题」，划算。
+ *
+ * 为什么值得单独立一组：base16 只有八个色相槽，而语法高亮已经用掉六个
+ * （`base09` / `base0A` 归 `status-warning-*`），所以「继续借语法色」这条路天然借不到第八个。
+ * 借来的东西说不出「还差两个」。
+ *
+ * ## 目标比值是图形级 3:1，不是文字级 4.5
+ *
+ * 它们只作为色块与节点圆点出现，3:1 就是承诺（`contrast.ts` 的 `GRAPH_PALETTE` 也是这么登记的）。
+ * 按 4.5 压会多压暗一档，而浅色主题下 `base0F` / `base09` / `base0A` 本来就都落在暖色区，
+ * 多压那一档会把三个色挤成一片棕：实测 4.5 时最近的 `graph-5` / `graph-8` 只差
+ * OKLab ΔE 0.041（约 CIEDE2000 4.7），而 3:1 时是 0.058。**图例的色块撞在一起，图例就在说谎** ——
+ * 这比「暗一点」严重得多。
+ *
+ * 明暗两版同槽 —— 差异全在 `palette` 里，这里不需要判断 variant。
+ */
+const GRAPH_RULES: Record<string, Rule> = {
+  'graph-1': { slot: 'base0D', target: GRAPHICAL_MIN }, // 蓝
+  'graph-2': { slot: 'base0E', target: GRAPHICAL_MIN }, // 紫
+  'graph-3': { slot: 'base08', target: GRAPHICAL_MIN }, // 红
+  'graph-4': { slot: 'base0B', target: GRAPHICAL_MIN }, // 绿
+  'graph-5': { slot: 'base0F', target: GRAPHICAL_MIN }, // 棕
+  'graph-6': { slot: 'base0C', target: GRAPHICAL_MIN }, // 青
+  'graph-7': { slot: 'base09', target: GRAPHICAL_MIN }, // 橙
+  'graph-8': { slot: 'base0A', target: GRAPHICAL_MIN }, // 黄
+};
 
 const RULES: Record<Variant, Record<string, Rule>> = {
   light: {
@@ -112,6 +150,7 @@ const RULES: Record<Variant, Record<string, Rule>> = {
     'status-warning-border': { slot: 'base0A' },
     'status-error-text': { slot: 'base08', dl: -0.015 },
     'status-error-border': { slot: 'base08', dl: 0.252 },
+    ...GRAPH_RULES,
   },
   dark: {
     'syntax-heading': { slot: 'base07' },
@@ -137,6 +176,7 @@ const RULES: Record<Variant, Record<string, Rule>> = {
     'status-warning-border': { slot: 'base0A' },
     'status-error-text': { slot: 'base08' },
     'status-error-border': { slot: 'base08' },
+    ...GRAPH_RULES,
   },
 };
 
@@ -310,10 +350,12 @@ export function seedsToTokensWithReport(scheme: NexusThemeScheme): DeriveReport 
   const rules = RULES[variant];
   for (const [token, rule] of Object.entries(rules)) {
     const base = shiftLightness(seed(rule.slot), rule.dl ?? 0);
-    // 边框走图形级 3:1（语义指示器），其余走文字级 4.5。
+    // 边框走图形级 3:1（语义指示器），其余走文字级 4.5；`target` 是给不属于这两档的 token
+    // 留的口子（图谱色板：色块与圆点，3:1）。
     // 这里没有 alpha 分支：半透明会抵消修正 —— 先修到 3:1 再叠 alpha 等于没修。
     // 暗色的 status-*-border 曾带 alpha 0.4，实测在深底上只剩 1.5:1，1px 细线等于不可见。
-    const target = token.endsWith('-border') ? GRAPHICAL_MIN : TEXT_MIN;
+    const target =
+      rule.target ?? (token.endsWith('-border') ? GRAPHICAL_MIN : TEXT_MIN);
     tokens[token] = fixed(token, base, atRatio(base, binding, target, dir), binding, target);
   }
   for (const [token, slot] of Object.entries(STATUS_BG_SLOT)) {

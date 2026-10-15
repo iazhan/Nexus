@@ -71,7 +71,7 @@ export const TUNING_FIELDS: readonly TuningField[] = [
 ];
 
 export interface TokenGroup {
-  id: 'surface' | 'text' | 'accent' | 'syntax' | 'markdown';
+  id: 'surface' | 'text' | 'accent' | 'syntax' | 'markdown' | 'graph';
   labelKey: string;
   tokens: readonly string[];
 }
@@ -95,7 +95,7 @@ const SYNTAX_HIGHLIGHT_TOKENS: readonly string[] = [
   'syntax-url'
 ];
 
-/** 45 个 token 分五组，**不重不漏**由测试守着。 */
+/** 53 个 token 分六组，**不重不漏**由测试守着。 */
 export const TOKEN_GROUPS: readonly TokenGroup[] = [
   {
     id: 'surface',
@@ -143,6 +143,24 @@ export const TOKEN_GROUPS: readonly TokenGroup[] = [
       'status-success-border',
       'status-warning-border',
       'status-error-border'
+    ]
+  },
+  {
+    /*
+      图谱的分区色板。**八色**，顺序即「分区排名 → 颜色」的槽位顺序（`graph-clusters.ts`），
+      所以这里的顺序不是随便排的：换一行等于换掉所有既有工作区的配色。
+    */
+    id: 'graph',
+    labelKey: 'theme.group.graph',
+    tokens: [
+      'graph-1',
+      'graph-2',
+      'graph-3',
+      'graph-4',
+      'graph-5',
+      'graph-6',
+      'graph-7',
+      'graph-8'
     ]
   }
 ];
