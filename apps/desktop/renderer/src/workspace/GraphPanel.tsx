@@ -344,10 +344,14 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
 
     直接依赖 `visibleTypes` 会在每次渲染时换一个新数组、effect 每轮都跑；
     而写 `visibleTypes.join(',')` 这种表达式又绕过了依赖检查。记忆化对象两头都满足。
+
+    `centerPath` **在两种范围下都传**，裁多大交给 `degrees` 决定。这样主进程每次都
+    校验一次「这个焦点还在不在筛过的图里」，`centerMissing` 于是**与范围无关** ——
+    换成「只在 current 时传」，退回全图的那一刻判定就没了，按钮会在可用/不可用之间来回跳。
   */
   const query = useMemo(
     () => ({
-      centerPath: scope === 'current' ? (activeFilePath ?? undefined) : undefined,
+      centerPath: activeFilePath ?? undefined,
       degrees: scope === 'current' ? GRAPH_SCOPE_DEGREES : undefined,
       types: hasTypeFilter ? visibleTypes : undefined
     }),
@@ -405,15 +409,37 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
   }, [revision, query]);
 
   /*
-    没有活动文档时退回全图。
+    「当前文档」这个范围**现在能不能用**。只看两件事，与 `scope` 无关：
 
-    不退回的话，`scope` 还是 `'current'` 而 `centerPath` 是空的 —— 查询会按「没有中心」
-    处理、返回全图，但按钮上仍然写着「当前文档」。界面说的和画出来的不一致，
-    而用户只会觉得图谱没反应。
+    1. 有没有活动文档；
+    2. 有的话，它还在不在**筛过之后**的图里（`centerMissing`）。
+
+    第 2 条是主进程算的，不是这里猜的：文档还没进索引、或它的类型被用户关掉，
+    这两种情况下邻域都算不出来，主进程会如实回报。**不要**改成「在 `graph.nodes`
+    里找一遍路径」—— 那要求「全图必须返回每一篇筛过的文档」，是个隐式约定，
+    以后图谱加上节点数上限就会静默失效。
+  */
+  const centerUnavailable = useMemo(() => {
+    if (activeFilePath === null) return true;
+    /*
+      取数还没成功之前不下结论。那时 `graph` 是上一轮的结果，拿它判会让按钮先禁后放；
+      加载中/失败态下保持可点，点了也只是重新取一次。
+    */
+    return graphPhase === 'ready' && graph.centerMissing === true;
+  }, [activeFilePath, graphPhase, graph]);
+
+  /*
+    当前文档用不了时退回全图。
+
+    不退回的话，`scope` 还是 `'current'` 而查询给不出邻域 —— 主进程会返回全图，
+    但按钮上仍然写着「当前文档」。界面说的和画出来的不一致，而用户只会觉得图谱没反应。
+
+    **不会来回跳**：判定（`centerUnavailable`）只依赖活动文档与筛选结果，退回全图
+    并不会让它变回「可用」—— 这正是 `centerPath` 在两种范围下都要传的原因。
   */
   useEffect(() => {
-    if (activeFilePath === null) setScope('all');
-  }, [activeFilePath]);
+    if (centerUnavailable && scope === 'current') setScope('all');
+  }, [centerUnavailable, scope]);
 
   /*
     跟随**画布本身**的尺寸，不是整个面板。
@@ -1222,8 +1248,21 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
             className="nexus-graph-chip"
             data-scope="current"
             aria-pressed={scope === 'current'}
-            disabled={activeFilePath === null}
-            title={activeFilePath === null ? t('graph.scopeCurrentUnavailable') : undefined}
+            disabled={centerUnavailable}
+            /*
+              两种「用不了」的原因分开说：没有活动文档是常态（用户没打开任何文件），
+              而「当前文档不在图里」是另一种情况 —— 用户明明开着文档，需要告诉他
+              为什么点不了（还没进索引，或者它的类型被筛掉了）。
+            */
+            title={
+              centerUnavailable
+                ? t(
+                    activeFilePath === null
+                      ? 'graph.scopeCurrentUnavailable'
+                      : 'graph.scopeCurrentMissing'
+                  )
+                : undefined
+            }
             onClick={() => setScope('current')}
           >
             {t('graph.scopeCurrent')}

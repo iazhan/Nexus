@@ -237,6 +237,12 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'graph.scopeAll': 'Whole workspace',
     'graph.scopeCurrent': 'Current document',
     'graph.scopeCurrentUnavailable': 'Open a document to scope the graph to it.',
+    /*
+      与上一条分开：那条是「根本没打开文档」，这条是「打开了、但它不在图里」。
+      合并成一句的话，用户开着文档却看到「请打开一份文档」，会以为是 bug。
+    */
+    'graph.scopeCurrentMissing':
+      'This document is not in the graph — it may not be indexed yet, or its type is hidden.',
     'graph.filterTypes': 'Types',
     'graph.filteredEmpty': 'No documents match the current filters.',
     'graph.resetFilters': 'Show all',
@@ -1129,6 +1135,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'graph.scopeAll': '整个工作区',
     'graph.scopeCurrent': '当前文档',
     'graph.scopeCurrentUnavailable': '打开一份文档才能把图谱缩到它周围。',
+    'graph.scopeCurrentMissing': '这篇文档不在图谱里 —— 可能还没进索引，或它的类型被筛掉了。',
     'graph.filterTypes': '类型',
     'graph.filteredEmpty': '没有符合当前筛选的文档。',
     'graph.resetFilters': '显示全部',

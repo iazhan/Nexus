@@ -782,6 +782,12 @@ export class IndexStore {
    *
    * 于是 `degree` 的定义是「**本次返回的边里**与它相连的条数」，不是全局度数。
    *
+   * ## `centerPath` 与 `degrees` 是两件事
+   *
+   * 前者是「**焦点是谁**」，后者是「**裁多大**」。不给 `degrees` 就不裁剪（返回全图）。
+   * 分开的好处是调用方能在「焦点这次用不了」时照样把路径报上来 —— 于是
+   * `centerMissing` 的判定**与裁剪与否无关**，界面上的按钮状态也就不会跟着范围来回跳。
+   *
    * ## 未解析的目标不再被丢掉
    *
    * 它们变成 `kind: 'missing'` 的节点。丢掉是**静默消失**：用户看到某篇文档在图上什么
@@ -887,14 +893,29 @@ export class IndexStore {
 
     const edges = [...docEdges, ...missingEdges];
 
+    /*
+      中心只在**筛过之后**的文档里找 —— 类型筛选先于裁剪生效（理由见上面的「范围裁剪」）。
+
+      于是「没有中心」与「中心找不到」必须分开报：前者是调用方没要焦点，后者是
+      调用方要了、但这次给不了（文档还没进索引，或它的类型被筛掉了）。混在一起的话
+      渲染层无法把「当前文档」那个按钮禁掉，用户就会按到一个没反应的按钮。
+      **找不到时仍然返回全图**，不是空图 —— 见 `GraphQuery.centerPath` 的注释。
+    */
     const center =
       query.centerPath === undefined
         ? undefined
         : documents.find((document) => document.path === query.centerPath);
+    const centerMissing = query.centerPath !== undefined && center === undefined;
+
+    /*
+      `degrees` **不给就不裁剪**。把「焦点是谁」与「裁多大」分开，是为了让调用方
+      能在「当前文档不可用」时仍然把焦点路径报上来、好让上面那个判定成立
+      （否则一退回全图，判定就没了，按钮会在「可用/不可用」之间来回跳）。
+    */
     const reached =
-      center === undefined
+      center === undefined || query.degrees === undefined
         ? null
-        : reachableFrom(center.id, edges, query.degrees ?? 1);
+        : reachableFrom(center.id, edges, query.degrees);
 
     const keptDocuments =
       reached === null ? documents : documents.filter((document) => reached.has(document.id));
@@ -933,7 +954,9 @@ export class IndexStore {
       });
     }
 
-    return { nodes, edges: visibleEdges };
+    return centerMissing
+      ? { nodes, edges: visibleEdges, centerMissing: true }
+      : { nodes, edges: visibleEdges };
   }
 
   /**

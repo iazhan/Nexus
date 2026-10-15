@@ -536,6 +536,56 @@ describe('工作区索引', () => {
       const fallback = store.getGraph({ centerPath: '/vault/还没建的.md', degrees: 1 });
 
       expect(names(fallback)).toEqual(names(full));
+      /*
+        「退回全图」必须**同时**如实报告。只退回不报告，界面上那个「当前文档」按钮
+        就是按了没反应 —— 而那正是这个字段存在的理由。
+      */
+      expect(fallback.centerMissing).toBe(true);
+
+      store.close();
+    });
+
+    it('centerPath 只声明焦点：不给 degrees 就不裁剪', async () => {
+      await chain();
+      const store = await openIndexed();
+
+      const full = store.getGraph();
+      const b = store.listDocuments().find((doc) => doc.name === 'b.md')!;
+      const focused = store.getGraph({ centerPath: b.path });
+
+      /*
+        反例钉住「裁多大由 degrees 决定」。少了这条，把 `degrees` 的缺省当 1 也能过
+        上面所有用例 —— 而渲染层正是靠「焦点有效时也能拿到全图」才能让按钮状态
+        与范围无关（见 GraphPanel 里 `centerPath` 两种范围都传的那段）。
+      */
+      expect(names(focused)).toEqual(names(full));
+      expect(focused.edges).toHaveLength(full.edges.length);
+
+      // 焦点有效、也没要裁剪 ⇒ 不报缺失。反面对称，见下一条。
+      expect(focused.centerMissing).toBeUndefined();
+      // 压根没给 centerPath 更不该报
+      expect(full.centerMissing).toBeUndefined();
+
+      store.close();
+    });
+
+    it('中心被类型筛掉时如实报告，退回的是筛过之后的全图', async () => {
+      await chain();
+      const store = await openIndexed();
+
+      const manual = store.listDocuments().find((doc) => doc.name === 'manual.pdf')!;
+      const graph = store.getGraph({ centerPath: manual.path, degrees: 1, types: ['markdown'] });
+
+      /*
+        `manual.pdf` 存在、也在索引里，但它的类型被筛掉了 —— 邻域算不出来。
+        这正是「静默退化」那个缺陷的触发条件：改动前这里返回一张全图且什么都不说。
+      */
+      expect(graph.centerMissing).toBe(true);
+
+      // 退回全图，不是空图（用户会以为工作区坏了）
+      expect(names(graph)).toEqual(['a.md', 'b.md', 'c.md', 'lonely.md']);
+      // 被筛掉的类型一个都不许漏进来 —— 否则「退回全图」会被写成「忽略筛选」
+      expect(graph.nodes.some((node) => node.type === 'pdf')).toBe(false);
 
       store.close();
     });

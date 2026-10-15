@@ -204,9 +204,60 @@ describe('图谱控制条', () => {
   it('没有活动文档时「当前文档」不可选，有文档时可选', async () => {
     await render({ activeFilePath: null });
     expect(chip('[data-scope="current"]')!.hasAttribute('disabled')).toBe(true);
+    // 没有文档 ⇒ 说的是「打开一份文档」
+    expect(chip('[data-scope="current"]')!.getAttribute('title')).toContain('Open a document');
 
     await render({ activeFilePath: '/vault/a.md' });
     expect(chip('[data-scope="current"]')!.hasAttribute('disabled')).toBe(false);
+    // 可用时不留 tooltip —— 一个解释「为什么能点」的气泡只会碍事
+    expect(chip('[data-scope="current"]')!.getAttribute('title')).toBeNull();
+  });
+
+  it('两种范围下都把 centerPath 传下去 —— 按钮状态才能与范围无关', async () => {
+    await render({ activeFilePath: '/vault/a.md' });
+
+    /*
+      这是「退回全图不会把按钮弹回来」的实现前提：主进程每次都能校验焦点，
+      所以 `centerMissing` 与当前范围无关。
+
+      改成「只在 current 时传」也能过上面所有用例 —— 而那样按钮会在可用/不可用
+      之间来回跳：退回全图的那一刻判定就没了。
+    */
+    expect(getGraph).toHaveBeenCalledWith(expect.objectContaining({ centerPath: '/vault/a.md' }));
+    expect(getGraph).toHaveBeenCalledWith(expect.objectContaining({ degrees: undefined }));
+  });
+
+  it('当前文档不在图里时禁用「当前文档」，并说清是哪种原因', async () => {
+    /*
+      桩模拟「主进程说焦点这次给不了」：文档还没进索引，或它的类型被筛掉了。
+      两种原因对界面是同一件事（这个范围用不了），但文案不能是「请打开一份文档」——
+      用户明明开着它。
+    */
+    getGraph.mockImplementation(async () => ({ ...FULL, centerMissing: true as const }));
+
+    await render({ activeFilePath: '/vault/a.md' });
+
+    expect(chip('[data-scope="current"]')!.hasAttribute('disabled')).toBe(true);
+    const title = chip('[data-scope="current"]')!.getAttribute('title');
+    expect(title).toContain('not in the graph');
+    expect(title).not.toContain('Open a document');
+  });
+
+  it('中心不可用时把范围退回全图，且不会来回跳', async () => {
+    settings.set('graph.scope', 'current');
+    getGraph.mockImplementation(async () => ({ ...FULL, centerMissing: true as const }));
+
+    await render({ activeFilePath: '/vault/a.md' });
+    // 退回全图会再触发一次取数，多让微任务跑一轮
+    await act(async () => {});
+
+    expect(chip('[data-scope="all"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(chip('[data-scope="current"]')!.getAttribute('aria-pressed')).toBe('false');
+    /*
+      退回之后**仍然**禁用。判定要是跟着 scope 走，这里会变回可用，
+      用户再点一次又被打回来 —— 那比原来的「按了没反应」更糟。
+    */
+    expect(chip('[data-scope="current"]')!.hasAttribute('disabled')).toBe(true);
   });
 
   it('点「当前文档」把中心与层数传给查询', async () => {
@@ -227,11 +278,13 @@ describe('图谱控制条', () => {
     /*
       反例侧：`scope='current'` 时两个数**都不能**还是全量的。
 
-      桩按 `centerPath` 换结果（默认桩永远返回 FULL，那对「边数拿全量」同样成立，
-      测不出任何东西）。邻域里只剩 a、b 两个点与 a→b 一条边。
+      桩按 `degrees` 换结果 —— 那才是「裁多大」的开关。**不能按 `centerPath` 分**：
+      焦点路径在两种范围下都传（理由见下面「两种范围下都把 centerPath 传下去」那条），
+      按它分的话切到全图也会拿到裁剪后的结果，用例就白测了。
+      邻域里只剩 a、b 两个点与 a→b 一条边。
     */
     getGraph.mockImplementation(async (query?: GraphQuery) =>
-      query?.centerPath === undefined
+      query?.degrees === undefined
         ? FULL
         : { nodes: FULL.nodes.slice(0, 2), edges: [FULL.edges[0]!] }
     );
