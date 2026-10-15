@@ -46,7 +46,21 @@ export default defineConfig({
           // （`useState` 读到 null dispatcher）整片挂掉，只有全量跑时因模块图碰巧一致才绿。
           include: ['apps/desktop/renderer/test/**/*.test.{ts,tsx}'],
           // 见该文件注释：本机 react 被加载两份，act 不会提交 DOM，这里补一层。
-          setupFiles: ['apps/desktop/renderer/test/support/setup.ts']
+          setupFiles: ['apps/desktop/renderer/test/support/setup.ts'],
+          // 与 unit project 同一个理由（见上面那段注释），这里**必须也写一份**：
+          // `server.deps.*` 是**按 project 注册**的，unit 那份不会顺延到这一层。
+          //
+          // 症状是「凡是建 `EditorView` 的用例整片红」，报
+          // `Unrecognized extension value in extension set ... multiple instances of
+          // @codemirror/state are loaded`，而 `@codemirror/state` 的 `exports` 同时给了
+          // `import: dist/index.js` 与 `require: dist/index.cjs` —— 走 vite 的拿 ESM 那份、
+          // 走 Node `require` 的拿 CJS 那份，`instanceof` 于是不认。**产品里不会发生**
+          // （esbuild 打成一份），只有测试的模块图会分成两份。
+          server: {
+            deps: {
+              inline: [/@codemirror[\\/]/, /@lezer[\\/]/, /@replit[\\/]/]
+            }
+          }
         }
       },
       {
