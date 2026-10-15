@@ -14,6 +14,7 @@ import {
   clusterOf,
   rankClusters
 } from './graph-clusters.js';
+import { birthHaloAlpha, birthHaloRadius, birthRadiusFactor } from './graph-birth.js';
 import { DeadLinksList, HubsList, OrphansList } from './GraphLists.js';
 import { requireGraphBridge, type GraphPhase } from './graph-load.js';
 import { iterationsForNodeCount, layoutGraph } from './graph-layout.js';
@@ -1034,9 +1035,9 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
 
         const birth = birthProgressOf(nodeBirthKey(node.id));
         // 半径跟着出生进度长起来：从「一个小点」扩到正常大小
-        const radius = nodeRadius(node) * view.scale * (0.4 + 0.6 * birth);
+        const baseRadius = nodeRadius(node) * view.scale;
+        const radius = baseRadius * birthRadiusFactor(birth);
         const dimmed = litIds !== null && !litIds.has(node.id);
-        context.globalAlpha = (dimmed ? DIM_ALPHA : 1) * birth;
 
         if (node.kind === 'missing') {
           /*
@@ -1044,6 +1045,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
             只靠颜色区分不行：色觉障碍用户读不出「这个点还没建」，而虚线轮廓与填充是
             形状差异，任何配色下都成立。
           */
+          context.globalAlpha = (dimmed ? DIM_ALPHA : 1) * birth;
           context.beginPath();
           context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
           context.strokeStyle = missingColor;
@@ -1052,9 +1054,28 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
           context.stroke();
           context.setLineDash([]);
         } else {
+          const fillColor = colorForNode(node);
+
+          /*
+            出生光晕画在实体**之前**、颜色与实体相同 —— 它要表达的是「这里刚出现了一个点」，
+            不是「这里还有一个别的点」。半径与不透明度都随出生进度收敛，到 1 就不画了
+            （`birthHaloRadius` 返回 `null`）：静止的图不该留着一圈常驻的外环。
+
+            断链节点不画光晕：它没有填充，也就没有可回声的颜色。
+          */
+          const halo = birthHaloRadius(baseRadius, birth);
+          if (halo !== null) {
+            context.globalAlpha = (dimmed ? DIM_ALPHA : 1) * birthHaloAlpha(birth);
+            context.beginPath();
+            context.arc(screen.x, screen.y, halo, 0, Math.PI * 2);
+            context.fillStyle = fillColor;
+            context.fill();
+          }
+
+          context.globalAlpha = (dimmed ? DIM_ALPHA : 1) * birth;
           context.beginPath();
           context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-          context.fillStyle = colorForNode(node);
+          context.fillStyle = fillColor;
           context.fill();
         }
 
@@ -1595,18 +1616,26 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
               而 canvas 里画出来的文字两样都做不到。颜色值由绘制 effect 读出来传进来。
             */}
             {legend.length > 0 && (
-              <ul className="nexus-graph-legend" aria-label={t('graph.legend.title')}>
-                {legend.map((row) => (
-                  <li key={row.label} className="nexus-graph-legend-row" data-cluster={row.label}>
-                    <span
-                      className="nexus-graph-legend-swatch"
-                      style={{ backgroundColor: row.color }}
-                    />
-                    <span className="nexus-graph-legend-label">{row.label}</span>
-                    <span className="nexus-graph-legend-count">{row.count}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="nexus-graph-legend">
+                {/*
+                  可见标题。此前这里只有 `aria-label` —— 屏幕上是一列彩色小方块 + 目录名，
+                  新用户看不出那一列颜色是「按顶层目录分区」的意思。
+                  `aria-label` 留在下面的 `ul` 上：标题是一段静态文字，列表自己还需要名字。
+                */}
+                <span className="nexus-graph-legend-title">{t('graph.legend.title')}</span>
+                <ul className="nexus-graph-legend-list" aria-label={t('graph.legend.title')}>
+                  {legend.map((row) => (
+                    <li key={row.label} className="nexus-graph-legend-row" data-cluster={row.label}>
+                      <span
+                        className="nexus-graph-legend-swatch"
+                        style={{ backgroundColor: row.color }}
+                      />
+                      <span className="nexus-graph-legend-label">{row.label}</span>
+                      <span className="nexus-graph-legend-count">{row.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </>
         )}

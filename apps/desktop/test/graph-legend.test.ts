@@ -107,6 +107,22 @@ describe('图谱分区图例', () => {
     expect(legend.map((row) => row.count)).toEqual(['3', '2', '1', '1', '1', '1', '1', '1', '2']);
   }, INDEXED_TEST_TIMEOUT_MS);
 
+  it('图例有可见标题 —— 不是只有 `aria-label`', async () => {
+    /*
+      「用户看不看得见」这件事只有真机算数：渲染层那条用例读的是同一份 DOM，
+      但它不跑 CSS，验不了「标题真的排在图例里、没有被挤成 0 宽」。
+    */
+    const title = await app.evaluate<{ text: string; width: number }>(`(() => {
+      const node = document.querySelector('.nexus-graph-legend-title');
+      if (!node) return { text: '', width: 0 };
+      return { text: node.textContent ?? '', width: Math.round(node.getBoundingClientRect().width) };
+    })()`);
+
+    expect(title.text).toBe('Folders');
+    // 有文字还不够 —— 宽度为 0 说明它被挤没了，屏幕上仍然什么都看不到
+    expect(title.width).toBeGreaterThan(0);
+  }, INDEXED_TEST_TIMEOUT_MS);
+
   it('八个分区拿到八个互不相同的主题色，且都不等于「其他」的中性色', async () => {
     const legend = await readLegend();
     const clusters = legend.filter((row) => row.cluster !== 'Other');

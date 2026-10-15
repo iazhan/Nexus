@@ -1927,6 +1927,10 @@ button.nexus-outline-toggle:hover {
   分区图例：压在画布左下角。
   `pointer-events: none` 是必须的 —— 它盖住的那几个点仍然要能点中，否则图例就成了
   一块「点了没反应的死区」，而用户完全看不出是图例挡的。
+
+  外壳是 `div` 而不是 `ul`：它现在还装着一个可见标题（`ul` 的直接子元素只能是 `li`，
+  把标题写成 `li` 是拿列表项当标题用）。行仍然在 `.nexus-graph-legend-list` 里，
+  所以 `pointer-events: none` 挂在**外壳**上，行继承它。
 */
 .nexus-graph-legend {
   position: absolute;
@@ -1935,15 +1939,33 @@ button.nexus-outline-toggle:hover {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   max-width: calc(100% - 16px);
   margin: 0;
   padding: 6px 8px;
   border: 1px solid var(--nexus-border-subtle);
   border-radius: 6px;
   background-color: var(--nexus-bg-surface);
-  list-style: none;
   pointer-events: none;
+}
+
+/*
+  标题用 `text-primary` 而不是行用的 `text-secondary`：它得比下面那几行重一档，
+  否则「一列彩色方块」和「这些颜色是什么」看起来是同一层信息。
+*/
+.nexus-graph-legend-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--nexus-text-primary);
+}
+
+.nexus-graph-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .nexus-graph-legend-row {

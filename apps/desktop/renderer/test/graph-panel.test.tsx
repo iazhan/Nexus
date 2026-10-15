@@ -420,6 +420,22 @@ describe('图谱控制条', () => {
     expect(swatches.every((swatch) => swatch.style.backgroundColor !== '')).toBe(true);
   });
 
+  it('图例有可见标题，不只是 `aria-label`', async () => {
+    /*
+      标题此前只给了 `aria-label`，屏幕上没有。新用户看到的是一列彩色小方块 + 目录名，
+      读不出那是「按顶层目录分区」的意思 —— 而这个信息只有视觉用户需要，读屏用户
+      一直是有 `aria-label` 的。
+    */
+    await render();
+
+    const title = container.querySelector('.nexus-graph-legend-title');
+    expect(title?.textContent).toBe('Folders');
+    // 与 `aria-label` 语义一致：两处写法漂了，读屏听到的和看到的就不是一回事
+    expect(container.querySelector('.nexus-graph-legend-list')?.getAttribute('aria-label')).toBe(
+      title?.textContent
+    );
+  });
+
   it('没有分区时不画图例（全在根目录的扁平工作区）', async () => {
     await render();
 
