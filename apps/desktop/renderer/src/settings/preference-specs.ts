@@ -856,15 +856,19 @@ export const EDITOR_CSS_VARS = {
  * -------------------------------------------------------------------------- */
 
 /**
- * 图谱面板的三个视图。
+ * 图谱面板的四个视图。
  *
  * 与 `OUTLINE_LEVEL` 同一条判据：**跨文档跨会话都成立的阅读习惯**才进这里。
  * 「我打开图谱主要看孤儿」是习惯，每次都要重设一遍就不叫偏好 —— 所以它落盘。
  *
  * 但**不进 `FIELDS`**：设置页与菜单里都看不到它，入口只有图谱面板自己那一排开关
  * （先例：`WORKSPACE_SHOW_IMAGES_STORAGE_KEY`）。
+ *
+ * `dead`（断链清单）是 2026-10-15 加的第四个值。**加值是向后兼容的**：
+ * 旧存档里只有前三个之一，读出来照常；反过来（旧版本读到 `dead`）才会回落默认 ——
+ * 那一条由 `graph-view-state.test.ts` 的「认不出的值回落默认」覆盖。
  */
-export const GRAPH_MODES = ['explore', 'orphans', 'hubs'] as const;
+export const GRAPH_MODES = ['explore', 'orphans', 'hubs', 'dead'] as const;
 export type GraphMode = (typeof GRAPH_MODES)[number];
 export const GRAPH_MODE_STORAGE_KEY = 'nexus-graph-mode';
 export const GRAPH_MODE_DEFAULT: GraphMode = 'explore';

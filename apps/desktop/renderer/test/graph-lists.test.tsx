@@ -2,8 +2,8 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HubEntry, IndexedDocument, OrphanMode } from '@nexus/core';
-import { HubsList, OrphansList } from '../src/workspace/GraphLists.js';
+import type { DeadLinkEntry, HubEntry, IndexedDocument, OrphanMode } from '@nexus/core';
+import { DeadLinksList, HubsList, OrphansList } from '../src/workspace/GraphLists.js';
 import { localeManager } from '../src/platform.js';
 
 /**
@@ -37,6 +37,7 @@ describe('图谱清单视图', () => {
   let onOpenFile: ReturnType<typeof vi.fn>;
   let getGraphOrphans: ReturnType<typeof vi.fn>;
   let getGraphHubs: ReturnType<typeof vi.fn>;
+  let getGraphDeadLinks: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     container = document.createElement('div');
@@ -60,7 +61,13 @@ describe('图谱清单视图', () => {
       ]
     );
 
-    (window as unknown as { nexus: unknown }).nexus = { getGraphOrphans, getGraphHubs };
+    getGraphDeadLinks = vi.fn(async (): Promise<DeadLinkEntry[]> => []);
+
+    (window as unknown as { nexus: unknown }).nexus = {
+      getGraphOrphans,
+      getGraphHubs,
+      getGraphDeadLinks
+    };
   });
 
   afterEach(() => {
@@ -171,6 +178,87 @@ describe('图谱清单视图', () => {
 
       expect(items()).toHaveLength(0);
       expect(note()).toContain('Nothing is linked');
+    });
+  });
+
+  describe('断链', () => {
+    const deadEntry = (target: string, sources: string[]): DeadLinkEntry => ({
+      target,
+      sources: sources.map((relativePath, index) => documentOf(relativePath, index + 100)),
+      count: sources.length
+    });
+
+    const targets = () =>
+      Array.from(container.querySelectorAll('[data-dead-link]')).map((el) =>
+        el.getAttribute('data-dead-link')
+      );
+
+    it('列出目标、次数与来源，点来源打开那一篇', async () => {
+      getGraphDeadLinks.mockImplementation(async () => [
+        deadEntry('dma', ['notes/a.md', 'notes/b.md']),
+        deadEntry('未建', ['c.md'])
+      ]);
+      await render(<DeadLinksList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(targets()).toEqual(['dma', '未建']);
+      expect(
+        container.querySelector('[data-dead-link="dma"] .nexus-graph-list-count')!.textContent
+      ).toBe('2 refs');
+
+      const sources = Array.from(
+        container.querySelectorAll<HTMLElement>('[data-dead-link="dma"] .nexus-backlink-item')
+      );
+      expect(sources.map((el) => el.textContent)).toEqual(['notes/a.md', 'notes/b.md']);
+
+      act(() => {
+        sources[1]!.click();
+      });
+      expect(onOpenFile).toHaveBeenCalledWith('/vault/notes/b.md');
+    });
+
+    it('按主进程给的顺序渲染，不在渲染层重排', async () => {
+      /*
+        全序由 `getDeadLinks` 保证（来源数降序、同数按目标名）。渲染层再排一次，
+        等于把「顺序的口径」抄成两份，迟早不一致 —— 所以夹具故意给一个**看着不对**的顺序：
+        一个来源的 `zzz` 排在两个来源的 `aaa` 前面。
+      */
+      getGraphDeadLinks.mockImplementation(async () => [
+        deadEntry('zzz', ['a.md']),
+        deadEntry('aaa', ['a.md', 'b.md'])
+      ]);
+      await render(<DeadLinksList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(targets()).toEqual(['zzz', 'aaa']);
+    });
+
+    it('目标名本身不可点 —— 它没有文档可打开', async () => {
+      // 做成按钮会让人点了没反应，而「点了没反应」比「不可点」更难懂
+      getGraphDeadLinks.mockImplementation(async () => [deadEntry('dma', ['a.md'])]);
+      await render(<DeadLinksList revision={1} onOpenFile={onOpenFile} />);
+
+      const target = container.querySelector<HTMLElement>('.nexus-graph-dead-target')!;
+      expect(target.tagName).not.toBe('BUTTON');
+      act(() => {
+        target.click();
+      });
+      expect(onOpenFile).not.toHaveBeenCalled();
+    });
+
+    it('没有断链时是空态，不是错误', async () => {
+      getGraphDeadLinks.mockImplementation(async () => []);
+      await render(<DeadLinksList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(container.querySelector('.nexus-graph-list')!.getAttribute('data-phase')).toBe('ready');
+      expect(container.querySelector('.nexus-graph-note[data-error]')).toBeNull();
+      expect(note()).toContain('Every link points at');
+    });
+
+    it('取数失败时走错误态，而不是渲染成空态', async () => {
+      getGraphDeadLinks.mockRejectedValue(new Error('IPC exploded'));
+      await render(<DeadLinksList revision={1} onOpenFile={onOpenFile} />);
+
+      expect(container.querySelector('.nexus-graph-list')!.getAttribute('data-phase')).toBe('error');
+      expect(note()).toBeNull();
     });
   });
 

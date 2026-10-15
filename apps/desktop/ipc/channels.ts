@@ -93,6 +93,7 @@ export const IPC_CHANNELS = {
   getGraph: 'nexus:get-graph',
   getGraphOrphans: 'nexus:get-graph-orphans',
   getGraphHubs: 'nexus:get-graph-hubs',
+  getGraphDeadLinks: 'nexus:get-graph-dead-links',
   findMentions: 'nexus:find-mentions',
   listHistory: 'nexus:list-history',
   readHistory: 'nexus:read-history',

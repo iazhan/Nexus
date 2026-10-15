@@ -1720,6 +1720,28 @@ button.nexus-outline-toggle:hover {
 }
 
 /*
+  断链条目：**目标名是主文案，来源是它的从属列表**。
+
+  目标名不做成按钮 —— 它点不出任何文档（那正是「断链」的意思）。做成按钮会让人
+  点了没反应，而「点了没反应」比「不可点」更难懂。可点的是下面那些来源。
+
+  `break-all` 而不是 `ellipsis`：目标名就是用户要照着建的东西，截断它等于把
+  这一屏唯一的可操作信息藏起来（长路径的 wikilink 很常见）。
+*/
+.nexus-graph-dead-target {
+  padding: 4px 8px 2px;
+  color: var(--nexus-text-primary);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.nexus-graph-dead-sources {
+  margin: 0;
+  padding: 0 0 4px 8px;
+  list-style: none;
+}
+
+/*
   图谱里的一条**弱提示**：取数失败，或类型清单没拿到。
 
   不复用 `.nexus-sidebar-note` —— 那一条是「整块状态」的占位文案（自带 12px 的

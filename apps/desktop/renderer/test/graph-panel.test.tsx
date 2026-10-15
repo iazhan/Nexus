@@ -118,11 +118,12 @@ describe('图谱控制条', () => {
       };
     });
 
-    // 切到清单视图时那两个组件会挂上，必须一起打桩，否则它们会去调 undefined
+    // 切到清单视图时那三个组件会挂上，必须一起打桩，否则它们会去调 undefined
     (window as unknown as { nexus: unknown }).nexus = {
       getGraph,
       getGraphOrphans: vi.fn(async () => []),
-      getGraphHubs: vi.fn(async () => [])
+      getGraphHubs: vi.fn(async () => []),
+      getGraphDeadLinks: vi.fn(async () => [])
     };
   });
 
@@ -477,14 +478,14 @@ describe('图谱控制条', () => {
     });
   });
 
-  it('三个视图开关，切到清单时画布让位', async () => {
+  it('四个视图开关，切到清单时画布让位', async () => {
     await render();
 
     expect(
-      ['explore', 'orphans', 'hubs'].map(
+      ['explore', 'orphans', 'hubs', 'dead'].map(
         (mode) => chip(`[data-mode="${mode}"]`)?.getAttribute('aria-pressed')
       )
-    ).toEqual(['true', 'false', 'false']);
+    ).toEqual(['true', 'false', 'false', 'false']);
     // 画布只在图谱视图下占位
     expect(chip('.nexus-graph-body')?.hasAttribute('hidden')).toBe(false);
 
@@ -503,6 +504,16 @@ describe('图谱控制条', () => {
       chip('[data-mode="hubs"]')!.click();
     });
     await act(async () => {});
+    expect(container.querySelector('.nexus-graph-list')).not.toBeNull();
+    expect(chip('[data-orphan-mode="both"]')).toBeNull();
+
+    // 断链是第四个视图：同样是清单，但没有模式开关（它只有一档）
+    await act(async () => {
+      chip('[data-mode="dead"]')!.click();
+    });
+    await act(async () => {});
+    expect(chip('[data-mode="dead"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(chip('.nexus-graph-body')?.hasAttribute('hidden')).toBe(true);
     expect(container.querySelector('.nexus-graph-list')).not.toBeNull();
     expect(chip('[data-orphan-mode="both"]')).toBeNull();
 

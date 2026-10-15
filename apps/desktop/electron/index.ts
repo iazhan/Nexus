@@ -2090,6 +2090,11 @@ ipcMain.handle(IPC_CHANNELS.getGraphHubs, (event, limit: unknown) => {
   return getIndexStore(event.sender.id)?.getHubs(effectiveLimit) ?? [];
 });
 
+// 断链没有「多少条」的旋钮：清单本身就该全给（工作区里没建的目标通常只有几个到几十个）
+ipcMain.handle(IPC_CHANNELS.getGraphDeadLinks, (event) => {
+  return getIndexStore(event.sender.id)?.getDeadLinks() ?? [];
+});
+
 ipcMain.on(IPC_CHANNELS.setDirty, (event, isDirty: boolean) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {

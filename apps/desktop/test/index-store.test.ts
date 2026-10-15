@@ -12,6 +12,7 @@ import {
 } from '../electron/index-store.js';
 import { indexWorkspace } from '../electron/indexer.js';
 import { createProcessorRegistry } from '../electron/processor/index.js';
+import type { DeadLinkEntry } from '@nexus/core';
 import { createPdf } from './fixtures/documents.js';
 
 /**
@@ -682,6 +683,141 @@ describe('工作区索引', () => {
         const store = await openIndexed();
         expect(missingOf(store.getGraph())).toEqual(['还没写的方案']);
 
+        store.close();
+      });
+    });
+
+    /**
+     * 断链清单。
+     *
+     * 与「断链节点」那一组是**同一份数据的两个视图**：图上是一个红点，清单里是一行
+     * 「目标 + 被谁引用」。所以最硬的一条判据是两边对得上 ——
+     * 清单里每条的 `count` 必须等于图上那个 missing 节点的 `degree`。
+     */
+    describe('断链清单', () => {
+      const byTarget = (entries: DeadLinkEntry[]) =>
+        new Map(entries.map((entry) => [entry.target, entry]));
+
+      it('列出目标、来源与次数', async () => {
+        await writeDoc('index.md', '见 [[还没写的方案]]。');
+        await writeDoc('a.md', '也见 [[还没写的方案]]。');
+        await writeDoc('b.md', '无关。');
+
+        const store = await openIndexed();
+        const entries = store.getDeadLinks();
+
+        expect(entries.map((entry) => entry.target)).toEqual(['还没写的方案']);
+        expect(entries[0]!.count).toBe(2);
+        // 来源按相对路径排 —— 顺序不稳的话同一份工作区两次打开清单会长得不一样
+        expect(entries[0]!.sources.map((doc) => doc.name)).toEqual(['a.md', 'index.md']);
+
+        store.close();
+      });
+
+      it('目标名按 links 表的口径归一化（切锚点、去 .md、小写）', async () => {
+        // 归一化后的名字**同时是「新建时该叫什么」的依据** —— 带着 `#锚点` 去建文件
+        // 会建出一个文件名里有 `#` 的东西
+        await writeDoc('index.md', '见 [[Notes/DMA#性能]]。');
+
+        const store = await openIndexed();
+        expect(store.getDeadLinks().map((entry) => entry.target)).toEqual(['notes/dma']);
+
+        store.close();
+      });
+
+      it('同一篇文档里写两次同一个目标只算一处来源', async () => {
+        // 数的是**来源文档**，不是 `links` 的行数 —— 否则「我改过两遍」会让计数虚高
+        await writeDoc('index.md', '见 [[还没写的方案]]，以及 [[还没写的方案]]。');
+
+        const store = await openIndexed();
+        const entries = store.getDeadLinks();
+
+        expect(entries).toHaveLength(1);
+        expect(entries[0]!.count).toBe(1);
+        expect(entries[0]!.sources.map((doc) => doc.name)).toEqual(['index.md']);
+
+        store.close();
+      });
+
+      it('按来源数降序，同数按目标名 —— 必须全序', async () => {
+        // 少一个次级键的话，同一份工作区两次打开顺序不同，用户会以为「清单自己变了」
+        await writeDoc('one.md', '[[z-目标]] [[a-目标]] [[b-目标]]');
+        await writeDoc('two.md', '[[z-目标]] [[a-目标]]');
+        await writeDoc('three.md', '[[z-目标]]');
+
+        const store = await openIndexed();
+        const first = store.getDeadLinks();
+        const second = store.getDeadLinks();
+
+        expect(first).toEqual(second);
+        expect(first.map((entry) => `${entry.target}:${entry.count}`)).toEqual([
+          'z-目标:3',
+          'a-目标:2',
+          'b-目标:1'
+        ]);
+
+        store.close();
+      });
+
+      it('能解析到的目标一个都不出现 —— 包括被类型筛掉的那些', async () => {
+        /*
+          这是 `getGraph` 那个坑的镜像：`byTarget` 必须用**全部**文档建。
+          用筛过的那批建的话，`[[manual.pdf]]` 会解析不到任何文档、于是被当成断链 ——
+          而那个附件明明就在那儿。「缺失」是「整个工作区都没有」，不是「当前看不见」。
+        */
+        await writeDoc('note.md', '见 [[manual.pdf]] 与 [[还没写的方案]]。');
+        await writeDoc('manual.pdf', 'PDF 占位');
+
+        const store = await openIndexed();
+        expect(store.getDeadLinks().map((entry) => entry.target)).toEqual(['还没写的方案']);
+
+        store.close();
+      });
+
+      it('自链接不算断链 —— 目标就是它自己，它当然在', async () => {
+        await writeDoc('self.md', '[[self]]');
+
+        const store = await openIndexed();
+        expect(store.getDeadLinks()).toEqual([]);
+
+        store.close();
+      });
+
+      it('已删除文档留下的行不算数', async () => {
+        // `removeDocuments()` 不删 `links`，表里会留下来源已经不在的行
+        await writeDoc('gone.md', '[[还没写的方案]]');
+        await writeDoc('stays.md', '无关。');
+
+        const store = await openIndexed();
+        const gone = store.listDocuments().find((doc) => doc.name === 'gone.md')!;
+        store.removeDocuments([gone.path]);
+
+        expect(store.getDeadLinks()).toEqual([]);
+
+        store.close();
+      });
+
+      it('count 与图上那个 missing 节点的 degree 对得上', async () => {
+        // 同一份数据的两个视图，对不上就是缺陷 —— 这一条是整组里最硬的那条
+        await writeDoc('index.md', '见 [[还没写的方案]] 与 [[另一个]]。');
+        await writeDoc('a.md', '也见 [[还没写的方案]]。');
+
+        const store = await openIndexed();
+        const entries = byTarget(store.getDeadLinks());
+        const graph = store.getGraph();
+
+        for (const node of graph.nodes.filter((item) => item.kind === 'missing')) {
+          expect(entries.get(node.name)!.count).toBe(node.degree);
+        }
+        // 两个方向都要走一遍：清单里有几条，图上就该有几个红点
+        expect(entries.size).toBe(graph.nodes.filter((item) => item.kind === 'missing').length);
+
+        store.close();
+      });
+
+      it('空工作区给空数组', async () => {
+        const store = await openIndexed();
+        expect(store.getDeadLinks()).toEqual([]);
         store.close();
       });
     });

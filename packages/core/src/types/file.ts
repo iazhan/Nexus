@@ -288,6 +288,33 @@ export interface HubEntry {
 }
 
 /**
+ * 一条**断链**：写了链接，但整个工作区里没有对应的文档。
+ *
+ * ## 为什么同时给 `sources` 与 `count`
+ *
+ * 只给计数（「`dma` 被引用了 3 次」）的话，用户知道该建它，却不知道去哪三篇里核对写法；
+ * 只给来源的话，没法按「最该先建哪个」排。两个都要，而 `count` 就是 `sources.length` ——
+ * 冗余一个字段是为了让 UI 侧不必每处都写 `.length`，**不是**第二个事实源。
+ *
+ * ## `count` 与图上的 `degree` 必须相等
+ *
+ * `IndexStore.getDeadLinks()` 与 `getGraph()` 用同一份口径（同一个 `byTarget`、
+ * 同样排除自链接），所以图上那个 `kind: 'missing'` 节点的 `degree` 必然等于这里的
+ * `count`。同一份数据的两个视图，对不上就是缺陷。
+ */
+export interface DeadLinkEntry {
+  /**
+   * 归一化后的链接目标（切掉锚点、去 `.md`、小写）—— 与 `links.target` 同一口径。
+   * 它同时是「新建时该叫什么名字」的依据。
+   */
+  target: string;
+  /** 写了这个目标的文档。**已去重**，按相对路径排（确定性）。 */
+  sources: IndexedDocument[];
+  /** = `sources.length`。 */
+  count: number;
+}
+
+/**
  * 一处「未链接提及」：某篇文档在正文里提到了目标文档，却没有写成链接。
  *
  * 定义在 core 而不是主进程 —— preload 要把它作为 IPC 结果类型传给渲染进程，

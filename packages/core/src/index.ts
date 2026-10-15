@@ -119,6 +119,7 @@ export {
   isOrphanMode,
   type OrphanMode,
   type HubEntry,
+  type DeadLinkEntry,
   type UnlinkedMention,
   type MentionResult,
   type WikiLinkTarget,

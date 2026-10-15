@@ -14,7 +14,7 @@ import {
   clusterOf,
   rankClusters
 } from './graph-clusters.js';
-import { HubsList, OrphansList } from './GraphLists.js';
+import { DeadLinksList, HubsList, OrphansList } from './GraphLists.js';
 import { requireGraphBridge, type GraphPhase } from './graph-load.js';
 import { iterationsForNodeCount, layoutGraph } from './graph-layout.js';
 import { planGraphLabels, type GraphLabelCandidate, type GraphLabelPlacement } from './graph-labels.js';
@@ -1215,6 +1215,7 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
         <OrphansList revision={revision} onOpenFile={onOpenFile} />
       )}
       {mode === 'hubs' && <HubsList revision={revision} onOpenFile={onOpenFile} />}
+      {mode === 'dead' && <DeadLinksList revision={revision} onOpenFile={onOpenFile} />}
 
       {/*
         这一层是**画布的盒子**：尺寸由它量、绘制坐标也以它为准（见上面 ResizeObserver 的说明）。

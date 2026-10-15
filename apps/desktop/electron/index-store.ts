@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { DOCUMENT_TYPES } from '@nexus/core';
 import type {
   BacklinkEntry,
+  DeadLinkEntry,
   DocumentType,
   ExtractionStatus,
   GraphEdge,
@@ -1028,6 +1029,68 @@ export class IndexStore {
   getStats(): IndexStats {
     const row = this.db.get(`SELECT COUNT(*) AS count FROM documents`);
     return { documents: Number(row?.count ?? 0) };
+  }
+
+  /**
+   * 断链清单：写了链接、但**整个工作区**里都没有对应文档的目标。
+   *
+   * ## 图上那几个红点的可枚举版本
+   *
+   * 断链在画布上是几个红点，用户没法枚举「我写了哪些还没建的东西」，也没法知道
+   * 「哪一条被引用得最多、最该先建」。这里给的就是那张清单。
+   *
+   * ## 与 `getGraph` 是同一份口径
+   *
+   * `byTarget` 用**全部**文档建（理由同 `getGraph`：`[[manual.pdf]]` 不能因为类型筛选
+   * 就变成断链 —— 何况这里根本没有筛选）；自链接不算；来源已经不在索引里的行跳过
+   * （`removeDocuments()` 不删 `links`，与 `linkDegrees` 同一条理由）。
+   *
+   * 于是每条断链的 `count` 必然等于图上那个 `kind: 'missing'` 节点的 `degree` ——
+   * 同一份数据的两个视图，对不上就是缺陷。
+   *
+   * ## 排序必须**全序**
+   *
+   * 来源数降序、同数按目标名字典序。少一个次级键的话，同一份工作区两次打开顺序不同
+   * （SQLite 换个查询计划就会变），而用户会以为「什么都没改，清单却变了」。
+   */
+  getDeadLinks(): DeadLinkEntry[] {
+    const documents = this.listDocuments();
+    const existing = new Set(documents.map((document) => document.id));
+
+    const byTarget = new Map<string, number>();
+    for (const document of documents) {
+      for (const key of this.backlinkTargetsOf(document)) {
+        if (!byTarget.has(key)) byTarget.set(key, document.id);
+      }
+    }
+
+    const sourcesByTarget = new Map<string, Set<number>>();
+    for (const row of this.db.all(
+      `SELECT source_id, target FROM links ORDER BY source_id, target`
+    )) {
+      const source = Number(row.source_id);
+      if (!existing.has(source)) continue;
+
+      const rawTarget = String(row.target);
+      // 解析得到 = 不是断链。自链接也走这一支 —— 目标就是自己，它当然在。
+      if (byTarget.has(rawTarget)) continue;
+
+      const sources = sourcesByTarget.get(rawTarget);
+      if (sources === undefined) sourcesByTarget.set(rawTarget, new Set([source]));
+      else sources.add(source);
+    }
+
+    const byId = new Map(documents.map((document) => [document.id, document]));
+
+    return [...sourcesByTarget]
+      .map(([target, sourceIds]) => {
+        const sources = [...sourceIds]
+          .map((id) => byId.get(id))
+          .filter((document): document is IndexedDocument => document !== undefined)
+          .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+        return { target, sources, count: sources.length };
+      })
+      .sort((a, b) => (b.count === a.count ? a.target.localeCompare(b.target) : b.count - a.count));
   }
 
   /**

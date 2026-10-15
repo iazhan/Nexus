@@ -11,6 +11,7 @@ import type {
   WorkspaceGraph,
   GraphQuery,
   HubEntry,
+  DeadLinkEntry,
   MentionResult,
   OrphanMode,
   BacklinkEntry,
@@ -195,6 +196,13 @@ export interface NexusBridge {
   getGraphOrphans: (mode: OrphanMode) => Promise<IndexedDocument[]>;
   /** 枢纽：被引用最多的文档，**只含入度大于 0 的**。 */
   getGraphHubs: (limit?: number) => Promise<HubEntry[]>;
+  /**
+   * 断链：写了链接但工作区里没有对应文档的目标，按被引用次数降序。
+   *
+   * 没有分页参数：这是一张「待办清单」，本身就该全给 —— 截断掉的那几条
+   * 恰恰是最该处理的。与 `getGraphHubs` 的 `limit` 不同，那个是「排行榜」。
+   */
+  getGraphDeadLinks: () => Promise<DeadLinkEntry[]>;
   /**
    * 未链接提及：哪些文档在正文里提到了这篇，却没有写成链接。
    *

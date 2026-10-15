@@ -13,6 +13,7 @@ import type {
   WorkspaceGraph,
   GraphQuery,
   HubEntry,
+  DeadLinkEntry,
   MentionResult,
   OrphanMode,
   BacklinkEntry,
@@ -199,6 +200,10 @@ const bridge: NexusBridge = {
 
   getGraphHubs: (limit?: number): Promise<HubEntry[]> => {
     return ipcRenderer.invoke(IPC_CHANNELS.getGraphHubs, limit);
+  },
+
+  getGraphDeadLinks: (): Promise<DeadLinkEntry[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGraphDeadLinks);
   },
 
   findMentions: (documentPath: string): Promise<MentionResult> => {

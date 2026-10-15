@@ -32,8 +32,8 @@ describe('图谱视图状态：值域', () => {
     expect(parseGraphHiddenTypes(null)).toEqual([]);
   });
 
-  it('三个视图与两种范围的取值域是封闭的', () => {
-    expect([...GRAPH_MODES]).toEqual(['explore', 'orphans', 'hubs']);
+  it('四个视图与两种范围的取值域是封闭的', () => {
+    expect([...GRAPH_MODES]).toEqual(['explore', 'orphans', 'hubs', 'dead']);
     expect([...GRAPH_SCOPES]).toEqual(['all', 'current']);
   });
 });
@@ -87,6 +87,16 @@ describe('图谱视图状态：落盘', () => {
     expect(settings.get('graph.mode')).toBe('hubs');
     expect(settings.get('graph.scope')).toBe('current');
     expect(settings.get('graph.hiddenTypes')).toEqual(['pdf', 'image']);
+  });
+
+  it('新加的 dead 档同样能落盘读回', () => {
+    // 加值本身向后兼容（旧存档里只有前三个之一），但**新值自己**必须能存能读 ——
+    // 漏了它，用户切到断链视图再重启就会回到图谱视图，而单跑「值域」那条是绿的
+    settings.set('graph.mode', 'dead');
+    expect(settings.get('graph.mode')).toBe('dead');
+
+    const fresh = new SettingsStore();
+    expect(fresh.get('graph.mode')).toBe('dead');
   });
 
   it('磁盘上的坏值回落到默认，而不是渲染不出来的值', () => {
