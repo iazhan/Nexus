@@ -1164,9 +1164,23 @@ export const GraphPanel: React.FC<GraphPanelProps> = ({
     <div className="nexus-graph" data-variant={variant}>
       <div className="nexus-sidebar-header">
         <span className="nexus-sidebar-root">{t('activity.graph')}</span>
-        {/* 计数是**画布上**的节点数；清单视图里那个数由各自的列表回答，这里不重复 */}
+        {/*
+          「N 个点 / M 条线」是判断这张图密不密的最小信息 —— 只有点数的话，
+          二十个点可能是二十条线，也可能一条都没有。
+
+          两个数都必须取**画布上那一份**（`graph` 就是正在画的那张图），不能取全量：
+          取错源的话切范围或关类型时只有一个数会动，另一个还停在「整个工作区」，
+          于是「4 个点 3 条线」和画面里的东西对不上。
+        */}
         {mode === 'explore' && graph.nodes.length > 0 && (
-          <span className="nexus-sidebar-count">{graph.nodes.length}</span>
+          <span className="nexus-sidebar-header-end">
+            <span className="nexus-sidebar-count" data-count="nodes">
+              {t('graph.count.nodes', { count: String(graph.nodes.length) })}
+            </span>
+            <span className="nexus-sidebar-count" data-count="links">
+              {t('graph.count.links', { count: String(graph.edges.length) })}
+            </span>
+          </span>
         )}
       </div>
 

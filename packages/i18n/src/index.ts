@@ -192,6 +192,12 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'mentions.truncated': 'Showing the first {count}.',
     'tags.empty': 'No tags yet. Write #tag in a document.',
     'graph.title': 'Link graph',
+    /*
+      头部那两个计数。单数不另做一套 —— 这套字典没有复数引擎，
+      `'{count} files'` 在先，跟着它走，别为这一个位置引入第二套写法。
+    */
+    'graph.count.nodes': '{count} nodes',
+    'graph.count.links': '{count} links',
     'graph.loading': 'Loading the graph…',
     'graph.loadFailed': 'Could not load the graph.',
     'graph.typesUnavailable': 'Document types are unavailable.',
@@ -1082,6 +1088,8 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'mentions.truncated': '只显示前 {count} 条。',
     'tags.empty': '还没有标签。在文档里写 #标签 即可。',
     'graph.title': '链接图谱',
+    'graph.count.nodes': '{count} 个节点',
+    'graph.count.links': '{count} 条连线',
     'graph.loading': '正在加载图谱…',
     'graph.loadFailed': '图谱加载失败。',
     'graph.typesUnavailable': '文档类型不可用。',

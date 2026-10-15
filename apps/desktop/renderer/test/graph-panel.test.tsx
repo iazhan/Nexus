@@ -170,7 +170,16 @@ describe('图谱控制条', () => {
 
   const chips = () => Array.from(container.querySelectorAll<HTMLElement>('.nexus-graph-chip'));
   const chip = (selector: string) => container.querySelector<HTMLElement>(selector);
-  const count = () => container.querySelector('.nexus-sidebar-count')?.textContent ?? null;
+
+  /**
+   * 头部那两个计数带标签（`4 nodes` / `3 links`），这里只取数字。
+   *
+   * `which` 是必须的：两个数**同源**（都来自画布上那张图），验「切筛选时一起变小」
+   * 要分别取；只留一个取值口的话，「边数其实拿的是全量」永远测不出来。
+   * 标签文案本身另有断言钉着，所以这里只认数字，改措辞不会连带打翻一片。
+   */
+  const count = (which: 'nodes' | 'links' = 'nodes') =>
+    container.querySelector(`[data-count="${which}"]`)?.textContent?.match(/\d+/)?.[0] ?? null;
 
   it('列出范围开关与类型开关，各带篇数', async () => {
     await render();
@@ -184,7 +193,12 @@ describe('图谱控制条', () => {
     ]);
     expect(chip('[data-type="markdown"]')!.textContent).toContain('3');
     expect(chip('[data-type="pdf"]')!.textContent).toContain('1');
+    // 全量图：4 个点、3 条线（a→b、b→c、b→pdf）
     expect(count()).toBe('4');
+    expect(count('links')).toBe('3');
+    // 数字之外，标签本身也要在 —— 两个裸数字并排放着没人知道哪个是哪个
+    expect(container.querySelector('[data-count="nodes"]')!.textContent).toBe('4 nodes');
+    expect(container.querySelector('[data-count="links"]')!.textContent).toBe('3 links');
   });
 
   it('没有活动文档时「当前文档」不可选，有文档时可选', async () => {
@@ -209,9 +223,37 @@ describe('图谱控制条', () => {
     expect(chip('[data-scope="current"]')!.getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('两个计数都跟着范围走，不是全量', async () => {
+    /*
+      反例侧：`scope='current'` 时两个数**都不能**还是全量的。
+
+      桩按 `centerPath` 换结果（默认桩永远返回 FULL，那对「边数拿全量」同样成立，
+      测不出任何东西）。邻域里只剩 a、b 两个点与 a→b 一条边。
+    */
+    getGraph.mockImplementation(async (query?: GraphQuery) =>
+      query?.centerPath === undefined
+        ? FULL
+        : { nodes: FULL.nodes.slice(0, 2), edges: [FULL.edges[0]!] }
+    );
+
+    await render({ activeFilePath: '/vault/a.md' });
+    expect(count()).toBe('4');
+    expect(count('links')).toBe('3');
+
+    await act(async () => {
+      chip('[data-scope="current"]')!.click();
+    });
+    await act(async () => {});
+
+    expect(count()).toBe('2');
+    // 边数要是拿全量，这里会停在 '3' —— 一条两头顶端都不在画面上的线
+    expect(count('links')).toBe('1');
+  });
+
   it('关掉一个类型后节点变少，且查询里带上了白名单', async () => {
     await render();
     expect(count()).toBe('4');
+    expect(count('links')).toBe('3');
 
     await act(async () => {
       chip('[data-type="pdf"]')!.click();
@@ -221,6 +263,12 @@ describe('图谱控制条', () => {
     // 只留笔记 —— 传下去的是**白名单**（保留哪些），不是黑名单
     expect(getGraph).toHaveBeenCalledWith(expect.objectContaining({ types: ['markdown'] }));
     expect(count()).toBe('3');
+    /*
+      边数也要跟着掉：b→pdf 那条边随 PDF 一起没了。
+      这一条正是「两个数同源」的判据 —— 边数要是拿的全量图，这里会停在 '3'，
+      而界面上就会出现「3 个点、3 条线」，其中一条线的两头都不在画面上。
+    */
+    expect(count('links')).toBe('2');
     expect(chip('[data-type="pdf"]')!.getAttribute('aria-pressed')).toBe('false');
     // 关掉的开关必须还在，否则用户再也打不开它
     expect(chip('[data-type="pdf"]')).not.toBeNull();
@@ -259,6 +307,8 @@ describe('图谱控制条', () => {
 
     // 筛空 ≠ 本来就没东西可画，两者不能共用一句话
     expect(count()).toBeNull();
+    // 两个计数一起消失 —— 留一个「0 links」会让人以为图还在，只是没线
+    expect(count('links')).toBeNull();
     const note = container.querySelector('.nexus-sidebar-note')!;
     expect(note.textContent).toContain('No documents match');
     expect(note.textContent).not.toContain('No documents yet');
@@ -649,6 +699,7 @@ describe('图谱控制条', () => {
       // 关键：不能退化成空态文案，也不能在头部报一个「0」
       expect(container.querySelector('.nexus-sidebar-note')).toBeNull();
       expect(count()).toBeNull();
+      expect(count('links')).toBeNull();
     });
 
     it('桥没就绪（preload 挂了）同样走错误态', async () => {

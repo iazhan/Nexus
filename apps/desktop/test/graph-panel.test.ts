@@ -420,8 +420,14 @@ describe('图谱面板', () => {
     await ensureGraphVisible();
 
     await app.click('.nexus-graph-chip[data-scope="current"]');
+    /*
+      两个计数一起等 —— 它们是**同一次查询**的两个面，分开等会读到半新半旧的组合。
+      节点 4 → 3（lonely 掉出两跳），边 2 → 2：a→b→c 整条链都在 a 的两跳内，
+      裁剪没有丢掉任何一条边。所以这里**不能**断言边数也变小 —— 那是夹具的性质，不是判据。
+    */
     await app.waitForFunction(
-      `document.querySelector('.nexus-graph .nexus-sidebar-count')?.textContent === '3'`,
+      `document.querySelector('.nexus-graph [data-count="nodes"]')?.textContent === '3 nodes' &&
+       document.querySelector('.nexus-graph [data-count="links"]')?.textContent === '2 links'`,
       10000
     );
 
@@ -431,7 +437,8 @@ describe('图谱面板', () => {
 
     await app.click('.nexus-graph-chip[data-scope="all"]');
     await app.waitForFunction(
-      `document.querySelector('.nexus-graph .nexus-sidebar-count')?.textContent === '4'`,
+      `document.querySelector('.nexus-graph [data-count="nodes"]')?.textContent === '4 nodes' &&
+       document.querySelector('.nexus-graph [data-count="links"]')?.textContent === '2 links'`,
       10000
     );
   }, INDEXED_TEST_TIMEOUT_MS);
