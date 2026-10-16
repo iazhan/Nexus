@@ -88,6 +88,24 @@ export interface FileSystemAdapter {
   rename(oldPath: string, newPath: string): Promise<void>;
   unlink(filePath: string): Promise<void>;
   /**
+   * 复制一个文件。**按字节**，不解码 —— 附件（PDF / 图片）也要能复制。
+   *
+   * 与 `readFileBuffer` + `open(...,'w')` 分开：那条路要经过渲染进程能看见的两段内存，
+   * 而这条只在主进程里走一次 `copyFile`。更重要的是**语义**：`copyFile` 不会碰目标
+   * 已存在时的内容（我们总是先算出一个不存在的目标），而手写「读全文再写」在
+   * 写失败时会留下半份文件。
+   */
+  copyFile(sourcePath: string, targetPath: string): Promise<void>;
+  /**
+   * 删掉一个**目录**。`recursive` 时连内容一起。
+   *
+   * 存在的理由是**复制失败要能收拾干净**：递归复制一棵子树，中途某个文件被占用时
+   * 会留下一棵半成品 —— 那不是用户要的东西，而 `unlink` 删不掉目录。
+   *
+   * 只在「我们刚刚创建了这个目录」这一条不变式下使用（见 `copyEntry`）。
+   */
+  rmdir(dirPath: string, options?: { recursive?: boolean }): Promise<void>;
+  /**
    * 递归创建目录。附件落盘要它 —— `assets/` 通常还不存在，而 `atomicWriteFile`
    * 在同目录开临时文件，目录不在就直接 `ENOENT`。
    *
@@ -152,6 +170,18 @@ export class DefaultFileSystemAdapter implements FileSystemAdapter {
     return fsPromises.unlink(filePath);
   }
 
+  async copyFile(sourcePath: string, targetPath: string): Promise<void> {
+    // 不加 `COPYFILE_EXCL`。目标路径由 `uniquePathInDirectory()` 算出来，撞车由「算」这一步
+    // 处理（重名就换后缀），不靠这个标志 —— 它只会让一次算漏的碰撞变成一条难懂的 `EEXIST`。
+    return fsPromises.copyFile(sourcePath, targetPath);
+  }
+
+  async rmdir(dirPath: string, options?: { recursive?: boolean }): Promise<void> {
+    // `fsPromises.rm` 而不是 `rmdir`：后者对非空目录恒 `ENOTEMPTY`，而这里正是要清掉
+    // 一棵复制到一半的子树。
+    return fsPromises.rm(dirPath, { recursive: options?.recursive ?? false });
+  }
+
   async stat(
     filePath: string
   ): Promise<{ isFile(): boolean; isDirectory(): boolean; size?: number; mtimeMs?: number }> {
@@ -203,9 +233,9 @@ export interface AtomicWriteOptions {
 
 /**
  * 重名时最多试多少个后缀。100 是「够用且不会把一次粘贴变成一百次 stat」的折中：
- * 真要撞满 100 次，模板里必定少了 `{timestamp}` 这类区分位，那时报错比继续找更好。
+ * 真要撞满 100 次，名字里必定少了 `{timestamp}` 这类区分位，那时报错比继续找更好。
  */
-const MAX_ATTACHMENT_COLLISION_ATTEMPTS = 100;
+const MAX_COLLISION_ATTEMPTS = 100;
 
 /**
  * 原子写入文件：
@@ -495,6 +525,19 @@ export interface FileServiceOptions {
    */
   assetRoots?: string[];
   forceBackupSwap?: boolean;
+}
+
+/** 一次目录选择请求。`title` 由调用方给 —— 对话框上的文案是本地化过的，主进程不知道当前语言。 */
+export interface PickDirectoryOptions {
+  /** 对话框**打开时停在哪**。只影响起点，不限制选择范围。 */
+  defaultPath?: string | null;
+  title?: string;
+}
+
+/** 一次复制的结果。`files` 见 `copyEntry` 的说明。 */
+export interface CopyEntryResult {
+  target: string;
+  files: string[];
 }
 
 /**
@@ -888,6 +931,217 @@ export class FileService {
   }
 
   /**
+   * 算出一个条目的搬运落点：目标目录下与它同名（撞名则加序号）的绝对路径，
+   * **并做完全部校验**，不碰磁盘。
+   *
+   * 与 `resolveRenameTarget` 分开而不是合并成一条：那条的契约是「同目录、只改基名、
+   * 扩展名不许变」，而这条改的**正是目录**。合并的结果是一个每个参数都要看情况解释的函数，
+   * 而它同时是预览与执行两处的判据。
+   *
+   * ## 三条判据
+   *
+   * - **源与落点都要是工作区内的真实路径**：各自过一遍 `checkBoundary` +
+   *   `assertNoSymlinkEscape`。源可以是文件也可以是目录；落点必须是目录。
+   * - **不能把目录搬进它自己或它的子孙里。** 那不是一个结果，是一个无限结构 ——
+   *   对复制来说还会一边遍历一边往正在遍历的树里写。宁可报错。
+   * - **`mode` 只影响一件事**：搬回**原目录**时 `move` 是空操作（原地不动），
+   *   而 `copy` 必然撞名 → 加序号。同一个落点，两种操作的正确结果不同，所以不能默认。
+   */
+  async resolveTransferTarget(
+    sourcePath: string,
+    targetDirectory: string,
+    mode: 'move' | 'copy'
+  ): Promise<string> {
+    const source = this.normalizePath(sourcePath);
+    this.checkBoundary(source);
+    await this.assertNoSymlinkEscape(source);
+
+    let sourceInfo: { isFile(): boolean; isDirectory(): boolean };
+    try {
+      sourceInfo = await this.fsAdapter.stat(source);
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        throw new FileServiceError('NOT_FOUND', `源不存在: ${source}`, source);
+      }
+      throw wrapIoError('读取源失败', source, err);
+    }
+    if (!sourceInfo.isFile() && !sourceInfo.isDirectory()) {
+      throw new FileServiceError('IO_ERROR', '只能搬运普通文件或目录', source);
+    }
+
+    const directory = this.normalizePath(targetDirectory);
+    this.checkBoundary(directory);
+    await this.assertNoSymlinkEscape(directory);
+
+    const directoryInfo = await this.fsAdapter.stat(directory);
+    if (!directoryInfo.isDirectory()) {
+      throw new FileServiceError('IO_ERROR', '落点不是一个目录', directory);
+    }
+
+    // `isPathInside` 含 root 自身，所以这一句同时挡住「搬进自己」与「搬进自己的子孙」。
+    if (sourceInfo.isDirectory() && isPathInside(source, directory)) {
+      throw new FileServiceError(
+        'IO_ERROR',
+        `不能把目录搬进它自己里面: ${path.basename(source)}`,
+        directory
+      );
+    }
+
+    const name = path.basename(source);
+    // 大小写不敏感（`toPathKey` 的口径）—— Windows 上 `notes` 与 `Notes` 是同一个目录，
+    // 只差大小写时「搬回原处」仍然是空操作，不该被当成一次撞名去加序号。
+    if (mode === 'move' && this.toPathKey(path.join(directory, name)) === this.toPathKey(source)) {
+      return source;
+    }
+
+    const target = await this.uniquePathInDirectory(directory, name);
+    // 名字没变，落点仍在同一个目录里 —— 但 `path.join` 对奇怪输入的处理不值得信任，
+    // 判据自己再走一遍（与 `resolveRenameTarget` 同一条）。
+    this.checkBoundary(target);
+    return target;
+  }
+
+  /**
+   * 把一个条目（文件或目录）搬到目标目录下，返回它的**新绝对路径**。
+   *
+   * ## 目录不递归
+   *
+   * `rename` 本来就整棵子树一起搬。这不只是省事：目录搬运因此是**原子**的 ——
+   * 要么整棵子树在新位置，要么一个字节都没动（工作区内必是同卷，不会 `EXDEV`）。
+   * 递归搬会引入「搬了一半失败」这个需要回滚的状态，而回滚本身也可能失败。
+   *
+   * ## 搬回原目录是空操作
+   *
+   * 由 `resolveTransferTarget` 判定并在这里直接返回。不做成报错：「剪切 → 粘回原处」
+   * 是一个正常的用户动作，它没做错什么。
+   */
+  async moveEntry(sourcePath: string, targetDirectory: string): Promise<string> {
+    const source = this.normalizePath(sourcePath);
+    const target = await this.resolveTransferTarget(source, targetDirectory, 'move');
+    if (target === source) return source;
+
+    try {
+      await this.fsAdapter.rename(source, target);
+    } catch (err) {
+      throw wrapIoError('移动失败', source, err);
+    }
+
+    return target;
+  }
+
+  /**
+   * 把一个条目复制到目标目录下。目录**递归**。
+   *
+   * 返回副本的落点，以及复制出来的**全部文件**的绝对路径（目录时含整棵子树）——
+   * 后者是调用方补索引、重基准链接的依据：主进程再走一遍目录去问「复制了哪些」
+   * 会让「复制出来的东西」与「被登记进索引的东西」成为两次遍历的结果。
+   */
+  async copyEntry(sourcePath: string, targetDirectory: string): Promise<CopyEntryResult> {
+    const source = this.normalizePath(sourcePath);
+    const target = await this.resolveTransferTarget(source, targetDirectory, 'copy');
+
+    const info = await this.fsAdapter.stat(source);
+
+    if (info.isFile()) {
+      try {
+        await this.fsAdapter.copyFile(source, target);
+      } catch (err) {
+        throw wrapIoError('复制失败', source, err);
+      }
+      return { target, files: [target] };
+    }
+
+    const files: string[] = [];
+    try {
+      await this.copyTree(source, target, files);
+    } catch (err) {
+      // 复制到一半失败：把刚建出来的那棵**半成品**清掉。留着它的后果是用户看到一个
+      // 「复制好了」的目录，里面少了一半 —— 而它长得跟成功的结果一模一样。
+      // 只在「目标是我们自己刚刚 `mkdir` 出来的」这条不变式下删，所以不会误伤已有目录。
+      try {
+        await this.fsAdapter.rmdir(target, { recursive: true });
+      } catch (cleanupError) {
+        logError('[Nexus Shell] 清理未完成的副本失败:', cleanupError);
+      }
+      throw err instanceof FileServiceError ? err : wrapIoError('复制失败', source, err);
+    }
+
+    return { target, files };
+  }
+
+  /**
+   * 递归复制一棵子树。`files` 是出参 —— 与 `walkWorkspace` 的 `directories` 同一个理由：
+   * 返回类型是跨进程契约，为它多一个字段会让「整个对象比较」那类断言无谓地失败。
+   *
+   * ## 不跟随符号链接
+   *
+   * `entry.isSymbolicLink()` 直接跳过。跟随的后果是**环** —— 一个指回上层的链接会让递归
+   * 永不结束；它同时也会把工作区外的内容复制进来。与 `walkWorkspace` 同一条判据。
+   *
+   * ## 逐条 `await`，不并发
+   *
+   * 几百个文件并发复制会把主进程的 IO 队列打满，而这里的顺序本来就不重要。
+   * 慢一点好过整个窗口卡住。
+   *
+   * ## 不看忽略规则
+   *
+   * 与 `walkWorkspace` 不同：那里决定的是「哪些东西进索引」，这里决定的是「用户要的
+   * 那一份副本长什么样」。用户在树上选中一个目录时想的是「把它整个复制一份」——
+   * 少复制一个子目录是**静默的缺失**，比多复制一个 `.git` 糟得多。
+   */
+  private async copyTree(sourceDir: string, targetDir: string, files: string[]): Promise<void> {
+    const readdir = this.fsAdapter.readdir;
+    if (!readdir) {
+      throw new FileServiceError('IO_ERROR', '文件系统适配层未实现 readdir，无法复制目录');
+    }
+
+    await this.fsAdapter.mkdir(targetDir);
+
+    for (const entry of await readdir(sourceDir)) {
+      if (entry.isSymbolicLink()) continue;
+
+      const from = path.join(sourceDir, entry.name);
+      const to = path.join(targetDir, entry.name);
+
+      if (entry.isDirectory()) {
+        await this.copyTree(from, to, files);
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+
+      try {
+        await this.fsAdapter.copyFile(from, to);
+      } catch (err) {
+        throw wrapIoError('复制文件失败', from, err);
+      }
+      files.push(to);
+    }
+  }
+
+  /**
+   * 弹出「选择目录」对话框，返回选中的绝对路径（取消返回 `null`）。
+   *
+   * **只校验，不授权。** 与 `openWorkspace()` 的区别全在这里：那条会把选中的目录登记成
+   * 工作区根，等于给整棵目录开了读写权限 —— 而这条的用途是「把文件搬到哪去」，
+   * 选到工作区外应当是**报错**，不是静默把边界扩大。所以这里连 `checkBoundary` 都不做：
+   * 授权不是它的职责，调用方拿这个路径去 `resolveTransferTarget` 时自然会被挡住。
+   */
+  async pickDirectory(options: PickDirectoryOptions = {}): Promise<string | null> {
+    if (!this.dialog) {
+      throw new FileServiceError('IO_ERROR', '未注入 FileDialog，无法打开目录对话框');
+    }
+
+    const chosen = await this.dialog.openDirectory({
+      defaultPath: options.defaultPath ?? undefined,
+      title: options.title
+    });
+    if (!chosen) return null;
+
+    return this.normalizePath(chosen);
+  }
+
+  /**
    * 另存为文件：通过对话框选择新路径，原子写入并将其纳入 allowed file boundary。
    *
    * `defaultPath` 是对话框**打开时停在哪**（`files.newDocumentLocation` 的落地处）。
@@ -955,10 +1209,9 @@ export class FileService {
 
     await this.fsAdapter.mkdir(targetDirectory, { recursive: true });
 
-    const targetPath = await this.uniqueAttachmentPath(
+    const targetPath = await this.uniquePathInDirectory(
       targetDirectory,
-      request.fileName,
-      request.extension
+      `${request.fileName}${request.extension}`
     );
 
     await atomicWriteFile(targetPath, request.data, {
@@ -970,37 +1223,36 @@ export class FileService {
   }
 
   /**
-   * 重名时在扩展名前加 `-1`、`-2`…。
+   * 重名时在**扩展名之前**加 `-1`、`-2`…（目录没有扩展名，加在末尾）。
    *
    * 必须在这里做而不是在渲染进程：只有这里看得见文件系统。而重名**真的会发生** ——
-   * 默认模板的 `{timestamp}` 只到秒，同一秒内粘两张（截图工具连拍、批量拖拽）就撞上了；
-   * 用户把模板改成 `{date}` 之后，一天之内必然撞。
+   * 附件的默认模板 `{timestamp}` 只到秒，同一秒内粘两张（截图工具连拍、批量拖拽）就撞上了；
+   * 用户把模板改成 `{date}` 之后一天之内必然撞；而「把一份文件复制到它自己所在的目录」
+   * 是**必然**撞。
+   *
+   * 附件落盘与文件搬运共用这一份，不是图省事：两处各写一份的话，同一个工作区里会同时
+   * 出现 `a-1.md` 与 `a 2.md` 两种重名结果 —— 而那是用户看得见的脏。
    */
-  private async uniqueAttachmentPath(
-    directory: string,
-    fileName: string,
-    extension: string
-  ): Promise<string> {
-    for (let index = 0; index < MAX_ATTACHMENT_COLLISION_ATTEMPTS; index += 1) {
+  private async uniquePathInDirectory(directory: string, fileName: string): Promise<string> {
+    const extension = path.extname(fileName);
+    const base = extension.length > 0 ? fileName.slice(0, -extension.length) : fileName;
+
+    for (let index = 0; index < MAX_COLLISION_ATTEMPTS; index += 1) {
       const suffix = index === 0 ? '' : `-${index}`;
-      const candidate = path.join(directory, `${fileName}${suffix}${extension}`);
-      if (!(await this.attachmentExists(candidate))) return candidate;
+      const candidate = path.join(directory, `${base}${suffix}${extension}`);
+      if (!(await this.pathExists(candidate))) return candidate;
     }
 
-    throw new FileServiceError(
-      'IO_ERROR',
-      `附件重名次数过多: ${fileName}${extension}`,
-      directory
-    );
+    throw new FileServiceError('IO_ERROR', `重名次数过多: ${fileName}`, directory);
   }
 
-  private async attachmentExists(filePath: string): Promise<boolean> {
+  private async pathExists(filePath: string): Promise<boolean> {
     try {
       await this.fsAdapter.stat(filePath);
       return true;
     } catch (err) {
       if (isNotFoundError(err)) return false;
-      throw wrapIoError('检查附件是否重名失败', filePath, err);
+      throw wrapIoError('检查路径是否存在失败', filePath, err);
     }
   }
 

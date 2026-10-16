@@ -85,6 +85,9 @@ function createMockFsAdapter(
     rename: (oldPath, newPath) =>
       overrides.rename ? overrides.rename(oldPath, newPath) : baseFs.rename(oldPath, newPath),
     unlink: (p) => (overrides.unlink ? overrides.unlink(p) : baseFs.unlink(p)),
+    copyFile: (from, to) =>
+      overrides.copyFile ? overrides.copyFile(from, to) : baseFs.copyFile(from, to),
+    rmdir: (p, opts) => (overrides.rmdir ? overrides.rmdir(p, opts) : baseFs.rmdir(p, opts)),
     mkdir: (p, opts) => (overrides.mkdir ? overrides.mkdir(p, opts) : baseFs.mkdir(p, opts)),
     readdir: (p) => {
       // `readdir` 是可选成员：默认实现有它，而 mock 出来的适配层没有它的话，
@@ -499,6 +502,8 @@ describe('FileService & atomicWriteFile', () => {
         readRange: (p, start, length) => defaultFs.readRange(p, start, length),
         open: (p, flags, mode) => defaultFs.open(p, flags, mode),
         unlink: (p) => defaultFs.unlink(p),
+        copyFile: (from, to) => defaultFs.copyFile(from, to),
+        rmdir: (p, opts) => defaultFs.rmdir(p, opts),
         stat: (p) => defaultFs.stat(p),
         exists: (p) => (defaultFs.exists ? defaultFs.exists(p) : fsPromises.access(p).then(() => true, () => false)),
         watch: (p, opts, l) => defaultFs.watch(p, opts, l),
