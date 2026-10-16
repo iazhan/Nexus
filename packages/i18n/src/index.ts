@@ -910,6 +910,9 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'editor.toolbar.more': 'More actions',
     'editor.toolbar.readonly': 'Read-only document — use Save As to edit',
     'editor.selectionToolbar.label': 'Selection formatting',
+    // 编辑器正文右键菜单（2026-10-16）。与 `workspace.fileMenu` / `workspace.blankMenu`
+    // 分开：读屏器只报 label 时，三份菜单听起来一样就分不出自己在哪一处。
+    'editor.menuLabel': 'Editor actions',
     'editor.retry': 'Retry',
     'extensions.unavailable': 'Plugin unavailable: {id}',
     'popover.save': 'Save',
@@ -1775,6 +1778,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'editor.toolbar.more': '更多操作',
     'editor.toolbar.readonly': '只读文档 —— 另存为后可编辑',
     'editor.selectionToolbar.label': '选区格式',
+    'editor.menuLabel': '编辑器操作',
     'editor.retry': '重试',
     'extensions.unavailable': '插件不可用：{id}',
     'popover.save': '保存',

@@ -2887,6 +2887,11 @@ button.nexus-outline-toggle:hover {
   padding: 4px;
   display: flex;
   flex-direction: column;
+  /* 高度上限与内部滚动。编辑器那份菜单的「格式」子菜单有二十项，短窗口上不封顶会顶出
+     屏幕 —— 而定位逻辑只能把它夹进视口，夹不下的部分就永远看不到。
+     代价是「菜单内部滚动」必须从关闭判据里排除掉，那条在 `ContextMenu.tsx` 里。 */
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
   background-color: var(--nexus-bg-surface);
   border: 1px solid var(--nexus-border-default);
   border-radius: 6px;
@@ -2930,6 +2935,8 @@ button.nexus-outline-toggle:hover {
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  /* 子菜单箭头的定位上下文（箭头是绝对定位的，见 `.nexus-context-menu-arrow`）。 */
+  position: relative;
 }
 
 /* 高亮同时覆盖「鼠标悬停」与「键盘上下键」：两条路径都写 `data-context-menu-active`，
@@ -2979,6 +2986,31 @@ button.nexus-outline-toggle:hover {
 .nexus-context-menu-item:disabled {
   color: var(--nexus-text-muted);
   cursor: default;
+}
+
+/* 带二级菜单的项。给箭头让出位置 —— 不让的话长文案会钻到箭头底下。 */
+.nexus-context-menu-item-has-submenu {
+  padding-right: 18px;
+}
+
+/* 二级菜单箭头。**绝对定位而不是 flex 布局的第二个子项**：可勾选的项是
+   `display: grid; grid-template-columns: 12px 1fr`，再塞一个子项会多出一列隐式网格，
+   把标签挤走。绝对定位对两种排布都成立。 */
+.nexus-context-menu-arrow {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--nexus-text-secondary);
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* 二级面板。`z-index` 比根菜单高一档 —— 两者是 `fixed` 的兄弟，DOM 顺序已经能定胜负，
+   但显式写出来免得将来调根菜单的层级时把它盖住。 */
+.nexus-context-submenu {
+  z-index: 901;
+  min-width: 180px;
 }
 
 /* 多标签页栏（P2-04）：只渲染「打开了几个文档」，不持有任何文档状态 */

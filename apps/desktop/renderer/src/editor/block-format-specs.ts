@@ -1,5 +1,4 @@
 import type { BlockFormatKind, BlockFormatState } from '@nexus/editor';
-import type { MenuBarItem } from '../MenuBar.js';
 
 /**
  * 块级改型的动作表（§3.1 下表）。
@@ -202,6 +201,26 @@ export const BLOCK_FORMAT_TOOLBAR: readonly string[] = [
 ];
 
 /**
+ * 动作表投影出来的菜单项。
+ *
+ * **刻意是两个菜单类型的公共子集**（`MenuBarItem` 与 `ContextMenuItem`）—— 同一份
+ * 「格式」列表要同时喂菜单栏的下拉与编辑器的右键菜单，各写一份投影就会漂。两个类型
+ * 都接受这个形状：它们的必填项只有 `id` / `label`，这里都给全了。
+ *
+ * `id` 在分隔线上也**必填**（`ContextMenuItem.id` 是必填的，而 `MenuBarItem` 的是可选的）——
+ * 所以分隔线也带上 id，不靠「反正不渲染」省掉它。
+ */
+export interface BlockFormatMenuItem {
+  id: string;
+  label: string;
+  /** 分隔线上不给（两个菜单类型里它们本来也是可选的）。 */
+  active?: boolean;
+  disabled?: boolean;
+  separator?: boolean;
+  onSelect?(): void;
+}
+
+/**
  * 把动作表投影成菜单项。`active` / `disabled` 与工具栏按钮同源 —— 同一对
  * `isBlockFormatActionActive` / `isBlockFormatActionEnabled`。
  */
@@ -209,12 +228,15 @@ export function blockFormatMenuItems(
   state: BlockFormatState,
   label: (key: string) => string,
   run: (id: string) => void
-): MenuBarItem[] {
-  const items: MenuBarItem[] = [];
+): BlockFormatMenuItem[] {
+  const items: BlockFormatMenuItem[] = [];
   let group: BlockFormatSpec['group'] | null = null;
 
   for (const spec of BLOCK_FORMAT_SPECS) {
-    if (group !== null && spec.group !== group) items.push({ label: '', separator: true });
+    if (group !== null && spec.group !== group) {
+      // 分隔线也带 id：`ContextMenuItem` 的 `id` 是必填的，而这条投影要同时喂两份菜单。
+      items.push({ id: `separator-${spec.group}`, label: '', separator: true });
+    }
     group = spec.group;
 
     items.push({

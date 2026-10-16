@@ -58,18 +58,54 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
  *   原因进 `title` —— 与工具栏的灰按钮同一条约定。
  * - **分隔线**（`separator`）是 `role="separator"`，**不参与键盘导航**：
  *   上下键跳过它，回车落在它上面什么也不发生。
+ * - **二级菜单**（`submenu`）带它自己的 `role="menu"`，**只支持两层** —— 里面的项再写
+ *   `submenu` 不会被展开（与 `MenuBarItem.submenu` 同一条约定）。带它的项自己没有动作。
  *
  * 空 `items` **不渲染任何东西**：一个空框比不弹更难解释，而调用方（目录 `path` 为 `null`
  * 时一个动作都给不了）不必为此再写一遍判据。
  *
- * `MenuBar` 也有这几个概念（`id` / `shortcut` / `disabled` / `active` / `separator`），
- * 但它是**另一份实现**。两者形状部分重合、部分不重合（这里没有 `shortcut`），
+ * ## 高度上限与「菜单内部的滚动不算关闭」
+ *
+ * 菜单有 `max-height`（视口减两侧呼吸位）与 `overflow-y: auto` —— 编辑器那份菜单
+ * 的「格式」子菜单有二十项，短窗口上不封顶会顶出屏幕。
+ *
+ * 但**加了滚动就必须改关闭判据**：下面的 `scroll` 监听是**捕获阶段挂在 window 上**的，
+ * 菜单内部滚一下同样会经过它，于是「滚一下菜单看下面还有什么」会变成「菜单没了」。
+ * 与 `pointerdown` 跳过菜单内部是同一条规矩：**菜单内部的交互不算外部**。
+ *
+ * `MenuBar` 也有这几个概念（`id` / `shortcut` / `disabled` / `active` / `separator` /
+ * `submenu`），但它是**另一份实现**。两者形状部分重合、部分不重合（这里没有 `shortcut`），
  * 是因为菜单栏那份要显示快捷键、这份不要 —— 真要合并得先想清楚快捷键列在浮动菜单里
  * 该往哪儿放，不是顺手能合的。**改其中一个的项形状时，去看另一个。**
+ *
+ * 子菜单的**定位**是两份实现差别最大的一处：菜单栏的下拉是左对齐的常驻面板，二级一律
+ * 往右开；这里的菜单贴着指针 `fixed` 出来，右边没地方要**往左翻** —— 不翻的话在窗口右缘
+ * 右键会得到一份跑到屏幕外的子菜单，而「夹取到视口内」正是这个原语存在的理由。
  */
 
 /** 菜单与视口边缘之间留的呼吸位。 */
 const EDGE_GAP = 4;
+
+/**
+ * 一级项与二级面板之间留的缝。
+ *
+ * **不能是 0**：两个面板贴在一起时，指针从一级项移向二级的那一瞬间会落在缝上 ——
+ * 缝里既不属于一级项也不属于二级面板，`mouseenter` 不触发，`mouseleave` 却会，
+ * 于是子菜单在指针刚出发时就关掉。留 2px 再配合「移进子菜单不关」那条判据就够了。
+ *
+ * markra 在同样的位置放了一块透明的「桥」（`contextSubmenuBridgeStyle`）来盖住这条缝；
+ * 这里用「谁触发的关闭」来判，不需要额外一个元素。
+ */
+const SUBMENU_GAP = 2;
+
+/**
+ * 二级面板相对一级项的纵向偏移。
+ *
+ * 与 `.nexus-menu-submenu` 的 `top: -5px` 同一条理由：让**第一项的文字**与一级项的文字
+ * 对齐，而不是让两个面板的边框对齐。一级项的内边距 5 = 面板边框 1 + 面板内边距 4 +
+ * 二级项内边距 5，所以面板要整体上移 5px。
+ */
+const SUBMENU_TOP_OFFSET = 5;
 
 /**
  * 键盘的第一个落点。分隔线与禁用项都不是落点（与 `moveActive` 同一条判据）——
@@ -121,6 +157,16 @@ export interface ContextMenuItem {
    * 在菜单栏与工具栏下拉里都得有分组线，一边有一边没有就是两处不一致。
    */
   separator?: boolean;
+  /**
+   * 二级菜单。**只支持两层**：里面的项再写 `submenu` 不会被展开 —— 与 `MenuBarItem`
+   * 同一条约定（这个应用没有三级菜单的用例，支持它要一套递归的定位与关闭规则）。
+   *
+   * 带它的项**自己没有动作**：点它 / 回车只展开收起，`onSelect` 不会被调用。
+   * 「既展开又执行」会让用户没法只看看里面有什么。
+   *
+   * 与 `MenuBarItem.submenu` 的差别只在定位：那边一律往右开，这边右边没地方往左翻。
+   */
+  submenu?: readonly ContextMenuItem[];
   onSelect?(): void;
 }
 
@@ -152,6 +198,60 @@ export interface ContextMenuProps {
 export const ContextMenu: React.FC<ContextMenuProps> = (props) =>
   props.items.length === 0 ? null : <ContextMenuSurface {...props} />;
 
+/**
+ * 二级面板。**与根菜单同一套「量完再定」**，只是翻转轴换成横向：
+ * 优先贴着父项的右边开，右边放不下就翻到左边。
+ *
+ * 它自己不知道里面装什么 —— 项由父级渲染好传进来（`children`）。这样「怎么画一项」
+ * 只有一份实现，两级不会各自漂。
+ */
+const ContextSubmenu: React.FC<{
+  anchor: DOMRect;
+  label: string;
+  children: React.ReactNode;
+}> = ({ anchor, label, children }) => {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const { width, height } = panel.getBoundingClientRect();
+    const toTheRight = anchor.right + SUBMENU_GAP;
+    // 翻转判据用**未夹取**的位置算：夹取之后再问「放不放得下」永远是放得下。
+    const toTheLeft = anchor.left - width - SUBMENU_GAP;
+    const preferred =
+      toTheRight + width + EDGE_GAP > window.innerWidth ? toTheLeft : toTheRight;
+
+    setPosition({
+      left: Math.max(EDGE_GAP, Math.min(preferred, window.innerWidth - width - EDGE_GAP)),
+      top: Math.max(
+        EDGE_GAP,
+        Math.min(anchor.top - SUBMENU_TOP_OFFSET, window.innerHeight - height - EDGE_GAP)
+      )
+    });
+    // 依赖**只有 `anchor`**：`anchor` 是打开那一刻存下来的 `DOMRect`，切到另一个父项时
+    // 换的是它。**不能把 `children` 写进来** —— 它每次渲染都是新数组，而 effect 里会
+    // `setPosition` 一个新对象，于是「渲染 → effect → 新 state → 渲染」转个不停。
+  }, [anchor]);
+
+  return (
+    <div
+      ref={panelRef}
+      role="menu"
+      aria-label={label}
+      className="nexus-context-menu nexus-context-submenu"
+      // 与根菜单的 `data-context-menu` **刻意分开**：用例里「菜单还在不在」问的是根菜单，
+      // 两级共用一个属性会让「子菜单开着」被当成「菜单开着」。
+      data-context-submenu=""
+      style={position ? { left: position.left, top: position.top } : { visibility: 'hidden' }}
+    >
+      {children}
+    </div>
+  );
+};
+
 const ContextMenuSurface: React.FC<ContextMenuProps> = ({
   x,
   y,
@@ -163,6 +263,25 @@ const ContextMenuSurface: React.FC<ContextMenuProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const [activeIndex, setActiveIndex] = useState(() => firstSelectableIndex(items));
+
+  /**
+   * 展开的是哪一项的二级菜单（`null` ＝ 没展开）。存**下标**而不是 id：同一份清单里
+   * id 不重，但下标与「当前高亮到哪」是同一套坐标系。
+   */
+  const [openSubmenuIndex, setOpenSubmenuIndex] = useState<number | null>(null);
+  /** 二级面板里的高亮。与 `activeIndex` 分开 —— 一个 `aria-activedescendant` 只有一个来源。 */
+  const [submenuActiveIndex, setSubmenuActiveIndex] = useState(-1);
+  /**
+   * 二级面板的锚（父项那一刻的矩形）。**只在打开时取一次**：窗口一 resize 整个菜单就
+   * 关掉了（下面的 `resize` 监听），所以不存在「锚过期」这件事。
+   */
+  const [submenuAnchor, setSubmenuAnchor] = useState<DOMRect | null>(null);
+
+  /** 一级项的 DOM 句柄。只给**键盘**展开子菜单用 —— 鼠标那条路直接读 `currentTarget`。 */
+  const itemRefs = useRef(new Map<number, HTMLButtonElement>());
+
+  const submenuItems: readonly ContextMenuItem[] =
+    openSubmenuIndex === null ? [] : (items[openSubmenuIndex]?.submenu ?? []);
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -197,29 +316,60 @@ const ContextMenuSurface: React.FC<ContextMenuProps> = ({
   }, []);
 
   useEffect(() => {
-    const close = () => onClose();
     const handlePointerDown = (event: PointerEvent) => {
+      // 二级面板是根菜单的 **DOM 后代**（只是 `fixed` 定位），所以这一句同时盖住两级。
       if (menuRef.current?.contains(event.target as Node)) return;
       if (anchorRef?.current?.contains(event.target as Node)) return;
       onClose();
     };
+    /**
+     * **滚动只在菜单外面才算关闭。** 这个监听是捕获阶段挂在 `window` 上的，菜单自己滚一下
+     * 同样会经过它 —— 不加这一句，「滚一滚看子菜单下面还有什么」会变成「菜单没了」。
+     * 与 `pointerdown` 跳过菜单内部是同一条规矩：**菜单内部的交互不算外部**。
+     */
+    const handleScroll = (event: Event) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      onClose();
+    };
+    const close = () => onClose();
 
     window.addEventListener('pointerdown', handlePointerDown, true);
     window.addEventListener('resize', close);
     window.addEventListener('blur', close);
-    window.addEventListener('scroll', close, true);
+    window.addEventListener('scroll', handleScroll, true);
     return () => {
       window.removeEventListener('pointerdown', handlePointerDown, true);
       window.removeEventListener('resize', close);
       window.removeEventListener('blur', close);
-      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('scroll', handleScroll, true);
     };
   }, [onClose, anchorRef]);
+
+  const openSubmenu = (index: number, anchor: DOMRect) => {
+    const submenu = items[index]?.submenu ?? [];
+    if (submenu.length === 0) return;
+    setOpenSubmenuIndex(index);
+    setSubmenuActiveIndex(firstSelectableIndex(submenu));
+    setSubmenuAnchor(anchor);
+  };
+
+  const closeSubmenu = () => {
+    setOpenSubmenuIndex(null);
+    setSubmenuActiveIndex(-1);
+    setSubmenuAnchor(null);
+  };
 
   const activate = (index: number) => {
     const item = items[index];
     // 分隔线不是动作，回车落在它上面什么也不该发生（也不该关菜单）。
     // 禁用项同理 —— 但它**也不关菜单**：关掉等于假装执行过了。
+    if (!item || item.separator || item.disabled) return;
+    item.onSelect?.();
+    onClose();
+  };
+
+  const activateSubmenu = (index: number) => {
+    const item = submenuItems[index];
     if (!item || item.separator || item.disabled) return;
     item.onSelect?.();
     onClose();
@@ -231,35 +381,178 @@ const ContextMenuSurface: React.FC<ContextMenuProps> = ({
    * 转一整圈都落不下去时停在原地（`return current`）—— 整份菜单全禁用时，
    * 绕回自己比跳到一个不可用的项上诚实。
    */
-  const moveActive = (delta: number) => {
-    setActiveIndex((current) => {
-      let next = current;
-      for (let step = 0; step < items.length; step += 1) {
-        next = (next + delta + items.length) % items.length;
-        const candidate = items[next];
-        if (candidate && !candidate.separator && !candidate.disabled) return next;
-      }
-      return current;
-    });
+  const step = (
+    list: readonly ContextMenuItem[],
+    current: number,
+    delta: number
+  ): number => {
+    let next = current;
+    for (let index = 0; index < list.length; index += 1) {
+      next = (next + delta + list.length) % list.length;
+      const candidate = list[next];
+      if (candidate && !candidate.separator && !candidate.disabled) return next;
+    }
+    return current;
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const submenuOpen = openSubmenuIndex !== null;
+
     if (event.key === 'Escape') {
       // 与 `Dialog` 一致：`preventDefault` 让外层 window 级监听器看得见「这层已经处理了」。
       event.preventDefault();
-      onClose();
+      // **先收子菜单再关菜单**：一次 Escape 把两层都关掉，用户就再也回不到一级。
+      if (submenuOpen) closeSubmenu();
+      else onClose();
       return;
     }
+
+    if (event.key === 'ArrowLeft') {
+      // 没展开子菜单时什么都不做 —— 一级菜单没有「上一层」可退。
+      if (!submenuOpen) return;
+      event.preventDefault();
+      closeSubmenu();
+      return;
+    }
+
+    if (event.key === 'ArrowRight') {
+      if (submenuOpen) return;
+      const element = itemRefs.current.get(activeIndex);
+      if (!element) return;
+      event.preventDefault();
+      openSubmenu(activeIndex, element.getBoundingClientRect());
+      return;
+    }
+
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
-      moveActive(event.key === 'ArrowDown' ? 1 : -1);
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      // 子菜单开着时方向键**在子菜单里走** —— 这是「进去之后能挑」的全部含义。
+      if (submenuOpen) setSubmenuActiveIndex((current) => step(submenuItems, current, delta));
+      else setActiveIndex((current) => step(items, current, delta));
       return;
     }
+
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
+      if (submenuOpen) {
+        activateSubmenu(submenuActiveIndex);
+        return;
+      }
+      // 带二级菜单的父项**自己没有动作**：回车只展开，与点它一致。
+      if ((items[activeIndex]?.submenu?.length ?? 0) > 0) {
+        const element = itemRefs.current.get(activeIndex);
+        if (element) openSubmenu(activeIndex, element.getBoundingClientRect());
+        return;
+      }
       activate(activeIndex);
     }
   };
+
+  /**
+   * 画一层菜单。**两级共用这一份** —— 勾选语义、禁用、危险色、子菜单箭头各写一遍
+   * 迟早只在一处生效。差别只有三个：DOM id 前缀、是否登记 ref（只有一级需要）、
+   * 以及高亮下标从哪来。
+   */
+  const renderItems = (
+    list: readonly ContextMenuItem[],
+    level: 'root' | 'sub',
+    highlighted: number
+  ): React.ReactNode[] =>
+    list.map((item, index) => {
+      if (item.separator) {
+        return (
+          <div
+            key={`${level}-separator-${index}`}
+            role="separator"
+            className="nexus-context-menu-separator"
+          />
+        );
+      }
+
+      // 勾选语义与勾选槽共用同一个判据：`active` 是「一组互斥项里的一个」（radio），
+      // `checked` 是「独立开关」（checkbox）。**一个 `aria-checked` 只能有一个来源** ——
+      // 两者同时给时按 `active` 算，✓ 与 `aria-checked` 都从这同一个 `ticked` 出来
+      // （两处各判一次就会漂，判据 36 的同类）。
+      const radio = item.active !== undefined;
+      const checkable = radio || item.checked !== undefined;
+      const ticked = radio ? item.active === true : item.checked === true;
+      const role = radio ? 'menuitemradio' : checkable ? 'menuitemcheckbox' : 'menuitem';
+      const submenu = item.submenu ?? [];
+      const hasSubmenu = submenu.length > 0;
+      const expanded = level === 'root' && openSubmenuIndex === index;
+
+      return (
+        <button
+          key={`${level}-${item.id}`}
+          id={level === 'root' ? `ctx-${item.id}` : `ctx-sub-${item.id}`}
+          {...(level === 'root'
+            ? {
+                ref: (element: HTMLButtonElement | null) => {
+                  if (element) itemRefs.current.set(index, element);
+                  else itemRefs.current.delete(index);
+                }
+              }
+            : {})}
+          type="button"
+          role={role}
+          {...(checkable ? { 'aria-checked': ticked } : {})}
+          {...(hasSubmenu ? { 'aria-haspopup': 'menu' as const, 'aria-expanded': expanded } : {})}
+          tabIndex={-1}
+          title={item.title}
+          disabled={item.disabled}
+          className={`nexus-context-menu-item${item.danger ? ' nexus-context-menu-item-danger' : ''}${
+            ticked ? ' nexus-context-menu-item-checked' : ''
+          }${hasSubmenu ? ' nexus-context-menu-item-has-submenu' : ''}`}
+          data-context-menu-item={item.id}
+          {...(checkable ? { 'data-context-menu-checkable': '' } : {})}
+          {...(index === highlighted ? { 'data-context-menu-active': '' } : {})}
+          // 用 `mouseenter` 而不是 `mouseover`：后者会在子节点之间反复触发。
+          // 禁用项**不接管高亮**：接管了的话键盘落点会跟着鼠标跳到一个点不动的项上。
+          onMouseEnter={(event) => {
+            if (item.disabled) return;
+            if (level === 'sub') {
+              setSubmenuActiveIndex(index);
+              return;
+            }
+            setActiveIndex(index);
+            // 移到别的项上就收掉当前的子菜单；移到**自己**（正展开的那个）不收，
+            // 否则从子菜单往回移会来回闪。
+            if (hasSubmenu) openSubmenu(index, event.currentTarget.getBoundingClientRect());
+            else if (openSubmenuIndex !== index) closeSubmenu();
+          }}
+          onClick={(event) => {
+            if (level === 'sub') {
+              activateSubmenu(index);
+              return;
+            }
+            // 带二级菜单的项：点它只展开 / 收起，`onSelect` 不会被调用。
+            if (hasSubmenu) {
+              if (expanded) closeSubmenu();
+              else openSubmenu(index, event.currentTarget.getBoundingClientRect());
+              return;
+            }
+            activate(index);
+          }}
+        >
+          {/* 勾选槽**恒渲染**（未选中时是空的）—— 它是网格的第一列，
+              只在选中时才画的话未选中的项会掉进那一列，整组文字左沿参差不齐。 */}
+          {checkable && (
+            <span className="nexus-context-menu-check" aria-hidden="true">
+              {ticked ? '✓' : ''}
+            </span>
+          )}
+          {item.label}
+          {/* 箭头是**纯装饰**：展开与否已经由 `aria-expanded` 说了，
+              屏幕阅读器再念一遍「›」只是噪声。 */}
+          {hasSubmenu && (
+            <span className="nexus-context-menu-arrow" aria-hidden="true">
+              ›
+            </span>
+          )}
+        </button>
+      );
+    });
 
   return (
     <div
@@ -272,67 +565,27 @@ const ContextMenuSurface: React.FC<ContextMenuProps> = ({
       // 未量出尺寸前不画，否则会在 (0,0) 闪一下。尺寸是同步量到的，
       // 所以这一帧与量完那一帧之间没有用户可见的间隔。
       style={position ? { left: position.left, top: position.top } : { visibility: 'hidden' }}
+      // 子菜单开着时，高亮在二级里 —— 两级共用这一个属性，因为**焦点始终留在根菜单上**
+      // （键盘模型只有一套）。二级面板是根菜单的 DOM 后代，所以这个引用是合法的。
       aria-activedescendant={
-        items[activeIndex] && !items[activeIndex]!.separator
-          ? `ctx-${items[activeIndex]!.id}`
-          : undefined
+        openSubmenuIndex !== null
+          ? submenuItems[submenuActiveIndex] && !submenuItems[submenuActiveIndex]!.separator
+            ? `ctx-sub-${submenuItems[submenuActiveIndex]!.id}`
+            : undefined
+          : items[activeIndex] && !items[activeIndex]!.separator
+            ? `ctx-${items[activeIndex]!.id}`
+            : undefined
       }
       onKeyDown={handleKeyDown}
       // 在菜单上再按右键不该叠出第二个菜单
       onContextMenu={(event) => event.preventDefault()}
     >
-      {items.map((item, index) => {
-        if (item.separator) {
-          return (
-            <div
-              key={`separator-${index}`}
-              role="separator"
-              className="nexus-context-menu-separator"
-            />
-          );
-        }
-        // 勾选语义与勾选槽共用同一个判据：`active` 是「一组互斥项里的一个」（radio），
-        // `checked` 是「独立开关」（checkbox）。**一个 `aria-checked` 只能有一个来源** ——
-        // 两者同时给时按 `active` 算，✓ 与 `aria-checked` 都从这同一个 `ticked` 出来
-        // （两处各判一次就会漂，判据 36 的同类）。
-        const radio = item.active !== undefined;
-        const checkable = radio || item.checked !== undefined;
-        const ticked = radio ? item.active === true : item.checked === true;
-        const role = radio ? 'menuitemradio' : checkable ? 'menuitemcheckbox' : 'menuitem';
-        return (
-          <button
-            key={item.id}
-            id={`ctx-${item.id}`}
-            type="button"
-            role={role}
-            {...(checkable ? { 'aria-checked': ticked } : {})}
-            tabIndex={-1}
-            title={item.title}
-            disabled={item.disabled}
-            className={`nexus-context-menu-item${item.danger ? ' nexus-context-menu-item-danger' : ''}${
-              ticked ? ' nexus-context-menu-item-checked' : ''
-            }`}
-            data-context-menu-item={item.id}
-            {...(checkable ? { 'data-context-menu-checkable': '' } : {})}
-            {...(index === activeIndex ? { 'data-context-menu-active': '' } : {})}
-            // 用 `mouseenter` 而不是 `mouseover`：后者会在子节点之间反复触发。
-            // 禁用项**不接管高亮**：接管了的话键盘落点会跟着鼠标跳到一个点不动的项上。
-            onMouseEnter={() => {
-              if (!item.disabled) setActiveIndex(index);
-            }}
-            onClick={() => activate(index)}
-          >
-            {/* 勾选槽**恒渲染**（未选中时是空的）—— 它是网格的第一列，
-                只在选中时才画的话未选中的项会掉进那一列，整组文字左沿参差不齐。 */}
-            {checkable && (
-              <span className="nexus-context-menu-check" aria-hidden="true">
-                {ticked ? '✓' : ''}
-              </span>
-            )}
-            {item.label}
-          </button>
-        );
-      })}
+      {renderItems(items, 'root', activeIndex)}
+      {openSubmenuIndex !== null && submenuAnchor && (
+        <ContextSubmenu anchor={submenuAnchor} label={items[openSubmenuIndex]?.label ?? ''}>
+          {renderItems(submenuItems, 'sub', submenuActiveIndex)}
+        </ContextSubmenu>
+      )}
     </div>
   );
 };

@@ -80,6 +80,15 @@ export interface SourceEditorProps {
    * 得知道它什么时候换了一个。
    */
   onViewReady?: (view: EditorView | null) => void;
+  /**
+   * 编辑器区域上的右键。**只把事件递出去，编辑器自己不开菜单** ——
+   * 菜单里那些动作（剪贴板 / 格式 / 查找）全在宿主命令注册表里，编辑器不该知道有它们。
+   * 与 `linkNavigator` / `onPasteFiles` 同一种分工：策略在宿主，编辑器只递事件。
+   *
+   * 挂在外壳 `<div>` 上而不是 CodeMirror 的 `contentDOM` 上：这样**正文下方的空白**
+   * 也算编辑区（那块空白在视觉上就是「纸」），而在那里右键没反应与界面坏了是同一种症状。
+   */
+  onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void;
   className?: string;
 }
 
@@ -104,6 +113,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
   onChange,
   onSelectionChange,
   onViewReady,
+  onContextMenu,
   className
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -421,6 +431,7 @@ export const EditorSurface: React.FC<SourceEditorProps> = ({
       className={`nexus-source-editor ${className ?? ''}`}
       data-testid={`nexus-${surfaceKind}-editor`}
       data-surface-kind={surfaceKind}
+      onContextMenu={onContextMenu}
     />
   );
 };

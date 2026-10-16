@@ -191,6 +191,19 @@ function shortcutLabel(commandId: string): string | undefined {
  */
 const COPY_LINK_NOTICE_MS = 4000;
 
+/**
+ * 编辑区里**不属于「正文」**的那些浮层，右键时要放过它们。
+ *
+ * - `.cm-panels` —— 查找 / 替换面板（`search-panel.ts`），里面有输入框；
+ * - `.cm-tooltip` —— 自动补全浮层，`/` 面板走的就是 CM 的补全源
+ *   （`source-editor.ts:89` 的 `createMarkdownCompletionSource`）。
+ *
+ * 这两处里的右键属于**文本编辑**（剪切 / 粘贴那一套），抢过来等于把它的右键整个拿走。
+ * 判据与树空白区那条「输入框不算空白处」同源，只是这里不能按标签名判 ——
+ * 正文本身是 `contenteditable`，按标签判会把正文一起放过。
+ */
+const EDITOR_OVERLAY_SELECTOR = '.cm-panels, .cm-tooltip';
+
 export const App: React.FC = () => {
   const { resolvedTheme, themeChoice, setTheme, modeSwitchable } = useTheme();
   const { locale, setLocale, t } = useLocale();
@@ -344,6 +357,18 @@ export const App: React.FC = () => {
     x: number;
     y: number;
   } | null>(null);
+
+  /**
+   * 编辑器正文上的右键菜单。`null` ＝ 没开着。
+   *
+   * 只存坐标，**不存「右键时是哪一段选区」** —— 菜单项每次现算（`editorMenuItems`），
+   * 而可用性判据是「这一刻的选区」。菜单开着的时候选区不会因为点菜单而变，
+   * 但把选区快照下来就等于给自己留了一份可能与 `view.state` 不一致的副本。
+   *
+   * 挂点在编辑区外壳上，所以坐标直接来自 `MouseEvent.clientX/clientY`（视口坐标），
+   * 与另外两份菜单同一套。
+   */
+  const [editorMenu, setEditorMenu] = useState<{ x: number; y: number } | null>(null);
 
   /**
    * 目录行右键菜单里的「在此新建」—— 交给侧栏去开那行输入框。
@@ -3142,6 +3167,129 @@ export const App: React.FC = () => {
   }, [focusActiveEditor, session]);
 
   /**
+   * 编辑器正文右键菜单的条目。**第三个入口，不是第三份动作** —— 剪贴板走既有的
+   * `handleCopy` / `handleCut` / `handlePaste` / `handleSelectAll`（与菜单栏「编辑」同源），
+   * 格式与查找替换走宿主命令（`runCommand`）。蓝图 `:394` 要求「右键 / 快捷键 /
+   * 上下文 toolbar 用同一组命令」。
+   *
+   * 三段的结构，每段各有依据：
+   *
+   * 1. **剪贴板**恒在。剪切 / 复制没有非空选区时灰着（`handleCopy` 内部本来就直接返回，
+   *    灰着是把这个事实说出来）；只读时剪切 / 粘贴灰着 —— 它们会写。复制不写，所以
+   *    只读时照常可用（选区上下文条是整条不画，因为那一条上**只有**写动作；这份菜单
+   *    还带着读动作，该降级而不是消失）。
+   * 2. **格式收进二级。** 二十项摊平会顶出屏幕，而 markra 的编辑器右键菜单同样收在
+   *    `格式 ▸` 里。**有非空选区时给行内那六项 + 块级全部；没有选区时只给块级** ——
+   *    行内事务在 `anchor === head` 时直接返回 `null`（`inline-format.ts:215`），
+   *    给了就是一排按下去没反应的项。这条判据与「选区上下文条只在有选区时浮出来」一致。
+   * 3. **插入链接 / 查找 / 替换**：前两个不依赖选区（光标停在一行上插链接是常见写法），
+   *    第三个是查找的近邻。
+   */
+  const editorMenuItems = useCallback((): ContextMenuItem[] => {
+    const readOnly = saveState === 'readonly';
+    const hasSelection = selection.selectedTextLength > 0;
+
+    const inlineItems: ContextMenuItem[] = SELECTION_ACTION_SPECS.filter(
+      // 「插入链接」在顶层单列，不在这一组里再来一次。
+      (spec) => spec.id !== 'format.insert-link'
+    ).map((spec) => ({
+      id: spec.id,
+      label: t(spec.labelKey),
+      // 动作走宿主命令 —— 与快捷键、选区上下文条指向**同一个 `execute`**。
+      onSelect: () => runCommand(spec.id),
+      // 第三个理由与选区上下文条的 `disabled` **同一个表达式**（`formattingState.atomic`）：
+      // 选区切在代码块 / 行内代码 / 公式里时行内标记无处可施，两处各判一次就会出现
+      // 「那条栏灰着、这份菜单亮着」。
+      disabled: readOnly || !hasSelection || formattingState.atomic,
+      // 没有 `format` 的动作（清除格式）不参与激活态 —— 与 `selectionActions` 同一条约定。
+      active: spec.format ? formattingState.active.includes(spec.format) : undefined
+    }));
+
+    // 只读时整组灰掉而不是藏起来（与菜单栏「格式」在没有活动编辑器时的处理一致）：
+    // 藏起来的话用户会以为这个入口坏了。
+    const blockItems: ContextMenuItem[] = blockFormatMenuItems(
+      blockFormatState,
+      t,
+      runCommand
+    ).map((item) => (readOnly ? { ...item, disabled: true } : item));
+
+    const formatSubmenu: ContextMenuItem[] = hasSelection
+      ? [
+          ...inlineItems,
+          { id: 'separator-block', label: '', separator: true },
+          ...blockItems
+        ]
+      : blockItems;
+
+    return [
+      {
+        id: 'cut',
+        label: t('cmd.cut'),
+        disabled: readOnly || !hasSelection,
+        onSelect: () => void handleCut()
+      },
+      {
+        id: 'copy',
+        label: t('cmd.copy'),
+        disabled: !hasSelection,
+        onSelect: () => void handleCopy()
+      },
+      {
+        id: 'paste',
+        label: t('cmd.paste'),
+        disabled: readOnly,
+        onSelect: () => void handlePaste()
+      },
+      { id: 'select-all', label: t('cmd.selectAll'), onSelect: handleSelectAll },
+      { id: 'separator-actions', label: '', separator: true },
+      {
+        id: 'format',
+        label: t('menu.format'),
+        // 只读时父项自己就灰着 —— 子菜单因此打不开，这比「能展开但里面全是灰的」诚实。
+        disabled: readOnly,
+        submenu: formatSubmenu
+      },
+      { id: 'separator-insert', label: '', separator: true },
+      {
+        id: 'insert-link',
+        label: t('cmd.insertLink'),
+        disabled: readOnly,
+        onSelect: () => runCommand('format.insert-link')
+      },
+      { id: 'find', label: t('cmd.find'), onSelect: () => runCommand('find') },
+      { id: 'replace', label: t('cmd.replace'), onSelect: () => runCommand('replace') }
+    ];
+  }, [
+    saveState,
+    selection,
+    formattingState,
+    blockFormatState,
+    t,
+    runCommand,
+    handleCopy,
+    handleCut,
+    handlePaste,
+    handleSelectAll
+  ]);
+
+  /**
+   * 编辑区上的右键。
+   *
+   * **放过 CodeMirror 自己的浮层**（`.cm-panels` 查找面板、`.cm-tooltip` 自动补全 ——
+   * `/` 面板走的就是 CM 的补全源）：那里面有输入框，用户在那里右键是要剪切 / 粘贴文本，
+   * 抢过来等于把文本编辑的右键整个拿走。与树空白区那条「输入框不算空白处」是同一条判据。
+   *
+   * 不做「只在正文行上才弹」的裁剪：正文下方的空白在视觉上就是「纸」，在那里右键
+   * 没反应与界面坏了是同一种症状（markra 覆盖整张纸，同一条理由）。
+   */
+  const handleEditorContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest(EDITOR_OVERLAY_SELECTOR)) return;
+    event.preventDefault();
+    setEditorMenu({ x: event.clientX, y: event.clientY });
+  }, []);
+
+  /**
    * 粘贴图片：落盘 → 插入相对引用。
    *
    * 编辑器只负责「把文件交出来、拿回一段文本」（`ClipboardOptions.onPasteFiles`）；
@@ -3987,6 +4135,9 @@ export const App: React.FC = () => {
             onChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
             onViewReady={handleViewReady}
+            // 右键只递事件，菜单由下面那个 `editorMenu` 画 —— 动作全在宿主命令里，
+            // 编辑器不该知道有它们（与 `linkNavigator` / `onPasteFiles` 同一种分工）。
+            onContextMenu={handleEditorContextMenu}
             className="nexus-editor-full"
           />
         </ErrorBoundary>
@@ -4083,6 +4234,17 @@ export const App: React.FC = () => {
           items={tabMenuItems(tabMenu.document)}
           onClose={() => setTabMenu(null)}
           label={t('tab.menuLabel')}
+        />
+      )}
+      {/* 编辑器正文右键菜单。挂在最外层**不是**为了躲 overflow（编辑区没有裁剪祖先），
+          而是与上面两份菜单放在一起 —— 三份菜单同一个位置，找起来只有一处。 */}
+      {editorMenu && (
+        <ContextMenu
+          x={editorMenu.x}
+          y={editorMenu.y}
+          items={editorMenuItems()}
+          onClose={() => setEditorMenu(null)}
+          label={t('editor.menuLabel')}
         />
       )}
       {/* 改名确认屏。它要「摆出改了谁的什么」，所以自己也挂在外层（与菜单同理，

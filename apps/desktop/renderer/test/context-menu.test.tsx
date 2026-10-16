@@ -497,4 +497,239 @@ describe('上下文菜单原语', () => {
     expect(menu()).toBeNull();
     expect(menuItems()).toEqual([]);
   });
+
+  // ---- 两级子菜单（2026-10-16，编辑器右键菜单的「格式」要用） ----
+
+  /**
+   * 一级项 + 一个二级面板。二级里放三项，其中一项是勾选项 ——
+   * 「两级共用同一份渲染」要能被这条钉住。
+   */
+  function submenuItems(): ContextMenuItem[] {
+    return [
+      { id: 'link', label: 'Insert link', onSelect: onSelectRename },
+      {
+        id: 'format',
+        label: 'Format',
+        submenu: [
+          { id: 'bold', label: 'Bold', active: true, onSelect: onSelectDelete },
+          { id: '', label: '', separator: true },
+          { id: 'italic', label: 'Italic', onSelect: onSelectRename }
+        ]
+      }
+    ];
+  }
+
+  function submenu(): HTMLElement | null {
+    return container.querySelector<HTMLElement>('[data-context-submenu]');
+  }
+
+  /** 二级面板里的项。一级的 `data-context-menu-active` 会与二级同时存在（父项保持高亮），
+      所以这个查询必须**限定在面板内**。 */
+  function subItems(): HTMLElement[] {
+    return Array.from(
+      submenu()?.querySelectorAll<HTMLElement>('[data-context-menu-item]') ?? []
+    );
+  }
+
+  function activeSubItem(): HTMLElement | null {
+    return submenu()?.querySelector<HTMLElement>('[data-context-menu-active]') ?? null;
+  }
+
+  /**
+   * 展开子菜单：点那个带子菜单的父项（点它只展开，不执行动作）。
+   *
+   * **按 `aria-haspopup` 找而不是写下标**：二级展开后 `menuItems()` 会把子项也算进来，
+   * 下标就不再稳定；而且各条用例的一级项数不一样。
+   */
+  function openSubmenuByClick(): void {
+    const parent = menuItems().find((item) => item.getAttribute('aria-haspopup') === 'menu');
+    if (!parent) throw new Error('这份菜单里没有带子菜单的项');
+    act(() => parent.click());
+  }
+
+  it('带 submenu 的项：aria-haspopup=menu，点它只展开、不执行 onSelect', () => {
+    renderItems(submenuItems());
+
+    const parent = menuItems()[1]!;
+    expect(parent.getAttribute('aria-haspopup')).toBe('menu');
+    expect(parent.getAttribute('aria-expanded')).toBe('false');
+    // 它是「展开子菜单的入口」，不是 radio / checkbox —— role 不能被二级的存在带跑
+    expect(parent.getAttribute('role')).toBe('menuitem');
+    expect(submenu()).toBeNull();
+
+    openSubmenuByClick();
+
+    // 点它**不执行任何动作**：「既展开又执行」会让用户没法只看看里面有什么
+    expect(onSelectRename).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(parent.getAttribute('aria-expanded')).toBe('true');
+    expect(subItems().map((item) => item.dataset.contextMenuItem)).toEqual([
+      'bold',
+      'italic'
+    ]);
+  });
+
+  it('子菜单：再点一次父项收起', () => {
+    renderItems(submenuItems());
+    openSubmenuByClick();
+    expect(submenu()).not.toBeNull();
+
+    openSubmenuByClick();
+
+    expect(submenu()).toBeNull();
+    expect(menuItems()[1]!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  /**
+   * 两级共用同一份渲染 —— 勾选槽、禁用、分隔线在二级里必须与一级逐字一致，
+   * 各写一遍的结果是「一级有 ✓、二级没有」这种只在一处生效的漂移。
+   */
+  it('子菜单里的项走同一份渲染：勾选槽与分隔线都在', () => {
+    renderItems(submenuItems());
+    openSubmenuByClick();
+
+    const [bold, italic] = subItems();
+    expect(bold!.getAttribute('role')).toBe('menuitemradio');
+    expect(bold!.getAttribute('aria-checked')).toBe('true');
+    expect(bold!.textContent).toContain('✓');
+    expect(italic!.getAttribute('role')).toBe('menuitem');
+    expect(submenu()!.querySelectorAll('.nexus-context-menu-separator')).toHaveLength(1);
+  });
+
+  it('方向键进出子菜单：ArrowRight 展开、ArrowLeft 收起', () => {
+    renderItems(submenuItems());
+
+    pressKey('ArrowDown'); // 落到 Format
+    expect(activeItem()?.dataset.contextMenuItem).toBe('format');
+
+    pressKey('ArrowRight');
+    expect(submenu()).not.toBeNull();
+    // 键盘进去之后方向键**在二级里走**
+    expect(activeSubItem()?.dataset.contextMenuItem).toBe('bold');
+
+    pressKey('ArrowDown');
+    expect(activeSubItem()?.dataset.contextMenuItem).toBe('italic');
+
+    pressKey('ArrowLeft');
+    expect(submenu()).toBeNull();
+    // 收子菜单**不等于关菜单** —— 用户要还能在一级里挑别的
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('ArrowRight 落在没有子菜单的项上什么都不发生', () => {
+    renderItems(submenuItems());
+
+    pressKey('ArrowRight'); // 高亮还在 Insert link 上
+
+    expect(submenu()).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Escape **先收子菜单再关菜单**。一次把两层都关掉的话，用户按错了就再也回不到一级
+   * —— 得重新右键一趟。
+   */
+  it('Escape 先收子菜单，再按一次才关菜单', () => {
+    renderItems(submenuItems());
+    openSubmenuByClick();
+
+    pressKey('Escape');
+    expect(submenu()).toBeNull();
+    expect(menu()).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    pressKey('Escape');
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('回车落在父项上只展开；落到二级项上才执行并关菜单', () => {
+    renderItems(submenuItems());
+
+    pressKey('ArrowDown'); // Format
+    pressKey('Enter'); // 只展开
+    expect(submenu()).not.toBeNull();
+    expect(onSelectRename).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    pressKey('Enter'); // 二级的第一项：Bold
+    expect(onSelectDelete).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('点子菜单项执行并关菜单', () => {
+    renderItems(submenuItems());
+    openSubmenuByClick();
+
+    act(() => {
+      subItems()[0]?.click();
+    });
+
+    expect(onSelectDelete).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * 子菜单里的一项被禁用时，方向键跳过它 —— 与一级同一条判据（共用 `step`）。
+   */
+  it('子菜单里方向键跳过禁用项', () => {
+    renderItems([
+      {
+        id: 'format',
+        label: 'Format',
+        submenu: [
+          { id: 'bold', label: 'Bold', disabled: true, onSelect: onSelectRename },
+          { id: 'italic', label: 'Italic', onSelect: onSelectDelete }
+        ]
+      }
+    ]);
+
+    openSubmenuByClick();
+
+    // 初始落点就要跳过禁用的第一项
+    expect(activeSubItem()?.dataset.contextMenuItem).toBe('italic');
+
+    pressKey('ArrowUp');
+    expect(activeSubItem()?.dataset.contextMenuItem).toBe('italic');
+
+    pressKey('Enter');
+    expect(onSelectRename).not.toHaveBeenCalled();
+    expect(onSelectDelete).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * **菜单内部的滚动不算关闭。** 这个监听是捕获阶段挂在 `window` 上的，菜单自己滚一下
+   * 同样会经过它 —— 不加判据的话，「滚一滚看子菜单下面还有什么」会变成「菜单没了」。
+   * 这一条是给菜单加 `max-height` + 内部滚动时**必须**一起做的，否则新加的能力立刻是坏的。
+   */
+  it('菜单内部滚动不关闭；菜单外面滚动照关', () => {
+    renderItems(submenuItems());
+    openSubmenuByClick();
+
+    act(() => {
+      menu()?.dispatchEvent(new Event('scroll', { bubbles: false }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      submenu()?.dispatchEvent(new Event('scroll', { bubbles: false }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+    });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  /** 二级面板自己也是 `role="menu"`，且**不共用**根菜单的 `data-context-menu` 锚点 ——
+      两级共用一个属性会让「子菜单开着」被当成「菜单开着」。 */
+  it('子菜单面板是独立的 role=menu，且不与根菜单共用锚点', () => {
+    renderItems(submenuItems());
+    openSubmenuByClick();
+
+    expect(submenu()!.getAttribute('role')).toBe('menu');
+    expect(submenu()!.getAttribute('aria-label')).toBe('Format');
+    // 根菜单仍然只有一个
+    expect(container.querySelectorAll('[data-context-menu]')).toHaveLength(1);
+  });
 });
