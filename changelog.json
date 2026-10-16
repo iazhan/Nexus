@@ -465,5 +465,46 @@
         "en": "Opening a document from the graph now lands on its representative anchor section instead of the top of the file — a link such as `[[dma#性能]]` already says which section matters. When a document is referenced with several different anchors, the most frequent one wins (ties break deterministically, so two sessions never land on different headings). With no anchored reference at all it still opens at the top."
       }
     ]
+  },
+  "0.103.0": {
+    "date": "2026-10-16",
+    "changes": [
+      {
+        "type": "feat",
+        "scope": "workspace",
+        "zh": "工作区文件树**空白处**右键现在有菜单了：新建文件 / 新建文件夹 · 全部展开 / 收起 · 显示图片 · 重新扫描工作区。在此之前右键空白处**什么都不发生** —— Electron 默认不弹原生菜单，那不是「回落到系统菜单」，是真的没反应。新建落在**工作区根**（不跟着选中项走），「显示图片」是带勾选态的开关而不是把文案在「显示 / 隐藏」之间翻转。",
+        "en": "Right-clicking empty space in the workspace file tree now opens a menu: new file / new folder · expand or collapse all · show images · rescan workspace. Nothing used to happen there at all — Electron shows no native menu by default, so it was not \"falling back to the system menu\", it was silence. Creation targets the workspace root rather than the current selection, and \"Show images\" is a real checkbox instead of a label that flips between show and hide."
+      },
+      {
+        "type": "fix",
+        "scope": "ui",
+        "zh": "右键菜单支持**灰掉的项**（点不动、回车不触发、键盘上下键跳过它），一个动作都没有的菜单也不再画出一个空框 —— 补出来的目录行（磁盘列举里缺了那一层）以前会弹出一个什么都没有的方框。",
+        "en": "Context menus now support disabled items (not clickable, Enter does nothing, arrow keys skip them), and a menu with no actions no longer renders as an empty box — a synthesised folder row used to open a blank rectangle."
+      },
+      {
+        "type": "feat",
+        "scope": "workspace",
+        "zh": "**标签页**右键现在有菜单了：关闭 · 关闭其他 · 关闭右侧标签页 · 全部关闭 · 在文件树中定位。在此之前右键标签也是**什么都不发生**。前三项按选区灰着（「关闭其他」在只剩一条时、「关闭右侧」在最后一条上），而不是忽有忽无 —— 灰着的一格比消失的一项好解释。关闭走的还是 `Ctrl+W` 那条路径，所以「有路径的先落盘、未命名的先问」这条规则不会分叉。「在文件树中定位」只在**这一篇确实在当前工作区里**时给：不在树里的文件定位不了，给一个按下去没反应的项比不给更糟。",
+        "en": "Right-clicking a **tab** now opens a menu: close · close others · close tabs to the right · close all · reveal in file tree. Right-clicking a tab used to do nothing at all. The first three grey out according to the selection (close others when it is the only tab, close to the right on the last one) rather than appearing and disappearing — a greyed-out row is easier to explain than a missing one. Closing still goes through the same path as Ctrl+W, so the rule about saving files with a path and asking about unnamed ones does not fork. Reveal in file tree is only offered when the document is actually inside the current workspace: a file outside the tree cannot be located, and an entry that does nothing is worse than no entry."
+      },
+      {
+        "type": "feat",
+        "scope": "editor",
+        "zh": "**编辑器正文**右键现在有菜单了：剪切 / 复制 / 粘贴 / 全选 · **格式**（二级）· 插入链接 / 查找 / 替换。这是「右键 / 快捷键 / 工具栏用同一组命令」的第三个入口 —— 点「格式 → 粗体」和按 `Ctrl+B`、点工具栏那枚按钮走的是同一条命令，不是第二份实现。**没有选中文字时，格式子菜单里不给行内格式**（粗体 / 斜体 / 删除线 / 高亮 / 行内代码 / 清除格式）—— 它们本来就要求有选区，列出来只会是按下去没反应的六项。右键打在正文下方那块空白上也照常弹：那块空白在视觉上就是「纸」。只读文档里写动作灰着、复制与查找照常可用。",
+        "en": "Right-clicking in the **editor body** now opens a menu: cut / copy / paste / select all · **Format** (a submenu) · insert link / find / replace. This is the third entry point for \"right-click, shortcut, and toolbar run the same command\" — Format → Bold goes through the exact same command as Ctrl+B and the toolbar button, not a second implementation. With no text selected, the format submenu omits the inline formats (bold / italic / strikethrough / highlight / inline code / clear formatting) because they require a selection; listing them would only produce six entries that do nothing. Right-clicking the empty area below the text works too — that area reads as the page. In read-only documents the writing actions are greyed out while copy and find stay available."
+      },
+      {
+        "type": "feat",
+        "scope": "ui",
+        "zh": "右键菜单支持**二级子菜单**（悬浮或按右键方向键展开，方向键进出、`Escape` 先收子菜单再关菜单），右边放不下时**往左翻**而不是跑到屏幕外。菜单同时有了高度上限与内部滚动 —— 在此之前一份长菜单会被视口裁掉，下面那几项永远看不到。",
+        "en": "Context menus now support **one level of submenus** (open on hover or with the right arrow key, navigate in and out with the arrow keys, and Escape closes the submenu before the menu), and a submenu flips to the left instead of running off screen when there is no room on the right. Menus also gained a height cap with internal scrolling — before this, a long menu was clipped by the viewport and the bottom entries could never be reached."
+      },
+      {
+        "type": "feat",
+        "scope": "workspace",
+        "zh": "工作区文件树右键现在能**复制 / 剪切 / 粘贴 / 复制到… / 移动到…** 了，文件与文件夹都行，文件夹按整棵子树递归。**剪切不落盘** —— 真正搬动发生在粘贴那一刻，被剪的那几行会变灰（那是剪切唯一的可见反馈，否则点完菜单屏幕上一个像素都不变）。粘贴用**内部剪贴板**而不是系统剪贴板：系统剪贴板里没有「剪切了、等着粘贴」这个状态，走它就只能靠猜。重名**自动加序号**（`笔记.md` → `笔记-1.md`，序号插在扩展名之前），永不覆盖。移动会**先摆出「要改哪些别人的文档」再让你点头**：指向被搬走那份的引用会跟着改（可以在设置里关掉），而**被搬走那份自己的相对链接恒跟着改**（不改就是它自己断了）。复制不改别人的文档，所以直接做完。搬完给一条回执说出落点。",
+        "en": "The workspace file tree now supports **copy / cut / paste / copy to… / move to…** for both files and folders, with folders handled recursively. **Cutting does not touch the disk** — the actual move happens at paste time, and the cut rows grey out (that is the only visible feedback for a cut; without it nothing on screen changes when you pick the menu item). Paste uses an **internal clipboard** rather than the system one: the OS clipboard has no \"cut, waiting to be pasted\" state, so relying on it would mean guessing. Name collisions **get a numeric suffix** (`note.md` → `note-1.md`, inserted before the extension) and never overwrite. Moving first **shows which other documents would be rewritten and asks before doing it**: references pointing at the moved item are updated along with it (this can be turned off in settings), while the moved item's **own relative links are always rebased** (leaving them alone is how it breaks itself). Copying leaves other documents untouched, so it just runs. A receipt reports where things landed."
+      }
+    ]
   }
 }
