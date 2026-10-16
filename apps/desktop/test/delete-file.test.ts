@@ -164,12 +164,14 @@ describe('删除文件', () => {
     //
     // 哨兵的盲区（批一/批二各踩过一次）：它只在这个文件跑到时才红，而真机用例是按批次跑的 ——
     // 加菜单项的那一批如果没有它，就会漏到下一次全量才暴露。所以**加菜单项时先 `grep` 这个数组**。
+    // 2026-10-16 又踩了一次：文件树搬运（复制 / 剪切 / 复制到 / 移动到）加进 `fileMenuItems`
+    // 之后，这条与 `rename-file.test.ts` 那条一起红 —— 补的正是「全量 desktop」这一步。
     expect(
       await app.evaluate<string[]>(
         `Array.from(document.querySelectorAll('[data-context-menu-item]'))
           .map((el) => el.dataset.contextMenuItem)`
       )
-    ).toEqual(['rename', 'copy-link', 'delete']);
+    ).toEqual(['copy', 'cut', 'copy-to', 'move-to', 'rename', 'copy-link', 'delete']);
 
     // 回收站那一档**不**确认（可逆的操作不该拿弹窗烦人），所以这里不装 confirm 也不会卡住。
     await app.click('[data-context-menu-item="delete"]');
