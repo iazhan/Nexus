@@ -29,6 +29,7 @@ import {
 } from './tree.js';
 import { filterTreeByImageVisibility } from './tree-filter.js';
 import { WorkspaceToolbar } from './workspace-toolbar.js';
+import type { ClipboardEntry } from './clipboard.js';
 
 export interface WorkspaceSidebarProps {
   rootPath: string;
@@ -61,6 +62,15 @@ export interface WorkspaceSidebarProps {
   renamingPath?: string | null;
   onRenameCommit?: (filePath: string, newName: string) => void;
   onRenameCancel?: () => void;
+  /**
+   * 文件剪贴板（当前工作区里的那一份）。
+   *
+   * 侧栏用它做两件事：`cut` 的**源行变灰**（那是剪切唯一的可见反馈），
+   * 以及空白区菜单里「粘贴」的启停。剪贴板本身住在 `App` 那边 —— 这里只读不写。
+   */
+  clipboard?: ClipboardEntry | null;
+  /** 把剪贴板里的东西粘到某个目录。`App` 负责「复制还是移动」。 */
+  onPaste?: (targetDirectory: string) => void;
 
   // ---- 工作区工具栏（2026-10-01）----
   /** 「显示图片」开关的当前值。这是**视图状态**，不是设置项。 */
@@ -238,6 +248,8 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   renamingPath,
   onRenameCommit,
   onRenameCancel,
+  clipboard,
+  onPaste,
   showImages,
   onShowImagesChange,
   onCreateFile,
@@ -386,6 +398,28 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     () => (showImages ? tree : filterTreeByImageVisibility(tree, false).nodes),
     [tree, showImages]
   );
+
+  /**
+   * 被剪切的那一行，以及它下面的一切。
+   *
+   * **整棵子树一起灰**，不是只灰根那一行：剪一个目录时，里面的东西全都要跟着走，
+   * 只灰根会让人以为「只有这一层被剪了」。而灰化是这个动作**唯一**的可见反馈 ——
+   * 剪切不落盘（落盘发生在粘贴那一刻），不标出来的话点完菜单屏幕上一个像素都不变。
+   */
+  const cutPaths = useMemo(() => {
+    const paths = new Set<string>();
+    if (!clipboard || clipboard.mode !== 'cut') return paths;
+
+    paths.add(clipboard.relativePath);
+    const prefix = `${clipboard.relativePath}/`;
+    for (const document of documents) {
+      if (document.relativePath.startsWith(prefix)) paths.add(document.relativePath);
+    }
+    for (const directory of directories) {
+      if (directory.relativePath.startsWith(prefix)) paths.add(directory.relativePath);
+    }
+    return paths;
+  }, [clipboard, documents, directories]);
 
   /** 已展开的目录（按 relativePath）。目录不对应唯一磁盘实体，所以只能用它当 key。 */
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -628,6 +662,15 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   const blankMenuItems = useMemo((): ContextMenuItem[] => {
     const items: ContextMenuItem[] = [
       {
+        id: 'paste',
+        label: t('workspace.paste'),
+        // 剪贴板空着时**灰着**而不是不出现 —— 与标签页菜单同一条判据（见 `App.tsx`）。
+        // 落点与新建一样是**工作区根**，不是选中项。
+        disabled: !clipboard || !onPaste,
+        onSelect: () => onPaste?.(rootPath)
+      },
+      { id: 'paste-separator', label: '', separator: true },
+      {
         id: 'new-file',
         label: t('workspace.toolbar.newFile'),
         onSelect: () => beginCreating('file', null, rootPath)
@@ -677,6 +720,8 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     t,
     beginCreating,
     rootPath,
+    clipboard,
+    onPaste,
     directoryPaths,
     allExpanded,
     toggleExpandAll,
@@ -806,6 +851,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                 data-relative-path={node.relativePath}
                 data-path={node.path ?? ''}
                 data-selected={isSelected ? 'true' : undefined}
+                data-cut={cutPaths.has(node.relativePath) ? 'true' : undefined}
                 aria-expanded={isOpen}
                 onClick={() => {
                   setSelected(node);
@@ -883,6 +929,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
               // 判据给测试用：四类的图标必须互不相同，光看名字认不出这件事。
               data-file-kind={node.document?.type ?? 'unknown'}
               data-selected={isSelected ? 'true' : undefined}
+              // 「这一行被剪切了」。这是剪切**唯一**的可见反馈 —— 不标出来的话，
+              // 用户点完菜单屏幕上一个像素都不变（剪切不落盘，见 `clipboard.ts`）。
+              data-cut={cutPaths.has(node.relativePath) ? 'true' : undefined}
               title={tooltipLines.join('\n')}
               onClick={() => {
                 setSelected(node);

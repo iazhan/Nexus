@@ -150,6 +150,26 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.renameSkipUnresolved': '{count} references could not be rewritten safely',
     'workspace.renameSkipFailed': '{count} documents could not be written',
     'workspace.renamePartial': 'Renamed to "{name}", but some references were not updated:\n{detail}',
+    // 复制 / 剪切 / 粘贴 / 复制到… / 移动到…。剪贴板里没有东西时「粘贴」是**灰着的**，
+    // 不是不出现 —— 灰着的一格比消失的一项好解释（与标签页菜单同一条判据）。
+    // 移动那一屏的标题与按钮必须与「重命名」分开：那两句话在移动上不成立。
+    'workspace.copy': 'Copy',
+    'workspace.cut': 'Cut',
+    'workspace.paste': 'Paste',
+    'workspace.copyTo': 'Copy to…',
+    'workspace.moveTo': 'Move to…',
+    'workspace.chooseDirectoryTitle': 'Choose a destination folder',
+    'workspace.copyFailed': 'Could not copy "{name}": {detail}',
+    'workspace.copyDone': 'Copied to {name}',
+    'workspace.moveFailed': 'Could not move "{name}": {detail}',
+    'workspace.moveDone': 'Moved to {name}',
+    'workspace.moveDialogTitle': 'Move and update links?',
+    'workspace.moveDialogIntro':
+      'Moving will rewrite the references below so they keep pointing at the same document. Only the spelling changes, never the meaning, and the previous content is saved to version history.',
+    'workspace.moveApply': 'Move and update',
+    'workspace.movePartial': 'Moved to "{name}", but some references were not updated:\n{detail}',
+    'workspace.copyPartial':
+      'Copied to "{name}", but some links inside the copy could not be rewritten:\n{detail}',
     // 复制链接。成功也留回执 —— 从树里复制时焦点在树上，编辑器里什么都不出现，
     // 静默就等于「点了没反应」。`copyLinkDone` 里带上**真正写出去的那串文本**，
     // 用户一眼就能看出当前是哪种写法。三条失败各说各的下一步。
@@ -1069,6 +1089,25 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.renameSkipUnresolved': '{count} 处引用无法安全改写',
     'workspace.renameSkipFailed': '{count} 篇文档写入失败',
     'workspace.renamePartial': '已改名为「{name}」，但有几处引用没有更新：\n{detail}',
+    // 复制 / 剪切 / 粘贴 / 复制到… / 移动到…。剪贴板里没有东西时「粘贴」是**灰着的**，
+    // 不是不出现 —— 灰着的一格比消失的一项好解释（与标签页菜单同一条判据）。
+    // 移动那一屏的标题与按钮必须与「重命名」分开：那两句话在移动上不成立。
+    'workspace.copy': '复制',
+    'workspace.cut': '剪切',
+    'workspace.paste': '粘贴',
+    'workspace.copyTo': '复制到…',
+    'workspace.moveTo': '移动到…',
+    'workspace.chooseDirectoryTitle': '选择目标文件夹',
+    'workspace.copyFailed': '复制「{name}」失败：{detail}',
+    'workspace.copyDone': '已复制到 {name}',
+    'workspace.moveFailed': '移动「{name}」失败：{detail}',
+    'workspace.moveDone': '已移动到 {name}',
+    'workspace.moveDialogTitle': '要一起更新链接吗',
+    'workspace.moveDialogIntro':
+      '移动会改写下面这些文档里指向它的引用，让它们继续指向同一篇。改的只是写法、不是语义，改动前的内容会进版本历史，随时可以回退。',
+    'workspace.moveApply': '移动并更新',
+    'workspace.movePartial': '已移动到「{name}」，但有几处引用没有更新：\n{detail}',
+    'workspace.copyPartial': '已复制到「{name}」，但副本里有几处链接没能改写：\n{detail}',
     // 复制链接。成功也留回执 —— 从树里复制时焦点在树上，编辑器里什么都不出现，
     // 静默就等于「点了没反应」。`copyLinkDone` 里带上**真正写出去的那串文本**，
     // 用户一眼就能看出当前是哪种写法。三条失败各说各的下一步。

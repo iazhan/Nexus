@@ -76,7 +76,8 @@ import { CommandPalette } from './CommandPalette.js';
 import { ContextMenu, type ContextMenuItem } from './components/ContextMenu.js';
 import type { FileTreeNode } from './workspace/tree.js';
 import { parseDeleteMode } from './settings/preference-specs.js';
-import type { RenameFileResult } from '../../ipc/channels.js';
+import type { RenameFileResult, TransferResult } from '../../ipc/channels.js';
+import { readClipboard, useClipboard, writeClipboard, type ClipboardEntry } from './workspace/clipboard.js';
 import { WorkspaceStore, hasUnsavedChanges, type WorkspaceDocument } from './workspace/store.js';
 import {
   clearSessionSnapshot,
@@ -393,16 +394,18 @@ export const App: React.FC = () => {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
 
   /**
-   * 「复制链接」刚写出去的那串文本。`null` ＝ 没显示。
+   * 顶部那条**成功**回执。`null` ＝ 没显示。
    *
-   * 存的是**文本本身**而不是一句「已复制」：写法由 `files.linkFormat` 决定，而设置页
-   * 在另一个窗口里，用户没有别的地方能确认「刚才到底复制成了什么样子」。
+   * 存的是**文案键 + 变量**而不是一句话：回执有三条来源（复制链接、复制、移动），
+   * 各自要带不同的东西（写出去的文本 / 落在哪），而它们共用同一个位置与同一条
+   * 「几秒后自己消失」的规则。存成字符串的话每加一条就要多一个 state、多一个渲染槽，
+   * 两个回执还会互相盖住。
    *
    * 成功也留回执（不是只在失败时说话）—— 与 VS Code 的 Copy Path 那种「静默」是有前提的：
    * 那条路复制完立刻就能粘进编辑器，而这里从树里复制，焦点在树上、编辑器里什么都不出现，
    * 静默就等于「这个菜单项点了没反应」。几秒后自己消失，不占地方。
    */
-  const [copyLinkNotice, setCopyLinkNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ key: string; vars?: Record<string, string> } | null>(null);
 
   /**
    * 改名确认屏的数据。`null` ＝ 没开着。
@@ -421,6 +424,25 @@ export const App: React.FC = () => {
     updateLinks: boolean;
     plan: RenameFileResult;
   } | null>(null);
+
+  /**
+   * 移动确认屏的数据。与 `renamePreview` **共用同一屏**（`RenamePreview`），
+   * 只多带一个落点目录 —— 那一屏画的 diff 是同一件事（「会改写哪些别人的文档」），
+   * 而它在这里同样只在有引用要改时才有值。
+   */
+  const [transferPreview, setTransferPreview] = useState<{
+    entry: ClipboardEntry;
+    targetDirectory: string;
+    skipPaths: string[];
+    updateLinks: boolean;
+    plan: TransferResult;
+  } | null>(null);
+
+  /**
+   * 文件剪贴板。**按当前工作区过滤** —— 别的根上剪的那一份在这里读出来就是 `null`，
+   * 于是「换工作区之后粘贴不该还能用」这条不需要任何人去清（见 `clipboard.ts`）。
+   */
+  const clipboard = useClipboard(workspaceRoot);
 
   /**
    * 三路合并面板的三份输入。`null` ＝ 面板关着。
@@ -2277,13 +2299,13 @@ export const App: React.FC = () => {
     void applyRename(pending.filePath, pending.newName, pending.skipPaths, pending.updateLinks);
   }, [renamePreview, applyRename]);
 
-  // 回执自己退场。挂在 state 上而不是在 `handleCopyLink` 里 `setTimeout` ——
-  // 后者在连续复制两次时会留下两个定时器，先到的那个把**后一次**的回执提前抹掉。
+  // 回执自己退场。挂在 state 上而不是在动作里 `setTimeout` ——
+  // 后者在连续做两次时会留下两个定时器，先到的那个把**后一次**的回执提前抹掉。
   useEffect(() => {
-    if (copyLinkNotice === null) return;
-    const timer = window.setTimeout(() => setCopyLinkNotice(null), COPY_LINK_NOTICE_MS);
+    if (notice === null) return;
+    const timer = window.setTimeout(() => setNotice(null), COPY_LINK_NOTICE_MS);
     return () => window.clearTimeout(timer);
-  }, [copyLinkNotice]);
+  }, [notice]);
 
   /**
    * 树右键「复制链接」。
@@ -2340,7 +2362,7 @@ export const App: React.FC = () => {
         window.alert(t('workspace.copyLinkFailed'));
         return;
       }
-      setCopyLinkNotice(result.text);
+      setNotice({ key: 'workspace.copyLinkDone', vars: { text: result.text } });
     },
     // `workspaceRoot` 与 `filePath` 都是这一项要用的：前者算工作区根相对路径，
     // 后者是 Markdown 档的基准。漏进依赖数组会让菜单项用上一次的基准拼路径。
@@ -2390,19 +2412,350 @@ export const App: React.FC = () => {
   );
 
   /**
+   * 把一次搬运的结果落到界面：改 store 里的路径、灌回被改写的正文、bump 一次 revision。
+   *
+   * 与 `applyRename` 的后半段是同一件事，但没有合并成一份：那边只涉及一个文件，
+   * 这边一次可能改一串（目录搬运时 `transferred` 是子树里全部文档），而且**落点是
+   * 主进程算出来的** —— 这边事先不知道「重名之后它叫 `a-1.md`」，只能照着结果改。
+   */
+  const applyTransferResult = useCallback(
+    (result: TransferResult) => {
+      for (const moved of result.transferred) {
+        const document = store
+          .getDocuments()
+          .find((candidate) => candidate.filePath?.toLowerCase() === moved.from.toLowerCase());
+        if (!document) continue;
+        store.updateDocument(document.id, (draft) => {
+          draft.filePath = moved.to;
+        });
+      }
+
+      // 被回写过的文档：新内容就在 `result.changes` 里，直接灌进会话 ——
+      // 不去等 watcher 报 `changed`。等它的话，关掉自动重载的用户会看到一片
+      // 「被外部修改」的横幅，而那次修改正是我们刚做的。
+      for (const change of result.changes) {
+        const document = store
+          .getDocuments()
+          .find((candidate) => candidate.filePath === change.path);
+        if (document?.kind !== 'editor') continue;
+
+        document.session.replaceSource(change.after);
+        if (store.getActiveId() === document.id) initialContentRef.current = change.after;
+        if (document.saveState !== 'readonly') store.setSaveState(document.id, 'clean');
+      }
+
+      // 树与标签页都从**索引**读，一次 bump 两边都收到。
+      setDocumentRevision((previous) => previous + 1);
+    },
+    [store]
+  );
+
+  /**
+   * 剪贴板里那一份是不是**正在被监听**的那篇（或它所在的那个目录）。
+   *
+   * 搬运之前要先卸掉旧 watcher、改完再装 —— 与 `applyRename` 同一条理由：
+   * 不卸的话，搬运这件事本身会被旧 watcher 报成 `deleted`，界面显示「文件被删除」，
+   * 而那只是我们自己搬的。目录搬运要连**子树里的**一起算。
+   */
+  const watchTargetFor = useCallback(
+    (entryPath: string): boolean => {
+      if (filePath === null || workspaceRoot === null) return false;
+      const watched = relativePathFrom(workspaceRoot, filePath);
+      const entry = relativePathFrom(workspaceRoot, entryPath);
+      if (watched === null || entry === null) return false;
+      return watched === entry || watched.startsWith(`${entry}/`);
+    },
+    [filePath, workspaceRoot]
+  );
+
+  /** 移动的落点描述：工作区相对路径（能算出来时），否则退回名字。 */
+  const destinationName = useCallback(
+    (target: string | null, fallback: string): string => {
+      if (target === null) return fallback;
+      if (workspaceRoot !== null) {
+        const relative = relativePathFrom(workspaceRoot, target);
+        if (relative !== null) return relative;
+      }
+      return getFileName(target);
+    },
+    [workspaceRoot]
+  );
+
+  /** 真的移动。试算与执行之间可能隔着一屏 diff，参数由调用方原样带过来。 */
+  const applyMove = useCallback(
+    async (
+      entry: ClipboardEntry,
+      targetDirectory: string,
+      skipPaths: readonly string[],
+      updateLinks: boolean
+    ) => {
+      const bridge = window.nexus;
+      if (!bridge?.moveFile || workspaceRoot === null) return;
+
+      const watched = watchTargetFor(entry.path);
+      if (watched) {
+        unwatchRef.current?.();
+        unwatchRef.current = null;
+      }
+
+      let result: TransferResult;
+      try {
+        result = await bridge.moveFile({
+          rootPath: workspaceRoot,
+          targetDirectory,
+          entries: [{ path: entry.path }],
+          updateLinks,
+          skipPaths,
+          dryRun: false
+        });
+      } catch (err) {
+        // 改盘失败，路径没变 —— 上面卸掉了就得让它装回来，否则那篇文档永远没人监听。
+        if (watched) setWatchRevision((previous) => previous + 1);
+        const detail = err instanceof Error ? err.message : String(err);
+        window.alert(t('workspace.moveFailed', { name: entry.name, detail }));
+        return;
+      }
+
+      applyTransferResult(result);
+
+      // 剪贴板里那一份已经不在原处了 —— 不清掉的话再点一次「粘贴」会按「源不存在」报错，
+      // 而那是我们自己的状态没跟上。粘回原处（空操作）时也算一次「剪切被消费掉了」。
+      if (readClipboard()?.path === entry.path) writeClipboard(null);
+
+      const skipLines = describeSkips(result.skipped, t);
+      if (skipLines.length > 0) {
+        window.alert(
+          t('workspace.movePartial', {
+            name: destinationName(result.target, entry.name),
+            detail: skipLines.join('\n')
+          })
+        );
+        return;
+      }
+
+      // 粘回原处是一次空操作 —— 报一句「已移动到 <原处>」只会让人以为它动过。
+      if (result.target !== null && result.target !== entry.path) {
+        setNotice({
+          key: 'workspace.moveDone',
+          vars: { name: destinationName(result.target, entry.name) }
+        });
+      }
+    },
+    [workspaceRoot, t, watchTargetFor, applyTransferResult, destinationName]
+  );
+
+  /**
+   * 移动一个条目（文件或目录）。**先试算、有引用要改就把 diff 摆出来**，
+   * 零改动直接做完 —— 与改名同一条路，`files.updateLinksOnRename` 关掉时也走「零改动」
+   * 那一条（主进程根本不进回写循环，不该为了搬个文件被弹一次窗）。
+   */
+  const runMove = useCallback(
+    async (entry: ClipboardEntry, targetDirectory: string) => {
+      const bridge = window.nexus;
+      if (!bridge?.moveFile || workspaceRoot === null) return;
+
+      // 有未保存修改的文档交给主进程跳过**写**。它照样读、照样算进计划里 ——
+      // 只跳「写」不跳「算」，「N 篇文档有未保存的修改」这条回执才是准的。
+      const skipPaths = unsavedPaths(store.getDocuments());
+      const updateLinks = settings.get('files.updateLinksOnRename');
+
+      let plan: TransferResult;
+      try {
+        plan = await bridge.moveFile({
+          rootPath: workspaceRoot,
+          targetDirectory,
+          entries: [{ path: entry.path }],
+          updateLinks,
+          skipPaths,
+          dryRun: true
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        window.alert(t('workspace.moveFailed', { name: entry.name, detail }));
+        return;
+      }
+
+      if (plan.changes.length === 0) {
+        await applyMove(entry, targetDirectory, skipPaths, updateLinks);
+        return;
+      }
+
+      setTransferPreview({ entry, targetDirectory, skipPaths, updateLinks, plan });
+    },
+    [workspaceRoot, store, t, applyMove]
+  );
+
+  /** 移动预览屏上点了「移动并更新」。 */
+  const handleMoveConfirm = useCallback(() => {
+    const pending = transferPreview;
+    if (!pending) return;
+    setTransferPreview(null);
+    void applyMove(pending.entry, pending.targetDirectory, pending.skipPaths, pending.updateLinks);
+  }, [transferPreview, applyMove]);
+
+  /**
+   * 复制一个条目。**没有试算那一屏** —— 复制不改别人的文档（`changes` 恒为空），
+   * 所以没有任何「会动谁的东西」需要用户点头。
+   */
+  const applyCopy = useCallback(
+    async (entry: ClipboardEntry, targetDirectory: string) => {
+      const bridge = window.nexus;
+      if (!bridge?.copyFile || workspaceRoot === null) return;
+
+      let result: TransferResult;
+      try {
+        result = await bridge.copyFile({
+          rootPath: workspaceRoot,
+          targetDirectory,
+          entries: [{ path: entry.path }],
+          dryRun: false
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        window.alert(t('workspace.copyFailed', { name: entry.name, detail }));
+        return;
+      }
+
+      applyTransferResult(result);
+
+      const skipLines = describeSkips(result.skipped, t);
+      if (skipLines.length > 0) {
+        window.alert(
+          t('workspace.copyPartial', {
+            name: destinationName(result.target, entry.name),
+            detail: skipLines.join('\n')
+          })
+        );
+        return;
+      }
+
+      setNotice({
+        key: 'workspace.copyDone',
+        vars: { name: destinationName(result.target, entry.name) }
+      });
+    },
+    [workspaceRoot, t, applyTransferResult, destinationName]
+  );
+
+  /** 粘贴：剪贴板里是「剪切」就移动，是「复制」就再复制一份。 */
+  const handlePasteEntry = useCallback(
+    async (targetDirectory: string) => {
+      const entry = clipboard;
+      if (!entry) return;
+      if (entry.mode === 'cut') {
+        await runMove(entry, targetDirectory);
+        return;
+      }
+      await applyCopy(entry, targetDirectory);
+    },
+    [clipboard, runMove, applyCopy]
+  );
+
+  /**
+   * 「复制到… / 移动到…」—— 先选目标目录再干活。
+   *
+   * 与「复制 / 剪切 → 粘贴」是同一件事的第二个入口，共用 `applyCopy` / `runMove`：
+   * 两条入口的差别**只在目标目录从哪来**。选到工作区外时由主进程拒绝（它只开对话框、
+   * 不授权），这里照常报错 —— 静默把那个目录变成新工作区根才是不可接受的。
+   */
+  const handleTransferTo = useCallback(
+    async (entry: ClipboardEntry, mode: 'copy' | 'move') => {
+      const bridge = window.nexus;
+      if (!bridge?.chooseDirectory) return;
+
+      let targetDirectory: string | null = null;
+      try {
+        targetDirectory = await bridge.chooseDirectory({
+          defaultPath: getDocumentDirectory(entry.path),
+          title: t('workspace.chooseDirectoryTitle')
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        window.alert(
+          t(mode === 'move' ? 'workspace.moveFailed' : 'workspace.copyFailed', {
+            name: entry.name,
+            detail
+          })
+        );
+        return;
+      }
+      if (targetDirectory === null) return;
+
+      if (mode === 'move') await runMove(entry, targetDirectory);
+      else await applyCopy(entry, targetDirectory);
+    },
+    [t, runMove, applyCopy]
+  );
+
+  /** 把树上的一行变成剪贴板条目。目录补出来的节点没有路径，那时给 `null`。 */
+  const clipboardEntryOf = useCallback(
+    (node: FileTreeNode, mode: 'copy' | 'cut'): ClipboardEntry | null => {
+      if (node.path === null || workspaceRoot === null) return null;
+      return {
+        path: node.path,
+        relativePath: node.relativePath,
+        name: node.name,
+        type: node.type,
+        mode,
+        rootPath: workspaceRoot
+      };
+    },
+    [workspaceRoot]
+  );
+
+  /** 剪贴板那四项。目录与文件共用 —— 复制 / 剪切 / 复制到… / 移动到… 对两者都成立。 */
+  const clipboardMenuItems = useCallback(
+    (node: FileTreeNode): ContextMenuItem[] => {
+      const copy = clipboardEntryOf(node, 'copy');
+      if (!copy) return [];
+
+      return [
+        {
+          id: 'copy',
+          label: t('workspace.copy'),
+          onSelect: () => writeClipboard(copy)
+        },
+        {
+          id: 'cut',
+          label: t('workspace.cut'),
+          onSelect: () => writeClipboard({ ...copy, mode: 'cut' })
+        },
+        {
+          id: 'copy-to',
+          label: t('workspace.copyTo'),
+          onSelect: () => void handleTransferTo(copy, 'copy')
+        },
+        {
+          id: 'move-to',
+          label: t('workspace.moveTo'),
+          onSelect: () => void handleTransferTo(copy, 'move')
+        }
+      ];
+    },
+    [clipboardEntryOf, handleTransferTo, t]
+  );
+
+  /**
    * 右键菜单的菜单项。**每次打开时现算**而不是缓存：文案要跟着语言变，
    * 而语言是可以在窗口开着的时候切走的。
    *
-   * 两类节点给两套菜单：
+   * ## 两类节点给两套清单，但只有一个入口
    *
-   * - **目录** —— 只有「在此新建文件 / 新建文件夹」。落点必须是**右键的那个目录**，
-   *   不能沿用工具栏那套「按选中项推」的规则：右键一个收着的目录时选中项可能还是别的
-   *   地方，而用户的手指刚刚点在这一个上。
-   * - **文件** —— `copy-link` 排在 `rename` 与 `delete` **之间**：`delete` 是唯一
-   *   不可逆的一项，留在最后是这类菜单的通例；`copy-link` 与 `rename` 都不改别人的
-   *   东西，放一组。
+   * 加上粘贴（只有目录有）、复制 / 剪切 / 复制到 / 移动到（两类都有，但目录那一路
+   * 会递归）之后，目录与文件**不再是子集关系** —— 按骨架判据（清单是「按目标参数化的
+   * 工厂」还是「按目标分叉的动作表」）该分成两个构造器。`fileMenuItems` 留着当唯一入口，
+   * 内部分派：调用点与既有测试都不用动。
    *
-   * 目录的 `path` 可能是 `null`（补出来的节点）—— 那时一个新建项都不给：
+   * ## 顺序的三条规矩
+   *
+   * - **粘贴在最前**，与资源管理器一致：它是最常用的那一个，而它的可用性一眼就能看出来
+   *   （灰着 ＝ 剪贴板空着）。
+   * - **危险项垫底**：`delete` 是唯一不可逆的一项。
+   * - **目录那一路的「在此新建」贴着粘贴**，因为落点都是**右键的那个目录**，
+   *   不能沿用工具栏那套「按选中项推」的规则：右键一个收着的目录时选中项可能还是
+   *   别的地方，而用户的手指刚刚点在这一个上。
+   *
+   * 目录的 `path` 可能是 `null`（补出来的节点）—— 那时一项都不给：
    * 拿一个不存在的目录去建，只会在根上冒出一个用户没要的文件。
    */
   const fileMenuItems = useCallback(
@@ -2410,7 +2763,18 @@ export const App: React.FC = () => {
       if (node.type === 'directory') {
         if (node.path === null) return [];
         const parentRelativePath = node.relativePath;
+        const target = node.path;
+
         return [
+          {
+            id: 'paste',
+            label: t('workspace.paste'),
+            // 剪贴板空着时**灰着**而不是不出现 —— 与标签页菜单同一条判据：
+            // 灰着的一格比消失的一项好解释。
+            disabled: clipboard === null,
+            onSelect: () => void handlePasteEntry(target)
+          },
+          { id: 'paste-separator', label: '', separator: true },
           {
             id: 'new-file',
             label: t('workspace.toolbar.newFile'),
@@ -2420,13 +2784,19 @@ export const App: React.FC = () => {
             id: 'new-folder',
             label: t('workspace.toolbar.newFolder'),
             onSelect: () => setPendingCreate({ kind: 'folder', parentRelativePath })
-          }
+          },
+          { id: 'clipboard-separator', label: '', separator: true },
+          ...clipboardMenuItems(node)
         ];
       }
 
       const filePath = node.path;
       if (filePath === null) return [];
+      const clipboardItems = clipboardMenuItems(node);
+
       return [
+        ...clipboardItems,
+        { id: 'entry-separator', label: '', separator: true },
         {
           id: 'rename',
           label: t('workspace.renameFile'),
@@ -2437,6 +2807,7 @@ export const App: React.FC = () => {
           label: t('workspace.copyLink'),
           onSelect: () => void handleCopyLink(filePath)
         },
+        { id: 'danger-separator', label: '', separator: true },
         {
           id: 'delete',
           label: t('workspace.deleteFile'),
@@ -2445,7 +2816,7 @@ export const App: React.FC = () => {
         }
       ];
     },
-    [handleDeleteFile, handleCopyLink, t]
+    [clipboard, clipboardMenuItems, handlePasteEntry, handleCopyLink, handleDeleteFile, t]
   );
 
   /**
@@ -3713,11 +4084,11 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 复制链接回执。`role="status"` 而不是 `alert`：这是一条「事情成了」的通知，
+      {/* 成功回执。`role="status"` 而不是 `alert`：这是一条「事情成了」的通知，
           抢断朗读没有道理 —— 三条**失败**的路都走了 `window.alert`，那才是要打断的。 */}
-      {copyLinkNotice && (
+      {notice && (
         <div className="nexus-copy-link-notice" role="status" data-copy-link-notice="">
-          <span>{t('workspace.copyLinkDone', { text: copyLinkNotice })}</span>
+          <span>{t(notice.key, notice.vars)}</span>
         </div>
       )}
 
@@ -3895,6 +4266,8 @@ export const App: React.FC = () => {
               renamingPath={renamingPath}
               onRenameCommit={handleRenameCommit}
               onRenameCancel={handleRenameCancel}
+              clipboard={clipboard}
+              onPaste={(target) => void handlePasteEntry(target)}
               showImages={showImages}
               onShowImagesChange={handleShowImagesChange}
               onCreateFile={(directoryPath, name) => createEntry('file', directoryPath, name)}
@@ -4258,6 +4631,23 @@ export const App: React.FC = () => {
           skipped={renamePreview.plan.skipped}
           onConfirm={handleRenameConfirm}
           onCancel={() => setRenamePreview(null)}
+        />
+      )}
+
+      {/* 移动复用改名那一屏（画的都是「会改写哪些别人的文档」），只换三处文案。
+          `toName` 取**落点的文件名**而不是原名 —— 重名时主进程会加序号，
+          用户要看到的是「最后它叫什么」。 */}
+      {transferPreview && (
+        <RenamePreview
+          fromName={transferPreview.entry.name}
+          toName={getFileName(transferPreview.plan.target ?? transferPreview.entry.path)}
+          changes={transferPreview.plan.changes}
+          skipped={transferPreview.plan.skipped}
+          title={t('workspace.moveDialogTitle')}
+          intro={t('workspace.moveDialogIntro')}
+          applyLabel={t('workspace.moveApply')}
+          onConfirm={handleMoveConfirm}
+          onCancel={() => setTransferPreview(null)}
         />
       )}
 

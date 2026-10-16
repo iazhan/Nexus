@@ -16,6 +16,14 @@ export interface RenamePreviewProps {
   skipped: readonly RenameFileSkip[];
   onConfirm: () => void;
   onCancel: () => void;
+  /**
+   * 三处可以换掉的文案。**移动复用这一屏**，而「重命名」那三个说法在移动上不成立 ——
+   * 与其把文案泛化成「改名或移动」这种谁都不像的话，不如让调用方给准确的。
+   * 不给就是重命名那一套。
+   */
+  title?: string;
+  intro?: string;
+  applyLabel?: string;
 }
 
 /**
@@ -39,7 +47,10 @@ export const RenamePreview: React.FC<RenamePreviewProps> = ({
   changes,
   skipped,
   onConfirm,
-  onCancel
+  onCancel,
+  title,
+  intro,
+  applyLabel
 }) => {
   const { t } = useLocale();
 
@@ -60,11 +71,11 @@ export const RenamePreview: React.FC<RenamePreviewProps> = ({
     <Dialog
       open
       onClose={onCancel}
-      label={t('workspace.renameDialogTitle')}
+      label={title ?? t('workspace.renameDialogTitle')}
       panelClassName="nexus-rename-dialog"
       panelId="nexus-rename-preview"
     >
-      <h3 className="nexus-rename-title">{t('workspace.renameDialogTitle')}</h3>
+      <h3 className="nexus-rename-title">{title ?? t('workspace.renameDialogTitle')}</h3>
 
       {/* 「旧 → 新」不用文案键：箭头语言无关，而「把名字念一遍」这件事不该有两种说法 */}
       <p className="nexus-rename-target">
@@ -75,7 +86,7 @@ export const RenamePreview: React.FC<RenamePreviewProps> = ({
         <span className="nexus-rename-new">{toName}</span>
       </p>
 
-      <p className="nexus-rename-intro">{t('workspace.renameDialogIntro')}</p>
+      <p className="nexus-rename-intro">{intro ?? t('workspace.renameDialogIntro')}</p>
       <p className="nexus-rename-count">
         {t('workspace.renameDialogCount', { count: String(changes.length) })}
       </p>
@@ -115,9 +126,10 @@ export const RenamePreview: React.FC<RenamePreviewProps> = ({
           data-rename-confirm=""
           onClick={onConfirm}
         >
-          {t('workspace.renameApply')}
+          {applyLabel ?? t('workspace.renameApply')}
         </button>
       </div>
     </Dialog>
   );
 };
+

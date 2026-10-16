@@ -2763,6 +2763,18 @@ button.nexus-outline-toggle:hover {
   background-color: var(--nexus-bg-surface-active);
 }
 
+/* 被剪切的那一行（含它下面的一切）。剪切**不落盘** —— 落盘发生在粘贴那一刻 ——
+   所以这个灰化是这个动作唯一的可见反馈：不标出来的话，点完菜单屏幕上一个像素都不变。
+   压的是名称与图标，不动背景：背景已经被「选中」与「当前文档」用掉了，三层叠一起
+   会谁也认不出来。`opacity` 而不是换一个颜色 —— 它要同时压住图标、名称与附件那些
+   小字，逐条列颜色只会漏掉一个。 */
+.nexus-tree-item[data-cut='true'] .nexus-tree-name,
+.nexus-tree-item[data-cut='true'] .nexus-tree-row-icon,
+.nexus-tree-item[data-cut='true'] .nexus-attachment-size,
+.nexus-tree-item[data-cut='true'] .nexus-attachment-note {
+  opacity: 0.45;
+}
+
 /* 文件行：名称吃掉剩余宽度，大小与提取提示顶到右边。名称必须 `min-width: 0`
    才能真的省略 —— flex 项的自动最小尺寸默认是内容宽度，不归零就只会把整行撑破。 */
 .nexus-tree-file .nexus-tree-name {

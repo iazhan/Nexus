@@ -8,6 +8,7 @@ import {
   type WorkspaceDirectoryEntry
 } from '@nexus/core';
 import { WorkspaceSidebar } from '../src/workspace/WorkspaceSidebar.js';
+import type { ClipboardEntry } from '../src/workspace/clipboard.js';
 import { FileRowIcon, fileRowIcon } from '../src/components/workspace-icons.js';
 import { localeManager } from '../src/platform.js';
 
@@ -68,6 +69,8 @@ interface RenderOptions {
   rebuildFails?: boolean;
   /** 主进程报回来的「没处理成」清单。非空时侧栏要出一条可关闭的警告。 */
   indexErrors?: string[];
+  /** 剪贴板当前装着的东西。`null` / 省略 = 空剪贴板。 */
+  clipboard?: ClipboardEntry | null;
 }
 
 describe('工作区侧栏：单树 + 工具栏', () => {
@@ -82,6 +85,7 @@ describe('工作区侧栏：单树 + 工具栏', () => {
     onDeleteFile: ReturnType<typeof vi.fn>;
     onRefresh: ReturnType<typeof vi.fn>;
     onRevealHandled: ReturnType<typeof vi.fn>;
+    onPaste: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
@@ -102,7 +106,8 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       // 与 `App` 里那一个同形：把请求清掉，下次渲染组件看到的才是「没有请求」。
       onRevealHandled: vi.fn(() => {
         currentReveal = null;
-      })
+      }),
+      onPaste: vi.fn()
     };
   });
 
@@ -146,6 +151,7 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       showImages={currentOptions.showImages ?? true}
       revision={currentRevision}
       revealRequest={currentReveal}
+      clipboard={currentOptions.clipboard ?? null}
       {...props}
     />
   );
@@ -829,6 +835,7 @@ describe('工作区侧栏：单树 + 工具栏', () => {
       // label 与「文件操作」分开：读屏器只报 label 的话，两份菜单听起来是一样的
       expect(blankMenu()?.getAttribute('aria-label')).toBe('Workspace actions');
       expect(menuItemIds()).toEqual([
+        'paste',
         'new-file',
         'new-folder',
         'toggle-expand',
@@ -885,7 +892,7 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
       await rightClickBlank();
 
-      expect(menuItemIds()).toEqual(['new-file', 'new-folder', 'refresh']);
+      expect(menuItemIds()).toEqual(['paste', 'new-file', 'new-folder', 'refresh']);
     });
 
     it('「显示图片」是**开关**（menuitemcheckbox），文案不翻转', async () => {
@@ -964,6 +971,99 @@ describe('工作区侧栏：单树 + 工具栏', () => {
 
       await rightClick('.nexus-toolbar-button[data-action="refresh"]');
       expect(blankMenu()).toBeNull();
+    });
+
+    /**
+     * 「粘贴」（2026-10-16）。
+     *
+     * 判据取「**灰着**而不是不出现」：项数随剪贴板状态忽多忽少，用户会以为菜单在跳；
+     * 而灰着还能说明「这里可以粘，只是手上没东西」。
+     */
+    it('剪贴板空着时「粘贴」**灰着**而不是不出现', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await rightClickBlank();
+
+      expect(menuItem('paste')).not.toBeNull();
+      expect(menuItem('paste')?.hasAttribute('disabled')).toBe(true);
+      expect(menuItem('paste')?.textContent).toContain('Paste');
+    });
+
+    it('剪贴板有东西时可用，点了上报**工作区根**（与新建同一条落点判据）', async () => {
+      await renderSidebar({
+        documents: [doc('a.md')],
+        directories: [dir('notes')],
+        clipboard: {
+          path: '/vault/a.md',
+          relativePath: 'a.md',
+          name: 'a.md',
+          type: 'file',
+          mode: 'copy',
+          rootPath: '/vault'
+        }
+      });
+
+      await rightClickBlank();
+      expect(menuItem('paste')?.hasAttribute('disabled')).toBe(false);
+
+      await click('[data-context-menu-item="paste"]');
+
+      expect(props.onPaste).toHaveBeenCalledWith('/vault');
+      expect(blankMenu()).toBeNull();
+    });
+  });
+
+  /**
+   * 剪切的可见反馈（2026-10-16）。
+   *
+   * 剪切**不落盘**（落盘在粘贴那一刻），所以「哪几行被剪了」这件事只能由 `data-cut` 说。
+   * 不标出来的话，用户点完菜单屏幕上一个像素都不变 —— 会以为没点上，然后再剪一次。
+   *
+   * 两档都要验：**copy 不灰**（复制不动原件，灰化等于谎报），**cut 整棵子树都灰**
+   * （只灰根会让人以为只有这一层被剪了）。
+   */
+  describe('剪切的灰化', () => {
+    const cutRows = () =>
+      Array.from(container.querySelectorAll<HTMLElement>('[data-cut="true"]')).map((el) =>
+        el.getAttribute('data-relative-path')
+      );
+
+    const clip = (relativePath: string, type: 'file' | 'directory', mode: 'copy' | 'cut') =>
+      ({ path: `/vault/${relativePath}`, relativePath, name: relativePath.split('/').pop()!, type, mode, rootPath: '/vault' }) satisfies ClipboardEntry;
+
+    it('cut 一个目录：整棵子树都灰，不只根那一行', async () => {
+      await renderSidebar({
+        documents: [doc('notes/a.md'), doc('notes/sub/b.md'), doc('top.md')],
+        directories: [dir('notes'), dir('notes/sub')],
+        clipboard: clip('notes', 'directory', 'cut')
+      });
+
+      // 折叠状态下子孙行不在 DOM 里，先全展开
+      await click('.nexus-toolbar-button[data-action="toggle-expand"]');
+
+      expect(cutRows().sort()).toEqual(['notes', 'notes/a.md', 'notes/sub', 'notes/sub/b.md']);
+      // 没被剪的那一行不灰
+      expect(cutRows()).not.toContain('top.md');
+    });
+
+    it('copy 一个目录：一行都不灰 —— 复制不动原件，灰化等于谎报', async () => {
+      await renderSidebar({
+        documents: [doc('notes/a.md')],
+        directories: [dir('notes')],
+        clipboard: clip('notes', 'directory', 'copy')
+      });
+
+      expect(cutRows()).toEqual([]);
+    });
+
+    it('剪贴板空着时一行都不灰', async () => {
+      await renderSidebar({
+        documents: [doc('a.md')],
+        directories: [],
+        clipboard: null
+      });
+
+      expect(cutRows()).toEqual([]);
     });
   });
 
