@@ -23,17 +23,21 @@ import type { UserTheme } from '@nexus/theme';
 import {
   IPC_CHANNELS,
   type ChangelogResult,
+  type ChooseDirectoryRequest,
+  type CopyFileRequest,
   type CreateDirectoryRequest,
   type CreateFileRequest,
   type DeleteMode,
   type DiagnosticsReport,
   type FileWatchIpcPayload,
   type HostSettings,
+  type MoveFileRequest,
   type RenameFileRequest,
   type RenameFileResult,
   type RendererLogEntry,
   type SaveAttachmentRequest,
   type ThemeSyncResult,
+  type TransferResult,
   type UpdateState,
   type WindowState
 } from '../ipc/channels.js';
@@ -152,6 +156,18 @@ const bridge: NexusBridge = {
 
   createDirectory: (request: CreateDirectoryRequest): Promise<string> => {
     return ipcRenderer.invoke(IPC_CHANNELS.createDirectory, request);
+  },
+
+  moveFile: (request: MoveFileRequest): Promise<TransferResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.moveFile, request);
+  },
+
+  copyFile: (request: CopyFileRequest): Promise<TransferResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.copyFile, request);
+  },
+
+  chooseDirectory: (request?: ChooseDirectoryRequest): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.chooseDirectory, request ?? {});
   },
 
   authorizeWorkspace: (rootPath: string): Promise<string> => {

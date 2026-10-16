@@ -20,17 +20,21 @@ import type {
 import type { UserTheme } from '@nexus/theme';
 import type {
   ChangelogResult,
+  ChooseDirectoryRequest,
+  CopyFileRequest,
   CreateDirectoryRequest,
   CreateFileRequest,
   DeleteMode,
   DiagnosticsReport,
   HostSettings,
+  MoveFileRequest,
   RenameFileRequest,
   RenameFileResult,
   RendererLogEntry,
   SaveAttachmentRequest,
   ThemeBootPayload,
   ThemeSyncResult,
+  TransferResult,
   UpdateState,
   WindowState
 } from '../ipc/channels.js';
@@ -151,6 +155,27 @@ export interface NexusBridge {
   createFile: (request: CreateFileRequest) => Promise<string>;
   /** 在指定目录下新建一个子目录（非递归），返回它的绝对路径。已存在则抛错。 */
   createDirectory: (request: CreateDirectoryRequest) => Promise<string>;
+  /**
+   * 把一个条目（文件或目录）**搬到**别的目录下，并按需回写指向它的引用。
+   *
+   * 与 `renameFile` 分开：那条只改基名、不动目录，这条改的正是目录。
+   * `dryRun` 与执行走同一条通道，理由与 `renameFile` 相同。
+   */
+  moveFile: (request: MoveFileRequest) => Promise<TransferResult>;
+  /**
+   * 把一个条目**复制到**别的目录下（目录递归）。
+   *
+   * **不改别人的文档** —— 原件还在原处，指向它的引用仍然有效。只有副本自己的相对链接
+   * 会按新位置重写一遍。
+   */
+  copyFile: (request: CopyFileRequest) => Promise<TransferResult>;
+  /**
+   * 弹系统目录选择框，返回选中的绝对路径（取消返回 `null`）。
+   *
+   * **只开对话框，不授权** —— 与 `openWorkspace` 的区别就在这里：选到工作区外时，
+   * 后续的搬运通道会拒绝，而不是静默把那个目录变成新的工作区根。
+   */
+  chooseDirectory: (request?: ChooseDirectoryRequest) => Promise<string | null>;
   watchFile: (filePath: string, listener: FileWatchListener) => Unsubscribe;
   /**
    * 授权一个工作区根目录，该目录下的文件随即可读写。返回规范化后的绝对路径。

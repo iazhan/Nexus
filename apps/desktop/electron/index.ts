@@ -14,9 +14,11 @@ import {
   type FileWatchEvent,
   type GraphQuery,
   type HistoryEntry,
+  isMarkdownPath,
   type Unsubscribe,
   isLogLevel,
-  isOrphanMode
+  isOrphanMode,
+  rebaseRelativeReferences
 } from '@nexus/core';
 import { FileService } from './file-service.js';
 import { buildDiagnostics } from './diagnostics.js';
@@ -49,7 +51,11 @@ import {
 } from './recent-workspace.js';
 import { IndexStore } from './index-store.js';
 import { deriveTitle, indexSingleFile, indexWorkspace } from './indexer.js';
-import { rewriteReferencesInSource } from './link-rewrite.js';
+import {
+  rewriteReferencesInSource,
+  rewriteReferencesInSourceForMany,
+  type RewritePair
+} from './link-rewrite.js';
 import { findMentionsOfDocument } from './mentions.js';
 import { createProcessorRegistry } from './processor/index.js';
 import { checkNow, getUpdateState, installNow, remindLater, setupAutoUpdater, skipVersion, updatesSupported } from './updater.js';
@@ -66,10 +72,12 @@ import {
   DELETE_MODES,
   IPC_CHANNELS,
   SETTINGS_SECTION_PARAM,
+  type ChooseDirectoryRequest,
   type CreateDirectoryRequest,
   type CreateFileRequest,
   type DeleteMode,
   type FileWatchIpcPayload,
+  type MoveFileRequest,
   type RenameFileChange,
   type RenameFileRequest,
   type RenameFileResult,
@@ -78,6 +86,8 @@ import {
   type ThemeBootPayload,
   type ThemeBootRequest,
   type ThemeSyncResult,
+  type TransferEntry,
+  type TransferredEntry,
   type WindowRole,
   type WindowState
 } from '../ipc/channels.js';
@@ -1412,6 +1422,475 @@ ipcMain.handle(IPC_CHANNELS.renameFile, async (event, raw: unknown) => {
     skipped
   };
   return result;
+});
+
+/** 一次搬运里「旧 → 新」的一对。两端都带绝对路径与工作区相对路径 —— 前者给文件系统，后者给索引与链接。 */
+interface TransferPair {
+  from: string;
+  to: string;
+  fromRelativePath: string;
+  toRelativePath: string;
+}
+
+/**
+ * 校验渲染进程传来的搬运请求的**公共部分**。
+ *
+ * 认不出的字段一律按最保守的一档处理，与 `requireRenameRequest` 同一条判据 ——
+ * 这条通道会改别人的文件，失败方向必须是「不做」。
+ */
+function requireTransferRequest(
+  value: unknown,
+  label: string
+): {
+  rootPath: string;
+  targetDirectory: string;
+  entries: { path: string }[];
+  updateLinks: boolean;
+  skipPaths: string[];
+  dryRun: boolean;
+} {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`${label}: 请求格式不正确`);
+  }
+
+  const request = value as Partial<MoveFileRequest>;
+  if (typeof request.rootPath !== 'string' || request.rootPath.length === 0) {
+    throw new Error(`${label}: rootPath 必须是非空字符串`);
+  }
+  if (typeof request.targetDirectory !== 'string' || request.targetDirectory.length === 0) {
+    throw new Error(`${label}: targetDirectory 必须是非空字符串`);
+  }
+
+  const entries = (Array.isArray(request.entries) ? request.entries : [])
+    .map((item) =>
+      typeof item === 'object' && item !== null && typeof (item as TransferEntry).path === 'string'
+        ? (item as TransferEntry).path
+        : ''
+    )
+    .filter((item) => item.length > 0)
+    .map((item) => ({ path: item }));
+  if (entries.length === 0) {
+    throw new Error(`${label}: entries 至少要有一项`);
+  }
+
+  return {
+    rootPath: request.rootPath,
+    targetDirectory: request.targetDirectory,
+    entries,
+    // 与 `requireRenameRequest` 同一条：认不出就落 **false** ＝ 不改正文。
+    updateLinks: request.updateLinks === true,
+    skipPaths: Array.isArray(request.skipPaths)
+      ? request.skipPaths.filter((item): item is string => typeof item === 'string')
+      : [],
+    dryRun: request.dryRun === true
+  };
+}
+
+/**
+ * 把一个条目（文件或目录）搬到别的目录下，并按需回写指向它的引用。
+ *
+ * ## 两遍正文修改，分界是「改的是谁的文件」
+ *
+ * ① 指向被搬走文档的引用 —— 改的是**别人的**文档，所以受 `updateLinks` 管。
+ * ② 被搬走那些文档自己的出链 —— 改的是**我们自己刚搬走的那一个**，恒做。
+ * 搬走之后不重基准等于亲手制造坏文件，没有让用户点头的理由。
+ *
+ * 目录搬运时 ② 还要多做一件：把**指向同批搬走的其它文档**的路径式 wikilink 改成新写法
+ * （`[[notes/a]]` → `[[archive/a]]`）。它们属于 ② 而不是 ①，因为改的是我们自己的文件 ——
+ * 于是 `updateLinks` 关掉时，「我们自己的文件互相指得对」仍然成立。
+ *
+ * ## 顺序与回滚
+ *
+ * 先搬、再重基准自己、全部成功之后才回写别人。② 里任何一步失败 → 把已经搬走的搬回去、
+ * 把已经改过的正文还原 → 整个操作报错，此时别人的文件一个字节都没动。① 失败只记账
+ * （`skipped`）不回滚 —— 与改名一致，而「链接断了」是看得见的。
+ */
+ipcMain.handle(IPC_CHANNELS.moveFile, async (event, raw: unknown) => {
+  const request = requireTransferRequest(raw, 'moveFile');
+  const session = getOrCreateSession(event.sender);
+  const store = getIndexStore(event.sender.id);
+  const root = session.workspaceRoot;
+  const documents = store?.listDocuments() ?? [];
+
+  // ---- 落点先算出来（含全部校验，不改盘）----
+  const targets: string[] = [];
+  for (const entry of request.entries) {
+    targets.push(
+      await session.service.resolveTransferTarget(entry.path, request.targetDirectory, 'move')
+    );
+  }
+
+  // ---- 每个被搬走的**文档**：旧相对路径 → 新相对路径 ----
+  // 「文件条目」与「目录条目」共用同一个式子：`rest` 为空时新路径就是落点本身。
+  const pairs: TransferPair[] = [];
+  for (let index = 0; index < request.entries.length; index += 1) {
+    const entry = request.entries[index]!;
+    const target = targets[index]!;
+    const fromRelative = relativeInWorkspace(root, entry.path);
+    const toRelative = relativeInWorkspace(root, target);
+    if (fromRelative === null || toRelative === null) continue;
+
+    const prefix = `${fromRelative}/`;
+    for (const document of documents) {
+      if (document.relativePath !== fromRelative && !document.relativePath.startsWith(prefix)) {
+        continue;
+      }
+      const rest = document.relativePath.slice(fromRelative.length);
+      pairs.push({
+        from: document.path,
+        to: path.join(target, ...rest.split('/').filter((segment) => segment.length > 0)),
+        fromRelativePath: document.relativePath,
+        toRelativePath: `${toRelative}${rest}`
+      });
+    }
+  }
+
+  const moves: RewritePair[] = pairs.map((pair) => ({
+    from: pair.fromRelativePath,
+    to: pair.toRelativePath
+  }));
+  const movedKeys = new Set(pairs.map((pair) => pair.fromRelativePath.toLowerCase()));
+
+  const changes: RenameFileChange[] = [];
+  const skipped: RenameFileSkip[] = [];
+
+  // ---- ② 计划：被搬走那些文档自己的出链（先重基准，再改指向同批搬走文档的 wikilink）----
+  const movedWrites: { path: string; before: string; after: string }[] = [];
+  for (const pair of pairs) {
+    if (!isMarkdownPath(pair.to)) continue;
+
+    let before: string;
+    try {
+      before = await session.service.readFile(pair.from);
+    } catch {
+      // 读不动就跳过（权限、扫描途中被删）—— 不改比改错好
+      skipped.push({ relativePath: pair.fromRelativePath, reason: 'changed' });
+      continue;
+    }
+
+    const rebased = rebaseRelativeReferences(
+      before,
+      pair.fromRelativePath,
+      pair.toRelativePath,
+      moves
+    );
+    for (const target of rebased.skipped) {
+      skipped.push({ relativePath: pair.fromRelativePath, reason: 'unresolved', target });
+    }
+
+    const rewritten = rewriteReferencesInSourceForMany(
+      rebased.text,
+      pair.toRelativePath,
+      moves,
+      documents
+    );
+    for (const target of rewritten.unresolved) {
+      skipped.push({ relativePath: pair.fromRelativePath, reason: 'unresolved', target });
+    }
+
+    if (rewritten.text === before) continue;
+    movedWrites.push({ path: pair.to, before, after: rewritten.text });
+  }
+
+  // ---- ① 计划：指向被搬走文档的引用（别人的文档，受设置管）----
+  if (request.updateLinks) {
+    const skipKeys = new Set(request.skipPaths.map((item) => item.toLowerCase()));
+
+    for (const document of documents) {
+      if (document.type !== 'markdown') continue;
+      // 被搬走的那几篇已经由 ② 处理过 —— 再跑一遍 ① 会把同一篇写两次。
+      if (movedKeys.has(document.relativePath.toLowerCase())) continue;
+
+      let before: string;
+      try {
+        before = await session.service.readFile(document.path);
+      } catch {
+        continue;
+      }
+
+      const rewritten = rewriteReferencesInSourceForMany(
+        before,
+        document.relativePath,
+        moves,
+        documents
+      );
+      for (const target of rewritten.unresolved) {
+        skipped.push({ relativePath: document.relativePath, reason: 'unresolved', target });
+      }
+      if (rewritten.count === 0) continue;
+
+      // 有未保存修改的文档**照样读、照样算计划**，只是不写盘 —— 这样报告才准确。
+      if (skipKeys.has(document.path.toLowerCase())) {
+        skipped.push({ relativePath: document.relativePath, reason: 'dirty' });
+        continue;
+      }
+
+      changes.push({
+        path: document.path,
+        relativePath: document.relativePath,
+        before,
+        after: rewritten.text
+      });
+    }
+  }
+
+  if (request.dryRun) {
+    return {
+      transferred: [],
+      target: targets.length === 1 ? targets[0]! : null,
+      changes,
+      skipped
+    };
+  }
+
+  // ---- 真的搬 ----
+  const appliedEntries: { from: string; to: string }[] = [];
+  const appliedWrites: { path: string; before: string }[] = [];
+
+  const rollback = async (): Promise<void> => {
+    // 先还原正文、再把条目搬回去：顺序反过来会写到一个已经不存在的路径上。
+    for (const write of appliedWrites) {
+      try {
+        await session.service.writeFile(write.path, write.before);
+      } catch (err) {
+        logError('[Nexus Shell] 回滚正文失败:', err);
+      }
+    }
+    for (const applied of [...appliedEntries].reverse()) {
+      try {
+        await session.service.moveEntry(applied.to, path.dirname(applied.from));
+      } catch (err) {
+        logError('[Nexus Shell] 回滚移动失败:', err);
+      }
+    }
+  };
+
+  try {
+    const movedTargets: string[] = [];
+    for (const entry of request.entries) {
+      const to = await session.service.moveEntry(entry.path, request.targetDirectory);
+      movedTargets.push(to);
+      if (to !== entry.path) appliedEntries.push({ from: entry.path, to });
+    }
+
+    // 历史目录镜像工作区结构，按**条目**的相对路径整棵搬（不是逐篇）。
+    if (root) {
+      for (let index = 0; index < request.entries.length; index += 1) {
+        const fromRelative = relativeInWorkspace(root, request.entries[index]!.path);
+        const toRelative = relativeInWorkspace(root, movedTargets[index]!);
+        if (fromRelative === null || toRelative === null || fromRelative === toRelative) continue;
+        try {
+          new HistoryStore(root).rename(fromRelative, toRelative);
+        } catch (err) {
+          logError('[Nexus Shell] 搬历史目录失败（不影响移动）:', err);
+        }
+      }
+
+      // 账本的键是相对路径，逐篇搬（内容没变，只换键）。
+      for (const pair of pairs) renameBaseLedger(root, pair.from, pair.to);
+    }
+
+    for (const write of movedWrites) {
+      recordHistory(session, write.path, write.after);
+      await session.service.writeFile(write.path, write.after);
+      recordBaseLedger(session, write.path, write.after);
+      appliedWrites.push({ path: write.path, before: write.before });
+    }
+  } catch (err) {
+    await rollback();
+    throw err;
+  }
+
+  const applied: RenameFileChange[] = [];
+
+  for (const change of changes) {
+    let current: string;
+    try {
+      current = await session.service.readFile(change.path);
+    } catch {
+      skipped.push({ relativePath: change.relativePath, reason: 'changed' });
+      continue;
+    }
+
+    // 预览之后、执行之前被别人改了 —— 跳过。防的是「预览开着的时候用户在别的编辑器里改了那篇」。
+    if (current !== change.before) {
+      skipped.push({ relativePath: change.relativePath, reason: 'changed' });
+      continue;
+    }
+
+    try {
+      recordHistory(session, change.path, change.after);
+      await session.service.writeFile(change.path, change.after);
+      recordBaseLedger(session, change.path, change.after);
+      applied.push(change);
+    } catch (err) {
+      logError('[Nexus Shell] 回写引用失败:', err);
+      skipped.push({ relativePath: change.relativePath, reason: 'failed' });
+    }
+  }
+
+  // 索引那一行**就地**改，`id` 保持不变（见 `IndexStore.renameDocuments`）。
+  // 不批量改的话，树、标签页、图谱都还指着已经不存在的旧路径。
+  if (store) {
+    store.renameDocuments(
+      pairs.map((pair) => ({
+        oldPath: pair.from,
+        newPath: pair.to,
+        newRelativePath: pair.toRelativePath,
+        newName: path.basename(pair.to),
+        newTitle: deriveTitle(path.basename(pair.to))
+      }))
+    );
+  }
+
+  return {
+    transferred: pairs.map((pair) => ({
+      from: pair.from,
+      to: pair.to,
+      fromRelativePath: pair.fromRelativePath,
+      toRelativePath: pair.toRelativePath
+    })),
+    target: targets.length === 1 ? targets[0]! : null,
+    changes: applied,
+    skipped
+  };
+});
+
+/**
+ * 把一个条目（文件或目录）复制到别的目录下。目录递归。
+ *
+ * ## 为什么不回写别人的文档
+ *
+ * 原件还在原处，指向它的引用**仍然是通的**。把它们改成指向副本才是错的 ——
+ * 用户说的是「复制一份」，不是「把大家都指到副本上去」。所以这条通道没有
+ * `updateLinks`，`changes` 恒为空。
+ *
+ * ## 唯一会动的正文是副本自己
+ *
+ * 它换了目录，里面的**相对链接**要按新位置重写一遍（`rebaseRelativeReferences`）。
+ * 与移动不同，这里**不**改路径式 wikilink：`[[notes/b]]` 在副本里仍然指向 `notes/b.md`，
+ * 而那一篇还在原处。
+ *
+ * ## 失败不回滚
+ *
+ * 复制失败时 `copyEntry` 会把它自己刚建出来的那棵半成品清掉（见那边的注释）。
+ * 但如果副本已经落盘、只有重基准那一步写失败，**留着它** —— 副本是一个用户要的文件，
+ * 链接稍旧是看得见、改得动的；删掉它是不可逆的。那条失败进 `skipped`，如实报出。
+ */
+ipcMain.handle(IPC_CHANNELS.copyFile, async (event, raw: unknown) => {
+  const request = requireTransferRequest(raw, 'copyFile');
+  const session = getOrCreateSession(event.sender);
+  const store = getIndexStore(event.sender.id);
+  const root = session.workspaceRoot;
+
+  const targets: string[] = [];
+  for (const entry of request.entries) {
+    targets.push(
+      await session.service.resolveTransferTarget(entry.path, request.targetDirectory, 'copy')
+    );
+  }
+
+  if (request.dryRun) {
+    // 复制不改别人的文档，所以预览要看的只有落点。逐文件清单要等真复制时才有 ——
+    // 那也是 `copyEntry` 的返回值，不另算一遍（两遍遍历的结果可以不一样）。
+    return {
+      transferred: [],
+      target: targets.length === 1 ? targets[0]! : null,
+      changes: [],
+      skipped: []
+    };
+  }
+
+  const transferred: TransferredEntry[] = [];
+  const skipped: RenameFileSkip[] = [];
+
+  for (const entry of request.entries) {
+    const result = await session.service.copyEntry(entry.path, request.targetDirectory);
+
+    // 副本 → 原件的对应关系：副本镜像了源的结构，所以把「相对落点的路径」接回源上就是原件。
+    const pairs: TransferPair[] = [];
+    for (const to of result.files) {
+      const rest = path.relative(result.target, to);
+      const from = path.join(entry.path, rest);
+      const fromRelative = relativeInWorkspace(root, from);
+      const toRelative = relativeInWorkspace(root, to);
+      if (fromRelative === null || toRelative === null) continue;
+      pairs.push({ from, to, fromRelativePath: fromRelative, toRelativePath: toRelative });
+    }
+
+    const moves: RewritePair[] = pairs.map((pair) => ({
+      from: pair.fromRelativePath,
+      to: pair.toRelativePath
+    }));
+
+    for (const pair of pairs) {
+      if (isMarkdownPath(pair.to)) {
+        try {
+          const before = await session.service.readFile(pair.to);
+          const rebased = rebaseRelativeReferences(
+            before,
+            pair.fromRelativePath,
+            pair.toRelativePath,
+            moves
+          );
+          for (const target of rebased.skipped) {
+            skipped.push({ relativePath: pair.toRelativePath, reason: 'unresolved', target });
+          }
+          if (rebased.text !== before) {
+            await session.service.writeFile(pair.to, rebased.text);
+            recordBaseLedger(session, pair.to, rebased.text);
+          }
+        } catch (err) {
+          logError('[Nexus Shell] 重基准副本的相对链接失败:', err);
+          skipped.push({ relativePath: pair.toRelativePath, reason: 'failed' });
+        }
+      }
+
+      // 副本是**新文档**：走单文件补索引（它没有版本历史，也不搬账本 —— 见方案 D9）。
+      if (store) {
+        try {
+          await indexSingleFile({
+            service: session.service,
+            store,
+            rootPath: request.rootPath,
+            filePath: pair.to
+          });
+        } catch (err) {
+          logError(`[Nexus] 副本已落盘，但写入索引失败: ${pair.to}`, err);
+        }
+      }
+    }
+
+    transferred.push(
+      ...pairs.map((pair) => ({
+        from: pair.from,
+        to: pair.to,
+        fromRelativePath: pair.fromRelativePath,
+        toRelativePath: pair.toRelativePath
+      }))
+    );
+  }
+
+  return {
+    transferred,
+    target: targets.length === 1 ? targets[0]! : null,
+    changes: [],
+    skipped
+  };
+});
+
+/**
+ * 弹系统目录选择框。**只开对话框、不授权** —— 见 `chooseDirectory` 通道的说明。
+ *
+ * 标题由渲染进程给：那是本地化过的文案，主进程不知道当前语言。
+ */
+ipcMain.handle(IPC_CHANNELS.chooseDirectory, async (event, raw: unknown) => {
+  const value = (typeof raw === 'object' && raw !== null ? raw : {}) as ChooseDirectoryRequest;
+
+  return getOrCreateSession(event.sender).service.pickDirectory({
+    defaultPath: typeof value.defaultPath === 'string' ? value.defaultPath : null,
+    title: typeof value.title === 'string' ? value.title : undefined
+  });
 });
 
 /**

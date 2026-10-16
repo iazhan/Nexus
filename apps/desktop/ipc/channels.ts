@@ -59,6 +59,34 @@ export const IPC_CHANNELS = {
    * 与 `createFile` 同形。
    */
   createDirectory: 'nexus:create-directory',
+  /**
+   * 把一个条目（文件或目录）**搬到**别的目录下，并按需回写指向它的引用。
+   *
+   * 与 `renameFile` 分开而不是给它加一个「目标目录」参数：那条的契约是「同目录、只改基名、
+   * 扩展名不许变」，而这条改的正是目录。合并的结果是一个每个参数都要看情况解释的通道，
+   * 而它同时承担着「不动别人的文件」这条最重的保证。
+   *
+   * 目录搬运**递归**（整棵子树跟着走），但落盘是**一次 `rename`** —— 所以它是原子的。
+   */
+  moveFile: 'nexus:move-file',
+  /**
+   * 把一个条目**复制到**别的目录下。目录递归。
+   *
+   * **复制不改别人的文档。** 指向原件那些引用仍然是通的（原件还在原处），
+   * 把它们改成指向副本才是错的。所以这条通道**没有** `updateLinks` / `skipPaths` ——
+   * 那两个参数在复制里没有意义，留着只会让人以为复制也会回写。
+   *
+   * 唯一会动的正文是**副本自己**：它换了目录，里面的相对链接要按新位置重写一遍。
+   */
+  copyFile: 'nexus:copy-file',
+  /**
+   * 弹系统目录选择框，返回选中的绝对路径（取消返回 `null`）。
+   *
+   * 与 `openWorkspace` 分开而不是复用它：那条会把选中的目录**授权成工作区根**，
+   * 而这里的用途是「把文件搬到哪去」—— 选到工作区外应当被拒绝，不是静默扩大权限。
+   * 所以这条只开对话框，授权与否由后续那条通道自己判。
+   */
+  chooseDirectory: 'nexus:choose-directory',
   watchFile: 'nexus:watch-file',
   unwatchFile: 'nexus:unwatch-file',
   fileWatchEvent: 'nexus:file-watch-event',
@@ -474,6 +502,85 @@ export interface CreateFileRequest extends CreateEntryLocation {
 /** 新建一个子目录。名字里不能有路径分隔符。 */
 export interface CreateDirectoryRequest extends CreateEntryLocation {
   name: string;
+}
+
+/**
+ * 一次搬运（复制 / 移动）的作用对象。
+ *
+ * 恒 1 项（树还没有多选），但形状已经是「一批」—— 多选落地时不必再改通道。
+ *
+ * **只带绝对路径**：是文件还是目录由主进程自己 `stat` 出来，不要渲染进程声明。
+ * 树是从索引渲染的，而索引可以滞后于磁盘；两者不一致时以磁盘为准，而声明一旦被写进
+ * 请求，就多出一个「声明与事实不符」的状态要处理。
+ */
+export interface TransferEntry {
+  path: string;
+}
+
+/** 搬运请求的公共部分。两条通道的差别在「复制不改别人的文档」，见各自的类型。 */
+interface TransferLocation {
+  /**
+   * 工作区根。索引、历史、账本、链接回写的相对路径都以它为基准。
+   *
+   * 不能由主进程从 `getWorkspaceRoots()` 反推 —— 那个返回的是比较键（`path.resolve` +
+   * Windows 折叠大小写），拿它去 `path.relative` 会得到一条全小写的路径。
+   */
+  rootPath: string;
+  /** 目标目录的**绝对路径**。必须存在、必须是目录、必须在 `rootPath` 之内。 */
+  targetDirectory: string;
+  entries: readonly TransferEntry[];
+}
+
+/**
+ * 一次移动请求。目录递归（整棵子树跟着走），落盘是一次 `rename`。
+ *
+ * `updateLinks` / `skipPaths` / `dryRun` 的语义与 `RenameFileRequest` 完全一致，
+ * 理由也相同（见那三个字段的说明）—— 移动就是「改路径」，只是改的段不一样。
+ */
+export interface MoveFileRequest extends TransferLocation {
+  /** 是否回写指向被搬走文档的引用（`files.updateLinksOnRename`）。 */
+  updateLinks: boolean;
+  /** 不要动的文档（绝对路径）。渲染进程把**有未保存修改**的那些放进来。 */
+  skipPaths: readonly string[];
+  /** `true` ＝ 只算计划、不落盘，给预览用。 */
+  dryRun: boolean;
+}
+
+/**
+ * 一次复制请求。
+ *
+ * **没有 `updateLinks` / `skipPaths`** —— 复制不改别人的文档，那两个参数在这里没有意义。
+ * 原件还在原处，指向它的引用仍然是通的；把它们改成指向副本才是错的。
+ */
+export interface CopyFileRequest extends TransferLocation {
+  /** `true` ＝ 只算落点、不落盘。复制没有「别人的文档要改」，所以预览的价值只在落点。 */
+  dryRun: boolean;
+}
+
+/** 一次搬运里**路径变了**的文档。渲染进程据此改标签页与树上那些行的指向。 */
+export interface TransferredEntry {
+  from: string;
+  to: string;
+  fromRelativePath: string;
+  toRelativePath: string;
+}
+
+export interface TransferResult {
+  /** `dryRun` 时是 `[]` —— 还没搬。目录搬运时长度 = 子树里的文档数。 */
+  transferred: TransferredEntry[];
+  /** 落点（`dryRun` 时是「将会是」的那个）。算不出来时是 `null`。 */
+  target: string | null;
+  /** 指向被搬走文档的引用会改成什么。**复制恒为空**（见 `CopyFileRequest`）。 */
+  changes: RenameFileChange[];
+  skipped: RenameFileSkip[];
+}
+
+/** 一次目录选择请求。 */
+export interface ChooseDirectoryRequest {
+  /** 对话框**打开时停在哪**。只影响起点，不限制选择范围。 */
+  defaultPath?: string | null;
+  /** 对话框标题。**由渲染进程给** —— 文案是本地化过的，主进程不知道当前语言。 */
+  title?: string;
 }
 
 /**
