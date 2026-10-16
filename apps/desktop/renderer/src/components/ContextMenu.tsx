@@ -43,17 +43,26 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
  * 但**只在焦点还留在菜单里的时候**才还：菜单项的动作自己把焦点挪走的情况是存在的
  * （「替换」会打开搜索面板并聚焦它的输入框），抢回来等于把用户刚打开的输入框踢走。
  *
- * ## 菜单项的形状：命令项、勾选项、分隔线
+ * ## 菜单项的形状：命令项、勾选项、开关项、禁用项、分隔线
  *
  * - **命令项**（只有 `label` + `onSelect`）用 `role="menuitem"`。「替换」那种。
  * - **勾选项**（`active` 有值）用 `role="menuitemradio"` + `aria-checked`，并在左侧留一条
  *   固定宽度的勾选槽。块类型下拉是「一组互斥项里当前是哪个」，正是 radio 要表达的东西。
  *   `active: false` 与 `active: undefined` **不是一回事**：前者是「这项存在但没生效」，
  *   后者是「这个概念在这份菜单里不存在」—— 后者不占勾选槽。
+ * - **开关项**（`checked` 有值）用 `role="menuitemcheckbox"`。与 `active` 是**两件事**：
+ *   radio 的前提是「有一组」，而「显示图片」这种开关没有组。两者共用同一条勾选槽；
+ *   真同时给时按 `active` 算 —— 一个 `aria-checked` 只能有一个来源。
+ * - **禁用项**（`disabled`）画灰、不响应点击、上下键跳过它。存在的理由是
+ *   「**禁用优先于隐藏**」：菜单项的位置忽有忽无，比灰着一格更难理解。禁用**不带原因**，
+ *   原因进 `title` —— 与工具栏的灰按钮同一条约定。
  * - **分隔线**（`separator`）是 `role="separator"`，**不参与键盘导航**：
  *   上下键跳过它，回车落在它上面什么也不发生。
  *
- * `MenuBar` 也有这三个概念（`id` / `shortcut` / `disabled` / `active` / `separator`），
+ * 空 `items` **不渲染任何东西**：一个空框比不弹更难解释，而调用方（目录 `path` 为 `null`
+ * 时一个动作都给不了）不必为此再写一遍判据。
+ *
+ * `MenuBar` 也有这几个概念（`id` / `shortcut` / `disabled` / `active` / `separator`），
  * 但它是**另一份实现**。两者形状部分重合、部分不重合（这里没有 `shortcut`），
  * 是因为菜单栏那份要显示快捷键、这份不要 —— 真要合并得先想清楚快捷键列在浮动菜单里
  * 该往哪儿放，不是顺手能合的。**改其中一个的项形状时，去看另一个。**
@@ -61,6 +70,17 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 /** 菜单与视口边缘之间留的呼吸位。 */
 const EDGE_GAP = 4;
+
+/**
+ * 键盘的第一个落点。分隔线与禁用项都不是落点（与 `moveActive` 同一条判据）——
+ * 落在禁用项上会画出「高亮着但点不动」的一格。
+ *
+ * 一个都落不下去时给 `-1`（整份菜单全禁用）：那样谁都不带高亮属性，
+ * 比高亮第一格却按不动诚实。
+ */
+function firstSelectableIndex(items: readonly ContextMenuItem[]): number {
+  return items.findIndex((item) => !item.separator && !item.disabled);
+}
 
 export interface ContextMenuItem {
   /** 测试锚点，同时用作 React key。 */
@@ -75,8 +95,20 @@ export interface ContextMenuItem {
    * 当前生效项，画一个 ✓。**由调用方算好** —— 菜单不知道「这一项生效」是什么意思
    * （块类型看 AST，别的菜单可能是看设置值）。`undefined` 与 `false` 都不画 ✓：
    * 前者是「这个概念不存在」（如「替换」），后者是「存在但不生效」。
+   *
+   * 语义是 **radio**：一组互斥项里当前是哪个。独立的开关用 `checked`。
    */
   active?: boolean;
+  /**
+   * 独立的开关（「显示图片」那种）。与 `active` 共用勾选槽与 ✓，但 role 是
+   * `menuitemcheckbox` —— 开关没有「组」这个概念。同时给时以 `active` 为准。
+   */
+  checked?: boolean;
+  /**
+   * 灰掉。点击不触发、键盘上下键跳过它。**不带原因** —— 原因进 `title`，
+   * 与工具栏的灰按钮同一条约定（`workspace-toolbar.tsx` 的 `deleteHint`）。
+   */
+  disabled?: boolean;
   /**
    * 悬浮提示。**只在文案被截断 / 缩写时给**（如「最近的工作区」显示目录名、
    * 完整路径进 title）—— 与 `label` 重复的 title 只是噪声。
@@ -107,7 +139,20 @@ export interface ContextMenuProps {
   anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
-export const ContextMenu: React.FC<ContextMenuProps> = ({
+/**
+ * 空清单不画任何东西（理由见文件头）。
+ *
+ * 判据放在原语这一层而不是各调用方：调用方（目录 `path` 为 `null` 那种）本来就不知道该
+ * 给什么动作，而「没有动作的菜单」是原语一眼能看出来的事。
+ *
+ * **必须是独立一层而不是在下面 `return null`**：`items` 为空时那几个 hook 一个都不该跑
+ * —— 跑了会给一份不存在的菜单注册全局监听（下一次滚动就调 `onClose`），而 hook 又不能
+ * 写在 return 后面。多这一层正是为了把「不渲染」与「不注册」绑在同一处。
+ */
+export const ContextMenu: React.FC<ContextMenuProps> = (props) =>
+  props.items.length === 0 ? null : <ContextMenuSurface {...props} />;
+
+const ContextMenuSurface: React.FC<ContextMenuProps> = ({
   x,
   y,
   items,
@@ -117,7 +162,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(() => firstSelectableIndex(items));
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -174,18 +219,25 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   const activate = (index: number) => {
     const item = items[index];
     // 分隔线不是动作，回车落在它上面什么也不该发生（也不该关菜单）。
-    if (!item || item.separator) return;
+    // 禁用项同理 —— 但它**也不关菜单**：关掉等于假装执行过了。
+    if (!item || item.separator || item.disabled) return;
     item.onSelect?.();
     onClose();
   };
 
-  /** 上下键的落点：**跳过分隔线**，否则按一下箭头看起来像「没动」。 */
+  /**
+   * 上下键的落点：**跳过分隔线与禁用项**，否则按一下箭头看起来像「没动」。
+   *
+   * 转一整圈都落不下去时停在原地（`return current`）—— 整份菜单全禁用时，
+   * 绕回自己比跳到一个不可用的项上诚实。
+   */
   const moveActive = (delta: number) => {
     setActiveIndex((current) => {
       let next = current;
       for (let step = 0; step < items.length; step += 1) {
         next = (next + delta + items.length) % items.length;
-        if (!items[next]?.separator) return next;
+        const candidate = items[next];
+        if (candidate && !candidate.separator && !candidate.disabled) return next;
       }
       return current;
     });
@@ -239,34 +291,42 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             />
           );
         }
-        // `active` 有值 = 这一项是「一组互斥项里的一个」，用 `menuitemradio` 让屏幕阅读器
-        // 念出「已选中」；没有值 = 普通命令项（「替换」那种），保持 `menuitem`。
-        // ✓ 与 `aria-checked` 出自同一个 `item.active` —— 两处各判一次就会漂（判据 36 的同类）。
-        const checkable = item.active !== undefined;
+        // 勾选语义与勾选槽共用同一个判据：`active` 是「一组互斥项里的一个」（radio），
+        // `checked` 是「独立开关」（checkbox）。**一个 `aria-checked` 只能有一个来源** ——
+        // 两者同时给时按 `active` 算，✓ 与 `aria-checked` 都从这同一个 `ticked` 出来
+        // （两处各判一次就会漂，判据 36 的同类）。
+        const radio = item.active !== undefined;
+        const checkable = radio || item.checked !== undefined;
+        const ticked = radio ? item.active === true : item.checked === true;
+        const role = radio ? 'menuitemradio' : checkable ? 'menuitemcheckbox' : 'menuitem';
         return (
           <button
             key={item.id}
             id={`ctx-${item.id}`}
             type="button"
-            role={checkable ? 'menuitemradio' : 'menuitem'}
-            {...(checkable ? { 'aria-checked': item.active } : {})}
+            role={role}
+            {...(checkable ? { 'aria-checked': ticked } : {})}
             tabIndex={-1}
             title={item.title}
+            disabled={item.disabled}
             className={`nexus-context-menu-item${item.danger ? ' nexus-context-menu-item-danger' : ''}${
-              item.active ? ' nexus-context-menu-item-checked' : ''
+              ticked ? ' nexus-context-menu-item-checked' : ''
             }`}
             data-context-menu-item={item.id}
             {...(checkable ? { 'data-context-menu-checkable': '' } : {})}
             {...(index === activeIndex ? { 'data-context-menu-active': '' } : {})}
             // 用 `mouseenter` 而不是 `mouseover`：后者会在子节点之间反复触发。
-            onMouseEnter={() => setActiveIndex(index)}
+            // 禁用项**不接管高亮**：接管了的话键盘落点会跟着鼠标跳到一个点不动的项上。
+            onMouseEnter={() => {
+              if (!item.disabled) setActiveIndex(index);
+            }}
             onClick={() => activate(index)}
           >
             {/* 勾选槽**恒渲染**（未选中时是空的）—— 它是网格的第一列，
                 只在选中时才画的话未选中的项会掉进那一列，整组文字左沿参差不齐。 */}
             {checkable && (
               <span className="nexus-context-menu-check" aria-hidden="true">
-                {item.active ? '✓' : ''}
+                {ticked ? '✓' : ''}
               </span>
             )}
             {item.label}

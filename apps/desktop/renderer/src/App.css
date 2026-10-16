@@ -2972,6 +2972,15 @@ button.nexus-outline-toggle:hover {
   color: var(--nexus-status-error-text);
 }
 
+/* 禁用项。**与 `.nexus-menu-item:disabled` 同一档观感**（同一个应用里的两份菜单，
+   「灰掉」长得不一样就得让用户重新认一遍）。
+   `:disabled` 是伪类，特异性比 `.nexus-context-menu-item-danger` / `-checked` 都高，
+   所以「危险且禁用」与「勾选着但禁用」都归这一条 —— 不可点的东西不该还是红的。 */
+.nexus-context-menu-item:disabled {
+  color: var(--nexus-text-muted);
+  cursor: default;
+}
+
 /* 多标签页栏（P2-04）：只渲染「打开了几个文档」，不持有任何文档状态 */
 .nexus-tab-bar {
   display: flex;

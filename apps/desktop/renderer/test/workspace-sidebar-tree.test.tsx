@@ -792,6 +792,181 @@ describe('工作区侧栏：单树 + 工具栏', () => {
     });
   });
 
+  /**
+   * 树**空白区**右键菜单（2026-10-16）。
+   *
+   * 在此之前右键空白处**什么都不发生** —— Electron 默认不弹原生菜单，所以那不是
+   * 「回落到系统菜单」，是真的没反应。这一段的判据分三层：
+   *
+   * ① **挂点**：哪些位置算空白处（`<aside>` 上的空态与错误态、树区域），哪些不算
+   *    （条目行有自己的菜单；按钮与输入框是用户要操作的地方）。
+   * ② **落点**：新建落在**工作区根**，不跟着选中项走。
+   * ③ **裁剪**：没有目录 / 没有图片时对应的项不给 —— 与工具栏同一条判据。
+   */
+  describe('空白区右键', () => {
+    const blankMenu = () => container.querySelector<HTMLElement>('[data-context-menu]');
+
+    const menuItemIds = () =>
+      Array.from(container.querySelectorAll<HTMLElement>('[data-context-menu-item]')).map((el) =>
+        el.getAttribute('data-context-menu-item')
+      );
+
+    const menuItem = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-context-menu-item="${id}"]`);
+
+    /** 右键侧栏**空白处**：事件目标就是 `<aside>` 本身。 */
+    const rightClickBlank = () => rightClick('.nexus-workspace-sidebar');
+
+    it('右键空白处弹出工作区菜单，项与工具栏同源', async () => {
+      await renderSidebar({
+        documents: [doc('a.md'), doc('logo.png')],
+        directories: [dir('notes')]
+      });
+
+      await rightClickBlank();
+
+      expect(blankMenu()).not.toBeNull();
+      // label 与「文件操作」分开：读屏器只报 label 的话，两份菜单听起来是一样的
+      expect(blankMenu()?.getAttribute('aria-label')).toBe('Workspace actions');
+      expect(menuItemIds()).toEqual([
+        'new-file',
+        'new-folder',
+        'toggle-expand',
+        'toggle-images',
+        'refresh'
+      ]);
+    });
+
+    it('**空工作区**也能右键 —— 那正是最需要「新建一个文件」的时候', async () => {
+      await renderSidebar({ documents: [], directories: [] });
+
+      // 树容器这一刻根本没渲染：菜单挂在 `<aside>` 上而不是树容器上，就是为了这一屏
+      expect(container.querySelector('.nexus-tree-scroll')).toBeNull();
+
+      await rightClickBlank();
+
+      expect(menuItemIds()).toContain('new-file');
+    });
+
+    it('「新建文件」落在**工作区根**，不是选中项所在的目录', async () => {
+      await renderSidebar({ documents: [], directories: [dir('notes')] });
+
+      // 先选中一个目录 —— 工具栏那套「按选中项推落点」会落到它里面
+      await click('[data-relative-path="notes"]');
+      await rightClickBlank();
+      await click('[data-context-menu-item="new-file"]');
+
+      const input = container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!;
+      await typeInto(input, '周报.md');
+      await pressEnter(container.querySelector<HTMLInputElement>('.nexus-tree-new-input')!);
+
+      expect(props.onCreateFile).toHaveBeenCalledWith('/vault', '周报.md');
+    });
+
+    it('右键**条目**不会顺带开空白菜单 —— 两份 state 同时开会叠出两个菜单', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await rightClick('[data-relative-path="a.md"]');
+
+      expect(props.onNodeContextMenu).toHaveBeenCalledTimes(1);
+      expect(blankMenu()).toBeNull();
+    });
+
+    it('索引失败态右键**不弹** —— 没有可用动作时不弹，而不是弹一份全灰的', async () => {
+      await renderSidebar({ rebuildFails: true });
+
+      await rightClickBlank();
+
+      expect(blankMenu()).toBeNull();
+    });
+
+    it('没有目录、没有图片时那两项不给 —— 恒亮但没作用的项与恒亮的按钮是同一种毛病', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await rightClickBlank();
+
+      expect(menuItemIds()).toEqual(['new-file', 'new-folder', 'refresh']);
+    });
+
+    it('「显示图片」是**开关**（menuitemcheckbox），文案不翻转', async () => {
+      await renderSidebar({
+        documents: [doc('a.md'), doc('logo.png')],
+        directories: [],
+        showImages: false
+      });
+
+      await rightClickBlank();
+
+      const toggle = menuItem('toggle-images');
+      expect(toggle?.getAttribute('role')).toBe('menuitemcheckbox');
+      expect(toggle?.getAttribute('aria-checked')).toBe('false');
+      // 菜单里翻转的标签分不清「现在是这样」还是「按下去会这样」
+      expect(toggle?.textContent).toContain('Show images');
+    });
+
+    it('点开关上报**取反**后的值并关掉菜单', async () => {
+      await renderSidebar({ documents: [doc('a.md'), doc('logo.png')], directories: [] });
+
+      await rightClickBlank();
+      await click('[data-context-menu-item="toggle-images"]');
+
+      expect(props.onShowImagesChange).toHaveBeenCalledWith(false);
+      expect(blankMenu()).toBeNull();
+    });
+
+    it('「全部展开 / 收起」是同一项的两种文案，动作与工具栏那枚按钮同源', async () => {
+      await renderSidebar({
+        documents: [doc('a/b/c.md'), doc('top.md')],
+        directories: [dir('a'), dir('a/b')]
+      });
+
+      await rightClickBlank();
+      expect(menuItem('toggle-expand')?.textContent).toContain('Expand all folders');
+
+      await click('[data-context-menu-item="toggle-expand"]');
+      expect(rows().map((row) => row.relativePath)).toEqual(['a', 'a/b', 'a/b/c.md', 'top.md']);
+
+      await rightClickBlank();
+      expect(menuItem('toggle-expand')?.textContent).toContain('Collapse all folders');
+    });
+
+    it('扫描进行中「重新扫描」是灰的 —— 再点一次只是白跑一趟索引', async () => {
+      const gate: { release: (() => void) | null } = { release: null };
+      props.onRefresh = vi.fn(
+        () =>
+          new Promise<string[]>((resolve) => {
+            gate.release = () => resolve([]);
+          })
+      );
+
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+      await click('.nexus-toolbar-button[data-action="refresh"]');
+
+      await rightClickBlank();
+      expect(menuItem('refresh')?.hasAttribute('disabled')).toBe(true);
+
+      await act(async () => {
+        gate.release?.();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    });
+
+    it('右键按钮 / 输入框**不算空白处** —— 输入框尤其要紧，那是要剪切粘贴的地方', async () => {
+      await renderSidebar({ documents: [doc('a.md')], directories: [] });
+
+      await click('.nexus-toolbar-button[data-action="new-file"]');
+      await rightClick('.nexus-tree-new-input');
+
+      expect(blankMenu()).toBeNull();
+      // 输入行还在，没有被菜单抢走
+      expect(container.querySelector('.nexus-tree-new-input')).not.toBeNull();
+
+      await rightClick('.nexus-toolbar-button[data-action="refresh"]');
+      expect(blankMenu()).toBeNull();
+    });
+  });
+
   describe('文件行的图标', () => {
     const ICON_FILES = ['a.md', 'b.pdf', 'c.docx', 'd.png'] as const;
 

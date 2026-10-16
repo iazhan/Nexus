@@ -127,7 +127,10 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.extraction.failed': 'Text extraction failed',
     'workspace.extraction.failedShort': 'failed',
     // 工作区树右键菜单。`fileMenu` 是菜单的 aria-label，另外三条是菜单项与它的两个结果。
+    // `blankMenu` 是树**空白区**那一份的 aria-label —— 两份菜单的目标不同（一个是节点，
+    // 一个是整个工作区），读屏器只报 label 的话两者听起来一样，所以文案必须分开。
     'workspace.fileMenu': 'File actions',
+    'workspace.blankMenu': 'Workspace actions',
     'workspace.deleteFile': 'Delete',
     'workspace.deleteConfirm':
       'Delete "{name}" permanently? Its version history is removed as well, and this cannot be undone.',
@@ -1038,6 +1041,7 @@ export const DICTIONARIES: Record<string, LocaleDictionary> = {
     'workspace.extraction.failedShort': '失败',
     // 工作区树右键菜单。文案里**不要写 `**`** —— 描述是纯文本渲染，星号会原样显示。
     'workspace.fileMenu': '文件操作',
+    'workspace.blankMenu': '工作区操作',
     'workspace.deleteFile': '删除',
     'workspace.deleteConfirm': '永久删除「{name}」？它的版本历史也会一起删掉，不可恢复。',
     'workspace.deleteFailed': '删除「{name}」失败：{detail}',

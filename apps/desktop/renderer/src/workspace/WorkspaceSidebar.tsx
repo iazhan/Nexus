@@ -180,6 +180,21 @@ interface CreatingState {
 }
 
 /**
+ * 「这一下不是点在空白处」的控件。空白区菜单要放过它们。
+ *
+ * 输入框最要紧：改名 / 新建那两行是用户要剪切粘贴的地方，菜单抢过去的话那里就只剩
+ * 一个工作区菜单 —— 而 Electron 默认不给原生菜单，等于把文本编辑的右键整个拿走。
+ *
+ * `closest` 必须往上找：点在按钮里的 `<svg>` 上时事件目标不是按钮本身。
+ */
+const INTERACTIVE_TARGET_SELECTOR =
+  'button, input, textarea, select, a[href], [role="button"], [role="tab"], [contenteditable="true"]';
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(INTERACTIVE_TARGET_SELECTOR) !== null;
+}
+
+/**
  * 工作区根的**显示名**：路径的最后一段（目录名）。
  *
  * 两种分隔符都要切：Windows 的 `\` 与 POSIX 的 `/`（根可能是命令行传进来的）。
@@ -578,6 +593,100 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
       ? t('workspace.toolbar.deleteDirectoryHint')
       : t('workspace.toolbar.deleteNeedsSelection');
 
+  /** 空白区右键开在哪儿（视口坐标）。`null` ＝ 没开。 */
+  const [blankMenu, setBlankMenu] = useState<{ x: number; y: number } | null>(null);
+
+  /**
+   * 树**空白区**右键菜单的条目。
+   *
+   * ## 清单为什么住在这里而不是 `App`
+   *
+   * 这几项的动作全在侧栏内部（`beginCreating` / `toggleExpandAll` / `onShowImagesChange` /
+   * `handleRefresh`）。为了「与条目菜单形状一致」把它们提到 `App`，等于把侧栏的状态漏出去
+   * —— 与「侧栏只渲染、只上报」的边界相反。**动作住在谁手里，清单就住在谁手里。**
+   * 侧栏头部那个「切换工作区」菜单走的是同一条路。
+   *
+   * ## 落点是**工作区根**，不是选中项
+   *
+   * 空白处右键的意思是「在这个工作区里」，所以新建走 `beginCreating(…, null, rootPath)`，
+   * 不走工具栏那套「按选中项推」—— 选中项可能远在另一层目录里，文件落在那儿没法解释。
+   * 三个参考实现的空白区菜单也都落在根上。
+   *
+   * 也**不动 `selected`**：这份菜单里没有一项依赖它，而为一个只是看看菜单的右键丢掉
+   * 工具栏的删除对象是白白的损失。
+   *
+   * ## 项 = 工具栏那六项的子集
+   *
+   * 不新增能力，全是既有动作的第二个入口。两个「没有就不给」的判据与工具栏**同源**
+   * —— 恒亮但没作用的菜单项与恒亮但没作用的按钮是同一种毛病。
+   * 开关用 `checked` 而不是把文案翻转成「隐藏图片」：菜单里翻转的标签分不清
+   * 「现在是这样」还是「按下去会这样」。
+   *
+   * **不给「删除」**：空白区没有作用对象。**不给「在资源管理器中显示」**：主进程还没有
+   * 那条通道，菜单栏里那两项至今是空占位。
+   */
+  const blankMenuItems = useMemo((): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [
+      {
+        id: 'new-file',
+        label: t('workspace.toolbar.newFile'),
+        onSelect: () => beginCreating('file', null, rootPath)
+      },
+      {
+        id: 'new-folder',
+        label: t('workspace.toolbar.newFolder'),
+        onSelect: () => beginCreating('folder', null, rootPath)
+      }
+    ];
+
+    const viewItems: ContextMenuItem[] = [];
+    if (directoryPaths.length > 0) {
+      viewItems.push({
+        id: 'toggle-expand',
+        label: allExpanded ? t('workspace.toolbar.collapseAll') : t('workspace.toolbar.expandAll'),
+        onSelect: toggleExpandAll
+      });
+    }
+    if (imageCount > 0) {
+      viewItems.push({
+        id: 'toggle-images',
+        label: t('workspace.toolbar.showImages'),
+        checked: showImages,
+        onSelect: () => onShowImagesChange(!showImages)
+      });
+    }
+    if (viewItems.length > 0) {
+      items.push({ id: 'view-separator', label: '', separator: true }, ...viewItems);
+    }
+
+    items.push(
+      { id: 'refresh-separator', label: '', separator: true },
+      {
+        id: 'refresh',
+        label: refreshing ? t('workspace.toolbar.refreshing') : t('workspace.toolbar.refresh'),
+        // 扫描进行中再点一次只是白跑一趟索引。与工具栏那枚按钮同源。
+        disabled: refreshing,
+        onSelect: () => void handleRefresh()
+      }
+    );
+
+    return items;
+    // 依赖列的是 `directoryPaths` 本身而不是 `.length`：`react-hooks/exhaustive-deps`
+    // 对成员表达式会报「complex expression」，而两个都是 `useMemo` 出来的稳定引用。
+  }, [
+    t,
+    beginCreating,
+    rootPath,
+    directoryPaths,
+    allExpanded,
+    toggleExpandAll,
+    imageCount,
+    showImages,
+    onShowImagesChange,
+    refreshing,
+    handleRefresh
+  ]);
+
   // ---- 切换工作区菜单（2026-10-14）----
   //
   // 入口为什么在**侧栏头部**而不是工具栏那一行：工具栏已经有 6 个 24px 的平铺按钮，
@@ -703,6 +812,9 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                   toggleDirectory(node.relativePath);
                 }}
                 onContextMenu={(event) => {
+                  // 这一行**不是空白处**：无论接没接回调都不能让事件冒到 `<aside>` 上，
+                  // 否则右键一行会同时画出两个菜单（节点的 + 工作区的）。
+                  event.stopPropagation();
                   if (!onNodeContextMenu) return;
                   event.preventDefault();
                   setSelected(node);
@@ -777,6 +889,8 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                 if (node.path) onOpenFile(node.path);
               }}
               onContextMenu={(event) => {
+                // 同目录行：先拦住冒泡，别让空白区菜单跟着一起弹。
+                event.stopPropagation();
                 // 没接 `onNodeContextMenu` 时让浏览器出原生菜单：这个组件在别的用例里
                 // 也单独挂过，硬吞掉右键会让「右键没反应」变得无法解释。
                 if (!onNodeContextMenu) return;
@@ -817,7 +931,24 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   const isFilteredToEmpty = !isEmptyWorkspace && visibleTree.length === 0;
 
   return (
-    <aside className="nexus-workspace-sidebar" data-phase={phase} aria-label={t('workspace.title')}>
+    <aside
+      className="nexus-workspace-sidebar"
+      data-phase={phase}
+      aria-label={t('workspace.title')}
+      // 挂在 `<aside>` 上而不是树容器上：一次覆盖空态、错误态、树区域三种布局 ——
+      // 挂在 `.nexus-tree-scroll` 上的话，「工作区是空的」那一屏右键反而没有反应，
+      // 而那正是最需要「新建一个文件」的时候。
+      onContextMenu={(event) => {
+        // 索引中 / 失败态下所有动作都无处可落（新建会落在一个还没索引好的工作区上）。
+        // 与 markra 的 `backgroundContextMenuAvailable` 同一条判据：**没有可用动作时不弹**，
+        // 而不是弹一份全灰的 —— 后者让用户以为是这一项坏了。
+        if (phase !== 'ready') return;
+        // 点在按钮 / 输入框上不算空白处（见 `isInteractiveTarget`）。
+        if (isInteractiveTarget(event.target)) return;
+        event.preventDefault();
+        setBlankMenu({ x: event.clientX, y: event.clientY });
+      }}
+    >
       <div className="nexus-sidebar-header" title={rootPath}>
         <span className="nexus-sidebar-root">{rootName}</span>
         <span className="nexus-sidebar-header-end">
@@ -854,6 +985,19 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
           onClose={switchMenu.close}
           label={t('workspace.switchWorkspace')}
           anchorRef={switchButtonRef}
+        />
+      )}
+
+      {/* 空白区右键菜单。挂在 `<aside>` 下、**不在** `.nexus-tree-scroll` 里：
+          树容器是 `overflow-y: auto`，菜单在那边会被裁掉；而原语的 `scroll` 监听是
+          捕获阶段的，挂在滚动容器里还会被它自己的第一次滚动当场关掉。 */}
+      {blankMenu && (
+        <ContextMenu
+          x={blankMenu.x}
+          y={blankMenu.y}
+          items={blankMenuItems}
+          onClose={() => setBlankMenu(null)}
+          label={t('workspace.blankMenu')}
         />
       )}
 

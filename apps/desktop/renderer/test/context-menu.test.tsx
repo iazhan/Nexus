@@ -10,10 +10,15 @@ import { ContextMenu, type ContextMenuItem } from '../src/components/ContextMenu
  * 这一层只管**组件自己的行为**：渲染哪些项、高亮怎么走、四种关闭来源、键盘、焦点进出。
  * 「谁在什么时候打开它」是 `App.tsx` 的事，归接线用例；真机上能不能弹出来归真机用例。
  *
- * 末尾那五条覆盖菜单项形状的两处扩展（2026-10-04）：**勾选项**（`active` → ✓ +
- * `menuitemradio` + `aria-checked`，左侧留固定宽度的勾选槽）与**分隔线**（`role="separator"`，
- * 不参与键盘导航）。工具栏的标题下拉要的正是这两样 —— 同一份块类型列表在菜单栏里
- * 有分组线和 ✓，在下拉里没有的话，两处就是两个样子。
+ * 菜单项的形状分两批长出来，各有来源：
+ *
+ * - **勾选项与分隔线**（2026-10-04，工具栏的标题下拉要用）—— `active` → ✓ +
+ *   `menuitemradio` + `aria-checked`，左侧留一条固定宽度的勾选槽；`role="separator"`
+ *   不参与键盘导航。同一份块类型列表在菜单栏里有分组线和 ✓，在下拉里没有的话，
+ *   两处就是两个样子。
+ * - **开关项、禁用项与空清单**（2026-10-16，树空白区菜单要用）—— `checked` →
+ *   `menuitemcheckbox`（开关没有「组」，所以与 radio 分开，但共用同一条勾选槽）；
+ *   `disabled` → 灰、点不动、键盘跳过它；`items` 为空时整份菜单不渲染。
  *
  * happy-dom 里 `getBoundingClientRect()` 全是 0，于是「量完再定」退化成「就用 (x, y)」——
  * 这是刻意的：位置夹取的正确性不该依赖排版引擎，而这里只需要钉住
@@ -407,5 +412,89 @@ describe('上下文菜单原语', () => {
     expect(onSelectRename).toHaveBeenCalledOnce();
     expect(onSelectDelete).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  // ---- 开关项与禁用项（2026-10-16，树空白区菜单要用） ----
+
+  /**
+   * 开关与勾选项是**两件事**：radio 的前提是「有一组」，而「显示图片」这种开关没有组。
+   * 两者共用同一条勾选槽，但 role 不同 —— 读屏器念出来的是「已勾选」还是「单选组里的
+   * 第几个」，差别就在这里。
+   */
+  it('开关项：role 是 menuitemcheckbox，✓ 与 aria-checked 同源', () => {
+    renderItems([
+      { id: 'images', label: 'Show images', checked: true, onSelect: onSelectRename },
+      { id: 'refresh', label: 'Rescan', checked: false, onSelect: onSelectDelete }
+    ]);
+
+    const [on, off] = menuItems();
+    for (const item of [on!, off!]) {
+      expect(item.getAttribute('role')).toBe('menuitemcheckbox');
+    }
+    expect(on!.getAttribute('aria-checked')).toBe('true');
+    expect(off!.getAttribute('aria-checked')).toBe('false');
+    expect(on!.textContent).toContain('✓');
+    expect(off!.textContent).not.toContain('✓');
+    // 与 `active` 共用同一条勾选槽
+    expect(off!.querySelector('.nexus-context-menu-check')).not.toBeNull();
+  });
+
+  it('active 与 checked 同时给时按 active 算 —— 一个 aria-checked 只能有一个来源', () => {
+    renderItems([{ id: 'x', label: 'X', active: false, checked: true, onSelect: onSelectRename }]);
+
+    const item = menuItems()[0]!;
+    expect(item.getAttribute('role')).toBe('menuitemradio');
+    expect(item.getAttribute('aria-checked')).toBe('false');
+    expect(item.textContent).not.toContain('✓');
+  });
+
+  it('禁用项：点不动、也不关菜单；回车落在**别的**项上', () => {
+    renderItems([
+      { id: 'refresh', label: 'Rescan', disabled: true, onSelect: onSelectRename },
+      { id: 'new', label: 'New', onSelect: onSelectDelete }
+    ]);
+
+    const disabled = menuItems()[0]!;
+    expect(disabled.hasAttribute('disabled')).toBe(true);
+
+    act(() => {
+      disabled.click();
+    });
+    expect(onSelectRename).not.toHaveBeenCalled();
+    // 关掉菜单等于假装执行过了 —— 用户会以为动作生效了
+    expect(onClose).not.toHaveBeenCalled();
+
+    pressKey('Enter');
+    expect(onSelectRename).not.toHaveBeenCalled();
+    expect(onSelectDelete).toHaveBeenCalledOnce();
+  });
+
+  it('第一项就禁用时初始落点跳过它 —— 不然会画一格「高亮着但点不动」', () => {
+    renderItems([
+      { id: 'refresh', label: 'Rescan', disabled: true, onSelect: onSelectRename },
+      { id: 'new', label: 'New', onSelect: onSelectDelete }
+    ]);
+
+    expect(activeItem()?.dataset.contextMenuItem).toBe('new');
+  });
+
+  it('整份菜单全禁用时没有落点，也不画高亮', () => {
+    renderItems([{ id: 'refresh', label: 'Rescan', disabled: true, onSelect: onSelectRename }]);
+
+    expect(activeItem()).toBeNull();
+
+    pressKey('Enter');
+    expect(onSelectRename).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 空清单不画任何东西。调用方（目录 `path` 为 `null` 时一个动作都给不了）不必为此
+   * 再写一遍判据 —— 一个空框比不弹更难解释。
+   */
+  it('空清单不渲染任何东西', () => {
+    renderItems([]);
+
+    expect(menu()).toBeNull();
+    expect(menuItems()).toEqual([]);
   });
 });
