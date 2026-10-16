@@ -77,7 +77,7 @@ import { ContextMenu, type ContextMenuItem } from './components/ContextMenu.js';
 import type { FileTreeNode } from './workspace/tree.js';
 import { parseDeleteMode } from './settings/preference-specs.js';
 import type { RenameFileResult } from '../../ipc/channels.js';
-import { WorkspaceStore, hasUnsavedChanges } from './workspace/store.js';
+import { WorkspaceStore, hasUnsavedChanges, type WorkspaceDocument } from './workspace/store.js';
 import {
   clearSessionSnapshot,
   readSessionSnapshot,
@@ -318,21 +318,29 @@ export const App: React.FC = () => {
   /**
    * 工作区树上的右键菜单。`null` ＝ 没开着。
    *
-   * 只存「哪一个文件 + 鼠标在哪」，菜单项在渲染时现算 —— 这样「删除」与后面的
-   * 「重命名」「复制链接」共用同一个入口，各自只关心自己那一条。
-   *
-   * 坐标存的是 `clientX/clientY`（视口坐标），因为菜单是 `position: fixed` 的：
-   * 树容器是 `overflow-y: auto`，绝对定位的菜单会被裁掉。
-   */
-  /**
    * 存的是**树上被右键的那个节点**，不只是路径 —— 菜单项要按它是目录还是文件分叉：
    * 目录上给「在此新建文件 / 新建文件夹」，文件上给「重命名 / 复制链接 / 删除」。
+   *
+   * 只存「哪一个节点 + 鼠标在哪」，菜单项在渲染时现算（见 `fileMenuItems`）。
    *
    * 坐标存的是 `clientX/clientY`（视口坐标），因为菜单是 `position: fixed` 的：
    * 树容器是 `overflow-y: auto`，绝对定位的菜单会被裁掉。
    */
   const [fileMenu, setFileMenu] = useState<{
     node: FileTreeNode;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  /**
+   * 标签页上的右键菜单。与 `fileMenu` 同形，理由也一样（`.nexus-tab-strip` 同样是
+   * `overflow-x: auto`，菜单挂在里面会被裁掉）。
+   *
+   * 存整份 `WorkspaceDocument` 而不是 id：菜单项里「在树中定位」要用它的 `filePath`，
+   * 而渲染那一刻再去 store 里找一次只是多一次可能落空的查找。
+   */
+  const [tabMenu, setTabMenu] = useState<{
+    document: WorkspaceDocument;
     x: number;
     y: number;
   } | null>(null);
@@ -1835,6 +1843,101 @@ export const App: React.FC = () => {
       });
     },
     [store, enqueueSave, closeDocumentAndEnsureEditor, t]
+  );
+
+  /**
+   * 关一批标签页（「关闭其他 / 关闭右侧 / 全部关闭」）。
+   *
+   * **就是逐条调用 `handleCloseTab`，不另写一套批量逻辑。** 批量与单条是同一个动作的不同
+   * 选区，各写一遍必然在「未保存的怎么办」上分叉 —— 而那条规则（有路径的先落盘、未命名的
+   * 让用户表态、保存失败就不关）正是最不能分叉的一处。
+   *
+   * 逐条走还有两个现成的好处：`closeDocumentAndEnsureEditor` 只在**最后一条**关掉、
+   * store 真的空了的时候补那份空白文档；某一条保存失败时它自己留在原地，其余照常关掉。
+   *
+   * 代价是**未命名且有未保存内容的标签会逐个弹确认框**。这种情况要先开着好几份未命名文档
+   * 才会遇到，而逐个问与一次问一批在「用户要不要留下这一份」上是同一件事 ——
+   * 为它单独做一套批量确认不值。
+   */
+  const closeTabs = useCallback(
+    (ids: readonly string[]) => {
+      for (const id of ids) handleCloseTab(id);
+    },
+    [handleCloseTab]
+  );
+
+  /**
+   * 标签页右键菜单的条目。**每次打开时现算**，与 `fileMenuItems` 同一条理由
+   * （文案要跟着语言变，而语言可以在窗口开着的时候切走）。
+   *
+   * 「关闭其他 / 关闭右侧」**禁用而不是隐藏**：菜单项忽有忽无比灰着一格更难理解，
+   * 而这两个的可用性正好是「右侧有没有标签」这种一眼能看出来的事。
+   *
+   * 「在树中定位」只在**工作区开着、且这一篇真的在那个工作区里**时给。
+   * 不在树里的文件定位不了 —— `revealRequest` 找不到节点会一直挂着（那是刻意的设计，
+   * 见侧栏的 `revealRequest` 注释），菜单里给一个按下去没反应的项比不给更糟。
+   */
+  const tabMenuItems = useCallback(
+    (document: WorkspaceDocument): ContextMenuItem[] => {
+      const documents = store.getDocuments();
+      const index = documents.findIndex((candidate) => candidate.id === document.id);
+      // 右键那一刻它已经被关掉了（外部改动、另一个入口）。什么都不给。
+      if (index === -1) return [];
+
+      const others = documents.filter((candidate) => candidate.id !== document.id);
+      const toTheRight = documents.slice(index + 1);
+
+      const items: ContextMenuItem[] = [
+        {
+          id: 'close',
+          label: t('tab.menuClose'),
+          onSelect: () => handleCloseTab(document.id)
+        },
+        {
+          id: 'close-others',
+          label: t('tab.closeOthers'),
+          disabled: others.length === 0,
+          onSelect: () => closeTabs(others.map((candidate) => candidate.id))
+        },
+        {
+          id: 'close-right',
+          label: t('tab.closeRight'),
+          disabled: toTheRight.length === 0,
+          onSelect: () => closeTabs(toTheRight.map((candidate) => candidate.id))
+        },
+        {
+          id: 'close-all',
+          label: t('tab.closeAll'),
+          // 恒可用：菜单能弹出来就说明至少开着这一条。与上面两项不同，它不随选区变灰 ——
+          // 「全部关掉」在只有一条标签时也是一件说得通的事（就是「关闭」）。
+          onSelect: () => closeTabs(documents.map((candidate) => candidate.id))
+        }
+      ];
+
+      const target = document.filePath;
+      if (
+        workspaceRoot !== null &&
+        target !== null &&
+        relativePathFrom(workspaceRoot, target) !== null
+      ) {
+        items.push(
+          { id: 'reveal-separator', label: '', separator: true },
+          {
+            id: 'reveal-in-tree',
+            label: t('tab.revealInTree'),
+            onSelect: () => {
+              setWorkspaceReveal({ path: target });
+              // 与「在工作区中打开」同一个落点：定位发生在文件树上，那一屏必须真的看得见。
+              // 用 `showActivity` 而不是 `toggleActivity`（后者会把已经展开的面板收起来）。
+              setActivity((previous) => showActivity(previous, 'workspace'));
+            }
+          }
+        );
+      }
+
+      return items;
+    },
+    [store, handleCloseTab, closeTabs, workspaceRoot, t]
   );
 
   /**
@@ -3764,6 +3867,8 @@ export const App: React.FC = () => {
           // 栏上那枚 `+` 只是 `new-file` 的第三个入口，动作本身仍由 `handleNewFile` 定义 ——
           // 与 Ctrl+N、菜单「文件 → 新建」共用同一条路径，不是第二份实现。
           onCreate={() => void handleNewFile()}
+          // 右键只上报，菜单由上面那个 `tabMenu` 画 —— 它必须挂在 strip 外面才不被裁掉。
+          onTabContextMenu={(document, x, y) => setTabMenu({ document, x, y })}
         />
       )}
       {/* 编辑器工具栏挂在**标签栏下方**。标签栏回答的是「哪些文档开着」，工具栏作用于
@@ -3967,6 +4072,17 @@ export const App: React.FC = () => {
           items={fileMenuItems(fileMenu.node)}
           onClose={() => setFileMenu(null)}
           label={t('workspace.fileMenu')}
+        />
+      )}
+      {/* 标签页右键菜单，与上面那条同一个理由挂在最外层：`.nexus-tab-strip` 是
+          `overflow-x: auto`，挂在它里面会被裁掉。 */}
+      {tabMenu && (
+        <ContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          items={tabMenuItems(tabMenu.document)}
+          onClose={() => setTabMenu(null)}
+          label={t('tab.menuLabel')}
         />
       )}
       {/* 改名确认屏。它要「摆出改了谁的什么」，所以自己也挂在外层（与菜单同理，

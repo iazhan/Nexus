@@ -25,6 +25,8 @@ import { localeManager } from '../src/platform.js';
  *    那个标签激活再去关它 —— 用户看到的是「闪一下才关」，而两个回调各自都对。
  * 4. **`+` 在 `role="tablist"` 之外**：它是动作不是标签，混进列表里等于向读屏器谎报
  *    列表长度；而它又必须在栏内，否则上一条断言「不在列表里」对「整个按钮被挪走了」同样成立。
+ * 5. **右键只上报坐标**（2026-10-16）：菜单不画在这一层（`.nexus-tab-strip` 是
+ *    `overflow-x: auto`，挂里面会被裁掉），而没接回调时不该把右键吞掉。
  *
  * `apps/desktop/renderer/test/**` 不进 typecheck，类型只靠 esbuild 转译。
  */
@@ -37,6 +39,7 @@ describe('标签栏渲染契约', () => {
   let onActivate: ReturnType<typeof vi.fn>;
   let onClose: ReturnType<typeof vi.fn>;
   let onCreate: ReturnType<typeof vi.fn>;
+  let onTabContextMenu: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     container = document.createElement('div');
@@ -45,6 +48,7 @@ describe('标签栏渲染契约', () => {
     onActivate = vi.fn();
     onClose = vi.fn();
     onCreate = vi.fn();
+    onTabContextMenu = vi.fn();
   });
 
   afterEach(() => {
@@ -81,7 +85,15 @@ describe('标签栏渲染契约', () => {
       ...overrides
     }) as unknown as WorkspaceDocument;
 
-  const render = (documents: WorkspaceDocument[], activeId: string | null = null) => {
+  /**
+   * `tabContextMenu` 缺省时**不传这个 prop**（而不是传一个空的回调）——
+   * 「没接回调时不该吞掉右键」那条反面用例要靠它。
+   */
+  const render = (
+    documents: WorkspaceDocument[],
+    activeId: string | null = null,
+    tabContextMenu?: (document: WorkspaceDocument, x: number, y: number) => void
+  ) => {
     act(() => {
       root.render(
         <TabBar
@@ -90,6 +102,7 @@ describe('标签栏渲染契约', () => {
           onActivate={onActivate}
           onClose={onClose}
           onCreate={onCreate}
+          {...(tabContextMenu ? { onTabContextMenu: tabContextMenu } : {})}
         />
       );
     });
@@ -283,6 +296,46 @@ describe('标签栏渲染契约', () => {
     });
     expect(strip.getAttribute('data-overflow-left')).toBe('true');
     expect(strip.getAttribute('data-overflow-right')).toBe('false');
+  });
+
+  /**
+   * 右键**只上报**，菜单不画在这一层。
+   *
+   * 两个参考实现都把菜单写在标签组件里（markra 内嵌 `<ContextMenu>`、OpenKnowledge 用
+   * Radix）。这里不照做，而且不只是分层口味：菜单要的「关闭其他 / 关闭右侧」是文档 store
+   * 上的操作，「在树中定位」要工作区根 —— 都在 `App` 手里。更要紧的是 `.nexus-tab-strip`
+   * 是 `overflow-x: auto`，菜单挂在里面会被裁掉。
+   */
+  it('右键某一条上报**那一条**与坐标，自己不画菜单', () => {
+    render(
+      [doc(), doc({ id: 'doc-2', filePath: 'C:/vault/b.md' })],
+      null,
+      onTabContextMenu
+    );
+
+    act(() => {
+      tabs()[1]!.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 })
+      );
+    });
+
+    expect(onTabContextMenu).toHaveBeenCalledTimes(1);
+    const [document, x, y] = onTabContextMenu.mock.calls[0]!;
+    // 是**被右键的那一条**，不是活动标签 —— 活动的是 doc-1
+    expect(document.id).toBe('doc-2');
+    expect([x, y]).toEqual([30, 40]);
+    expect(container.querySelector('[data-context-menu]')).toBeNull();
+  });
+
+  it('没接 `onTabContextMenu` 时不吞右键 —— 这个组件在别的用例里也单独挂过', () => {
+    render([doc()]);
+
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    act(() => {
+      tabs()[0]!.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it('切标签时把活动标签滚进视野', () => {

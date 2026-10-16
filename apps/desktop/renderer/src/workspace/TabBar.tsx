@@ -14,6 +14,14 @@ export interface TabBarProps {
    * 三个入口给同一个动作，文案也必须同源，否则用户会以为是三件不同的事。
    */
   onCreate: () => void;
+  /**
+   * 在某一条标签上按了右键。**只上报哪一条 + 鼠标在哪，不自己开菜单** ——
+   * 「关闭其他 / 关闭右侧」要文档 store，「在树中定位」要工作区根，那些都在 `App` 手里。
+   * 与工作区树那条 `onNodeContextMenu` 同一种分工。
+   *
+   * 坐标是 `MouseEvent.clientX/clientY`（视口坐标）：菜单是 `position: fixed` 的。
+   */
+  onTabContextMenu?: (document: WorkspaceDocument, x: number, y: number) => void;
 }
 
 /**
@@ -63,13 +71,24 @@ export interface TabBarProps {
  * 文件名长度和脏点决定，数不出来。重算挂在三处 —— `scroll`、`ResizeObserver`（窗口与侧栏
  * 改变宽度）、以及标签集合变化（strip 溢出后宽度被钉死，`ResizeObserver` 不会再响，
  * 光靠它会在「已经溢出时又多开一个标签」的情况下漏掉）。
+ *
+ * ## 右键只上报，菜单由 `App` 画
+ *
+ * 两个参考实现都把菜单写在这一层（markra 的 `MarkraTabsBar` 内嵌 `<ContextMenu>`，
+ * OpenKnowledge 的 `EditorTabs` 用 Radix）。这里不照做：菜单要的「关闭其他 / 关闭右侧」
+ * 是文档 store 上的操作，「在树中定位」要工作区根 —— 都在 `App` 手里。
+ *
+ * 而且**必须画在 strip 外面**：`.nexus-tab-strip` 是 `overflow-x: auto`，菜单挂在里面
+ * 会被裁掉（与工作区树那条 `overflow-y: auto` 同一个理由）。所以这里只报坐标，
+ * 与 `onNodeContextMenu` 同一种分工。
  */
 export const TabBar: React.FC<TabBarProps> = ({
   documents,
   activeId,
   onActivate,
   onClose,
-  onCreate
+  onCreate,
+  onTabContextMenu
 }) => {
   const { t } = useLocale();
   const stripRef = useRef<HTMLDivElement>(null);
@@ -182,6 +201,13 @@ export const TabBar: React.FC<TabBarProps> = ({
               // 鼠标中键关闭：浏览器与主流编辑器的通行行为
               onAuxClick={(event) => {
                 if (event.button === 1) onClose(document.id);
+              }}
+              onContextMenu={(event) => {
+                // 没接 `onTabContextMenu` 时让浏览器出原生菜单：这个组件在别的用例里
+                // 也单独挂过，硬吞掉右键会让「右键没反应」变得无法解释。
+                if (!onTabContextMenu) return;
+                event.preventDefault();
+                onTabContextMenu(document, event.clientX, event.clientY);
               }}
             >
               {isUnsaved && <span className="nexus-tab-dot" aria-hidden="true" />}
