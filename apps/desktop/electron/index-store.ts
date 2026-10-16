@@ -414,15 +414,50 @@ export class IndexStore {
     newName: string,
     newTitle: string
   ): boolean {
-    const row = this.db.get(`SELECT id FROM documents WHERE path = ?`, [oldPath]);
-    const documentId = Number(row?.id ?? 0);
-    if (documentId <= 0) return false;
+    return this.renameDocuments([
+      { oldPath, newPath, newRelativePath, newName, newTitle }
+    ])[0]!;
+  }
 
-    this.db.run(
-      `UPDATE documents SET path = ?, relative_path = ?, name = ?, title = ? WHERE id = ?`,
-      [newPath, newRelativePath, newName, newTitle, documentId]
-    );
-    return true;
+  /**
+   * 一次改**多行**，单个事务。
+   *
+   * 存在的理由是**搬目录**：整棵子树里的每一篇都要改路径，几十上百行逐个提交
+   * （每条一次 wasm VFS 的目录锁获取与释放）会让一次目录移动卡住主进程。
+   *
+   * `renameDocument` 是它的单元素调用，所以「改一个」与「改一批」只有一份实现。
+   * 返回值逐项对应入参：`true` ＝ 真的更新了一行。
+   */
+  renameDocuments(
+    entries: readonly {
+      oldPath: string;
+      newPath: string;
+      newRelativePath: string;
+      newName: string;
+      newTitle: string;
+    }[]
+  ): boolean[] {
+    if (entries.length === 0) return [];
+
+    this.db.exec('BEGIN');
+    try {
+      const results = entries.map((entry) => {
+        const row = this.db.get(`SELECT id FROM documents WHERE path = ?`, [entry.oldPath]);
+        const documentId = Number(row?.id ?? 0);
+        if (documentId <= 0) return false;
+
+        this.db.run(
+          `UPDATE documents SET path = ?, relative_path = ?, name = ?, title = ? WHERE id = ?`,
+          [entry.newPath, entry.newRelativePath, entry.newName, entry.newTitle, documentId]
+        );
+        return true;
+      });
+      this.db.exec('COMMIT');
+      return results;
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
   }
 
   /**

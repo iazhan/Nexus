@@ -1325,4 +1325,87 @@ describe('工作区索引', () => {
       store.close();
     });
   });
+
+  /**
+   * 就地改路径（改名 / 搬运）。与 `upsertDocument()` 的区别见 `renameDocument()` 的注释：
+   * 用错那一个会**插一行新的**、旧行留在原地，而 `links.source_id` 指着旧行 ——
+   * 反向链接与图谱边一起丢，且没有任何报错。
+   */
+  describe('renameDocuments', () => {
+    it('改路径但保 id，反向链接与图谱边都还在', async () => {
+      await writeDoc('notes/dma.md', '# DMA\n');
+      await writeDoc('notes/hub.md', '见 [[notes/dma]]。\n');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+
+      const before = store.listDocuments().find((doc) => doc.name === 'dma.md')!;
+      const updated = store.renameDocuments([
+        {
+          oldPath: before.path,
+          newPath: path.join(workspace, 'archive', 'dma.md'),
+          newRelativePath: 'archive/dma.md',
+          newName: 'dma.md',
+          newTitle: 'dma'
+        }
+      ]);
+
+      expect(updated).toEqual([true]);
+      const after = store.listDocuments().find((doc) => doc.name === 'dma.md')!;
+      expect(after.id).toBe(before.id);
+      expect(after.relativePath).toBe('archive/dma.md');
+      // 内容没变，所以这几列一个都不该动
+      expect(after.contentHash).toBe(before.contentHash);
+      expect(after.sizeBytes).toBe(before.sizeBytes);
+
+      store.close();
+    });
+
+    it('一次改多行（搬目录）：逐项返回是否真的更新了', async () => {
+      await writeDoc('notes/a.md', '甲。\n');
+      await writeDoc('notes/b.md', '乙。\n');
+      await writeDoc('keep.md', '不动。\n');
+
+      const store = IndexStore.open(dbPath);
+      await indexWorkspace({ service, store, rootPath: workspace });
+
+      const notes = store
+        .listDocuments()
+        .filter((doc) => doc.relativePath.startsWith('notes/'));
+
+      const results = store.renameDocuments([
+        ...notes.map((doc) => ({
+          oldPath: doc.path,
+          newPath: path.join(workspace, 'archive', doc.name),
+          newRelativePath: `archive/${doc.name}`,
+          newName: doc.name,
+          newTitle: doc.title
+        })),
+        // 索引里没有这一篇 —— 返回 false，不抛
+        {
+          oldPath: path.join(workspace, 'notes', 'ghost.md'),
+          newPath: path.join(workspace, 'archive', 'ghost.md'),
+          newRelativePath: 'archive/ghost.md',
+          newName: 'ghost.md',
+          newTitle: 'ghost'
+        }
+      ]);
+
+      expect(results).toEqual([true, true, false]);
+      expect(
+        store
+          .listDocuments()
+          .map((doc) => doc.relativePath)
+          .sort()
+      ).toEqual(['archive/a.md', 'archive/b.md', 'keep.md']);
+
+      store.close();
+    });
+
+    it('空数组是空操作', () => {
+      const store = IndexStore.open(dbPath);
+      expect(store.renameDocuments([])).toEqual([]);
+      store.close();
+    });
+  });
 });

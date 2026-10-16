@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { documentTypeForPath, type IndexedDocument } from '@nexus/core';
-import { maskCodeRegions, rewriteReferencesInSource } from '../electron/link-rewrite.js';
+import { rewriteReferencesInSource, rewriteReferencesInSourceForMany } from '../electron/link-rewrite.js';
 
 /**
  * 回写「指向被改名那一篇」的引用。
@@ -178,26 +178,70 @@ describe('rewriteReferencesInSource · 代码区', () => {
   });
 });
 
-describe('maskCodeRegions', () => {
-  it('长度与换行位置都不变 —— 回写要靠偏移', () => {
-    const source = 'a\n```\ncode\n```\nb';
-    const masked = maskCodeRegions(source);
-    expect(masked).toHaveLength(source.length);
-    expect([...masked].map((c) => (c === '\n' ? '\n' : 'x')).join('')).toBe(
-      [...source].map((c) => (c === '\n' ? '\n' : 'x')).join('')
-    );
+/**
+ * 一次改多组。存在的理由是**目录搬运**：指向子树里每一个文件的引用都要跟着改，
+ * 逐个调用单组版本是 O(目录内文件数 × 全部文档数) 次全文扫描。
+ *
+ * 注意这里用的都是**写了路径**的 wikilink。名字式（`[[dma]]`）换目录之后**不需要改**：
+ * 它按名字解析，而文件的名字没变 —— 这是 `rewriteWikiLinkTarget()` 的既有契约
+ * （「改的是写法，不是指向」），下面有一条专门把它钉住。
+ */
+describe('rewriteReferencesInSourceForMany', () => {
+  const PAIRS = [
+    { from: 'notes/dma.md', to: 'archive/dma.md' },
+    { from: 'notes/other.md', to: 'archive/other.md' }
+  ];
+
+  function many(source: string): ReturnType<typeof rewriteReferencesInSourceForMany> {
+    return rewriteReferencesInSourceForMany(source, 'notes/hub.md', PAIRS, DOCUMENTS);
+  }
+
+  it('一次改多组，写了路径的 wikilink 都跟着走', () => {
+    const result = many('见 [[notes/dma]] 与 [[notes/other]]。');
+    expect(result.text).toBe('见 [[archive/dma]] 与 [[archive/other]]。');
+    expect(result.count).toBe(2);
   });
 
-  it('代码区的字符被换成填充字符，正文不受影响', () => {
-    const masked = maskCodeRegions('正文 `code` 结尾');
-    expect(masked).toContain('正文');
-    expect(masked).toContain('结尾');
-    expect(masked).not.toContain('code');
-    expect(masked).toContain('\u0000');
+  it('名字式 wikilink 不动 —— 名字没变，解析出来还是它', () => {
+    const result = many('见 [[dma]] 与 [[notes/dma]]。');
+    expect(result.text).toBe('见 [[dma]] 与 [[archive/dma]]。');
+    expect(result.count).toBe(1);
+    expect(result.unresolved).toEqual([]);
   });
 
-  it('没有代码区时只留下换行，其余全部原样', () => {
-    const source = '没有代码区\n第二行';
-    expect(maskCodeRegions(source)).toBe(source);
+  it('不在这一组里的目标不动', () => {
+    const result = many('见 [[notes/hub]] 与 ![logo](../assets/logo.png)。');
+    expect(result.text).toBe('见 [[notes/hub]] 与 ![logo](../assets/logo.png)。');
+    expect(result.count).toBe(0);
+  });
+
+  it('与逐组调用结果一致 —— 两条路必须是同一件事', () => {
+    const source = '见 [[notes/dma]]、[[notes/other]]，还有 [[notes/hub]]。';
+
+    let sequential = source;
+    for (const pair of PAIRS) {
+      sequential = rewriteReferencesInSource(
+        sequential,
+        'notes/hub.md',
+        pair.from,
+        pair.to,
+        DOCUMENTS
+      ).text;
+    }
+
+    expect(many(source).text).toBe(sequential);
+  });
+
+  it('空数组时一个字节都不动', () => {
+    const source = '见 [[notes/dma]]。';
+    const result = rewriteReferencesInSourceForMany(source, 'notes/hub.md', [], DOCUMENTS);
+    expect(result.text).toBe(source);
+    expect(result.count).toBe(0);
+  });
+
+  it('代码区照旧不参与', () => {
+    const result = many('```\n[[notes/dma]]\n```\n[[notes/dma]]');
+    expect(result.text).toBe('```\n[[notes/dma]]\n```\n[[archive/dma]]');
+    expect(result.count).toBe(1);
   });
 });

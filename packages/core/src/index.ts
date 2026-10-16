@@ -30,11 +30,17 @@ export {
 export {
   attachmentReferences,
   resolveWorkspacePath,
+  relativeFromDirectory,
   rewriteAttachmentReferences,
+  rewriteAttachmentReferencesForMany,
   rewriteAttachmentTarget,
+  rebaseRelativeReferences,
   type AttachmentReferences,
-  type ReferenceRewrite
+  type ReferenceRewrite,
+  type ReferenceRewritePair
 } from './document/references.js';
+
+export { CODE_FILLER, maskCodeRegions } from './document/code-regions.js';
 
 export {
   resolveWikiLink,

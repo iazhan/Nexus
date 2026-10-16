@@ -1,6 +1,7 @@
 import {
+  maskCodeRegions,
   resolveWikiLink,
-  rewriteAttachmentReferences,
+  rewriteAttachmentReferencesForMany,
   rewriteWikiLinkTarget,
   type IndexedDocument
 } from '@nexus/core';
@@ -28,8 +29,11 @@ export interface SourceRewrite {
  */
 const WIKILINK_PATTERN = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/gd;
 
-/** 代码区的填充字符。它不可能出现在用户正文里，也不会与 `[` `]` `|` 组成语法。 */
-const CODE_FILLER = '\u0000';
+/** 一次「从哪搬到哪」。两端都是**工作区相对路径**。 */
+export interface RewritePair {
+  from: string;
+  to: string;
+}
 
 /**
  * 把一篇 Markdown 里所有指向 `from` 的引用改成指向 `to`。
@@ -50,7 +54,8 @@ const CODE_FILLER = '\u0000';
  * 更硬：**主进程的包里不该多一个 `marked`**。改名是低频动作，为它把整个 parser
  * （parser + serializer + render-model + security）拖进主进程的启动路径不划算。
  *
- * 代价是代码区要自己认。见 `maskCodeRegions()` —— 这比「连代码块一起改」重要得多：
+ * 代价是代码区要自己认。见 `maskCodeRegions()`（住在 `@nexus/core` —— 渲染进程的
+ * 「缓冲区重基准」也要它，所以它不该待在主进程里）—— 这比「连代码块一起改」重要得多：
  * 文档里到处是 `` `[[dma]]` `` 这样的例子，改它们就是把用户写的文档改成错的。
  *
  * ## 两遍而不是一遍
@@ -68,10 +73,35 @@ export function rewriteReferencesInSource(
   to: string,
   documents: readonly IndexedDocument[]
 ): SourceRewrite {
+  return rewriteReferencesInSourceForMany(source, sourceRelativePath, [{ from, to }], documents);
+}
+
+/**
+ * 一次改**多组** `from → to`。
+ *
+ * 为什么需要它：搬一个**目录**时，指向它里面每一个文件的引用都要跟着改 —— 逐个调用
+ * 单组版本是 O(目录内文件数 × 全部文档数) 次全文正则扫描，几百个文件的库上就是几万次。
+ * 这里把那一组 pair 收成一个 `Map`，**全文只扫两遍**。
+ *
+ * 单组版本是它的单元素调用，所以「一次改一个」与「一次改一批」共用同一份实现。
+ */
+export function rewriteReferencesInSourceForMany(
+  source: string,
+  sourceRelativePath: string,
+  pairs: readonly RewritePair[],
+  documents: readonly IndexedDocument[]
+): SourceRewrite {
+  if (pairs.length === 0) return { text: source, count: 0, unresolved: [] };
+
+  // 键一律小写：Windows 上 `Notes/` 与 `notes/` 是同一层，而 `resolveWikiLink()` /
+  // `resolveWorkspacePath()` 都保留写法的原始大小写。与两个变换函数内部的比较同一口径。
+  const byFrom = new Map<string, RewritePair>();
+  for (const pair of pairs) byFrom.set(pair.from.toLowerCase(), pair);
+
   const unresolved: string[] = [];
 
-  const wiki = rewriteWikiLinks(source, from, to, documents, unresolved);
-  const attachments = rewriteAttachmentReferences(wiki.text, sourceRelativePath, from, to);
+  const wiki = rewriteWikiLinks(source, byFrom, documents, unresolved);
+  const attachments = rewriteAttachmentReferencesForMany(wiki.text, sourceRelativePath, pairs);
   unresolved.push(...attachments.skipped);
 
   return {
@@ -84,8 +114,7 @@ export function rewriteReferencesInSource(
 /** 改 wikilink，返回新正文与改动处数。`unresolved` 是出参 —— 调用方要把它汇总报出去。 */
 function rewriteWikiLinks(
   source: string,
-  from: string,
-  to: string,
+  byFrom: ReadonlyMap<string, RewritePair>,
   documents: readonly IndexedDocument[],
   unresolved: string[]
 ): { text: string; count: number } {
@@ -102,9 +131,13 @@ function rewriteWikiLinks(
 
     const resolution = resolveWikiLink(target, documents);
     if (resolution.status !== 'resolved') continue;
-    if (resolution.document?.relativePath.toLowerCase() !== from.toLowerCase()) continue;
+    const relativePath = resolution.document?.relativePath;
+    if (relativePath === undefined) continue;
 
-    const replacement = rewriteWikiLinkTarget(target, from, to);
+    const pair = byFrom.get(relativePath.toLowerCase());
+    if (!pair) continue;
+
+    const replacement = rewriteWikiLinkTarget(target, pair.from, pair.to);
     if (replacement === null) {
       unresolved.push(target);
       continue;
@@ -128,94 +161,4 @@ function rewriteWikiLinks(
   }
 
   return { text, count: edits.length };
-}
-
-/**
- * 把代码区（围栏代码块 + 行内代码）替换成等长的填充字符，**偏移与换行都不变**。
- *
- * 为什么不用「按节点递归」：那需要 parser（见 `rewriteReferencesInSource` 的说明）。
- * 为什么不用「正则删掉代码块」：那会让偏移全乱，而回写要的正是偏移。
- *
- * 两个已知取舍：
- *
- * - **围栏内的行内代码不再单独处理**（整段已经掩掉了），所以不会出现嵌套问题；
- * - **未闭合的围栏一直掩到文件末尾** —— 与 CommonMark 一致，也是更安全的方向：
- *   少改一处引用是「链接断了但看得见」，改错一处是「静默改了用户的示例代码」。
- */
-export function maskCodeRegions(source: string): string {
-  const masked = source.split('');
-
-  const blank = (from: number, to: number): void => {
-    for (let index = from; index < to; index += 1) masked[index] = CODE_FILLER;
-  };
-
-  let offset = 0;
-  let fence: { char: string; length: number } | null = null;
-
-  for (const line of source.split('\n')) {
-    const lineEnd = offset + line.length;
-    const opener = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-
-    if (fence === null) {
-      if (opener) {
-        fence = { char: opener[1]![0]!, length: opener[1]!.length };
-        blank(offset, lineEnd);
-      }
-    } else {
-      blank(offset, lineEnd);
-      if (opener && opener[1]![0] === fence.char && opener[1]!.length >= fence.length) {
-        fence = null;
-      }
-    }
-
-    offset = lineEnd + 1;
-  }
-
-  maskInlineCode(masked);
-  return masked.join('');
-}
-
-/**
- * 掩掉行内代码。**必须在围栏之后做** —— 围栏区已经变成填充字符，这里就只需认反引号，
- * 不会把围栏的 ` ``` ` 当成行内代码的起止符。
- *
- * CommonMark 的规则：起止必须是**等长**的反引号串（`` `a` `` 与 ``` ``a`` ``` 是两回事）。
- * 不等长时继续往后找，找不到就整段不算行内代码。
- */
-function maskInlineCode(masked: string[]): void {
-  for (let index = 0; index < masked.length; index += 1) {
-    if (masked[index] !== '`') continue;
-
-    const runLength = countBackticks(masked, index);
-    let cursor = index + runLength;
-    let closing = -1;
-
-    while (cursor < masked.length) {
-      if (masked[cursor] !== '`') {
-        cursor += 1;
-        continue;
-      }
-      const closingRun = countBackticks(masked, cursor);
-      if (closingRun === runLength) {
-        closing = cursor;
-        break;
-      }
-      cursor += closingRun;
-    }
-
-    if (closing === -1) {
-      index += runLength - 1;
-      continue;
-    }
-
-    for (let at = index; at < closing + runLength; at += 1) masked[at] = CODE_FILLER;
-    index = closing + runLength - 1;
-  }
-}
-
-/** 从 `start` 起连续反引号的个数。 */
-function countBackticks(masked: readonly string[], start: number): number {
-  let length = 0;
-  while (masked[start + length] === '`') length += 1;
-  return length;
 }

@@ -3,6 +3,7 @@ import {
   attachmentReferences,
   resolveWorkspacePath,
   rewriteAttachmentReferences,
+  rewriteAttachmentReferencesForMany,
   rewriteAttachmentTarget
 } from '../src/index.js';
 
@@ -376,5 +377,79 @@ describe('rewriteAttachmentReferences', () => {
   it('wikilink 形式的附件引用不在这里处理（走 rewriteWikiLinkTarget）', () => {
     const text = '见 [[assets/logo.png]]。';
     expect(rewriteAttachmentReferences(text, source, from, to).count).toBe(0);
+  });
+
+  it('代码区里的引用不动（文档里到处是这种例子）', () => {
+    const text = [
+      '![真](assets/logo.png)',
+      '',
+      '```md',
+      '![例](assets/logo.png)',
+      '```',
+      '',
+      '行内 `![例](assets/logo.png)` 也不动'
+    ].join('\n');
+
+    const result = rewriteAttachmentReferences(text, source, from, to);
+    expect(result.count).toBe(1);
+    expect(result.text).toBe(
+      [
+        '![真](assets/logo2.png)',
+        '',
+        '```md',
+        '![例](assets/logo.png)',
+        '```',
+        '',
+        '行内 `![例](assets/logo.png)` 也不动'
+      ].join('\n')
+    );
+  });
+
+  it('未闭合的围栏一直掩到末尾 —— 宁可不改，也不改错', () => {
+    const text = '```\n![a](assets/logo.png)';
+    expect(rewriteAttachmentReferences(text, source, from, to).text).toBe(text);
+  });
+});
+
+describe('rewriteAttachmentReferencesForMany', () => {
+  const source = 'notes/dma.md';
+
+  it('一次改多组，与逐组调用结果一致', () => {
+    const text = '![a](assets/a.png) 与 ![b](assets/b.png) 与 ![c](assets/c.png)';
+    const pairs = [
+      { from: 'notes/assets/a.png', to: 'img/a.png' },
+      { from: 'notes/assets/b.png', to: 'img/b.png' }
+    ];
+
+    const many = rewriteAttachmentReferencesForMany(text, source, pairs);
+    // `notes/dma.md` 里的 `assets/a.png` 解析成 `notes/assets/a.png`；新家 `img/a.png`
+    // 从 `notes/` 看要退一层，所以是 `../img/a.png`。
+    expect(many.text).toBe('![a](../img/a.png) 与 ![b](../img/b.png) 与 ![c](assets/c.png)');
+    expect(many.count).toBe(2);
+
+    // 与逐组调用同结果 —— 两条路必须是同一件事
+    let sequential = text;
+    for (const pair of pairs) {
+      sequential = rewriteAttachmentReferences(
+        sequential,
+        source,
+        pair.from,
+        pair.to
+      ).text;
+    }
+    expect(many.text).toBe(sequential);
+  });
+
+  it('空数组时一个字节都不动，且返回同一个字符串引用', () => {
+    const text = '![a](assets/a.png)';
+    expect(rewriteAttachmentReferencesForMany(text, source, []).text).toBe(text);
+  });
+
+  it('大小写不敏感地匹配 `from`（Windows 上同一个文件）', () => {
+    const text = '![a](Assets/A.png)';
+    const result = rewriteAttachmentReferencesForMany(text, source, [
+      { from: 'notes/assets/a.png', to: 'notes/assets/a2.png' }
+    ]);
+    expect(result.count).toBe(1);
   });
 });

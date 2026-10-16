@@ -1,3 +1,4 @@
+import { CODE_FILLER, maskCodeRegions } from './code-regions.js';
 import { documentTypeForPath } from './extensions.js';
 import { normalizeWikilinkTarget } from './links.js';
 import { relativePathFrom } from './citation.js';
@@ -151,6 +152,11 @@ function splitSegments(relativePath: string): string[] {
   return relativePath.replace(/\\/g, '/').split('/').filter((segment) => segment.length > 0);
 }
 
+/** 反斜杠转正斜杠。`resolveWorkspacePath()` 的产物已经是这样，跨进程传进来的不一定。 */
+function normalizeSlashes(relativePath: string): string {
+  return relativePath.replace(/\\/g, '/');
+}
+
 /** 是不是一个「附件」—— 在白名单里，且不是 Markdown。 */
 function isAttachmentPath(filePath: string): boolean {
   const documentType = documentTypeForPath(filePath);
@@ -191,13 +197,45 @@ export function rewriteAttachmentReferences(
   from: string,
   to: string
 ): ReferenceRewrite {
+  return rewriteAttachmentReferencesForMany(source, sourceRelativePath, [{ from, to }]);
+}
+
+/** 一次「从哪搬到哪」。两端都是**工作区相对路径**。 */
+export interface ReferenceRewritePair {
+  from: string;
+  to: string;
+}
+
+/**
+ * 一次改**多组** `from → to`。
+ *
+ * 为什么需要它：搬一个**目录**时，指向它里面每一个附件的引用都要跟着改 —— 逐个调用
+ * 单组版本是 O(目录内文件数 × 全部文档数) 次全文正则扫描。这里把那一组 pair 收成一个
+ * `Map`，**全文只扫一遍**。单组版本是它的单元素调用。
+ *
+ * **代码区不参与。** 与 `rewriteWikiLinkTarget()` 那一侧同源：文档里到处是
+ * ``` ![](assets/x.png) ``` 这样的例子，改它们就是把用户写的文档改成错的。
+ * 掩码是等长的（见 `maskCodeRegions()`），所以分组下标仍然直接对应原文。
+ */
+export function rewriteAttachmentReferencesForMany(
+  source: string,
+  sourceRelativePath: string,
+  pairs: readonly ReferenceRewritePair[]
+): ReferenceRewrite {
+  if (pairs.length === 0) return { text: source, count: 0, skipped: [] };
+
+  const byFrom = new Map<string, ReferenceRewritePair>();
+  for (const pair of pairs) byFrom.set(pair.from.toLowerCase(), pair);
+
   const edits: { start: number; end: number; replacement: string }[] = [];
   const skipped: string[] = [];
-  const fromKey = from.toLowerCase();
 
-  for (const match of source.matchAll(REFERENCE_PATTERN)) {
+  for (const match of maskCodeRegions(source).matchAll(REFERENCE_PATTERN)) {
     const indices = match.indices;
     if (indices === undefined) continue;
+    // 跨掩码区的假匹配：填充字符不匹配 `]` 或 `)`，但会匹配 `[^)\s]*` 这类否定字符类。
+    // 判据见 `code-regions.ts` 的头注释。
+    if (match[0].includes(CODE_FILLER)) continue;
 
     for (const group of [1, 2, 3, 4, 5] as const) {
       const written = match[group];
@@ -205,7 +243,9 @@ export function rewriteAttachmentReferences(
       if (written === undefined || span === undefined) continue;
 
       const resolved = resolveWorkspacePath(sourceRelativePath, written);
-      if (resolved === null || resolved.toLowerCase() !== fromKey) continue;
+      if (resolved === null) continue;
+      const pair = byFrom.get(resolved.toLowerCase());
+      if (!pair) continue;
 
       // 分组 1 是 `<...>` **里面**那一段。`rewriteAttachmentTarget()` 的入参/返回值都是
       // 「整个目标怎么写」（含尖括号），所以这里把尖括号拼回去、替换范围也一起圈进来 ——
@@ -213,7 +253,12 @@ export function rewriteAttachmentReferences(
       const wrapped = group === 1;
       const rawTarget = wrapped ? `<${written}>` : written;
 
-      const replacement = rewriteAttachmentTarget(rawTarget, sourceRelativePath, from, to);
+      const replacement = rewriteAttachmentTarget(
+        rawTarget,
+        sourceRelativePath,
+        pair.from,
+        pair.to
+      );
       if (replacement === null) {
         skipped.push(rawTarget);
         continue;
@@ -300,6 +345,201 @@ export function rewriteAttachmentTarget(
   return (wrapped || /\s/.test(out) ? `<${out}>` : out) + suffix;
 }
 
+/**
+ * 把一个文档的**出链**重基准：文档自己换了目录，里面那些相对写法要跟着换基准。
+ *
+ * ## 与 `rewriteAttachmentReferences()` 的分工
+ *
+ * 那个函数改的是「**指向**某个被改名/移动对象的引用」，住在**别人**的文档里。
+ * 这个函数改的是「文档**自己的**出链」—— 它自己挪了窝，`![](../assets/x.png)` 里的
+ * `../` 就少了一层。两者是搬一个文件时要做的两件不同的事。
+ *
+ * ## 只有 Markdown 相对写法受影响
+ *
+ * wikilink（`[[a/b]]`）的路径段是**工作区根相对**，换目录不影响它 —— 这里刻意不碰，
+ * 与 `rewriteWikiLinkTarget()` 的分工一致（那边管 wikilink 的名字部分）。
+ *
+ * ## 为什么需要 `moves`
+ *
+ * 搬一个**目录**时，目录内部的文件是**一起**走的 —— `notes/a.md` 里的 `[b](b.md)`
+ * 指的那个 `notes/b.md` 也变成了 `archive/b.md`。只看这一个文档的新旧路径，会把它算成
+ * `../notes/b.md` —— 而 `notes/b.md` 已经不存在了，**我们亲手把它改断**。
+ *
+ * 所以调用方要把「这一次一起搬走的全部文件」传进来（含它自己）。省略时按「只有它自己搬」
+ * 处理，也就是单文件移动。
+ *
+ * ## 什么算「认出来」
+ *
+ * 判定用 `resolveWorkspacePath()`（与索引期「这篇引用了哪些附件」同一个函数），
+ * 所以「扫得出的」与「改得到的」是同一批。**但它返回 `null` 不等于失败** ——
+ * 外链、纯锚点、根相对（前导 `/` = 工作区根）、指向文档自己的引用，全都属于
+ * 「本来就不该动」，静默跳过。只有「该改却写不出来」（新路径含 `<` `>` 之类）才进 `skipped`。
+ *
+ * ## 代码区
+ *
+ * 在 `maskCodeRegions()` 的产物上扫，与 `rewriteWikiLinks()` 同源。另外**整段含填充字符的
+ * 匹配一律丢掉**：填充字符不匹配 `]` 或 `)`，但会匹配 `[^\]\s]*` 这类否定字符类，
+ * 于是「引用被代码区从中间劈开」的假匹配是可能的。见 `code-regions.ts` 的头注释。
+ *
+ * @param fromRelativePath 文档**原来**的工作区相对路径
+ * @param toRelativePath   文档**现在**的工作区相对路径
+ * @param moves            与它一起搬走的**全部**文件（含它自己）。省略 = 只有它自己搬
+ */
+export function rebaseRelativeReferences(
+  source: string,
+  fromRelativePath: string,
+  toRelativePath: string,
+  moves: readonly ReferenceRewritePair[] = [{ from: fromRelativePath, to: toRelativePath }]
+): ReferenceRewrite {
+  const fromDirectory = directoryOf(fromRelativePath);
+  const toDirectory = directoryOf(toRelativePath);
+
+  // 同一个目录 = 相对基准没变。提前返回，调用方拿 `===` 就能判「什么都没发生」。
+  // 大小写按比较处理：Windows 上 `Notes/` 与 `notes/` 是同一层，深度也一样，
+  // 但没必要为它走一遍全正则。
+  if (fromDirectory.toLowerCase() === toDirectory.toLowerCase()) {
+    return { text: source, count: 0, skipped: [] };
+  }
+
+  const edits: { start: number; end: number; replacement: string }[] = [];
+  const skipped: string[] = [];
+  // `resolveWorkspacePath()` 的产物一律是正斜杠拼接的，所以比较键也要先归一化 ——
+  // 否则 `notes\daily.md` 这种输入永远比不上自己。
+  const fromKey = splitSegments(fromRelativePath).join('/').toLowerCase();
+
+  // 键是**旧**路径。引用解析出来之后先在这里查一遍：查得到就说明它指的那个也搬了，
+  // 得跟着换地方（见上面「为什么需要 `moves`」）。
+  const movedTo = new Map<string, string>();
+  for (const move of moves) {
+    movedTo.set(splitSegments(move.from).join('/').toLowerCase(), normalizeSlashes(move.to));
+  }
+
+  for (const match of maskCodeRegions(source).matchAll(REFERENCE_PATTERN)) {
+    const indices = match.indices;
+    if (indices === undefined) continue;
+    // 跨掩码区的假匹配。判据见 `code-regions.ts`。
+    if (match[0].includes(CODE_FILLER)) continue;
+
+    for (const group of [1, 2, 3, 4, 5] as const) {
+      const written = match[group];
+      const span = indices[group];
+      if (written === undefined || span === undefined) continue;
+
+      // 分组 1 是 `<...>` **里面**那一段。替换范围要连尖括号一起圈进来，
+      // 否则会写出 `<<a.png>>` 这种语法坏掉的正文（与 `rewriteAttachmentReferences` 同一条）。
+      const wrapped = group === 1;
+      const rawTarget = wrapped ? `<${written}>` : written;
+
+      const resolved = resolveWorkspacePath(fromRelativePath, rawTarget);
+      if (resolved === null) continue;
+      // 指向文档自己（`[Self](daily.md#section)`）—— 它跟着文档走，重基准反而会让它指到别处。
+      if (resolved.toLowerCase() === fromKey) continue;
+
+      const parsed = parseRawReference(rawTarget);
+      // 前导 `/` = 工作区根（Obsidian 的 vault 根写法），与文档在哪一层无关。
+      if (parsed === null || parsed.decodedPath.startsWith('/')) continue;
+
+      // 它指的那个也搬了 → 目标换成新家，否则重基准出来的路径指向一个已经不存在的旧位置。
+      const target = movedTo.get(resolved.toLowerCase()) ?? resolved;
+
+      const replacement = rebaseParsedReference(parsed, toDirectory, target);
+      if (replacement === null) {
+        skipped.push(rawTarget);
+        continue;
+      }
+      if (replacement === rawTarget) continue;
+
+      edits.push({
+        start: wrapped ? span[0] - 1 : span[0],
+        end: wrapped ? span[1] + 1 : span[1],
+        replacement
+      });
+    }
+  }
+
+  if (edits.length === 0) return { text: source, count: 0, skipped };
+
+  // 从后往前替换：前面的编辑不会让后面记录的偏移失效。
+  edits.sort((a, b) => a.start - b.start);
+  let text = source;
+  for (let index = edits.length - 1; index >= 0; index -= 1) {
+    const edit = edits[index]!;
+    text = text.slice(0, edit.start) + edit.replacement + text.slice(edit.end);
+  }
+
+  return { text, count: edits.length, skipped };
+}
+
+/** 一处引用拆开后的样子。解析只做一次，判定与变换共用。 */
+interface RawReference {
+  /** 去掉尖括号、去空白之后的路径部分（**未解码**）。 */
+  readonly writtenPath: string;
+  /** 解码之后的路径部分 —— 用来判「是不是根相对」。 */
+  readonly decodedPath: string;
+  /** 原来是百分号编码的。新路径要继续编码，否则改的是排版不是指向。 */
+  readonly encoded: boolean;
+  /** `#锚点` / `?查询` 那一段，含前导符号。 */
+  readonly suffix: string;
+  /** 原来有 `<...>` 包裹。 */
+  readonly wrapped: boolean;
+  /** 原来是 `./` 开头。 */
+  readonly dotPrefixed: boolean;
+}
+
+/**
+ * 拆一处引用。拆不出来（空路径）返回 `null`。
+ *
+ * 后缀从**最先出现的** `#` 或 `?` 开始 —— 与 `resolveWorkspacePath()` 先切 `#` 再切 `?`
+ * 的顺序对齐，否则 `a.png?v=2#x` 会被切成两段、中间那段凭空消失。
+ */
+function parseRawReference(raw: string): RawReference | null {
+  let body = raw.trim();
+  const wrapped = body.startsWith('<') && body.endsWith('>');
+  if (wrapped) body = body.slice(1, -1).trim();
+
+  const suffixIndex = firstIndexOfAny(body, '#?');
+  const suffix = suffixIndex >= 0 ? body.slice(suffixIndex) : '';
+  const writtenPath = (suffixIndex >= 0 ? body.slice(0, suffixIndex) : body).trim();
+  if (writtenPath.length === 0) return null;
+
+  const decodedPath = decodePath(writtenPath);
+  return {
+    writtenPath,
+    decodedPath,
+    encoded: decodedPath !== writtenPath,
+    suffix,
+    wrapped,
+    dotPrefixed: decodedPath.startsWith('./')
+  };
+}
+
+/**
+ * 算出一处引用在新目录下的写法；写不出来返回 `null`。
+ *
+ * `target` 是**已经解析好的工作区相对路径**（`resolveWorkspacePath()` 的产物）——
+ * 变换只负责把它重新表达成「相对 `toDirectory` 的样子」，不再判一遍指向谁。
+ */
+function rebaseParsedReference(
+  reference: RawReference,
+  toDirectory: string,
+  target: string
+): string | null {
+  const relative = relativeFromDirectory(toDirectory, target);
+  if (relative === null) return null;
+
+  let nextPath = relative;
+  // 用户写了 `./a.png` 就别给他换成 `a.png` —— 改的是指向，不是排版。
+  // 新路径本来就以 `../` 开头时不能再加（`./../x` 只会更难读）。
+  if (reference.dotPrefixed && !nextPath.startsWith('../')) nextPath = `./${nextPath}`;
+
+  const out = reference.encoded ? encodePath(nextPath) : nextPath;
+  // `<` `>` 在 Windows 上是合法文件名字符，但写进 `<...>` 或裸写都会破坏语法 ——
+  // 宁可让链接断掉（可见的 not-found），也不要写出一段解析不回来的正文。
+  if (/[<>\r\n]/.test(out)) return null;
+
+  return (reference.wrapped || /\s/.test(out) ? `<${out}>` : out) + reference.suffix;
+}
+
 /** 第一个 `#` 或 `?` 的下标；都没有返回 -1。 */
 function firstIndexOfAny(text: string, chars: string): number {
   for (let index = 0; index < text.length; index += 1) {
@@ -333,8 +573,10 @@ function directoryOf(relativePath: string): string {
  *
  * 复用 `relativePathFrom()`（它要**绝对路径**）而不是另写一份：给两边拼同一个假根
  * 即可。它与 `resolveWorkspacePath()` 是同一套 `..` 语义的两半 —— 各写一份必然漂。
+ *
+ * `target` 就是 `directory` 自己时返回 `null`（没有可写的相对路径）。
  */
-function relativeFromDirectory(directory: string, target: string): string | null {
+export function relativeFromDirectory(directory: string, target: string): string | null {
   const fakeRoot = 'X:/';
   return relativePathFrom(fakeRoot + directory, fakeRoot + target);
 }
